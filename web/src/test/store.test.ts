@@ -219,3 +219,23 @@ it('setSlashCommands atualiza a lista; lista vazia não sobrescreve', () => {
   useStore.getState().setSlashCommands([]) // vazia = mantém a boa (backend sem cache ainda)
   expect(useStore.getState().slashCommands).toEqual(['compact', 'cost', 'x'])
 })
+
+describe('rebusca de histórico no fim do turno', () => {
+  it('working → idle invalida o historyLoadedFor da sessão (retag de injeções da engine)', () => {
+    useStore.setState({
+      sessions: { l9: { localId: 'l9', projectId: 1, status: 'working', engineSessionId: 'c9', updatedAt: 'x', engine: 'claude' } as never },
+      historyLoadedFor: { l9: 'c9', outra: 'cX' },
+    })
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l9', status: 'idle', engineSessionId: 'c9' })
+    expect(useStore.getState().historyLoadedFor).toEqual({ outra: 'cX' })
+  })
+
+  it('working → working (ou idle → idle) NÃO invalida', () => {
+    useStore.setState({
+      sessions: { l9: { localId: 'l9', projectId: 1, status: 'idle', engineSessionId: 'c9', updatedAt: 'x', engine: 'claude' } as never },
+      historyLoadedFor: { l9: 'c9' },
+    })
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l9', status: 'idle', engineSessionId: 'c9' })
+    expect(useStore.getState().historyLoadedFor).toEqual({ l9: 'c9' })
+  })
+})

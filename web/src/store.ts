@@ -158,6 +158,17 @@ export const useStore = create<State>((set, get) => ({
       const projectId = get().sessions[msg.localId]?.projectId
       const projectName = get().projects.find((p) => p.id === projectId)?.name ?? 'projeto'
       notifySessionChange(projectName, msg.status, prev)
+      // Turno terminou (working → descanso): invalida o histórico carregado da
+      // sessão para o ChatView rebuscar do TRANSCRIPT. O stream ao vivo não traz
+      // flags como isMeta/isCompactSummary (injeções da engine) — o transcript
+      // traz; a rebusca retagueia as bolhas "by <engine>" sem precisar de reload.
+      if (prev === 'working' && ['idle', 'needs_attention', 'stopped'].includes(msg.status)) {
+        set((s) => {
+          if (!(msg.localId in s.historyLoadedFor)) return s
+          const { [msg.localId]: _gone, ...rest } = s.historyLoadedFor
+          return { historyLoadedFor: rest }
+        })
+      }
       set((s) => ({
         sessions: {
           ...s.sessions,

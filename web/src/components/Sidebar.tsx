@@ -256,7 +256,11 @@ export function Sidebar() {
                       e.stopPropagation()
                       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                       setNewGroupName('')
-                      setMenuFor({ p, x: r.left, y: r.bottom + 4 })
+                      setMenuFor({
+                        p,
+                        x: Math.max(8, Math.min(r.left, window.innerWidth - 210)),
+                        y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 360)),
+                      })
                     }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /></svg>
             </button>
@@ -343,7 +347,13 @@ export function Sidebar() {
                       setGroupRename(g.name)
                       setGroupIcon(g.icon ?? '🗂️')
                       setGroupColor(g.color ?? '#7c5cff')
-                      setGroupMenuFor({ id: g.id, name: g.name, x: r.left, y: r.bottom + 4 })
+                      // clamp: o editor tem ~300px de altura e 235 de largura — não pode
+                      // nascer estourando a borda de baixo/direita da janela
+                      setGroupMenuFor({
+                        id: g.id, name: g.name,
+                        x: Math.max(8, Math.min(r.left, window.innerWidth - 250)),
+                        y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 320)),
+                      })
                     }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
             </button>
@@ -508,8 +518,9 @@ export function Sidebar() {
         />
       )}
 
-      {showGroupEmoji && (
-        <EmojiPicker onSelect={(e) => { setGroupIcon(e); setShowGroupEmoji(false) }} onClose={() => setShowGroupEmoji(false)} />
+      {showGroupEmoji && createPortal(
+        <EmojiPicker onSelect={(e) => { setGroupIcon(e); setShowGroupEmoji(false) }} onClose={() => setShowGroupEmoji(false)} />,
+        document.body,
       )}
       {showInfo && <InteractionInfo onClose={() => setShowInfo(false)} />}
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} />}

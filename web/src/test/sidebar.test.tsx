@@ -393,3 +393,22 @@ describe('ícone e cor do grupo', () => {
     expect(screen.getByTestId('term-group').querySelector('.term-group__icon')?.textContent).toBe('🗂️')
   })
 })
+
+describe('editor do grupo — overlays não ficam presos na sidebar', () => {
+  it('o EmojiPicker abre PORTALADO no body (a .sidebar tem backdrop-filter e aprisionaria o overlay fixed)', async () => {
+    useStore.setState({
+      projects: [{ id: 1, name: 'A', path: '/tmp/a', color: '#f00', icon: '🅰️', groupId: 10 }],
+      groups: [{ id: 10, name: 'G', icon: '🗂️', color: '#7c5cff' }],
+    })
+    render(<Sidebar />)
+    fireEvent.click(screen.getByTestId('term-group').querySelector('.term-group__gear')!)
+    // popover do editor (portalado) com o botão de ícone
+    const iconBtn = document.querySelector('.group-edit__icon')!
+    expect(iconBtn).toBeTruthy()
+    fireEvent.click(iconBtn)
+    // o overlay do picker existe e NÃO está dentro da sidebar
+    const overlays = document.querySelectorAll('.modal-overlay')
+    expect(overlays.length).toBeGreaterThan(0)
+    expect(document.querySelector('.sidebar .modal-overlay')).toBeNull()
+  })
+})

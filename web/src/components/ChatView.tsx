@@ -116,7 +116,7 @@ export function ChatView() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
+      <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
         <span style={{ fontSize: 20 }}>{project.icon}</span>
         <strong>{project.name}</strong>
         <EngineTabs projectId={session.projectId} activeLocalId={session.localId} />

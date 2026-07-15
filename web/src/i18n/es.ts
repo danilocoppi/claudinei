@@ -8,6 +8,7 @@ export const es: typeof en = {
   },
   lang: { label: 'Idioma' },
   pwa: { install: 'Instalar app en el dispositivo' },
+  mobile: { menu: 'Abrir menú' },
   externalLink: {
     title: '¿Abrir enlace externo?',
     message: 'Este enlace sale de Claudinei y abre un sitio externo:\n{{url}}',

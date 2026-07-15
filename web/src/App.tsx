@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from './store'
 import { fetchEngines, fetchGroups, fetchMe, fetchProjects, fetchSlashCommands } from './api'
 import { connectWs } from './ws'
@@ -13,9 +14,11 @@ import { TerminalView } from './components/TerminalView'
 import { AuthScreen } from './components/AuthScreen'
 import { FileViewerModal } from './components/FileViewerModal'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
+import { MobileTopbar } from './components/MobileTopbar'
 import { initNotifications } from './notifications'
 
 export default function App() {
+  const { t } = useTranslation()
   const view = useStore((s) => s.view)
   const setProjects = useStore((s) => s.setProjects)
   const authStatus = useStore((s) => s.authStatus)
@@ -70,6 +73,27 @@ export default function App() {
     document.title = totalUnread > 0 ? `(${totalUnread}) Claudinei` : 'Claudinei'
   }, [totalUnread])
 
+  // Gaveta mobile: navegar (trocar de visão/sessão) fecha; Esc fecha.
+  const [navOpen, setNavOpen] = useState(false)
+  const activeLocalId = useStore((s) => s.activeLocalId)
+  useEffect(() => { setNavOpen(false) }, [view, activeLocalId])
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navOpen])
+  // Título de contexto da topbar: nome do projeto na visão de chat/terminal, senão a visão.
+  const topbarTitle = useStore((s) => {
+    if ((s.view === 'chat' || s.view === 'terminal') && s.activeLocalId) {
+      const session = s.sessions[s.activeLocalId]
+      return s.projects.find((p) => p.id === session?.projectId)?.name ?? 'Claudinei'
+    }
+    if (s.view === 'board') return t('sidebar.board')
+    if (s.view === 'tasks') return t('sidebar.tasks')
+    return t('sidebar.overview')
+  })
+
   if (authStatus === 'loading') return null
   if (authStatus === 'setup' || authStatus === 'login') {
     return <AuthScreen mode={authStatus} onDone={(me) => setAuth('ready', me)} />
@@ -77,9 +101,11 @@ export default function App() {
 
   return (
     <WsContext.Provider value={ws ?? null}>
-      <div className="app">
+      <div className={`app ${navOpen ? 'nav-open' : ''}`}>
+        <MobileTopbar open={navOpen} onToggle={() => setNavOpen((o) => !o)} title={topbarTitle} />
         <Sidebar />
         <SidebarResizer />
+        {navOpen && <div className="mobile-backdrop" onClick={() => setNavOpen(false)} />}
         <div className="main">
           {view === 'dashboard' && <Dashboard />}
           {view === 'chat' && <ChatView />}

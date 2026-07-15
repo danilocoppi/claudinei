@@ -561,3 +561,56 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   cursor: pointer; transition: color .12s, background .12s;
 }
 .install-app-btn:hover { color: var(--text); background: var(--glass-bg-strong); filter: none; }
+
+/* ===================== Layout MOBILE (≤768px) =====================
+   A sidebar vira uma GAVETA deslizante (backdrop + animação; fecha ao navegar,
+   tocar fora ou Esc) e uma topbar fina com ☰ + contexto atual entra no topo.
+   Desktop permanece intocado — tudo aqui vive atrás da media query. */
+.mobile-topbar { display: none; }
+.mobile-backdrop { display: none; }
+
+@media (max-width: 768px) {
+  .app { flex-direction: column; }
+
+  .mobile-topbar {
+    display: flex; align-items: center; gap: 10px; flex: none;
+    padding: 8px 10px; border-bottom: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+  }
+  .mobile-topbar__menu {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; padding: 0; line-height: 0; border-radius: 10px;
+    background: transparent; border: 1px solid var(--glass-border); color: var(--text);
+  }
+  .mobile-topbar__menu:hover { filter: none; background: var(--glass-bg-strong); }
+  .mobile-topbar__title {
+    font-weight: 600; font-size: 14.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 40;
+    width: min(85vw, 320px) !important;   /* ignora o --sidebar-w do desktop */
+    transform: translateX(-105%);
+    transition: transform .22s ease;
+    background: #10121b;                  /* gaveta opaca: legível sobre o conteúdo */
+    box-shadow: 8px 0 40px rgba(0,0,0,.5);
+  }
+  .app.nav-open .sidebar { transform: translateX(0); }
+  .sidebar-resizer { display: none; }     /* largura fixa na gaveta */
+
+  .mobile-backdrop { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(5,6,12,.55); }
+
+  /* Cabeçalho do chat: quebra linha e abas de engine roláveis (tela estreita). */
+  .chat-header { flex-wrap: wrap; padding: 10px 12px !important; row-gap: 6px; }
+  .engine-tabs { overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .engine-tabs::-webkit-scrollbar { display: none; }
+
+  /* Alvos de toque um pouco maiores nos cards. */
+  .term-card__action { padding: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}

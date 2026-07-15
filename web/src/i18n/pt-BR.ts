@@ -8,6 +8,7 @@ export const ptBR: typeof en = {
   },
   lang: { label: 'Idioma' },
   pwa: { install: 'Instalar app no dispositivo' },
+  mobile: { menu: 'Abrir menu' },
   externalLink: {
     title: 'Abrir link externo?',
     message: 'Este link sai do Claudinei e abre um site externo:\n{{url}}',

@@ -11,6 +11,7 @@ import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
 import { WsContext } from '../wsContext'
 import { extractCandidatePaths, kindOfPath, resolveFiles } from '../files'
+import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
 import rehypeFilePaths from '../rehypeFilePaths'
 import { MarkdownPre } from './MarkdownPre'
 
@@ -36,6 +37,19 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
   const { t } = useTranslation()
   switch (item.kind) {
     case 'user_text':
+      // Marcador que o CLI injeta como "mensagem do usuário" ao interromper o
+      // turno — não foi digitado por ninguém: vira um divisor de interrupção,
+      // não uma bolha (sem encaminhar/editar).
+      if (isInterruptMarker(item.text)) {
+        return (
+          <div className="msg-interrupt" role="note">
+            <span className="msg-interrupt__chip">
+              <span className="msg-interrupt__icon" aria-hidden="true">■</span>
+              {isToolUseInterrupt(item.text) ? t('chat.interruptedToolUse') : t('chat.interrupted')}
+            </span>
+          </div>
+        )
+      }
       return (
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6, margin: '8px 0' }}>
           <ForwardButton text={item.text} currentLocalId={currentLocalId} />

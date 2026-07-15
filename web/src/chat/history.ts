@@ -3,6 +3,13 @@ import type { ChatItem } from '../types'
 /** Marcadores que o CLI injeta como mensagem de usuário (ex.: ao interromper o turno). */
 const CLI_MARKER = /^\[Request interrupted/
 
+/** O texto é um marcador de interrupção do CLI (e não algo digitado pelo usuário)? */
+export const isInterruptMarker = (text: string): boolean => CLI_MARKER.test(text)
+
+/** Interrupção específica de recusa de ferramenta ("for tool use"). */
+export const isToolUseInterrupt = (text: string): boolean =>
+  isInterruptMarker(text) && text.includes('for tool use')
+
 /** A mensagem é do usuário de verdade (não subagente, não marcador do CLI)? */
 export function isEditableUserText(item: ChatItem): item is ChatItem & { kind: 'user_text'; text: string } {
   return item.kind === 'user_text' && !item.fromSubagent && !CLI_MARKER.test(item.text)

@@ -10,6 +10,8 @@ import type { ChatItem, SessionStatus } from '../types'
 import { WsContext } from '../wsContext'
 import { isEditableUserText } from '../chat/history'
 import { applyEvent } from '../chat/applyEvent'
+import { groupActions } from '../chat/grouping'
+import { ActionGroup } from './ActionGroup'
 
 export function ChatView() {
   const { t } = useTranslation()
@@ -131,10 +133,19 @@ export function ChatView() {
         </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
-        {items.map((item, i) => (
-          <MessageBlock key={i} item={item} currentLocalId={session.localId}
-                        onEdit={editableIdx.has(i) && item.kind === 'user_text' ? () => handleEdit(item.text) : undefined} />
-        ))}
+        {/* Sequências de ações (tool_call/thinking) viram um grupo colapsável;
+            key pelo índice INICIAL do grupo, estável enquanto a cauda cresce
+            no streaming (não perde o estado aberto/fechado do operador). */}
+        {groupActions(items, session.status === 'working').map((node) => {
+          if (node.kind === 'group') {
+            return <ActionGroup key={`g-${node.start}`} items={node.items} currentLocalId={session.localId} />
+          }
+          const item = node.item
+          return (
+            <MessageBlock key={node.index} item={item} currentLocalId={session.localId}
+                          onEdit={editableIdx.has(node.index) && item.kind === 'user_text' ? () => handleEdit(item.text) : undefined} />
+          )
+        })}
         {streamingText && (
           <div data-testid="streaming-preview" style={{ margin: '8px 0', opacity: 0.75 }}>
             <div className="markdown" style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>

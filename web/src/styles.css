@@ -313,6 +313,44 @@ button.term-card__action--play:hover { color: var(--ok); }
 /* Eleva um overlay modal acima dos popovers (.sess-pop 60/61): cria um stacking
    context sobre eles, senão o backdrop do popover intercepta os cliques do modal. */
 .overlay-above-popover { position: relative; z-index: 70; }
+
+/* Marcador de interrupção do turno: divisor centralizado com chip — visualmente
+   distinto da bolha do usuário (o texto vem do CLI, não foi digitado). */
+.msg-interrupt { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.msg-interrupt::before, .msg-interrupt::after {
+  content: ''; flex: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--glass-border));
+}
+.msg-interrupt::after { background: linear-gradient(90deg, var(--glass-border), transparent); }
+.msg-interrupt__chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 10.5px; letter-spacing: .55px; text-transform: uppercase;
+  color: var(--text-dim); font-style: italic;
+  border: 1px solid var(--glass-border); border-radius: 999px;
+  padding: 3px 12px; background: rgba(255, 255, 255, .035);
+}
+.msg-interrupt__icon { color: var(--err); font-size: 8px; font-style: normal; }
+
+/* Grupo de ações consecutivas no chat (ver chat/grouping.ts). O visual segue o
+   ToolCallCard, com um "empilhado" sutil atrás do cabeçalho quando recolhido. */
+.action-group { position: relative; margin: 6px 0; }
+.action-group:not(.action-group--open)::before {
+  content: ''; position: absolute; inset: -3px 6px auto 6px; height: 14px;
+  border: 1px solid var(--glass-border); border-radius: 8px; opacity: .5;
+}
+.action-group__header {
+  position: relative; display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px; cursor: pointer; font-size: 13px;
+  border: 1px solid var(--glass-border); border-radius: 8px;
+  background: var(--glass-bg); backdrop-filter: blur(8px);
+}
+.action-group__summary {
+  color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.action-group__body {
+  margin-top: 4px; padding-left: 10px;
+  border-left: 2px solid var(--glass-border);
+}
 .sess-pop { position:fixed; min-width:220px; border-radius:12px; padding:6px; z-index:61; }
 .sess-pop__eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-dim); padding:8px 8px 4px; }
 .sess-pop__item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; font-size:13px; }

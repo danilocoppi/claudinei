@@ -88,3 +88,33 @@ describe('Encaminhar para…', () => {
     expect(screen.getByText(/encaminhado para Destino/)).toBeTruthy()
   })
 })
+
+describe('marcador de interrupção do CLI', () => {
+  it('"[Request interrupted by user]" vira chip de interrupção, não bolha de usuário', () => {
+    render(<MessageBlock item={{ kind: 'user_text', text: '[Request interrupted by user]' }} />)
+    expect(screen.getByText('Interrompido pelo usuário')).toBeTruthy()
+    // não renderiza o texto cru do marcador nem a bolha
+    expect(screen.queryByText('[Request interrupted by user]')).toBeNull()
+    expect(document.querySelector('.msg-interrupt')).toBeTruthy()
+  })
+
+  it('variante "for tool use" ganha o rótulo de ferramenta recusada', () => {
+    render(<MessageBlock item={{ kind: 'user_text', text: '[Request interrupted by user for tool use]' }} />)
+    expect(screen.getByText('Interrompido pelo usuário — ferramenta recusada')).toBeTruthy()
+  })
+
+  it('chip não tem botão de encaminhar nem de editar', () => {
+    render(
+      <MessageBlock item={{ kind: 'user_text', text: '[Request interrupted by user]' }}
+                    currentLocalId="l1" onEdit={() => {}} />,
+    )
+    expect(screen.queryByText('Encaminhar')).toBeNull()
+    expect(document.querySelector('.msg-edit')).toBeNull()
+  })
+
+  it('texto normal de usuário continua bolha', () => {
+    render(<MessageBlock item={{ kind: 'user_text', text: 'Requisição normal' }} />)
+    expect(document.querySelector('.msg-interrupt')).toBeNull()
+    expect(screen.getByText('Requisição normal')).toBeTruthy()
+  })
+})

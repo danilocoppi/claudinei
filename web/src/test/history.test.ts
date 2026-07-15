@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lastUserTexts, historyStep } from '../chat/history'
+import { lastUserTexts, historyStep, isEditableUserText } from '../chat/history'
 import type { ChatItem } from '../types'
 
 const u = (text: string, fromSubagent = false): ChatItem => ({ kind: 'user_text', text, fromSubagent })
@@ -39,5 +39,15 @@ describe('historyStep', () => {
   })
   it('lista vazia → permanece fora do modo', () => {
     expect(historyStep([], null, 'up')).toEqual({ index: null, text: '' })
+  })
+})
+
+describe('fromEngine não é editável nem entra no histórico ↑', () => {
+  it('user_text com fromEngine fica fora de lastUserTexts/isEditableUserText', () => {
+    expect(isEditableUserText({ kind: 'user_text', text: 'injetado', fromEngine: true } as never)).toBe(false)
+    expect(lastUserTexts([
+      { kind: 'user_text', text: 'meu' },
+      { kind: 'user_text', text: 'injetado', fromEngine: true },
+    ] as never[])).toEqual(['meu'])
   })
 })

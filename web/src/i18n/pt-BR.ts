@@ -82,6 +82,7 @@ export const ptBR: typeof en = {
     stop: 'Parar o turno',
     interrupted: 'Interrompido pelo usuário',
     actionsGroup: '{{count}} ações',
+    showAll: 'mostrar tudo (+{{n}} linhas)', collapse: 'recolher',
     interruptedToolUse: 'Interrompido pelo usuário — ferramenta recusada',
     edit: 'Editar esta mensagem',
     startEngine: 'Iniciar {{engine}}',

@@ -118,3 +118,46 @@ describe('marcador de interrupção do CLI', () => {
     expect(screen.getByText('Requisição normal')).toBeTruthy()
   })
 })
+
+describe('bolha de usuário gerada pela engine (fromEngine)', () => {
+  it('ganha cor distinta e cabeçalho "by <engine>"', () => {
+    useStore.setState({
+      sessions: { l1: { localId: 'l1', projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'codex' } as never },
+      engines: [{ id: 'codex', label: 'Codex', icon: '◆', models: [], efforts: [], permissions: [], slashSource: 'curated', slashCommands: [] } as never],
+    })
+    render(<MessageBlock item={{ kind: 'user_text', text: 'injetado pela engine', fromEngine: true }} currentLocalId="l1" />)
+    expect(screen.getByText('by Codex')).toBeTruthy()
+    expect(document.querySelector('.msg-from-engine')).toBeTruthy()
+    expect(screen.getByText('injetado pela engine')).toBeTruthy()
+  })
+
+  it('sem sessão/engine conhecida cai no rótulo genérico "by engine"', () => {
+    render(<MessageBlock item={{ kind: 'user_text', text: 'injetado', fromEngine: true }} />)
+    expect(screen.getByText('by engine')).toBeTruthy()
+  })
+
+  it('bolha normal não tem cabeçalho by', () => {
+    render(<MessageBlock item={{ kind: 'user_text', text: 'meu texto' }} />)
+    expect(screen.queryByText(/^by /)).toBeNull()
+  })
+})
+
+describe('mensagem longa do usuário colapsa em 13 linhas', () => {
+  const long = Array.from({ length: 20 }, (_, i) => `linha ${i + 1}`).join('\n')
+
+  it('mostra 13 linhas + … + botão com o resto; expande e recolhe', () => {
+    render(<MessageBlock item={{ kind: 'user_text', text: long }} />)
+    expect(screen.getByText(/linha 13/)).toBeTruthy()
+    expect(screen.queryByText(/linha 14/)).toBeNull()
+    const btn = screen.getByRole('button', { name: /mostrar tudo \(\+7 linhas\)/ })
+    fireEvent.click(btn)
+    expect(screen.getByText(/linha 20/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /recolher/ }))
+    expect(screen.queryByText(/linha 20/)).toBeNull()
+  })
+
+  it('mensagem curta não ganha botão', () => {
+    render(<MessageBlock item={{ kind: 'user_text', text: 'linha 1\nlinha 2' }} />)
+    expect(screen.queryByRole('button', { name: /mostrar tudo/ })).toBeNull()
+  })
+})

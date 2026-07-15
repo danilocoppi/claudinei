@@ -23,6 +23,63 @@ export function MessageBlock({ item, currentLocalId, onEdit }: { item: ChatItem;
   return content
 }
 
+/** Mensagens acima disso colapsam: mostra as primeiras linhas + botão de expandir. */
+const COLLAPSE_LINES = 13
+
+/**
+ * Bolha do lado do usuário. Duas variações sobre a bolha padrão:
+ *  - texto MUITO longo (> COLLAPSE_LINES linhas) começa recolhido, com "…" e
+ *    botão para expandir/recolher;
+ *  - `fromEngine` (conteúdo injetado pela engine, não digitado): cor distinta
+ *    e cabeçalho "by <engine>", para não parecer pedido do operador.
+ */
+function UserTextBubble({ item, currentLocalId, onEdit }: {
+  item: Extract<ChatItem, { kind: 'user_text' }>
+  currentLocalId?: string
+  onEdit?: () => void
+}) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  const engines = useStore((s) => s.engines)
+  const sessions = useStore((s) => s.sessions)
+
+  const lines = item.text.split('\n')
+  const overflow = lines.length - COLLAPSE_LINES
+  const collapsed = overflow > 0 && !expanded
+  const shown = collapsed ? lines.slice(0, COLLAPSE_LINES).join('\n') + '\n…' : item.text
+
+  const session = currentLocalId ? sessions[currentLocalId] : undefined
+  const engineLabel = item.fromEngine
+    ? (engines.find((e) => e.id === session?.engine)?.label ?? 'engine')
+    : null
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6, margin: '8px 0' }}>
+      <ForwardButton text={item.text} currentLocalId={currentLocalId} />
+      <div style={{ maxWidth: '70%' }}>
+        <div className={item.fromEngine ? 'msg-from-engine' : undefined}
+             style={item.fromEngine ? undefined : { background: 'var(--accent)', color: 'white', borderRadius: '12px 12px 2px 12px', padding: '10px 14px' }}>
+          {engineLabel && <div className="msg-from-engine__by">by {engineLabel}</div>}
+          <div style={{ whiteSpace: 'pre-wrap' }}>{shown}</div>
+          {overflow > 0 && (
+            <button type="button" className="msg-expand" onClick={() => setExpanded(!expanded)}>
+              {collapsed ? `▾ ${t('chat.showAll', { n: overflow })}` : `▴ ${t('chat.collapse')}`}
+            </button>
+          )}
+        </div>
+      </div>
+      {onEdit && (
+        <button type="button" className="ghost msg-edit" aria-label={t('chat.edit')} title={t('chat.edit')} onClick={onEdit}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          </svg>
+        </button>
+      )}
+    </div>
+  )
+}
+
 function SubagentWrapper({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   return (
@@ -50,25 +107,8 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
           </div>
         )
       }
-      return (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6, margin: '8px 0' }}>
-          <ForwardButton text={item.text} currentLocalId={currentLocalId} />
-          <div style={{ maxWidth: '70%' }}>
-            <div style={{ background: 'var(--accent)', color: 'white', borderRadius: '12px 12px 2px 12px',
-                          padding: '10px 14px', whiteSpace: 'pre-wrap' }}>
-              {item.text}
-            </div>
-          </div>
-          {onEdit && (
-            <button type="button" className="ghost msg-edit" aria-label={t('chat.edit')} title={t('chat.edit')} onClick={onEdit}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-              </svg>
-            </button>
-          )}
-        </div>
-      )
+      return <UserTextBubble item={item} currentLocalId={currentLocalId} onEdit={onEdit} />
+
     case 'assistant_text':
       return (
         <div style={{ margin: '8px 0' }}>

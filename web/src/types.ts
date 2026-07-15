@@ -55,7 +55,9 @@ export type ClaudeEvent =
   | { kind: 'stream'; text: string; raw: unknown }
 
 export type ChatItem =
-  | { kind: 'user_text'; text: string; fromSubagent?: boolean }
+  // fromEngine: conteúdo que aparece do lado do usuário mas foi injetado pela
+  // engine/harness (isMeta, resumo de compact) — não foi digitado pelo operador.
+  | { kind: 'user_text'; text: string; fromSubagent?: boolean; fromEngine?: boolean }
   | { kind: 'assistant_text'; text: string; fromSubagent?: boolean }
   | { kind: 'thinking'; text: string; fromSubagent?: boolean }
   | { kind: 'tool_call'; id: string; name: string; input: unknown; result?: string; isError?: boolean; fromSubagent?: boolean }

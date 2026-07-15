@@ -147,3 +147,32 @@ describe('mensagens de sistema/terminal do lado do usuário (tags cruas do trans
     expect(out).toEqual([{ kind: 'user_text', text: 'mensagem normal sem tags' }])
   })
 })
+
+describe('mensagens de usuário geradas pela engine (isMeta/isCompactSummary)', () => {
+  it('user com raw.isMeta vira user_text com fromEngine', () => {
+    const items = applyEvent([], {
+      kind: 'user',
+      message: { role: 'user', content: [{ type: 'text', text: 'conteúdo injetado pela engine' }] },
+      raw: { type: 'user', isMeta: true },
+    } as never)
+    expect(items).toEqual([{ kind: 'user_text', text: 'conteúdo injetado pela engine', fromEngine: true }])
+  })
+
+  it('user com raw.isCompactSummary vira user_text com fromEngine', () => {
+    const items = applyEvent([], {
+      kind: 'user',
+      message: { role: 'user', content: 'This session is being continued…' },
+      raw: { type: 'user', isCompactSummary: true },
+    } as never)
+    expect(items).toEqual([{ kind: 'user_text', text: 'This session is being continued…', fromEngine: true }])
+  })
+
+  it('user normal NÃO ganha fromEngine', () => {
+    const items = applyEvent([], {
+      kind: 'user',
+      message: { role: 'user', content: 'oi' },
+      raw: { type: 'user' },
+    } as never)
+    expect(items).toEqual([{ kind: 'user_text', text: 'oi' }])
+  })
+})

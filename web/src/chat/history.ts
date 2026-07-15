@@ -10,9 +10,9 @@ export const isInterruptMarker = (text: string): boolean => CLI_MARKER.test(text
 export const isToolUseInterrupt = (text: string): boolean =>
   isInterruptMarker(text) && text.includes('for tool use')
 
-/** A mensagem é do usuário de verdade (não subagente, não marcador do CLI)? */
+/** A mensagem é do usuário de verdade (não subagente, não marcador do CLI, não injeção da engine)? */
 export function isEditableUserText(item: ChatItem): item is ChatItem & { kind: 'user_text'; text: string } {
-  return item.kind === 'user_text' && !item.fromSubagent && !CLI_MARKER.test(item.text)
+  return item.kind === 'user_text' && !item.fromSubagent && !item.fromEngine && !CLI_MARKER.test(item.text)
 }
 
 /** Textos das últimas n mensagens do usuário (sem subagentes/marcadores), da mais antiga p/ a mais recente. */

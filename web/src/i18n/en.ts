@@ -80,6 +80,7 @@ export const en = {
     stop: 'Stop the turn',
     interrupted: 'Interrupted by the user',
     actionsGroup: '{{count}} actions',
+    showAll: 'show all (+{{n}} lines)', collapse: 'collapse',
     interruptedToolUse: 'Interrupted by the user — tool use declined',
     edit: 'Edit this message',
     startEngine: 'Start {{engine}}',

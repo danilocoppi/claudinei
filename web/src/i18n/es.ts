@@ -82,6 +82,7 @@ export const es: typeof en = {
     stop: 'Detener el turno',
     interrupted: 'Interrumpido por el usuario',
     actionsGroup: '{{count}} acciones',
+    showAll: 'mostrar todo (+{{n}} líneas)', collapse: 'contraer',
     interruptedToolUse: 'Interrumpido por el usuario — herramienta rechazada',
     edit: 'Editar este mensaje',
     startEngine: 'Iniciar {{engine}}',

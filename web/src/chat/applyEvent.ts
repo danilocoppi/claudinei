@@ -66,8 +66,12 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       return added.length ? [...items, ...added] : items
     }
     case 'user': {
-      const parentId = (evt.raw as any)?.parent_tool_use_id
-      const fromSubagent = !!parentId
+      const raw = evt.raw as any
+      const fromSubagent = !!raw?.parent_tool_use_id
+      // Conteúdo do lado do usuário que a ENGINE injetou (não foi digitado):
+      // isMeta (skills/harness) e isCompactSummary (continuação de contexto).
+      const fromEngine = !!(raw?.isMeta || raw?.isCompactSummary)
+      const marks = { ...(fromSubagent ? { fromSubagent } : {}), ...(fromEngine ? { fromEngine } : {}) }
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
       let next = items
       for (const b of blocks) {
@@ -78,11 +82,11 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
               : it,
           )
         } else if (b.type === 'text' && b.text) {
-          for (const it of classifyUserText(b.text)) next = [...next, { ...it, ...(fromSubagent ? { fromSubagent } : {}) }]
+          for (const it of classifyUserText(b.text)) next = [...next, { ...it, ...marks }]
         }
       }
       if (typeof evt.message.content === 'string' && evt.message.content) {
-        for (const it of classifyUserText(evt.message.content)) next = [...next, { ...it, ...(fromSubagent ? { fromSubagent } : {}) }]
+        for (const it of classifyUserText(evt.message.content)) next = [...next, { ...it, ...marks }]
       }
       return next
     }

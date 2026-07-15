@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1783986056742,"sessionID":"ses_0a2251799ffeLGa7elmDZMPci6","part":{"id":"prt_f5ddaee24001I9AjWUobmWsH2h","messageID":"msg_f5ddae93d001habBmPcPgXj64p","sessionID":"ses_0a2251799ffeLGa7elmDZMPci6","snapshot":"4b825dc642cb6eb9a060e54bf8d69288fbee4904","type":"step-start"}}
+{"type":"error","timestamp":1783986057343,"sessionID":"ses_0a2251799ffeLGa7elmDZMPci6","error":{"data":{"message":"No payment method on file"}}}

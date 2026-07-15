@@ -1,0 +1,21 @@
+{
+  "name": "claudinei",
+  "private": true,
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "bin": {
+    "claudinei": "bin/claudinei.mjs"
+  },
+  "scripts": {
+    "test": "npm run test -w server && npm run test -w web",
+    "dev": "npm run dev -w server & npm run dev -w web & wait",
+    "start": "node bin/claudinei.mjs",
+    "package": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.21.0",
+    "esbuild": "^0.28.1"
+  }
+}

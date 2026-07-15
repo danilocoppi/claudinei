@@ -1,0 +1,98 @@
+<h2>Três direções visuais para o Termaster</h2>
+<p class="subtitle">Cada cartão abaixo é um mockup do dashboard (card de projeto + barra lateral). Clique na direção que mais te agrada — ou me diga em texto o que misturar.</p>
+
+<style>
+  .vwrap { display: grid; grid-template-columns: 1fr; gap: 22px; margin-top: 12px; }
+  @media (min-width: 900px) { .vwrap { grid-template-columns: repeat(3, 1fr); } }
+  .vcard { border-radius: 16px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: transform .15s, border-color .15s; }
+  .vcard:hover { transform: translateY(-4px); }
+  .vcard.selected { border-color: #7c5cff; }
+  .vhead { padding: 10px 14px; font-weight: 700; font-size: 14px; letter-spacing: .3px; }
+  .vbody { padding: 16px; min-height: 340px; }
+  .vname { font-size: 13px; opacity: .7; margin-top: 8px; }
+
+  /* ===== A) Neon / Cyberpunk ===== */
+  .A { background: #0a0a12; color: #e8e8f0; font-family: ui-monospace, monospace; }
+  .A .vhead { background: linear-gradient(90deg,#ff2d78,#7c5cff); color: #fff; }
+  .A .pcard { background: #12121f; border: 1px solid #2a2a44; border-radius: 12px; padding: 14px; box-shadow: 0 0 0 1px #ff2d7822, 0 0 22px #7c5cff33; }
+  .A .dot { width: 9px; height: 9px; border-radius: 50%; background: #00ffa3; box-shadow: 0 0 10px #00ffa3; display: inline-block; }
+  .A .badge { background: #ff2d78; color: #fff; border-radius: 6px; font-size: 10px; padding: 1px 7px; box-shadow: 0 0 10px #ff2d78aa; }
+  .A .tool { background: #1a1a2e; border-left: 2px solid #7c5cff; padding: 6px 8px; border-radius: 4px; font-size: 11px; margin-top: 8px; color: #a9a9d0; }
+  .A .status { color: #00ffa3; font-size: 11px; }
+
+  /* ===== B) Glassmorphism / Aurora ===== */
+  .B { background: radial-gradient(1200px 500px at 10% -10%, #3b2b6b 0%, transparent 60%), radial-gradient(900px 500px at 110% 10%, #1e5f74 0%, transparent 55%), #0d0f1a; color: #eef0f8; font-family: system-ui, sans-serif; }
+  .B .vhead { background: rgba(255,255,255,.06); backdrop-filter: blur(6px); color: #fff; }
+  .B .pcard { background: rgba(255,255,255,.07); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 16px; box-shadow: 0 8px 32px rgba(0,0,0,.35); }
+  .B .dot { width: 10px; height: 10px; border-radius: 50%; background: #5ee0a0; box-shadow: 0 0 8px #5ee0a0aa; display: inline-block; }
+  .B .badge { background: #ff6b8b; color: #fff; border-radius: 12px; font-size: 11px; padding: 2px 8px; }
+  .B .tool { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); padding: 7px 9px; border-radius: 10px; font-size: 12px; margin-top: 8px; color: #cfd3e6; }
+  .B .status { color: #9aa0bd; font-size: 12px; }
+
+  /* ===== C) Editorial / Warm minimal ===== */
+  .C { background: #14120f; color: #f2ede3; font-family: Georgia, 'Times New Roman', serif; }
+  .C .vhead { background: #e9b949; color: #14120f; font-family: system-ui; }
+  .C .pcard { background: #1d1a15; border: 1px solid #3a352b; border-radius: 8px; padding: 16px; border-left: 5px solid #e9b949; }
+  .C .dot { width: 9px; height: 9px; border-radius: 50%; background: #86b98a; display: inline-block; }
+  .C .badge { background: #c0563b; color: #fff; border-radius: 3px; font-size: 11px; padding: 1px 7px; font-family: system-ui; }
+  .C .tool { background: #14120f; border: 1px solid #3a352b; padding: 7px 9px; border-radius: 5px; font-size: 12px; margin-top: 8px; color: #b7ae9c; font-family: ui-monospace, monospace; }
+  .C .status { color: #a89a7d; font-size: 12px; font-family: system-ui; }
+</style>
+
+<div class="vwrap">
+  <!-- A -->
+  <div class="vcard A option" data-choice="neon" onclick="toggleSelect(this)">
+    <div class="vhead">A · NEON / CYBERPUNK</div>
+    <div class="vbody">
+      <div class="pcard">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:20px">🚀</span>
+          <strong style="flex:1">RunnerLand</strong>
+          <span class="badge">3</span>
+        </div>
+        <div style="margin-top:10px" class="status"><span class="dot"></span> trabalhando</div>
+        <div class="tool">▸ 💻 Bash · npm run build</div>
+        <div class="tool">▸ 📝 Write · src/game.ts</div>
+      </div>
+      <div class="vname">Fundo preto, acentos neon rosa+roxo, glow, mono. Vibe "hacker/terminal turbinado".</div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="vcard B option" data-choice="glass" onclick="toggleSelect(this)">
+    <div class="vhead">B · GLASS / AURORA</div>
+    <div class="vbody">
+      <div class="pcard">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:20px">🎮</span>
+          <strong style="flex:1">RunnerLand</strong>
+          <span class="badge">3</span>
+        </div>
+        <div style="margin-top:10px" class="status"><span class="dot"></span> trabalhando</div>
+        <div class="tool">💻 Bash · npm run build</div>
+        <div class="tool">📝 Write · src/game.ts</div>
+      </div>
+      <div class="vname">Vidro fosco translúcido sobre gradiente aurora. Moderno, suave, "premium". Fácil de ler.</div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="vcard C option" data-choice="editorial" onclick="toggleSelect(this)">
+    <div class="vhead">C · EDITORIAL / WARM</div>
+    <div class="vbody">
+      <div class="pcard">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:20px">📊</span>
+          <strong style="flex:1">RunnerLand</strong>
+          <span class="badge">3</span>
+        </div>
+        <div style="margin-top:10px" class="status"><span class="dot"></span> trabalhando</div>
+        <div class="tool">💻 Bash · npm run build</div>
+        <div class="tool">📝 Write · src/game.ts</div>
+      </div>
+      <div class="vname">Tom quente âmbar, serifada nos títulos, sóbrio e "editorial". Menos flashy, mais elegante.</div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">Obs.: são só amostras de direção (cor/tipografia/textura) — o layout final terá dashboard, chat e sidebar completos. Pode escolher uma ou pedir uma mistura (ex.: "B, mas com o glow do A nos status").</p>

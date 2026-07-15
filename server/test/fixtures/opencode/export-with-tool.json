@@ -1,0 +1,22 @@
+{
+  "info": { "directory": "/x" },
+  "messages": [
+    {
+      "info": { "role": "assistant" },
+      "parts": [
+        { "type": "text", "text": "oi" },
+        {
+          "type": "tool",
+          "tool": "bash",
+          "callID": "call_1",
+          "state": {
+            "status": "completed",
+            "input": { "command": "ls" },
+            "output": "a\nb",
+            "metadata": { "exit": 0 }
+          }
+        }
+      ]
+    }
+  ]
+}

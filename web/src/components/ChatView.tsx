@@ -22,6 +22,7 @@ export function ChatView() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
+  const [editConfirm, setEditConfirm] = useState<string | null>(null)
 
   const session = activeLocalId ? sessions[activeLocalId] : undefined
   const project = session ? projects.find((p) => p.id === session.projectId) : undefined
@@ -112,8 +113,11 @@ export function ChatView() {
       if (isEditableUserText(it)) { editableIdx.add(i); need-- }
     }
   }
+  // Editar durante o turno é DESTRUTIVO (interrompe o que está rodando e
+  // recomeça da mensagem editada) — o operador pode achar que só vai corrigir
+  // uma mensagem enfileirada. Por isso pede confirmação antes.
   const handleEdit = (text: string) => {
-    if (session.status === 'working') ws?.send({ type: 'interrupt', localId: session.localId })
+    if (session.status === 'working') { setEditConfirm(text); return }
     useStore.getState().requestEdit(session.localId, text)
   }
 
@@ -176,6 +180,19 @@ export function ChatView() {
         </div>
       ) : (
         <ChatInput localId={session.localId} disabled={session.status === 'dead' || session.status === 'stopped'} />
+      )}
+      {editConfirm !== null && session && (
+        <ConfirmDialog
+          title={t('chat.editWorkingTitle')}
+          message={t('chat.editWorkingMsg')}
+          confirmLabel={t('chat.editWorkingConfirm')}
+          onConfirm={() => {
+            setEditConfirm(null)
+            ws?.send({ type: 'interrupt', localId: session.localId })
+            useStore.getState().requestEdit(session.localId, editConfirm)
+          }}
+          onClose={() => setEditConfirm(null)}
+        />
       )}
       {handoffDialog && session && (
         <ConfirmDialog

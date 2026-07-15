@@ -29,13 +29,27 @@ describe('editar mensagem', () => {
     expect(screen.getAllByLabelText('Editar esta mensagem')).toHaveLength(5) // m2..m6
   })
 
-  it('clicar no lápis durante working envia interrupt e registra o editRequest', () => {
+  it('lápis durante working pede CONFIRMAÇÃO; confirmar envia interrupt e registra o editRequest', () => {
     const send = vi.fn()
     setup('working', [u('instrução errada')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
     fireEvent.click(screen.getByLabelText('Editar esta mensagem'))
+    // ainda NÃO interrompeu: abriu o diálogo
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
+    expect(screen.getByText('Editar e interromper?')).toBeTruthy()
+    fireEvent.click(screen.getByText('Interromper e editar'))
     expect(send).toHaveBeenCalledWith({ type: 'interrupt', localId: 's1' })
     expect(useStore.getState().editRequest).toMatchObject({ localId: 's1', text: 'instrução errada' })
+  })
+
+  it('cancelar o diálogo NÃO interrompe nem registra edição (mensagem na fila fica intacta)', () => {
+    const send = vi.fn()
+    setup('working', [u('mensagem na fila')])
+    render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
+    fireEvent.click(screen.getByLabelText('Editar esta mensagem'))
+    fireEvent.click(screen.getByText('Cancelar'))
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
+    expect(useStore.getState().editRequest).toBeUndefined()
   })
 
   it('clicar no lápis fora de working NÃO envia interrupt', () => {

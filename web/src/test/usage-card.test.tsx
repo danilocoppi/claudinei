@@ -62,3 +62,16 @@ describe('UsageCard', () => {
     expect(await screen.findByText('Fable')).toBeTruthy()
   })
 })
+
+describe('ⓘ das cores de ritmo', () => {
+  it('o ⓘ ao lado de "Claude" abre o popup explicando as cores; fechar volta', async () => {
+    render(<UsageCard />)
+    const info = await screen.findByLabelText('Como ler o card de uso')
+    fireEvent.click(info)
+    expect(screen.getByText(/O que as cores significam/)).toBeTruthy()
+    expect(screen.getByText(/ritmo sustentável/)).toBeTruthy()
+    expect(screen.getByText(/overusage/)).toBeTruthy()
+    fireEvent.click(screen.getByText('OK'))
+    expect(screen.queryByText(/O que as cores significam/)).toBeNull()
+  })
+})

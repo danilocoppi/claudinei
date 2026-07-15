@@ -5,6 +5,7 @@ import { fetchUsage, type UsageLimit, type EngineUsage } from '../api'
 import { windowFor, expectedPercent, paceRatio, paceColor } from '../usage/pace'
 import { useStore } from '../store'
 import { EngineIcon } from './EngineIcon'
+import { UsageInfo } from './UsageInfo'
 
 /** Formata contagem de tokens de forma compacta: 950 → "950", 12300 → "12.3k", 4500000 → "4.5M". */
 function fmtTokens(n: number): string {
@@ -36,6 +37,7 @@ export function UsageCard() {
   const engines = useStore((s) => s.engines)
   // avançado = todas as barras; desligado = só a sessão atual. Persistido.
   const [advanced, setAdvanced] = useState(() => localStorage.getItem(ADVANCED_KEY) === '1')
+  const [showInfo, setShowInfo] = useState(false)
   const toggleAdvanced = () => {
     setAdvanced((a) => {
       localStorage.setItem(ADVANCED_KEY, a ? '0' : '1')
@@ -77,7 +79,15 @@ export function UsageCard() {
           <span className="thumb" />
         </label>
       </div>
-      {limits.length > 0 && <div className="usage-card__group">{t('usage.claude')}</div>}
+      {limits.length > 0 && (
+        <div className="usage-card__group">
+          {t('usage.claude')}
+          <button type="button" className="usage-info-btn" title={t('usageInfo.title')}
+                  aria-label={t('usageInfo.title')} onClick={() => setShowInfo(true)}>
+            ⓘ
+          </button>
+        </div>
+      )}
       {limits.length > 0 && visible.map((l) => {
         const win = windowFor(l.group)
         const ratio = win ? paceRatio(l.percent, expectedPercent(l.resetsAt, win.windowMs, win.chunkMs, now)) : null
@@ -117,6 +127,7 @@ export function UsageCard() {
           </div>
         )
       })}
+      {showInfo && <UsageInfo onClose={() => setShowInfo(false)} />}
     </div>
   )
 }

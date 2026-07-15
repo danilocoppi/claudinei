@@ -614,3 +614,14 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
 }
+
+/* ⓘ do card de Usage (explica as cores de ritmo) + amostras no modal. */
+.usage-card__group { display: flex; align-items: center; gap: 6px; }
+button.usage-info-btn {
+  font-size: 12px; padding: 0 3px; line-height: 1.4; font-weight: 400;
+  color: var(--text-dim); border: none; background: transparent; cursor: pointer;
+}
+button.usage-info-btn:hover { color: var(--accent); filter: none; background: transparent; }
+.usage-info__colors { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+.usage-info__colors li { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; }
+.usage-info__swatch { flex: none; width: 34px; height: 10px; border-radius: 5px; margin-top: 4px; }

@@ -187,7 +187,8 @@ export const en = {
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
     tooLarge: 'File too large to preview — download it instead.',
-    notFound: 'File not found.', forbidden: 'You do not have permission to access this file.',
+    notFound: 'File not found.',
+    openPopup: 'Open in popup', openInline: 'View inline in chat', forbidden: 'You do not have permission to access this file.',
     loading: 'Loading…', openTitle: 'View file',
   },
 }

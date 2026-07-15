@@ -63,6 +63,10 @@ interface State {
   tasks: Task[]
   /** Arquivo aberto no FileViewerModal (path detectado/resolvido no chat), ou null se fechado. */
   fileViewer: { path: string; kind: FileKind; projectId?: number } | null
+  /** Menu de contexto do link de arquivo (escolha popup × inline), na posição do clique. */
+  fileMenu: { x: number; y: number; path: string; kind: FileKind; projectId?: number; localId?: string } | null
+  /** Arquivo aberto INLINE (painel dockado acima do input do chat), por sessão. */
+  inlineFile: { localId: string; path: string; kind: FileKind; projectId?: number } | null
   /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
   externalLink: string | null
   /** Evento beforeinstallprompt capturado (PWA instalável agora) ou null. */
@@ -88,6 +92,10 @@ interface State {
   openTasks(): void
   openFile(path: string, kind: FileKind, projectId?: number): void
   closeFile(): void
+  openFileMenu(menu: { x: number; y: number; path: string; kind: FileKind; projectId?: number; localId?: string }): void
+  closeFileMenu(): void
+  openFileInline(localId: string, path: string, kind: FileKind, projectId?: number): void
+  closeFileInline(): void
   openExternalLink(url: string): void
   closeExternalLink(): void
   setInstallPrompt(e: { prompt(): Promise<void>; userChoice: Promise<unknown> } | null): void
@@ -114,6 +122,8 @@ export const useStore = create<State>((set, get) => ({
   board: [],
   tasks: [],
   fileViewer: null,
+  fileMenu: null,
+  inlineFile: null,
   fileResolved: {},
   externalLink: null,
   installPrompt: null,
@@ -239,6 +249,14 @@ export const useStore = create<State>((set, get) => ({
   openFile: (path, kind, projectId) => set({ fileViewer: { path, kind, projectId } }),
 
   closeFile: () => set({ fileViewer: null }),
+
+  openFileMenu: (menu) => set({ fileMenu: menu }),
+
+  closeFileMenu: () => set({ fileMenu: null }),
+
+  openFileInline: (localId, path, kind, projectId) => set({ inlineFile: { localId, path, kind, projectId } }),
+
+  closeFileInline: () => set({ inlineFile: null }),
 
   openExternalLink: (url) => set({ externalLink: url }),
 

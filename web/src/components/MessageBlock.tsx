@@ -180,7 +180,7 @@ function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLoca
   const sessions = useStore((s) => s.sessions)
   const fileResolved = useStore((s) => s.fileResolved)
   const setFilesResolved = useStore((s) => s.setFilesResolved)
-  const openFile = useStore((s) => s.openFile)
+  const openFileMenu = useStore((s) => s.openFileMenu)
   const openExternalLink = useStore((s) => s.openExternalLink)
   const projectId = currentLocalId ? sessions[currentLocalId]?.projectId : undefined
 
@@ -219,7 +219,11 @@ function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLoca
           <a
             className="file-link"
             href="#"
-            onClick={(e) => { e.preventDefault(); openFile(fileTarget, kind, projectId) }}
+            // menu de contexto na posição do clique: abrir em popup ou inline
+            onClick={(e) => {
+              e.preventDefault()
+              openFileMenu({ x: e.clientX, y: e.clientY, path: fileTarget, kind, projectId, localId: currentLocalId })
+            }}
           >
             {children}
           </a>

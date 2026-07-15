@@ -189,7 +189,8 @@ export const ptBR: typeof en = {
   fileViewer: {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',
     tooLarge: 'Arquivo grande demais para prévia — baixe para ver o conteúdo.',
-    notFound: 'Arquivo não encontrado.', forbidden: 'Sem permissão para acessar este arquivo.',
+    notFound: 'Arquivo não encontrado.',
+    openPopup: 'Abrir em popup', openInline: 'Ver inline no chat', forbidden: 'Sem permissão para acessar este arquivo.',
     loading: 'Carregando…', openTitle: 'Ver arquivo',
   },
 }

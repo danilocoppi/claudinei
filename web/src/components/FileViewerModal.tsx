@@ -72,14 +72,17 @@ export function FileViewerModal() {
   )
 }
 
-function FileBody({ kind, url, name }: { kind: FileKind; url: string; name: string }) {
+/** Corpo do preview por tipo — compartilhado entre o modal e o painel inline
+ * (InlineFileView). `compact`: dentro do painel dockado, o PDF não pode exigir
+ * 70vh de altura mínima (o painel tem ~40vh). */
+export function FileBody({ kind, url, name, compact }: { kind: FileKind; url: string; name: string; compact?: boolean }) {
   const { t } = useTranslation()
 
   if (kind === 'image') {
     return <img src={url} alt={name} style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
   }
   if (kind === 'pdf') {
-    return <iframe src={url} title="pdf" style={{ width: '100%', height: '100%', minHeight: '70vh', border: 0, borderRadius: 8 }} />
+    return <iframe src={url} title="pdf" style={{ width: '100%', height: '100%', minHeight: compact ? 220 : '70vh', border: 0, borderRadius: 8 }} />
   }
   if (kind === 'binary') {
     return (

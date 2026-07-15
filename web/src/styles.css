@@ -359,6 +359,24 @@ button.term-card__action--play:hover { color: var(--ok); }
 }
 .msg-expand:hover { background: rgba(0, 0, 0, .32); filter: none; }
 
+/* Painel de arquivo INLINE (dockado entre o chat e o input; ver InlineFileView).
+   Opaco como o modal: leitura em primeiro lugar. */
+.inline-file {
+  flex: none; display: flex; flex-direction: column; max-height: 42vh;
+  border-top: 1px solid var(--glass-border); background: #12141d;
+}
+.inline-file__header {
+  display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+  border-bottom: 1px solid var(--glass-border); flex: none; min-width: 0;
+}
+.inline-file__name { font-weight: 600; white-space: nowrap; }
+.inline-file__path {
+  color: var(--text-dim); font-size: 12px; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.inline-file__close { flex: none; padding: 4px 9px; }
+.inline-file__body { overflow: auto; padding: 12px 16px; }
+
 /* Grupo de ações consecutivas no chat (ver chat/grouping.ts). O visual segue o
    ToolCallCard, com um "empilhado" sutil atrás do cabeçalho quando recolhido. */
 .action-group { position: relative; margin: 6px 0; }

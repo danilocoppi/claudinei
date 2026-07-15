@@ -12,6 +12,7 @@ import { isEditableUserText } from '../chat/history'
 import { applyEvent } from '../chat/applyEvent'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
+import { InlineFileView } from './InlineFileView'
 
 export function ChatView() {
   const { t } = useTranslation()
@@ -164,6 +165,9 @@ export function ChatView() {
         )}
         <div ref={bottomRef} />
       </div>
+      {/* Arquivo aberto INLINE: dockado aqui (fora da rolagem do chat) para
+          continuar visível enquanto o operador digita e a conversa anda. */}
+      <InlineFileView localId={session.localId} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

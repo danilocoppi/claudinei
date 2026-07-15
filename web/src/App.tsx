@@ -13,6 +13,7 @@ import { TasksPanel } from './components/TasksPanel'
 import { TerminalView } from './components/TerminalView'
 import { AuthScreen } from './components/AuthScreen'
 import { FileViewerModal } from './components/FileViewerModal'
+import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
 import { MobileTopbar } from './components/MobileTopbar'
 import { initNotifications } from './notifications'
@@ -114,6 +115,7 @@ export default function App() {
           {view === 'terminal' && <TerminalView />}
         </div>
         <FileViewerModal />
+        <FileOpenMenu />
         <ExternalLinkConfirm />
       </div>
     </WsContext.Provider>

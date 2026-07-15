@@ -189,7 +189,8 @@ export const es: typeof en = {
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',
     tooLarge: 'Archivo demasiado grande para vista previa — descárgalo para verlo.',
-    notFound: 'Archivo no encontrado.', forbidden: 'Sin permiso para acceder a este archivo.',
+    notFound: 'Archivo no encontrado.',
+    openPopup: 'Abrir en popup', openInline: 'Ver inline en el chat', forbidden: 'Sin permiso para acceder a este archivo.',
     loading: 'Cargando…', openTitle: 'Ver archivo',
   },
 }

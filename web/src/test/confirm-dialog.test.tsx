@@ -73,3 +73,13 @@ describe('ConfirmDialog', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
+
+it('mensagem com URL comprida não vaza do modal (pre-line + overflow-wrap anywhere)', () => {
+  render(
+    <ConfirmDialog title="Abrir link externo?" onConfirm={() => {}} onClose={() => {}}
+                   message={'Este link sai do Claudinei:\nhttps://docs.exemplo.io/reference/umcaminhosemespacomuitolongoquenaoquebra'} />,
+  )
+  const p = screen.getByText(/docs\.exemplo\.io/)
+  expect(p.style.overflowWrap).toBe('anywhere')
+  expect(p.style.whiteSpace).toBe('pre-line')
+})

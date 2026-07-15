@@ -2,6 +2,14 @@
 
 Local web interface to control **multiple Claude Code sessions**, each one in the context of its own project.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/ef75eeb6-8598-469e-98fc-2588010d49b9" alt="Claudinei in action — chatting with the engines, tool calls and live streaming" width="850">
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/29657b34-9e70-4947-bf78-472410114ab8" alt="Claudinei overview — sidebar with grouped terminals, sessions and usage" width="850">
+</p>
+
 - **Beautiful chat** on top of headless Claude Code (`claude -p --output-format stream-json`): markdown, collapsible tool calls, diffs, token-by-token streaming, subagent visualization.
 - **Turn control**: **■** button (or Esc) to stop Claude mid-work; **✏** on your latest messages to fix and resend; **↑** on an empty field navigates message history.
 - **Embedded terminal** (node-pty + xterm.js): opens the **real** Claude Code TUI in the browser — permissions, interactive commands, everything headless mode can't do. Button pinned to the session title; **← Back to chat** revives the web session automatically.

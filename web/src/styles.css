@@ -331,14 +331,20 @@ button.term-card__action--play:hover { color: var(--ok); }
 }
 .msg-interrupt__icon { color: var(--err); font-size: 8px; font-style: normal; }
 
-/* Bolha do lado do usuário INJETADA pela engine (isMeta/compact — não digitada):
-   ciano em vez do roxo do operador + cabeçalho "by <engine>". */
-.msg-from-engine {
-  background: rgba(88, 196, 220, .12);
-  border: 1px solid rgba(88, 196, 220, .35);
+/* Bolha do lado do usuário: tinta glass + borda (mesma estrutura nas duas
+   variações, muda só a cor) — roxo accent para o OPERADOR, ciano para conteúdo
+   INJETADO pela engine (isMeta/compact — não digitado), que também leva o
+   cabeçalho "by <engine>". */
+.msg-bubble {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--text);
   border-radius: 12px 12px 2px 12px;
   padding: 10px 14px;
+}
+.msg-bubble--engine {
+  background: rgba(88, 196, 220, .12);
+  border-color: rgba(88, 196, 220, .35);
 }
 .msg-from-engine__by {
   font-size: 10px; letter-spacing: .5px; text-transform: uppercase;

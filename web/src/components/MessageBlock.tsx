@@ -57,8 +57,7 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6, margin: '8px 0' }}>
       <ForwardButton text={item.text} currentLocalId={currentLocalId} />
       <div style={{ maxWidth: '70%' }}>
-        <div className={item.fromEngine ? 'msg-from-engine' : undefined}
-             style={item.fromEngine ? undefined : { background: 'var(--accent)', color: 'white', borderRadius: '12px 12px 2px 12px', padding: '10px 14px' }}>
+        <div className={`msg-bubble${item.fromEngine ? ' msg-bubble--engine' : ''}`}>
           {engineLabel && <div className="msg-from-engine__by">by {engineLabel}</div>}
           <div style={{ whiteSpace: 'pre-wrap' }}>{shown}</div>
           {overflow > 0 && (

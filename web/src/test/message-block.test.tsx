@@ -127,7 +127,7 @@ describe('bolha de usuário gerada pela engine (fromEngine)', () => {
     })
     render(<MessageBlock item={{ kind: 'user_text', text: 'injetado pela engine', fromEngine: true }} currentLocalId="l1" />)
     expect(screen.getByText('by Codex')).toBeTruthy()
-    expect(document.querySelector('.msg-from-engine')).toBeTruthy()
+    expect(document.querySelector('.msg-bubble--engine')).toBeTruthy()
     expect(screen.getByText('injetado pela engine')).toBeTruthy()
   })
 
@@ -160,4 +160,11 @@ describe('mensagem longa do usuário colapsa em 13 linhas', () => {
     render(<MessageBlock item={{ kind: 'user_text', text: 'linha 1\nlinha 2' }} />)
     expect(screen.queryByRole('button', { name: /mostrar tudo/ })).toBeNull()
   })
+})
+
+it('bolha do operador usa o design glass padrão (.msg-bubble, sem variante engine)', () => {
+  render(<MessageBlock item={{ kind: 'user_text', text: 'meu pedido' }} />)
+  const bubble = document.querySelector('.msg-bubble')
+  expect(bubble).toBeTruthy()
+  expect(bubble!.classList.contains('msg-bubble--engine')).toBe(false)
 })

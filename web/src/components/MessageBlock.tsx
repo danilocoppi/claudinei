@@ -12,6 +12,7 @@ import { useStore } from '../store'
 import { WsContext } from '../wsContext'
 import { extractCandidatePaths, kindOfPath, resolveFiles } from '../files'
 import rehypeFilePaths from '../rehypeFilePaths'
+import { MarkdownPre } from './MarkdownPre'
 
 export function MessageBlock({ item, currentLocalId, onEdit }: { item: ChatItem; currentLocalId?: string; onEdit?: () => void }) {
   const content = <MessageContent item={item} currentLocalId={currentLocalId} onEdit={onEdit} />
@@ -142,6 +143,8 @@ function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLoca
   }, [text, projectId, setFilesResolved])
 
   const components: Components = {
+    // Blocos de código (sugestões de comandos etc.) ganham o botão de copiar.
+    pre: MarkdownPre,
     a: ({ href, children, ...props }) => {
       const dataFile = (props as Record<string, unknown>)['data-file'] as string | undefined
       // Alvo de arquivo: o data-file do rehypeFilePaths OU o href de um link markdown

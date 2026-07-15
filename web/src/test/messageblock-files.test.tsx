@@ -220,3 +220,15 @@ describe('link externo pede confirmação (segurança)', () => {
     useStore.setState({ externalLink: null })
   })
 })
+
+describe('bloco de código com botão de copiar', () => {
+  it('fenced code (sugestão de comando) copia o conteúdo cru com 1 clique', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'rode:\n```bash\ncd ~/x && npm run package\n```' }} />)
+    const btn = document.querySelector('.copy-wrap .copy-btn')!
+    expect(btn).toBeTruthy()
+    fireEvent.click(btn)
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('cd ~/x && npm run package'))
+  })
+})

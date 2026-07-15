@@ -9,6 +9,7 @@ import type { FileKind } from '../files'
 import { fileContentUrl } from '../files'
 import { useStore } from '../store'
 import type { Components } from 'react-markdown'
+import { MarkdownPre } from './MarkdownPre'
 
 /** Modal de preview de arquivo (por tipo), aberto via `store.openFile`. Sem props:
  * lê `fileViewer` direto do store, então pode ser montado uma única vez (App.tsx)
@@ -54,12 +55,6 @@ export function FileViewerModal() {
               {path}
             </div>
           </div>
-          <a href={url} download className="ghost" style={{
-            display: 'inline-flex', alignItems: 'center', padding: '7px 12px', borderRadius: 8,
-            border: '1px solid var(--glass-border)', color: 'var(--text)', textDecoration: 'none', fontSize: 13, flex: 'none',
-          }}>
-            {t('fileViewer.download')}
-          </a>
           <button
             type="button" className="ghost" aria-label={t('fileViewer.close')} title={t('fileViewer.close')}
             onClick={closeFile}
@@ -108,6 +103,7 @@ function TextBody({ kind, url }: { kind: FileKind; url: string }) {
   const [state, setState] = useState<TextState>({ status: 'loading' })
   // Links do markdown visualizado também passam pela confirmação de link externo.
   const mdComponents: Components = {
+    pre: MarkdownPre,
     a: ({ href, children }) => (
       href && !href.startsWith('#')
         ? <a href={href} rel="noreferrer" onClick={(e) => { e.preventDefault(); openExternalLink(href) }}>{children}</a>

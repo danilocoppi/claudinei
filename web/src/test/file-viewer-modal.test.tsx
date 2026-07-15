@@ -135,3 +135,14 @@ describe('FileViewerModal', () => {
     expect(screen.getByText('/p/sub/logo.png')).toBeTruthy()
   })
 })
+
+it('header NÃO tem mais o botão Baixar (removido a pedido); binário mantém o link inline', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response('conteudo', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+  )
+  useStore.setState({ fileViewer: { path: '/tmp/a.txt', kind: 'text', projectId: 1 } })
+  render(<FileViewerModal />)
+  await screen.findByText('conteudo')
+  expect(screen.queryByText('Baixar')).toBeNull()
+  useStore.setState({ fileViewer: null })
+})

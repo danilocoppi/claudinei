@@ -535,3 +535,19 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .copy-wrap:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
 .copy-btn:hover { color: var(--text); background: rgba(0,0,0,.7); filter: none; }
 .copy-btn.copied { color: var(--ok); opacity: 1; }
+
+/* Tabelas do markdown (chat e visualizador): bordas delineando células e tabela,
+   fonte um pouco menor, cabeçalho destacado, zebra sutil e scroll horizontal
+   quando a tabela é mais larga que o contêiner. */
+.markdown table {
+  border-collapse: collapse; margin: 10px 0; font-size: 12.5px; line-height: 1.45;
+  display: block; overflow-x: auto; max-width: 100%; width: max-content;
+  border: 1px solid var(--glass-border); border-radius: 8px;
+}
+.markdown th, .markdown td {
+  border: 1px solid var(--glass-border);
+  padding: 6px 10px; text-align: left; vertical-align: top;
+}
+.markdown th { background: rgba(255,255,255,.07); font-weight: 600; white-space: nowrap; }
+.markdown tbody tr:nth-child(even) td { background: rgba(255,255,255,.025); }
+.markdown table code { font-size: 11.5px; }

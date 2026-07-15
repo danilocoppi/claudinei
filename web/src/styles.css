@@ -362,9 +362,16 @@ button.term-card__action--play:hover { color: var(--ok); }
 /* Painel de arquivo INLINE (dockado entre o chat e o input; ver InlineFileView).
    Opaco como o modal: leitura em primeiro lugar. */
 .inline-file {
-  flex: none; display: flex; flex-direction: column; max-height: 42vh;
+  flex: none; display: flex; flex-direction: column; position: relative;
   border-top: 1px solid var(--glass-border); background: #12141d;
 }
+/* Alça de redimensionar o painel inline: tira fina SOBRE a borda de cima
+   (mesmo padrão do .sidebar-resizer, na horizontal). */
+.inline-file__resizer {
+  position: absolute; top: -4px; left: 0; right: 0; height: 8px; z-index: 5;
+  cursor: row-resize; background: transparent; transition: background .15s;
+}
+.inline-file__resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .inline-file__header {
   display: flex; align-items: center; gap: 10px; padding: 8px 16px;
   border-bottom: 1px solid var(--glass-border); flex: none; min-width: 0;

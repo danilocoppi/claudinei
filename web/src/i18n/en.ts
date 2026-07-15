@@ -188,7 +188,8 @@ export const en = {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
     tooLarge: 'File too large to preview — download it instead.',
     notFound: 'File not found.',
-    openPopup: 'Open in popup', openInline: 'View inline in chat', forbidden: 'You do not have permission to access this file.',
+    openPopup: 'Open in popup', openInline: 'View inline in chat',
+    resizeHint: 'Drag to adjust the height; double-click to reset', forbidden: 'You do not have permission to access this file.',
     loading: 'Loading…', openTitle: 'View file',
   },
 }

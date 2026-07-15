@@ -64,3 +64,39 @@ describe('InlineFileView — painel dockado', () => {
     expect(screen.queryByTestId('inline-file-view')).toBeNull()
   })
 })
+
+describe('InlineFileView — redimensionar (arrastar a alça)', () => {
+  const open = () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('x', { status: 200 }))
+    useStore.setState({ inlineFile: { localId: 's1', path: '/tmp/a.txt', kind: 'text' } })
+    return render(<InlineFileView localId="s1" />)
+  }
+  afterEach(() => localStorage.clear())
+
+  it('arrastar pra CIMA expande, solta persiste a proporção no localStorage', () => {
+    open()
+    const panel = screen.getByTestId('inline-file-view')
+    expect(parseFloat(panel.style.maxHeight)).toBeCloseTo(42, 0) // default 42vh
+    const handle = document.querySelector('.inline-file__resizer')!
+    fireEvent.mouseDown(handle, { clientY: 500 })
+    fireEvent.mouseMove(window, { clientY: 400 }) // 100px pra cima
+    fireEvent.mouseUp(window)
+    const esperado = 42 + (100 / window.innerHeight) * 100
+    expect(parseFloat(panel.style.maxHeight)).toBeCloseTo(esperado, 0)
+    expect(parseFloat(localStorage.getItem('claudinei:inlineFileFrac')!)).toBeCloseTo(esperado / 100, 1)
+  })
+
+  it('novo inline reabre com a proporção deixada pelo usuário', () => {
+    localStorage.setItem('claudinei:inlineFileFrac', '0.6')
+    open()
+    expect(parseFloat(screen.getByTestId('inline-file-view').style.maxHeight)).toBeCloseTo(60, 0)
+  })
+
+  it('duplo clique na alça restaura o padrão', () => {
+    localStorage.setItem('claudinei:inlineFileFrac', '0.7')
+    open()
+    fireEvent.doubleClick(document.querySelector('.inline-file__resizer')!)
+    expect(parseFloat(screen.getByTestId('inline-file-view').style.maxHeight)).toBeCloseTo(42, 0)
+    expect(parseFloat(localStorage.getItem('claudinei:inlineFileFrac')!)).toBeCloseTo(0.42, 2)
+  })
+})

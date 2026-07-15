@@ -190,7 +190,8 @@ export const ptBR: typeof en = {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',
     tooLarge: 'Arquivo grande demais para prévia — baixe para ver o conteúdo.',
     notFound: 'Arquivo não encontrado.',
-    openPopup: 'Abrir em popup', openInline: 'Ver inline no chat', forbidden: 'Sem permissão para acessar este arquivo.',
+    openPopup: 'Abrir em popup', openInline: 'Ver inline no chat',
+    resizeHint: 'Arraste para ajustar a altura; duplo clique restaura', forbidden: 'Sem permissão para acessar este arquivo.',
     loading: 'Carregando…', openTitle: 'Ver arquivo',
   },
 }

@@ -6,11 +6,14 @@ import { logout } from '../api'
 import { ChangePasswordModal } from './ChangePasswordModal'
 import { ManageUsersModal } from './ManageUsersModal'
 
-/** Menu 👤 ao lado do logo: trocar senha, gerenciar usuários (admin) e sair. */
+/** Menu 👤 ao lado do logo: instalar o app (quando o navegador oferece),
+ *  trocar senha, gerenciar usuários (admin) e sair. */
 export function UserMenu() {
   const { t } = useTranslation()
   const me = useStore((s) => s.me)
   const setAuth = useStore((s) => s.setAuth)
+  const installPrompt = useStore((s) => s.installPrompt)
+  const clearInstallPrompt = useStore((s) => s.clearInstallPrompt)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const [modal, setModal] = useState<'password' | 'users' | null>(null)
@@ -39,6 +42,20 @@ export function UserMenu() {
     setAuth('login', null)
   }
 
+  // Instalar app (PWA): o item só existe quando o navegador ofereceu a instalação
+  // (beforeinstallprompt, capturado no main.tsx). O evento é de uso único: limpa
+  // depois — se o usuário recusar, o navegador reoferece mais tarde.
+  const installApp = async () => {
+    setOpen(false)
+    if (!installPrompt) return
+    try {
+      await installPrompt.prompt()
+      await installPrompt.userChoice
+    } finally {
+      clearInstallPrompt()
+    }
+  }
+
   return (
     <>
       <button ref={btnRef} className="user-menu__btn" title={me.username} onClick={toggle}>
@@ -50,6 +67,12 @@ export function UserMenu() {
       {open && createPortal(
         <div className="user-menu__overlay" onClick={() => setOpen(false)}>
           <div className="user-menu__popover glass" style={{ top: pos.top, left: pos.left }} onClick={(e) => e.stopPropagation()}>
+            {installPrompt && (
+              <>
+                <div className="user-menu__item" onClick={() => void installApp()}>⬇ {t('pwa.install')}</div>
+                <div className="user-menu__sep" role="separator" />
+              </>
+            )}
             <div className="user-menu__item" onClick={() => { setModal('password'); setOpen(false) }}>{t('auth.changePassword')}</div>
             {isAdmin && <div className="user-menu__item" onClick={() => { setModal('users'); setOpen(false) }}>{t('auth.manageUsers')}</div>}
             <div className="user-menu__item" onClick={() => void signOut()}>{t('auth.signOut')}</div>

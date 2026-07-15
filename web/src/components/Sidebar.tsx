@@ -14,7 +14,6 @@ import { LanguageSwitcher } from './LanguageSwitcher'
 import { UsageCard } from './UsageCard'
 import { InteractionInfo } from './InteractionInfo'
 import { UserMenu } from './UserMenu'
-import { InstallAppButton } from './InstallAppButton'
 import { EmojiPicker } from './EmojiPicker'
 import { ColorField } from './ColorField'
 
@@ -376,7 +375,6 @@ export function Sidebar() {
           <span className="sidebar__logo-star">✳</span> Claudinei
         </div>
         <div className="sidebar__top-actions">
-          <InstallAppButton />
           <UserMenu />
           <LanguageSwitcher />
         </div>

@@ -452,6 +452,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .user-menu__name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-menu__overlay { position: fixed; inset: 0; z-index: 60; }
 .user-menu__popover { position: fixed; min-width: 180px; border-radius: 12px; padding: 6px; z-index: 61; }
+.user-menu__sep { height: 1px; background: var(--glass-border); margin: 4px 6px; }
 .user-menu__item { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .user-menu__item:hover { background: var(--glass-bg-strong); }
 
@@ -595,13 +596,6 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 
 /* Botão "Instalar app" (PWA) no topo da sidebar — só existe quando o navegador
    ofereceu a instalação (beforeinstallprompt). */
-.install-app-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 5px; line-height: 0; border-radius: 8px;
-  background: transparent; border: 1px solid var(--glass-border); color: var(--text-dim);
-  cursor: pointer; transition: color .12s, background .12s;
-}
-.install-app-btn:hover { color: var(--text); background: var(--glass-bg-strong); filter: none; }
 
 /* ===================== Layout MOBILE (≤768px) =====================
    A sidebar vira uma GAVETA deslizante (backdrop + animação; fecha ao navegar,

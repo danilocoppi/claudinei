@@ -78,10 +78,12 @@ describe('MessageBlock — paths de arquivo clicáveis', () => {
 
     render(<MessageBlock item={{ kind: 'assistant_text', text: 'Plano: [/tmp/proj/plano.md](/tmp/proj/plano.md)' }} currentLocalId="s1" />)
 
+    // o resolve re-renderiza e o react-markdown RECRIA o anchor — clicar no nó atual
+    await waitFor(() => expect(Object.keys(useStore.getState().fileResolved)).toContain('/tmp/proj/plano.md'))
     const link = await waitFor(() => {
-      const el = document.querySelector('.file-link')
-      expect(el).toBeTruthy()
-      return el as HTMLAnchorElement
+      const el = document.querySelector('.file-link') as HTMLAnchorElement
+      expect(el?.isConnected).toBe(true)
+      return el
     })
     expect(link.textContent).toBe('/tmp/proj/plano.md')
     expect(link.getAttribute('href')).toBe('#') // não aponta pro path — nada de navegar
@@ -102,10 +104,11 @@ describe('MessageBlock — paths de arquivo clicáveis', () => {
 
     render(<MessageBlock item={{ kind: 'assistant_text', text: 'veja [notas.md](notas.md)' }} currentLocalId="s1" />)
 
+    await waitFor(() => expect(Object.keys(useStore.getState().fileResolved)).toContain('notas.md'))
     const link = await waitFor(() => {
-      const el = document.querySelector('.file-link')
-      expect(el).toBeTruthy()
-      return el as HTMLAnchorElement
+      const el = document.querySelector('.file-link') as HTMLAnchorElement
+      expect(el?.isConnected).toBe(true)
+      return el
     })
     // o href do link markdown entrou no lote do resolve
     const body = JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body))
@@ -135,5 +138,71 @@ describe('MessageBlock — paths de arquivo clicáveis', () => {
     // o path aparece dentro do <code>, não vira .file-link
     expect(document.querySelector('.file-link')).toBeNull()
     expect(document.querySelector('pre code')?.textContent).toContain('src/components/App.tsx')
+  })
+})
+
+describe('link local SEMPRE abre o popup (nunca navega)', () => {
+  const sess1 = () => useStore.setState({
+    sessions: { s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },
+  })
+
+  it('href com sufixo de linha (arquivo.md:12) resolve o path LIMPO e abre o modal', async () => {
+    sess1()
+    const openFile = vi.fn()
+    useStore.setState({ openFile })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      okJson([{ path: '/tmp/proj/plano.md', exists: true, inScope: true, kind: 'markdown', size: 10 }]),
+    )
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'Atualizei o [plano.md:12](/tmp/proj/plano.md:12)' }} currentLocalId="s1" />)
+    await waitFor(() => expect(Object.keys(useStore.getState().fileResolved)).toContain('/tmp/proj/plano.md'))
+    const link = await waitFor(() => {
+      const el = document.querySelector('.file-link') as HTMLAnchorElement
+      expect(el?.isConnected).toBe(true)
+      return el
+    })
+    // o lote do resolve recebeu o path SEM o :12
+    const body = JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body))
+    expect(body.paths).toContain('/tmp/proj/plano.md')
+    fireEvent.click(link)
+    expect(openFile).toHaveBeenCalledWith('/tmp/proj/plano.md', 'markdown', 7)
+  })
+
+  it('href file:// abre o modal (não navega)', async () => {
+    sess1()
+    const openFile = vi.fn()
+    useStore.setState({ openFile })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      okJson([{ path: '/tmp/proj/nota.md', exists: true, inScope: true, kind: 'markdown', size: 5 }]),
+    )
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'veja [nota](file:///tmp/proj/nota.md)' }} currentLocalId="s1" />)
+    await waitFor(() => expect(Object.keys(useStore.getState().fileResolved)).toContain('/tmp/proj/nota.md'))
+    const link = await waitFor(() => {
+      const el = document.querySelector('.file-link') as HTMLAnchorElement
+      expect(el?.isConnected).toBe(true)
+      return el
+    })
+    expect(link.getAttribute('target')).toBeNull()
+    fireEvent.click(link)
+    expect(openFile).toHaveBeenCalledWith('/tmp/proj/nota.md', 'markdown', 7)
+  })
+
+  it('href local NÃO confirmado ainda vira popup (tipo por extensão; o modal mostra o erro)', async () => {
+    sess1()
+    const openFile = vi.fn()
+    useStore.setState({ openFile })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      okJson([{ path: '/fora/do/escopo.md', exists: false, inScope: false }]),
+    )
+    render(<MessageBlock item={{ kind: 'assistant_text', text: '[escopo.md](/fora/do/escopo.md)' }} currentLocalId="s1" />)
+    await waitFor(() => expect(Object.keys(useStore.getState().fileResolved)).toContain('/fora/do/escopo.md'))
+    const link = await waitFor(() => {
+      const el = document.querySelector('.file-link') as HTMLAnchorElement
+      expect(el?.isConnected).toBe(true)
+      return el
+    })
+    expect(link).toBeTruthy() // continua sendo popup, NÃO um <a target=_blank> quebrado
+    expect(link.getAttribute('href')).toBe('#')
+    fireEvent.click(link)
+    expect(openFile).toHaveBeenCalledWith('/fora/do/escopo.md', 'markdown', 7)
   })
 })

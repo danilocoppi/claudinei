@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -10,7 +10,7 @@ import type { ChatItem } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
 import { WsContext } from '../wsContext'
-import { extractCandidatePaths, resolveFiles } from '../files'
+import { extractCandidatePaths, kindOfPath, resolveFiles } from '../files'
 import rehypeFilePaths from '../rehypeFilePaths'
 
 export function MessageBlock({ item, currentLocalId, onEdit }: { item: ChatItem; currentLocalId?: string; onEdit?: () => void }) {
@@ -102,9 +102,16 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
  * links clicáveis que abrem o FileViewerModal — o resto (não confirmado, ainda
  * carregando, ou link http normal) renderiza como antes.
  */
-// href de link markdown que NÃO é web (http/mailto/âncora) é candidato a arquivo local.
-const isWebHref = (h: string) => /^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(h)
-const normalizeHref = (h: string) => h.replace(/^\.\//, '')
+// href de link markdown que NÃO é web (http/mailto/âncora) é candidato a arquivo
+// local. `file://` também é local (agente costuma linkar assim).
+const isWebHref = (h: string) => /^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(h) && !/^file:/i.test(h)
+// Limpa o href pro resolve/modal: tira file://, ./ e sufixo de linha(:coluna) —
+// agentes linkam "arquivo.md:12", e o arquivo real não tem o :12.
+const normalizeHref = (h: string) => {
+  let p = h.replace(/^file:\/\//i, '')
+  try { p = decodeURIComponent(p) } catch { /* href malformado: usa cru */ }
+  return p.replace(/^\.\//, '').replace(/:\d+(?::\d+)?$/, '')
+}
 
 // hrefs dos links markdown do texto cru ([rótulo](href)) — o rehypeFilePaths pula
 // texto dentro de <a>, então esses paths precisam entrar no lote do resolve por aqui.
@@ -142,21 +149,24 @@ function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLoca
       const fileTarget = dataFile ?? (href && !isWebHref(href) ? normalizeHref(href) : undefined)
       if (fileTarget) {
         const resolved = fileResolved[fileTarget]
-        if (resolved?.exists && resolved.inScope && resolved.kind) {
-          const kind = resolved.kind
-          return (
-            <a
-              className="file-link"
-              href="#"
-              onClick={(e) => { e.preventDefault(); openFile(fileTarget, kind, projectId) }}
-            >
-              {children}
-            </a>
-          )
-        }
-        // não confirmado (inexistente, fora de escopo ou ainda resolvendo):
-        // data-file volta a ser texto puro; link markdown mantém o <a> normal.
-        if (dataFile) return <>{children}</>
+        const confirmed = resolved?.exists && resolved.inScope && resolved.kind
+        // Path detectado em TEXTO puro (data-file): só vira link quando confirmado
+        // (sem links quebrados no meio da prosa).
+        if (dataFile && !confirmed) return <>{children}</>
+        // LINK com caminho local: abre o popup SEMPRE — navegar levaria a
+        // localhost:9105/<path>, que é sempre uma página quebrada. Sem confirmação
+        // ainda, o tipo é palpite por extensão e o modal mostra o erro amigável
+        // (não encontrado / sem permissão) se for o caso.
+        const kind = confirmed ? resolved.kind! : kindOfPath(fileTarget)
+        return (
+          <a
+            className="file-link"
+            href="#"
+            onClick={(e) => { e.preventDefault(); openFile(fileTarget, kind, projectId) }}
+          >
+            {children}
+          </a>
+        )
       }
       return (
         <a href={href} target="_blank" rel="noreferrer">
@@ -167,7 +177,16 @@ function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLoca
   }
 
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeFilePaths]} components={components}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight, rehypeFilePaths]}
+      components={components}
+      // O sanitizador padrão ZERA hrefs file:// (protocolo não-permitido) e o link
+      // chegava vazio no components.a. Preservamos file: — ele nunca navega: o
+      // components.a o intercepta pro FileViewerModal. O resto (http/javascript:/…)
+      // segue a sanitização padrão.
+      urlTransform={(url) => (/^file:/i.test(url) ? url : defaultUrlTransform(url))}
+    >
       {text}
     </ReactMarkdown>
   )

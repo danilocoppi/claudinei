@@ -64,3 +64,21 @@ export const resolveFiles = (paths: string[], projectId?: number) =>
 /** URL de download/preview do conteúdo de um arquivo já resolvido em escopo. */
 export const fileContentUrl = (path: string, projectId?: number): string =>
   `/api/files/content?path=${encodeURIComponent(path)}${projectId ? `&projectId=${projectId}` : ''}`
+
+// Palpite de tipo por extensão (espelha o kindOf do servidor) — usado quando o
+// resolve ainda não confirmou o path mas o clique precisa abrir o modal mesmo assim
+// (o backend revalida e o modal mostra o erro amigável se não existir/sem acesso).
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico'])
+const CODE_EXT = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'rb', 'java', 'c', 'h', 'cpp', 'cc', 'cs', 'php', 'swift', 'kt', 'sh', 'bash', 'zsh', 'sql', 'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini', 'css', 'scss', 'less', 'html', 'xml', 'vue', 'svelte'])
+const TEXT_EXT = new Set(['txt', 'log', 'csv', 'tsv', 'env', 'gitignore', 'diff', 'patch', 'text'])
+
+export function kindOfPath(path: string): FileKind {
+  const m = /\.([A-Za-z0-9]{1,8})$/.exec(path)
+  const ext = m?.[1]?.toLowerCase() ?? ''
+  if (IMAGE_EXT.has(ext)) return 'image'
+  if (ext === 'pdf') return 'pdf'
+  if (ext === 'md' || ext === 'markdown') return 'markdown'
+  if (CODE_EXT.has(ext)) return 'code'
+  if (TEXT_EXT.has(ext) || ext === '') return 'text'
+  return 'binary'
+}

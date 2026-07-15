@@ -74,6 +74,13 @@ if (process.argv.includes('--hermes')) {
     // multi-modo deste arquivo, ver topo). loadConfig() lê essas envs (T1/config.ts).
     if (!process.env.CLAUDINEI_HERMES_COMMAND) process.env.CLAUDINEI_HERMES_COMMAND = process.execPath
     if (!process.env.CLAUDINEI_HERMES_ARGS) process.env.CLAUDINEI_HERMES_ARGS = JSON.stringify(['--hermes'])
+  } else {
+    // Fora do binário, CLAUDINEI_PKG_* herdado é SEMPRE lixo de outro processo:
+    // o binário empacotado seta essas envs pra si e elas vazam pros filhos — um
+    // terminal aberto PELO Claudinei que rode `tsx src/index.ts` (dogfooding)
+    // herdaria o web/dist extraído do binário e serviria a SPA VELHA em dev.
+    delete process.env.CLAUDINEI_PKG_WEB
+    delete process.env.CLAUDINEI_PKG_NATIVE
   }
 
   // Imports pesados (nativos: better-sqlite3, node-pty, sherpa) só aqui dentro,

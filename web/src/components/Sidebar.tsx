@@ -519,7 +519,12 @@ export function Sidebar() {
       )}
 
       {showGroupEmoji && createPortal(
-        <EmojiPicker onSelect={(e) => { setGroupIcon(e); setShowGroupEmoji(false) }} onClose={() => setShowGroupEmoji(false)} />,
+        // .overlay-above-popover: o editor do grupo vive num .sess-pop__overlay (z-60);
+        // sem elevar o picker (z-50) acima dele, o backdrop invisível do popover
+        // intercepta todo clique no emoji e fecha o editor.
+        <div className="overlay-above-popover">
+          <EmojiPicker onSelect={(e) => { setGroupIcon(e); setShowGroupEmoji(false) }} onClose={() => setShowGroupEmoji(false)} />
+        </div>,
         document.body,
       )}
       {showInfo && <InteractionInfo onClose={() => setShowInfo(false)} />}

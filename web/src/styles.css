@@ -310,6 +310,9 @@ button.term-card__action--play:hover { color: var(--ok); }
 .sess-pill__dot { width:8px; height:8px; border-radius:50%; }
 .sess-pill__flash { color:var(--ok); font-weight:600; font-size:13px; }
 .sess-pop__overlay { position:fixed; inset:0; z-index:60; }
+/* Eleva um overlay modal acima dos popovers (.sess-pop 60/61): cria um stacking
+   context sobre eles, senão o backdrop do popover intercepta os cliques do modal. */
+.overlay-above-popover { position: relative; z-index: 70; }
 .sess-pop { position:fixed; min-width:220px; border-radius:12px; padding:6px; z-index:61; }
 .sess-pop__eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-dim); padding:8px 8px 4px; }
 .sess-pop__item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; font-size:13px; }

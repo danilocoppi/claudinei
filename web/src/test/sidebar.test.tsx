@@ -410,5 +410,8 @@ describe('editor do grupo — overlays não ficam presos na sidebar', () => {
     const overlays = document.querySelectorAll('.modal-overlay')
     expect(overlays.length).toBeGreaterThan(0)
     expect(document.querySelector('.sidebar .modal-overlay')).toBeNull()
+    // e nasce dentro do .overlay-above-popover (z-70): sem ele, o backdrop do
+    // editor (.sess-pop__overlay, z-60) intercepta os cliques nos emojis
+    expect(document.querySelector('body > .overlay-above-popover .modal-overlay')).toBeTruthy()
   })
 })

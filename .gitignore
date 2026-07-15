@@ -6,3 +6,4 @@ dist/
 .playwright-mcp/
 dist-pkg/
 release/
+.superpowers/

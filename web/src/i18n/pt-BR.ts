@@ -7,6 +7,7 @@ export const ptBR: typeof en = {
     copy: 'Copiar', copied: 'Copiado!',
   },
   lang: { label: 'Idioma' },
+  pwa: { install: 'Instalar app no dispositivo' },
   externalLink: {
     title: 'Abrir link externo?',
     message: 'Este link sai do Claudinei e abre um site externo:\n{{url}}',

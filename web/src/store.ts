@@ -65,6 +65,8 @@ interface State {
   fileViewer: { path: string; kind: FileKind; projectId?: number } | null
   /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
   externalLink: string | null
+  /** Evento beforeinstallprompt capturado (PWA instalável agora) ou null. */
+  installPrompt: { prompt(): Promise<void>; userChoice: Promise<unknown> } | null
   /** Cache de resolve de paths detectados no chat (MessageBlock), por path → resultado do `/api/files/resolve`. */
   fileResolved: Record<string, ScopeResult>
   setFilesResolved(results: ScopeResult[]): void
@@ -88,6 +90,8 @@ interface State {
   closeFile(): void
   openExternalLink(url: string): void
   closeExternalLink(): void
+  setInstallPrompt(e: { prompt(): Promise<void>; userChoice: Promise<unknown> } | null): void
+  clearInstallPrompt(): void
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -112,6 +116,7 @@ export const useStore = create<State>((set, get) => ({
   fileViewer: null,
   fileResolved: {},
   externalLink: null,
+  installPrompt: null,
 
   setProjects: (projects) => set({ projects }),
 
@@ -238,6 +243,10 @@ export const useStore = create<State>((set, get) => ({
   openExternalLink: (url) => set({ externalLink: url }),
 
   closeExternalLink: () => set({ externalLink: null }),
+
+  setInstallPrompt: (e) => set({ installPrompt: e }),
+
+  clearInstallPrompt: () => set({ installPrompt: null }),
 
   setFilesResolved: (results) =>
     set((s) => {

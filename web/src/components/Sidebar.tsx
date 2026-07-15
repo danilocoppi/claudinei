@@ -14,6 +14,7 @@ import { LanguageSwitcher } from './LanguageSwitcher'
 import { UsageCard } from './UsageCard'
 import { InteractionInfo } from './InteractionInfo'
 import { UserMenu } from './UserMenu'
+import { InstallAppButton } from './InstallAppButton'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -356,6 +357,7 @@ export function Sidebar() {
           <span className="sidebar__logo-star">✳</span> Claudinei
         </div>
         <div className="sidebar__top-actions">
+          <InstallAppButton />
           <UserMenu />
           <LanguageSwitcher />
         </div>

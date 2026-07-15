@@ -5,6 +5,7 @@ export const en = {
     copy: 'Copy', copied: 'Copied!',
   },
   lang: { label: 'Language' },
+  pwa: { install: 'Install app on this device' },
   externalLink: {
     title: 'Open external link?',
     message: 'This link leaves Claudinei and opens an external site:\n{{url}}',

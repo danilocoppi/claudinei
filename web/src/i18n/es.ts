@@ -7,6 +7,7 @@ export const es: typeof en = {
     copy: 'Copiar', copied: '¡Copiado!',
   },
   lang: { label: 'Idioma' },
+  pwa: { install: 'Instalar app en el dispositivo' },
   externalLink: {
     title: '¿Abrir enlace externo?',
     message: 'Este enlace sale de Claudinei y abre un sitio externo:\n{{url}}',

@@ -551,3 +551,13 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .markdown th { background: rgba(255,255,255,.07); font-weight: 600; white-space: nowrap; }
 .markdown tbody tr:nth-child(even) td { background: rgba(255,255,255,.025); }
 .markdown table code { font-size: 11.5px; }
+
+/* Botão "Instalar app" (PWA) no topo da sidebar — só existe quando o navegador
+   ofereceu a instalação (beforeinstallprompt). */
+.install-app-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 5px; line-height: 0; border-radius: 8px;
+  background: transparent; border: 1px solid var(--glass-border); color: var(--text-dim);
+  cursor: pointer; transition: color .12s, background .12s;
+}
+.install-app-btn:hover { color: var(--text); background: var(--glass-bg-strong); filter: none; }

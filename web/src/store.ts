@@ -63,6 +63,8 @@ interface State {
   tasks: Task[]
   /** Arquivo aberto no FileViewerModal (path detectado/resolvido no chat), ou null se fechado. */
   fileViewer: { path: string; kind: FileKind; projectId?: number } | null
+  /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
+  externalLink: string | null
   /** Cache de resolve de paths detectados no chat (MessageBlock), por path → resultado do `/api/files/resolve`. */
   fileResolved: Record<string, ScopeResult>
   setFilesResolved(results: ScopeResult[]): void
@@ -84,6 +86,8 @@ interface State {
   openTasks(): void
   openFile(path: string, kind: FileKind, projectId?: number): void
   closeFile(): void
+  openExternalLink(url: string): void
+  closeExternalLink(): void
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -107,6 +111,7 @@ export const useStore = create<State>((set, get) => ({
   tasks: [],
   fileViewer: null,
   fileResolved: {},
+  externalLink: null,
 
   setProjects: (projects) => set({ projects }),
 
@@ -229,6 +234,10 @@ export const useStore = create<State>((set, get) => ({
   openFile: (path, kind, projectId) => set({ fileViewer: { path, kind, projectId } }),
 
   closeFile: () => set({ fileViewer: null }),
+
+  openExternalLink: (url) => set({ externalLink: url }),
+
+  closeExternalLink: () => set({ externalLink: null }),
 
   setFilesResolved: (results) =>
     set((s) => {

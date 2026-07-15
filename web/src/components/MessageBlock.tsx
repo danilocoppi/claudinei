@@ -127,6 +127,7 @@ function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLoca
   const fileResolved = useStore((s) => s.fileResolved)
   const setFilesResolved = useStore((s) => s.setFilesResolved)
   const openFile = useStore((s) => s.openFile)
+  const openExternalLink = useStore((s) => s.openExternalLink)
   const projectId = currentLocalId ? sessions[currentLocalId]?.projectId : undefined
 
   useEffect(() => {
@@ -164,6 +165,15 @@ function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLoca
             href="#"
             onClick={(e) => { e.preventDefault(); openFile(fileTarget, kind, projectId) }}
           >
+            {children}
+          </a>
+        )
+      }
+      // Link WEB: confirmação de segurança antes de sair pro externo (popup).
+      // Âncora interna (#) segue o comportamento padrão.
+      if (href && !href.startsWith('#')) {
+        return (
+          <a href={href} rel="noreferrer" onClick={(e) => { e.preventDefault(); openExternalLink(href) }}>
             {children}
           </a>
         )

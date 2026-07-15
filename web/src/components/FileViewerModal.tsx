@@ -8,6 +8,7 @@ import 'highlight.js/styles/github-dark.css'
 import type { FileKind } from '../files'
 import { fileContentUrl } from '../files'
 import { useStore } from '../store'
+import type { Components } from 'react-markdown'
 
 /** Modal de preview de arquivo (por tipo), aberto via `store.openFile`. Sem props:
  * lê `fileViewer` direto do store, então pode ser montado uma única vez (App.tsx)
@@ -32,10 +33,14 @@ export function FileViewerModal() {
   return createPortal(
     <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeFile() }}>
       <div
-        className="glass"
+        data-testid="file-viewer-panel"
         style={{
-          width: 720, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 64px)',
+          // Quase tela cheia e SEM transparência/blur: leitura em primeiro lugar
+          // (o glass deixava o chat vazar por trás do texto).
+          width: 'calc(100vw - 40px)', height: 'calc(100vh - 40px)',
+          background: '#12141d', border: '1px solid var(--glass-border)',
           borderRadius: 16, padding: 0, cursor: 'default', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '0 24px 80px rgba(0,0,0,.55)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -63,7 +68,7 @@ export function FileViewerModal() {
             ✕
           </button>
         </div>
-        <div style={{ padding: 18, overflow: 'auto' }}>
+        <div style={{ padding: 18, overflow: 'auto', flex: 1 }}>
           <FileBody kind={kind} url={url} name={name} />
         </div>
       </div>
@@ -79,7 +84,7 @@ function FileBody({ kind, url, name }: { kind: FileKind; url: string; name: stri
     return <img src={url} alt={name} style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
   }
   if (kind === 'pdf') {
-    return <iframe src={url} title="pdf" style={{ width: '100%', height: '70vh', border: 0, borderRadius: 8 }} />
+    return <iframe src={url} title="pdf" style={{ width: '100%', height: '100%', minHeight: '70vh', border: 0, borderRadius: 8 }} />
   }
   if (kind === 'binary') {
     return (
@@ -99,7 +104,16 @@ type TextState =
 
 function TextBody({ kind, url }: { kind: FileKind; url: string }) {
   const { t } = useTranslation()
+  const openExternalLink = useStore((s) => s.openExternalLink)
   const [state, setState] = useState<TextState>({ status: 'loading' })
+  // Links do markdown visualizado também passam pela confirmação de link externo.
+  const mdComponents: Components = {
+    a: ({ href, children }) => (
+      href && !href.startsWith('#')
+        ? <a href={href} rel="noreferrer" onClick={(e) => { e.preventDefault(); openExternalLink(href) }}>{children}</a>
+        : <a href={href}>{children}</a>
+    ),
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -137,7 +151,7 @@ function TextBody({ kind, url }: { kind: FileKind; url: string }) {
   if (kind === 'markdown') {
     return (
       <div className="markdown" style={{ lineHeight: 1.6 }}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={mdComponents}>
           {state.text}
         </ReactMarkdown>
       </div>

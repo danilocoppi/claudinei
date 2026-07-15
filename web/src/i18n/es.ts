@@ -4,8 +4,14 @@ export const es: typeof en = {
   common: {
     cancel: 'Cancelar', save: 'Guardar', create: 'Crear', send: 'Enviar', ok: 'OK',
     delete: 'Eliminar', edit: 'Editar', preview: 'Vista previa', confirm: 'Confirmar',
+    copy: 'Copiar', copied: '¡Copiado!',
   },
   lang: { label: 'Idioma' },
+  externalLink: {
+    title: '¿Abrir enlace externo?',
+    message: 'Este enlace sale de Claudinei y abre un sitio externo:\n{{url}}',
+    open: 'Abrir enlace',
+  },
   sidebar: {
     terminals: 'Terminales', addTerminal: '+ Terminal', noSession: 'sin sesión',
     resizeHint: 'Arrastra para redimensionar la barra; doble clic restaura',

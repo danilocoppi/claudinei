@@ -4,8 +4,14 @@ export const ptBR: typeof en = {
   common: {
     cancel: 'Cancelar', save: 'Salvar', create: 'Criar', send: 'Enviar', ok: 'OK',
     delete: 'Excluir', edit: 'Editar', preview: 'Prévia', confirm: 'Confirmar',
+    copy: 'Copiar', copied: 'Copiado!',
   },
   lang: { label: 'Idioma' },
+  externalLink: {
+    title: 'Abrir link externo?',
+    message: 'Este link sai do Claudinei e abre um site externo:\n{{url}}',
+    open: 'Abrir link',
+  },
   sidebar: {
     terminals: 'Terminais', addTerminal: '+ Terminal', noSession: 'sem sessão',
     resizeHint: 'Arraste para redimensionar a barra; duplo clique restaura',

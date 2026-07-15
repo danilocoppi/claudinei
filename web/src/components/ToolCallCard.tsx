@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '../types'
 import { DiffView } from './DiffView'
+import { CopyButton } from './CopyButton'
 
 type ToolCallItem = Extract<ChatItem, { kind: 'tool_call' }>
 
@@ -37,27 +38,43 @@ export function ToolCallCard({ item }: { item: ToolCallItem }) {
       {open && (
         <div style={{ padding: '0 12px 12px' }}>
           {item.name === 'Edit' && (
-            <DiffView oldText={String(input.old_string ?? '')} newText={String(input.new_string ?? '')} />
+            <div className="copy-wrap">
+              <DiffView oldText={String(input.old_string ?? '')} newText={String(input.new_string ?? '')} />
+              <CopyButton text={String(input.new_string ?? '')} />
+            </div>
           )}
           {item.name === 'Write' && (
-            <DiffView oldText="" newText={String(input.content ?? '')} />
+            <div className="copy-wrap">
+              <DiffView oldText="" newText={String(input.content ?? '')} />
+              <CopyButton text={String(input.content ?? '')} />
+            </div>
           )}
           {item.name === 'MultiEdit' &&
             ((input.edits as { old_string?: unknown; new_string?: unknown }[] | undefined) ?? []).map((e, i) => (
-              <DiffView key={i} oldText={String(e.old_string ?? '')} newText={String(e.new_string ?? '')} />
+              <div className="copy-wrap" key={i}>
+                <DiffView oldText={String(e.old_string ?? '')} newText={String(e.new_string ?? '')} />
+                <CopyButton text={String(e.new_string ?? '')} />
+              </div>
             ))}
           {!isEdit && (
-            <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 200, background: 'rgba(0,0,0,.3)', padding: 8, borderRadius: 6 }}>
-              {JSON.stringify(input, null, 2)}
-            </pre>
+            <div className="copy-wrap">
+              <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 200, background: 'rgba(0,0,0,.3)', padding: 8, borderRadius: 6 }}>
+                {JSON.stringify(input, null, 2)}
+              </pre>
+              {/* Bash e afins: copia só o comando (o que se quer 99% das vezes); sem campo óbvio, copia o JSON. */}
+              <CopyButton text={typeof input.command === 'string' ? input.command : JSON.stringify(input, null, 2)} />
+            </div>
           )}
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 6 }}>{t('toolcall.result')}</div>
           {item.result === undefined ? (
             <div style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>{t('toolcall.running')}</div>
           ) : (
-            <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 300, background: 'rgba(0,0,0,.3)', padding: 8, borderRadius: 6 }}>
-              {item.result}
-            </pre>
+            <div className="copy-wrap">
+              <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 300, background: 'rgba(0,0,0,.3)', padding: 8, borderRadius: 6 }}>
+                {item.result}
+              </pre>
+              <CopyButton text={item.result} />
+            </div>
           )}
         </div>
       )}

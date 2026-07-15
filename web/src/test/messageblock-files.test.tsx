@@ -117,12 +117,15 @@ describe('MessageBlock — paths de arquivo clicáveis', () => {
     expect(openFile).toHaveBeenCalledWith('notas.md', 'markdown', 7)
   })
 
-  it('link markdown web ([site](https://example.com)) segue como <a> externo', () => {
+  it('link markdown web ([site](https://example.com)) mantém o href mas quem abre é a CONFIRMAÇÃO', () => {
     render(<MessageBlock item={{ kind: 'assistant_text', text: 'veja [site](https://example.com)' }} />)
     const link = screen.getByText('site') as HTMLAnchorElement
     expect(link.getAttribute('href')).toBe('https://example.com')
-    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('target')).toBeNull() // sem _blank: o popup de confirmação decide
     expect(link.className).not.toContain('file-link')
+    fireEvent.click(link)
+    expect(useStore.getState().externalLink).toBe('https://example.com')
+    useStore.setState({ externalLink: null })
   })
 
   it('regressão: link http normal continua renderizando como <a> externo clicável', () => {
@@ -204,5 +207,16 @@ describe('link local SEMPRE abre o popup (nunca navega)', () => {
     expect(link.getAttribute('href')).toBe('#')
     fireEvent.click(link)
     expect(openFile).toHaveBeenCalledWith('/fora/do/escopo.md', 'markdown', 7)
+  })
+})
+
+describe('link externo pede confirmação (segurança)', () => {
+  it('clicar num link web NÃO navega: seta externalLink no store (popup de confirmação)', () => {
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'veja [site](https://example.com/x)' }} />)
+    const link = screen.getByText('site') as HTMLAnchorElement
+    expect(link.getAttribute('target')).toBeNull() // sem target: quem abre é a confirmação
+    fireEvent.click(link)
+    expect(useStore.getState().externalLink).toBe('https://example.com/x')
+    useStore.setState({ externalLink: null })
   })
 })

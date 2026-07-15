@@ -523,3 +523,15 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .term-group__header[draggable="true"] { cursor: grab; }
 .term-list__endzone { min-height: 26px; border-radius: 10px; }
 .term-list__endzone.drop-target { outline: 1.5px dashed var(--accent); background: rgba(124,92,255,.08); }
+
+/* Botão de copiar nas áreas de comando/resultado das tools: aparece no hover do bloco. */
+.copy-wrap { position: relative; }
+.copy-btn {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  padding: 5px; line-height: 0; border-radius: 6px;
+  background: rgba(0,0,0,.5); border: 1px solid var(--glass-border); color: var(--text-dim);
+  cursor: pointer; opacity: 0; transition: opacity .12s, color .12s;
+}
+.copy-wrap:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
+.copy-btn:hover { color: var(--text); background: rgba(0,0,0,.7); filter: none; }
+.copy-btn.copied { color: var(--ok); opacity: 1; }

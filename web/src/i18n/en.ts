@@ -2,8 +2,14 @@ export const en = {
   common: {
     cancel: 'Cancel', save: 'Save', create: 'Create', send: 'Send', ok: 'OK',
     delete: 'Delete', edit: 'Edit', preview: 'Preview', confirm: 'Confirm',
+    copy: 'Copy', copied: 'Copied!',
   },
   lang: { label: 'Language' },
+  externalLink: {
+    title: 'Open external link?',
+    message: 'This link leaves Claudinei and opens an external site:\n{{url}}',
+    open: 'Open link',
+  },
   sidebar: {
     terminals: 'Terminals', addTerminal: '+ Terminal', noSession: 'no session',
     resizeHint: 'Drag to resize the sidebar; double-click to reset',

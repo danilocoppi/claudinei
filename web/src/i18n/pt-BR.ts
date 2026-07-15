@@ -33,6 +33,7 @@ export const ptBR: typeof en = {
     group: 'Grupo', noGroup: 'Sem grupo', newGroup: 'Novo grupo',
     newGroupPlaceholder: 'Nome do novo grupo…', groupEmpty: 'arraste terminais para cá',
     renameGroup: 'Renomear grupo', deleteGroup: 'Excluir grupo',
+    editGroup: 'Editar grupo', groupIcon: 'Ícone do grupo',
     deleteGroupHint: 'Os terminais são mantidos — voltam para a lista raiz.',
     empty: 'Nenhum terminal ainda — crie o primeiro no “+ Terminal”.',
     interaction: 'Interação entre terminais', board: 'Mural', tasks: 'Tarefas',

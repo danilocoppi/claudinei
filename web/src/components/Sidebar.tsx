@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { createGroup, deleteGroup, deleteProject, fetchGroups, fetchProjects, putSidebarOrder, renameGroup, setProjectGroup, type Group } from '../api'
+import { createGroup, deleteGroup, deleteProject, fetchGroups, fetchProjects, putSidebarOrder, setProjectGroup, updateGroup, type Group } from '../api'
 import { useStore } from '../store'
 import { primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { NewProjectModal } from './NewProjectModal'
@@ -15,6 +15,8 @@ import { UsageCard } from './UsageCard'
 import { InteractionInfo } from './InteractionInfo'
 import { UserMenu } from './UserMenu'
 import { InstallAppButton } from './InstallAppButton'
+import { EmojiPicker } from './EmojiPicker'
+import { ColorField } from './ColorField'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -65,6 +67,9 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState<number[]>(loadCollapsed)
   const [groupMenuFor, setGroupMenuFor] = useState<{ id: number; name: string; x: number; y: number } | null>(null)
   const [groupRename, setGroupRename] = useState('')
+  const [groupIcon, setGroupIcon] = useState('🗂️')
+  const [groupColor, setGroupColor] = useState('#7c5cff')
+  const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
 
   // A sessão "cara do projeto" no card: prioridade de status (needs_attention >
@@ -300,6 +305,7 @@ export function Sidebar() {
       <div
         key={key}
         data-testid="term-group"
+        style={{ ['--group-color' as string]: g.color ?? 'var(--glass-border)' }}
         className={[
           'term-group',
           drag?.kind === 'group' && drag.id === g.id ? 'dragging' : '',
@@ -317,6 +323,7 @@ export function Sidebar() {
           onClick={() => toggleGroup(g.id)}
         >
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
+          <span className="term-group__icon">{g.icon ?? '🗂️'}</span>
           <span className="term-group__name">{g.name}</span>
           <span className="term-group__count">{items.length}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
@@ -334,6 +341,8 @@ export function Sidebar() {
                       e.stopPropagation()
                       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                       setGroupRename(g.name)
+                      setGroupIcon(g.icon ?? '🗂️')
+                      setGroupColor(g.color ?? '#7c5cff')
                       setGroupMenuFor({ id: g.id, name: g.name, x: r.left, y: r.bottom + 4 })
                     }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
@@ -450,25 +459,25 @@ export function Sidebar() {
 
       {groupMenuFor && createPortal(
         <div className="sess-pop__overlay" onClick={() => setGroupMenuFor(null)}>
-          <div className="sess-pop glass" style={{ left: groupMenuFor.x, top: groupMenuFor.y, minWidth: 200 }} onClick={(e) => e.stopPropagation()}>
-            <div className="sess-pop__eyebrow">{t('sidebar.renameGroup')}</div>
+          <div className="sess-pop glass" style={{ left: groupMenuFor.x, top: groupMenuFor.y, minWidth: 235 }} onClick={(e) => e.stopPropagation()}>
+            <div className="sess-pop__eyebrow">{t('sidebar.editGroup')}</div>
             <div className="sess-pop__newgroup">
+              <button type="button" className="ghost group-edit__icon" title={t('sidebar.groupIcon')}
+                      onClick={() => setShowGroupEmoji(true)}>{groupIcon}</button>
               <input
                 value={groupRename}
                 onChange={(e) => setGroupRename(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && groupRename.trim()) {
-                    const { id } = groupMenuFor
-                    setGroupMenuFor(null)
-                    void renameGroup(id, groupRename.trim()).then(refetchAll).catch(() => {})
-                  }
-                }}
               />
-              <button disabled={!groupRename.trim()} onClick={() => {
+            </div>
+            <div className="group-edit__color">
+              <ColorField value={groupColor} onChange={setGroupColor} />
+            </div>
+            <div className="sess-pop__newgroup">
+              <button style={{ flex: 1 }} disabled={!groupRename.trim()} onClick={() => {
                 const { id } = groupMenuFor
                 setGroupMenuFor(null)
-                void renameGroup(id, groupRename.trim()).then(refetchAll).catch(() => {})
-              }}>✓</button>
+                void updateGroup(id, { name: groupRename.trim(), icon: groupIcon, color: groupColor }).then(refetchAll).catch(() => {})
+              }}>{t('common.save')}</button>
             </div>
             <div className="sess-pop__item" onClick={() => {
               const { id } = groupMenuFor
@@ -499,6 +508,9 @@ export function Sidebar() {
         />
       )}
 
+      {showGroupEmoji && (
+        <EmojiPicker onSelect={(e) => { setGroupIcon(e); setShowGroupEmoji(false) }} onClose={() => setShowGroupEmoji(false)} />
+      )}
       {showInfo && <InteractionInfo onClose={() => setShowInfo(false)} />}
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} />}
       {startFor && <StartSessionModal project={startFor} onClose={() => setStartFor(null)} />}

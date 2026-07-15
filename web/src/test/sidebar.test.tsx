@@ -371,3 +371,25 @@ describe('status agregado do projeto (multi-engine)', () => {
     expect(screen.getByTestId('term-card').querySelector('.badge')?.textContent).toBe('5')
   })
 })
+
+describe('ícone e cor do grupo', () => {
+  it('cabeçalho mostra o ícone do grupo e o container carrega a cor (--group-color)', () => {
+    useStore.setState({
+      projects: [{ id: 1, name: 'X Front', path: '/tmp/a', color: '#f00', icon: '🅰️', groupId: 10 }],
+      groups: [{ id: 10, name: 'Projeto X', icon: '🚀', color: '#00ff88' }],
+    })
+    render(<Sidebar />)
+    const group = screen.getByTestId('term-group')
+    expect(group.querySelector('.term-group__icon')?.textContent).toBe('🚀')
+    expect(group.getAttribute('style')).toContain('--group-color: #00ff88')
+  })
+
+  it('grupo sem icon/color (legado) usa defaults sem quebrar', () => {
+    useStore.setState({
+      projects: [{ id: 1, name: 'A', path: '/tmp/a', color: '#f00', icon: '🅰️', groupId: 10 }],
+      groups: [{ id: 10, name: 'Antigo' }],
+    })
+    render(<Sidebar />)
+    expect(screen.getByTestId('term-group').querySelector('.term-group__icon')?.textContent).toBe('🗂️')
+  })
+})

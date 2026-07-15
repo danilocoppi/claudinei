@@ -15,6 +15,10 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
     const name = v.trim()
     return name.length >= 1 && name.length <= 60 ? name : null
   }
+  const validIcon = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 16 ? v.trim() : null
+  const validColor = (v: unknown): string | null =>
+    typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v : null
 
   app.get('/api/groups', async (req) => {
     const all = groups.list()
@@ -28,16 +32,33 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
 
   app.post('/api/groups', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    const name = validName((req.body as { name?: unknown })?.name)
+    const body = req.body as { name?: unknown; icon?: unknown; color?: unknown }
+    const name = validName(body?.name)
     if (!name) return reply.code(400).send({ error: 'nome do grupo inválido (1..60 caracteres)' })
-    return reply.code(201).send(groups.create(name))
+    return reply.code(201).send(groups.create(name, validIcon(body?.icon) ?? undefined, validColor(body?.color) ?? undefined))
   })
 
   app.patch('/api/groups/:id', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    const name = validName((req.body as { name?: unknown })?.name)
-    if (!name) return reply.code(400).send({ error: 'nome do grupo inválido (1..60 caracteres)' })
-    try { return groups.rename(Number((req.params as { id: string }).id), name) }
+    const body = req.body as { name?: unknown; icon?: unknown; color?: unknown }
+    const patch: { name?: string; icon?: string; color?: string } = {}
+    if (body?.name !== undefined) {
+      const name = validName(body.name)
+      if (!name) return reply.code(400).send({ error: 'nome do grupo inválido (1..60 caracteres)' })
+      patch.name = name
+    }
+    if (body?.icon !== undefined) {
+      const icon = validIcon(body.icon)
+      if (!icon) return reply.code(400).send({ error: 'ícone inválido' })
+      patch.icon = icon
+    }
+    if (body?.color !== undefined) {
+      const color = validColor(body.color)
+      if (!color) return reply.code(400).send({ error: 'cor inválida (use #rrggbb)' })
+      patch.color = color
+    }
+    if (Object.keys(patch).length === 0) return reply.code(400).send({ error: 'nada para atualizar' })
+    try { return groups.update(Number((req.params as { id: string }).id), patch) }
     catch (err) { return reply.code(404).send({ error: (err as Error).message }) }
   })
 

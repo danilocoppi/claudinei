@@ -89,6 +89,8 @@ export function openDb(path: string): Db {
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
   try { db.exec(`ALTER TABLE projects ADD COLUMN group_id INTEGER REFERENCES project_groups(id)`) } catch { /* já migrado */ }
+  try { db.exec(`ALTER TABLE project_groups ADD COLUMN icon TEXT NOT NULL DEFAULT '🗂️'`) } catch { /* já migrado */ }
+  try { db.exec(`ALTER TABLE project_groups ADD COLUMN color TEXT NOT NULL DEFAULT '#7c5cff'`) } catch { /* já migrado */ }
 
   // Engine de quem despachou/executou a task (colaboração entre engines do MESMO
   // projeto: "Vaexa → Vaexa" não dizia quem mandou pra quem).

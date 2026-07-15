@@ -178,3 +178,34 @@ describe('applySidebarOrder (ordem unificada grupos + soltos)', () => {
     expect(body.groups[0].sortOrder).toBeLessThan(body.projects.find((p: any) => p.id === back.id).sortOrder)
   })
 })
+
+describe('ícone e cor do grupo (padrão dos terminais)', () => {
+  it('create tem defaults; update troca icon/color; list devolve', () => {
+    const groups = createGroupsService(db)
+    const g = groups.create('X')
+    expect(g).toMatchObject({ icon: '🗂️', color: '#7c5cff' })
+    groups.update(g.id, { icon: '🚀', color: '#ff0000' })
+    expect(groups.list()[0]).toMatchObject({ name: 'X', icon: '🚀', color: '#ff0000' })
+    // update parcial não apaga o resto
+    groups.update(g.id, { name: 'Y' })
+    expect(groups.list()[0]).toMatchObject({ name: 'Y', icon: '🚀', color: '#ff0000' })
+  })
+
+  it('PATCH valida cor (#rrggbb) e aceita subset', async () => {
+    const auth = createAuthService({ db })
+    const manager = createSessionManager({ db, broadcast: () => {} })
+    const app = await buildApp({ config: loadConfig({}), db, manager, auth })
+    auth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
+    const cookieOf = (res: any): Record<string, string> => {
+      const c = res.cookies.find((x: any) => x.name === COOKIE_NAME)
+      return c ? { [COOKIE_NAME]: c.value } : {}
+    }
+    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd' } }))
+    const g = (await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'G', icon: '🎯', color: '#00ff00' }, cookies: admin })).json()
+    expect(g).toMatchObject({ icon: '🎯', color: '#00ff00' })
+    expect((await app.inject({ method: 'PATCH', url: `/api/groups/${g.id}`, payload: { color: 'vermelho' }, cookies: admin })).statusCode).toBe(400)
+    const upd = await app.inject({ method: 'PATCH', url: `/api/groups/${g.id}`, payload: { icon: '🔥' }, cookies: admin })
+    expect(upd.statusCode).toBe(200)
+    expect(upd.json()).toMatchObject({ name: 'G', icon: '🔥', color: '#00ff00' })
+  })
+})

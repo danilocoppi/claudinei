@@ -38,7 +38,7 @@ export const deleteProject = (id: number) =>
   req<void>(`/api/projects/${id}`, { method: 'DELETE' })
 export const updateProject = (id: number, patch: { name?: string; color?: string; icon?: string }) =>
   req<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-export interface Group { id: number; name: string; sortOrder?: number }
+export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number }
 /** Uma entrada da sidebar na ordem visual (grupo com filhos, ou terminal solto). */
 export type SidebarEntry = { kind: 'group'; id: number; children: number[] } | { kind: 'project'; id: number }
 export const putSidebarOrder = (entries: SidebarEntry[]) =>
@@ -46,8 +46,8 @@ export const putSidebarOrder = (entries: SidebarEntry[]) =>
 export const fetchGroups = () => req<Group[]>('/api/groups')
 export const createGroup = (name: string) =>
   req<Group>('/api/groups', { method: 'POST', body: JSON.stringify({ name }) })
-export const renameGroup = (id: number, name: string) =>
-  req<Group>(`/api/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+export const updateGroup = (id: number, patch: { name?: string; icon?: string; color?: string }) =>
+  req<Group>(`/api/groups/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
 export const deleteGroup = (id: number) =>
   req<void>(`/api/groups/${id}`, { method: 'DELETE' })
 export const setProjectGroup = (projectId: number, groupId: number | null) =>

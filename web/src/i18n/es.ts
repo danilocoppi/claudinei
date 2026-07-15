@@ -33,6 +33,7 @@ export const es: typeof en = {
     group: 'Grupo', noGroup: 'Sin grupo', newGroup: 'Nuevo grupo',
     newGroupPlaceholder: 'Nombre del nuevo grupo…', groupEmpty: 'arrastra terminales aquí',
     renameGroup: 'Renombrar grupo', deleteGroup: 'Eliminar grupo',
+    editGroup: 'Editar grupo', groupIcon: 'Icono del grupo',
     deleteGroupHint: 'Las terminales se conservan — vuelven a la lista raíz.',
     empty: 'Aún no hay terminales — crea el primero con “+ Terminal”.',
     interaction: 'Interacción entre terminales', board: 'Tablón', tasks: 'Tareas',

@@ -31,6 +31,7 @@ export const en = {
     group: 'Group', noGroup: 'No group', newGroup: 'New group',
     newGroupPlaceholder: 'New group name…', groupEmpty: 'drag terminals here',
     renameGroup: 'Rename group', deleteGroup: 'Delete group',
+    editGroup: 'Edit group', groupIcon: 'Group icon',
     deleteGroupHint: 'Terminals are kept — they go back to the root list.',
     empty: 'No terminals yet — create the first one with “+ Terminal”.',
     interaction: 'Terminal interaction', board: 'Board', tasks: 'Tasks',

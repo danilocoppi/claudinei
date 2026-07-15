@@ -3,10 +3,6 @@
 Local web interface to control **multiple Claude Code sessions**, each one in the context of its own project.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/ef75eeb6-8598-469e-98fc-2588010d49b9" alt="Claudinei in action — chatting with the engines, tool calls and live streaming" width="850">
-</p>
-
-<p align="center">
   <img src="https://github.com/user-attachments/assets/29657b34-9e70-4947-bf78-472410114ab8" alt="Claudinei overview — sidebar with grouped terminals, sessions and usage" width="850">
 </p>
 
@@ -20,6 +16,10 @@ Local web interface to control **multiple Claude Code sessions**, each one in th
 - Multi-project, multi-session, resume conversations (`--continue`/`--resume`), notifications, i18n (en/es/pt-BR).
 
 Everything runs **on `127.0.0.1` only** — nothing is exposed to the network.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/ef75eeb6-8598-469e-98fc-2588010d49b9" alt="Claudinei in action — chatting with the engines, tool calls and live streaming" width="460">
+</p>
 
 ## Architecture
 

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
 import { createGroup, deleteGroup, deleteProject, fetchGroups, fetchProjects, putSidebarOrder, setProjectGroup, updateGroup, type Group } from '../api'
 import { useStore } from '../store'
-import { primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
+import { displayStatusKey, dotClassOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -268,11 +268,11 @@ export function Sidebar() {
         <div className="term-card__status">
           {s ? (
             <>
-              <span className={`status-dot status-${s.status}`} />
+              <span className={dotClassOf(s)} />
               {engineOf(s) && (
                 <EngineIcon className="engine-badge" title={engineOf(s)!.label} icon={engineOf(s)!.icon} />
               )}
-              <span>{t(`status.${s.status}` as const)}</span>
+              <span>{t(`status.${displayStatusKey(s)}` as 'status.in_terminal')}</span>
             </>
           ) : (
             <><span className="status-dot status-none" /><span>{t('sidebar.noSession')}</span></>
@@ -334,7 +334,7 @@ export function Sidebar() {
             <span className="term-group__dots">
               {items.slice(0, 6).map((p) => {
                 const s = sessionOf(p.id)
-                return <span key={p.id} className={`status-dot status-${s?.status ?? 'none'}`} title={p.name} />
+                return <span key={p.id} className={s ? dotClassOf(s) : 'status-dot status-none'} title={p.name} />
               })}
             </span>
           )}

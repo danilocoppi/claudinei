@@ -188,8 +188,21 @@ export const useStore = create<State>((set, get) => ({
             permissionMode: msg.permissionMode ?? s.sessions[msg.localId]?.permissionMode,
             effort: msg.effort !== undefined ? msg.effort : s.sessions[msg.localId]?.effort,
             engine: msg.engine ?? s.sessions[msg.localId]?.engine ?? 'claude',
+            terminalActivity: msg.status === 'in_terminal' ? s.sessions[msg.localId]?.terminalActivity : undefined,
           },
         },
+      }))
+    } else if (msg.type === 'terminal_activity') {
+      // Heurística do TUI (working/waiting/idle) — efêmera, só enquanto in_terminal.
+      const sess = get().sessions[msg.localId]
+      if (!sess || sess.status !== 'in_terminal') return
+      if (msg.activity === 'waiting' && sess.terminalActivity !== 'waiting') {
+        // sino do prompt de permissão/pergunta: mesmo aviso de "esperando você"
+        const projectName = get().projects.find((p) => p.id === sess.projectId)?.name ?? 'projeto'
+        notifySessionChange(projectName, 'needs_attention', 'working')
+      }
+      set((s) => ({
+        sessions: { ...s.sessions, [msg.localId]: { ...s.sessions[msg.localId], terminalActivity: msg.activity } },
       }))
     } else if (msg.type === 'session_event') {
       const { localId, event } = msg

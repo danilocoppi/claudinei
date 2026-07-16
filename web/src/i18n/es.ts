@@ -44,6 +44,7 @@ export const es: typeof en = {
     starting: 'lista — envía un mensaje', idle: 'inactiva', working: 'trabajando',
     needs_attention: 'esperándote', stopped: 'finalizada', dead: 'muerta',
     in_terminal: 'en la terminal',
+    in_terminal_working: 'en la terminal — procesando…', in_terminal_waiting: 'en la terminal — esperándote',
   },
   dashboard: {
     projects: 'Proyectos',

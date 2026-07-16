@@ -24,6 +24,7 @@ export interface TerminalLauncherOpts {
   file: string
   args: string[]
   onExit: () => void
+  onActivity?: (activity: 'working' | 'waiting' | 'idle') => void
 }
 
 interface Deps {
@@ -340,6 +341,13 @@ export function createSessionManager(deps: Deps) {
           cwd: project.path,
           file,
           args,
+          // Heurística de atividade do TUI: broadcast efêmero (não persiste) — a
+          // sidebar mostra "no terminal · processando/esperando você" ao vivo.
+          onActivity: (activity) => {
+            const cur = deps.db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any
+            if (cur?.status !== 'in_terminal') return
+            deps.broadcast({ type: 'terminal_activity', localId, projectId: row.project_id, activity })
+          },
           onExit: () => {
             const cur = deps.db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any
             if (cur?.status === 'in_terminal') {

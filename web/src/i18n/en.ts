@@ -42,6 +42,7 @@ export const en = {
     starting: 'ready — send a message', idle: 'idle', working: 'working',
     needs_attention: 'waiting for you', stopped: 'finished', dead: 'dead',
     in_terminal: 'in terminal',
+    in_terminal_working: 'in terminal — working…', in_terminal_waiting: 'in terminal — waiting for you',
   },
   dashboard: {
     projects: 'Projects',

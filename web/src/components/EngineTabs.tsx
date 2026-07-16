@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { isLive, sessionForEngine, startOrReviveEngine } from '../engineSession'
+import { isLive, sessionForEngine, startOrReviveEngine, displayStatusKey, dotClassOf } from '../engineSession'
 import type { SessionInfo, SessionStatus } from '../types'
 import { EngineIcon } from './EngineIcon'
 
@@ -58,9 +58,9 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
             >
               <EngineIcon className="engine-tab__icon" icon={e.icon} />
               <span className="engine-tab__label">{e.label}</span>
-              <span className={`status-dot status-${tabSession ? tabSession.status : 'none'}`} />
+              <span className={tabSession ? dotClassOf(tabSession) : 'status-dot status-none'} />
               <span className="engine-tab__status">
-                {tabSession ? t(`status.${tabSession.status}` as `status.${SessionStatus}`) : t('sidebar.noSession')}
+                {tabSession ? t(`status.${displayStatusKey(tabSession)}` as 'status.in_terminal') : t('sidebar.noSession')}
               </span>
             </button>
             {!live && (e.available === false ? (

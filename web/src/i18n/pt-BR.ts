@@ -44,6 +44,7 @@ export const ptBR: typeof en = {
     starting: 'pronta — envie uma mensagem', idle: 'ociosa', working: 'trabalhando',
     needs_attention: 'aguardando você', stopped: 'finalizada', dead: 'morta',
     in_terminal: 'no terminal',
+    in_terminal_working: 'no terminal — processando…', in_terminal_waiting: 'no terminal — esperando você',
   },
   dashboard: {
     projects: 'Projetos',

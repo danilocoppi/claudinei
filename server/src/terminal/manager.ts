@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { PtyFactory, PtyProcess } from './pty.js'
+import { createActivityTracker, type TerminalActivity } from './activity.js'
 
 const BUFFER_LIMIT = 256 * 1024
 
@@ -8,6 +9,8 @@ export interface OpenOpts {
   file: string
   args: string[]
   onExit: () => void
+  /** Heurística de atividade do TUI (working/waiting/idle) lida do fluxo do PTY. */
+  onActivity?: (activity: TerminalActivity) => void
 }
 
 interface Socketish {
@@ -48,8 +51,10 @@ export function createTerminalManager(deps: { ptyFactory: PtyFactory }) {
       const proc = deps.ptyFactory(opts.file, opts.args, { cwd: opts.cwd, cols: 80, rows: 24 })
       const entry: PtyEntry = { proc, buffer: '', token: randomBytes(24).toString('hex'), clients: new Set(), exited: false, exitWaiters: [] }
       entries.set(localId, entry)
-      proc.onData((data) => { append(entry, data); fanout(entry, data) })
+      const tracker = opts.onActivity ? createActivityTracker(opts.onActivity) : null
+      proc.onData((data) => { append(entry, data); fanout(entry, data); tracker?.feed(data) })
       proc.onExit(() => {
+        tracker?.dispose()
         entry.exited = true
         fanout(entry, '\r\n— sessão encerrada —\r\n')
         if (entries.get(localId) === entry) entries.delete(localId)

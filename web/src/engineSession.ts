@@ -81,3 +81,22 @@ export function unreadOf(projectId: number, sessions: Record<string, SessionInfo
     .filter((s) => s.projectId === projectId)
     .reduce((acc, s) => acc + (unread[s.localId] ?? 0), 0)
 }
+
+/**
+ * Chave i18n de exibição do status: enquanto in_terminal, a heurística do TUI
+ * (terminalActivity) refina para "processando"/"esperando você"; idle mantém o
+ * rótulo básico. Demais status passam direto.
+ */
+export function displayStatusKey(s: SessionInfo): string {
+  if (s.status === 'in_terminal' && s.terminalActivity && s.terminalActivity !== 'idle') {
+    return `in_terminal_${s.terminalActivity}`
+  }
+  return s.status
+}
+
+/** Classe do status-dot: terminal esperando = âmbar (como needs_attention); processando = pulso. */
+export function dotClassOf(s: SessionInfo): string {
+  if (s.status === 'in_terminal' && s.terminalActivity === 'waiting') return 'status-dot status-needs_attention'
+  if (s.status === 'in_terminal' && s.terminalActivity === 'working') return 'status-dot status-in_terminal status-dot--pulse'
+  return `status-dot status-${s.status}`
+}

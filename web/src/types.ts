@@ -17,6 +17,8 @@ export interface SessionInfo {
   effort?: string | null
   /** Engine da sessão ('claude', 'codex', ...); default 'claude' no backend. */
   engine: string
+  /** Heurística de atividade do TUI enquanto in_terminal (efêmero, via WS). */
+  terminalActivity?: 'working' | 'waiting' | 'idle'
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */

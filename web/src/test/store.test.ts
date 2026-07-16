@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useStore } from '../store'
+import { displayStatusKey, dotClassOf } from '../engineSession'
 
 beforeEach(() => {
   useStore.setState({ projects: [], sessions: {}, chat: {}, unread: {}, streaming: {}, activeLocalId: undefined, view: 'dashboard', board: [], tasks: [], sessionEffort: {} })
@@ -237,5 +238,47 @@ describe('rebusca de histórico no fim do turno', () => {
     })
     useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l9', status: 'idle', engineSessionId: 'c9' })
     expect(useStore.getState().historyLoadedFor).toEqual({ l9: 'c9' })
+  })
+})
+
+describe('terminal_activity (heurística do TUI)', () => {
+  it('atualiza terminalActivity da sessão in_terminal', () => {
+    useStore.setState({
+      sessions: { t1: { localId: 't1', projectId: 1, status: 'in_terminal', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },
+    })
+    useStore.getState().applyWsMessage({ type: 'terminal_activity', localId: 't1', activity: 'working' })
+    expect(useStore.getState().sessions.t1.terminalActivity).toBe('working')
+  })
+
+  it('ignora sessão que não está in_terminal', () => {
+    useStore.setState({
+      sessions: { t1: { localId: 't1', projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },
+    })
+    useStore.getState().applyWsMessage({ type: 'terminal_activity', localId: 't1', activity: 'waiting' })
+    expect(useStore.getState().sessions.t1.terminalActivity).toBeUndefined()
+  })
+
+  it('sair de in_terminal limpa a atividade', () => {
+    useStore.setState({
+      sessions: { t1: { localId: 't1', projectId: 1, status: 'in_terminal', engineSessionId: 'c', updatedAt: 'x', engine: 'claude', terminalActivity: 'working' } as never },
+    })
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 't1', status: 'stopped', engineSessionId: 'c' })
+    expect(useStore.getState().sessions.t1.terminalActivity).toBeUndefined()
+  })
+})
+
+describe('displayStatusKey/dotClassOf', () => {
+  const sess = (activity?: 'working' | 'waiting' | 'idle') =>
+    ({ localId: 't', projectId: 1, status: 'in_terminal', engineSessionId: 'c', updatedAt: 'x', engine: 'claude', terminalActivity: activity }) as never
+  it('in_terminal refina pela atividade (idle mantém o rótulo básico)', () => {
+    expect(displayStatusKey(sess('working'))).toBe('in_terminal_working')
+    expect(displayStatusKey(sess('waiting'))).toBe('in_terminal_waiting')
+    expect(displayStatusKey(sess('idle'))).toBe('in_terminal')
+    expect(displayStatusKey(sess(undefined))).toBe('in_terminal')
+  })
+  it('esperando = âmbar; processando = pulso', () => {
+    expect(dotClassOf(sess('waiting'))).toContain('status-needs_attention')
+    expect(dotClassOf(sess('working'))).toContain('status-dot--pulse')
+    expect(dotClassOf(sess(undefined))).toBe('status-dot status-in_terminal')
   })
 })

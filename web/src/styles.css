@@ -48,6 +48,8 @@ body {
 .status-stopped { background: #667; }
 .status-starting { background: var(--accent); opacity: .5; }
 .status-in_terminal { background: #58c4dc; }
+/* Heurística do TUI: terminal processando pulsa (o "esperando você" reusa o âmbar do needs_attention). */
+.status-dot--pulse { animation: pulse 1.2s infinite; box-shadow: 0 0 10px #58c4dc; }
 @keyframes pulse { 50% { opacity: .4; } }
 .badge { background: var(--err); color: #fff; border-radius: 12px; font-size: 11px; padding: 2px 8px; box-shadow: 0 0 10px rgba(255,107,139,.5); }
 .card {

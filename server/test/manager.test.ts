@@ -420,6 +420,33 @@ describe('SessionManager', () => {
       ).toBe(true)
     })
 
+    it('onExit re-resolve o último thread da pasta: o transcript NOVO do TUI vira o id da sessão', async () => {
+      const { mgr, triggerExit } = makeManagerWithLauncher()
+      const info = mgr.start(project)
+      await waitUntil(() => mgr.get(info.localId)?.status === 'idle')
+      await mgr.openInTerminal(info.localId)
+
+      // o TUI (claude --resume) grava a conversa continuada num transcript NOVO
+      const cfgDir = mkdtempSync(join(tmpdir(), 'claude-cfg-'))
+      const projDir = join(cfgDir, 'projects', project.path.replace(/[^a-zA-Z0-9]/g, '-'))
+      mkdirSync(projDir, { recursive: true })
+      writeFileSync(join(projDir, 'thread-do-tui.jsonl'), '{"type":"user"}\n')
+      const prevCfg = process.env.CLAUDE_CONFIG_DIR
+      process.env.CLAUDE_CONFIG_DIR = cfgDir
+      broadcasts.length = 0
+      try {
+        triggerExit()
+      } finally {
+        if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR
+        else process.env.CLAUDE_CONFIG_DIR = prevCfg
+      }
+
+      const row = db.prepare('SELECT * FROM sessions WHERE local_id=?').get(info.localId) as any
+      expect(row.claude_session_id).toBe('thread-do-tui')
+      const b = broadcasts.filter((x: any) => x.type === 'session_status' && x.status === 'stopped').at(-1) as any
+      expect(b.engineSessionId).toBe('thread-do-tui')
+    })
+
     it('se o launcher lança, a sessão volta para stopped (não fica presa em in_terminal)', async () => {
       const boom = () => {
         throw new Error('spawn falhou')

@@ -343,14 +343,22 @@ export function createSessionManager(deps: Deps) {
           onExit: () => {
             const cur = deps.db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any
             if (cur?.status === 'in_terminal') {
-              persist(localId, 'stopped', null)
+              // O TUI (claude --resume / codex resume) grava a conversa num
+              // transcript NOVO — o id de antes do terminal ficou velho e o chat
+              // web voltaria sem o que aconteceu lá. Re-resolve o último thread
+              // da pasta e persiste: o histórico do chat passa a refletir o
+              // terminal assim que a UI recarrega pela troca de engineSessionId.
+              let latest: string | null = null
+              try { latest = getEngine(engineId).latestConversationId(project.path) } catch { latest = null }
+              const nextId = latest ?? resumeId
+              persist(localId, 'stopped', nextId)
               deps.broadcast({
                 type: 'session_status',
                 localId,
                 projectId: row.project_id,
                 engine: row.engine ?? DEFAULT_ENGINE_ID,
                 status: 'stopped',
-                engineSessionId: resumeId,
+                engineSessionId: nextId,
               })
             }
           },

@@ -176,3 +176,32 @@ describe('mensagens de usuário geradas pela engine (isMeta/isCompactSummary)', 
     expect(items).toEqual([{ kind: 'user_text', text: 'oi' }])
   })
 })
+
+describe('erro da API da engine (isApiErrorMessage)', () => {
+  it('assistant com raw.isApiErrorMessage vira assistant_text com isApiError', () => {
+    const items = applyEvent([], {
+      kind: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'API Error: 500 Internal server error' }] },
+      raw: { type: 'assistant', isApiErrorMessage: true },
+    } as never)
+    expect(items).toEqual([{ kind: 'assistant_text', text: 'API Error: 500 Internal server error', isApiError: true }])
+  })
+
+  it('sem flag mas com prefixo "API Error:" também marca (caminho ao vivo)', () => {
+    const items = applyEvent([], {
+      kind: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'API Error: Server error mid-response. The response above may be incomplete' }] },
+      raw: { type: 'assistant' },
+    } as never)
+    expect(items[0]).toMatchObject({ kind: 'assistant_text', isApiError: true })
+  })
+
+  it('assistant normal não ganha a marca', () => {
+    const items = applyEvent([], {
+      kind: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'tudo certo' }] },
+      raw: { type: 'assistant' },
+    } as never)
+    expect(items).toEqual([{ kind: 'assistant_text', text: 'tudo certo' }])
+  })
+})

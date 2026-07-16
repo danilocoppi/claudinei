@@ -86,6 +86,8 @@ export const es: typeof en = {
     editWorkingTitle: '¿Editar e interrumpir?',
     editWorkingMsg: 'El motor está procesando. Editar este mensaje INTERRUMPE el turno en curso y reinicia la conversación desde él.\nSi solo quieres corregir un mensaje en cola, cancela y espera a que termine el turno.',
     editWorkingConfirm: 'Interrumpir y editar',
+    apiErrorTitle: 'Error de la API del motor',
+    apiErrorHint: 'Fallo del lado del proveedor — la respuesta de arriba puede estar incompleta. Suele ser temporal: envía tu mensaje de nuevo.',
     interruptedToolUse: 'Interrumpido por el usuario — herramienta rechazada',
     edit: 'Editar este mensaje',
     startEngine: 'Iniciar {{engine}}',

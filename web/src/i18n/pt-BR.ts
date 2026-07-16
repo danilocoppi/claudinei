@@ -86,6 +86,8 @@ export const ptBR: typeof en = {
     editWorkingTitle: 'Editar e interromper?',
     editWorkingMsg: 'A engine está processando. Editar esta mensagem INTERROMPE o turno em andamento e recomeça a conversa a partir dela.\nSe você só quer corrigir uma mensagem que entrou na fila, cancele e espere o turno terminar.',
     editWorkingConfirm: 'Interromper e editar',
+    apiErrorTitle: 'Erro da API da engine',
+    apiErrorHint: 'Falha do lado do provedor — a resposta acima pode estar incompleta. Normalmente é temporário: mande a mensagem de novo.',
     interruptedToolUse: 'Interrompido pelo usuário — ferramenta recusada',
     edit: 'Editar esta mensagem',
     startEngine: 'Iniciar {{engine}}',

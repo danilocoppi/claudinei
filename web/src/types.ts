@@ -58,7 +58,9 @@ export type ChatItem =
   // fromEngine: conteúdo que aparece do lado do usuário mas foi injetado pela
   // engine/harness (isMeta, resumo de compact) — não foi digitado pelo operador.
   | { kind: 'user_text'; text: string; fromSubagent?: boolean; fromEngine?: boolean }
-  | { kind: 'assistant_text'; text: string; fromSubagent?: boolean }
+  // isApiError: erro interno da API do provedor que o CLI injeta como texto do
+  // assistant ("API Error: …") — vira callout de erro, não resposta normal.
+  | { kind: 'assistant_text'; text: string; fromSubagent?: boolean; isApiError?: boolean }
   | { kind: 'thinking'; text: string; fromSubagent?: boolean }
   | { kind: 'tool_call'; id: string; name: string; input: unknown; result?: string; isError?: boolean; fromSubagent?: boolean }
   /** Slash command digitado no terminal (ex.: /exit), registrado no transcript. */

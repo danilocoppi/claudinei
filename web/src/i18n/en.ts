@@ -84,6 +84,8 @@ export const en = {
     editWorkingTitle: 'Edit and interrupt?',
     editWorkingMsg: 'The engine is processing. Editing this message INTERRUPTS the turn in progress and restarts the conversation from it.\nIf you only want to fix a queued message, cancel and wait for the turn to finish.',
     editWorkingConfirm: 'Interrupt and edit',
+    apiErrorTitle: 'Engine API error',
+    apiErrorHint: 'Provider-side failure — the response above may be incomplete. Usually temporary: send your message again.',
     interruptedToolUse: 'Interrupted by the user — tool use declined',
     edit: 'Edit this message',
     startEngine: 'Start {{engine}}',

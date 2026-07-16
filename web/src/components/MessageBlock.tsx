@@ -109,6 +109,20 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
       return <UserTextBubble item={item} currentLocalId={currentLocalId} onEdit={onEdit} />
 
     case 'assistant_text':
+      // Erro interno da API do provedor (não é resposta): callout distinto, sem
+      // markdown nem encaminhar — o operador só precisa saber que foi a API e
+      // que a resposta pode ter vindo pela metade.
+      if (item.isApiError) {
+        return (
+          <div className="api-error" role="alert">
+            <div className="api-error__eyebrow">
+              <span aria-hidden="true">⚠</span> {t('chat.apiErrorTitle')}
+            </div>
+            <div className="api-error__msg">{item.text}</div>
+            <div className="api-error__hint">{t('chat.apiErrorHint')}</div>
+          </div>
+        )
+      }
       return (
         <div style={{ margin: '8px 0' }}>
           <div className="markdown" style={{ lineHeight: 1.6 }}>

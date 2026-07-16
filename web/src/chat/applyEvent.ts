@@ -56,10 +56,16 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
     case 'assistant': {
       const parentId = (evt.raw as any)?.parent_tool_use_id
       const fromSubagent = !!parentId
+      // Erro interno da API do provedor: flag do transcript OU prefixo do texto
+      // (o stream ao vivo não carrega a flag; o texto é gerado pelo próprio CLI).
+      const flaggedApiError = !!(evt.raw as any)?.isApiErrorMessage
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
       const added: ChatItem[] = []
       for (const b of blocks) {
-        if (b.type === 'text' && b.text) added.push({ kind: 'assistant_text', text: b.text, ...(fromSubagent ? { fromSubagent } : {}) })
+        if (b.type === 'text' && b.text) {
+          const isApiError = flaggedApiError || /^API Error:/i.test(b.text)
+          added.push({ kind: 'assistant_text', text: b.text, ...(fromSubagent ? { fromSubagent } : {}), ...(isApiError ? { isApiError } : {}) })
+        }
         else if (b.type === 'thinking' && b.thinking) added.push({ kind: 'thinking', text: b.thinking, ...(fromSubagent ? { fromSubagent } : {}) })
         else if (b.type === 'tool_use' && b.id && b.name) added.push({ kind: 'tool_call', id: b.id, name: b.name, input: b.input, ...(fromSubagent ? { fromSubagent } : {}) })
       }

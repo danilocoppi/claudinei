@@ -168,3 +168,20 @@ it('bolha do operador usa o design glass padrão (.msg-bubble, sem variante engi
   expect(bubble).toBeTruthy()
   expect(bubble!.classList.contains('msg-bubble--engine')).toBe(false)
 })
+
+describe('callout de erro da API da engine', () => {
+  it('assistant_text com isApiError vira callout distinto (sem markdown normal)', () => {
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'API Error: Server error mid-response. The response above may be incomplete', isApiError: true }} />)
+    expect(document.querySelector('.api-error')).toBeTruthy()
+    expect(screen.getByText('Erro da API da engine')).toBeTruthy()
+    expect(screen.getByText(/Server error mid-response/)).toBeTruthy()
+    expect(screen.getByText(/pode estar incompleta/)).toBeTruthy()
+    // sem botão de encaminhar num erro
+    expect(screen.queryByText('Encaminhar')).toBeNull()
+  })
+
+  it('assistant_text normal não vira callout', () => {
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'resposta ok' }} />)
+    expect(document.querySelector('.api-error')).toBeNull()
+  })
+})

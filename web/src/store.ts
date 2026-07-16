@@ -79,6 +79,8 @@ interface State {
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
   setHistory(localId: string, events: ClaudeEvent[]): void
+  /** Substitui os itens do chat já reduzidos (usado pelo retag de sessões longas). */
+  setChatItems(localId: string, items: ChatItem[]): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
   addLocalUserText(localId: string, text: string): void
   requestEdit(localId: string, text: string): void
@@ -138,6 +140,9 @@ export const useStore = create<State>((set, get) => ({
 
   setHistory: (localId, events) =>
     set((s) => ({ chat: { ...s.chat, [localId]: events.reduce(applyEvent, [] as ChatItem[]) } })),
+
+  setChatItems: (localId, items) =>
+    set((s) => ({ chat: { ...s.chat, [localId]: items } })),
 
   markHistoryLoaded: (localId, engineSessionId) =>
     set((s) => ({ historyLoadedFor: { ...s.historyLoadedFor, [localId]: engineSessionId } })),

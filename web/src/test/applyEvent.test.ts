@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyEvent } from '../chat/applyEvent'
+import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
 import type { ChatItem, ClaudeEvent } from '../types'
 
 const assistantEvt = (content: object[], raw: unknown = {}): ClaudeEvent =>
@@ -203,5 +203,31 @@ describe('erro da API da engine (isApiErrorMessage)', () => {
       raw: { type: 'assistant' },
     } as never)
     expect(items).toEqual([{ kind: 'assistant_text', text: 'tudo certo' }])
+  })
+})
+
+describe('mergeEngineFlags — retag em sessão longa (histórico limitado)', () => {
+  it('copia fromEngine/isApiError da rebusca para os itens já na tela (match por texto)', () => {
+    const current: ChatItem[] = [
+      { kind: 'user_text', text: 'meu pedido' },
+      { kind: 'user_text', text: 'Base directory for this skill: /x' },
+      { kind: 'assistant_text', text: 'API Error: 500' },
+      { kind: 'assistant_text', text: 'resposta normal' },
+    ]
+    const reduced: ChatItem[] = [
+      { kind: 'user_text', text: 'Base directory for this skill: /x', fromEngine: true },
+      { kind: 'assistant_text', text: 'API Error: 500', isApiError: true },
+    ]
+    const out = mergeEngineFlags(current, reduced)!
+    expect(out[0]).toEqual({ kind: 'user_text', text: 'meu pedido' })
+    expect(out[1]).toMatchObject({ fromEngine: true })
+    expect(out[2]).toMatchObject({ isApiError: true })
+    expect(out[3]).toEqual({ kind: 'assistant_text', text: 'resposta normal' })
+  })
+
+  it('sem nada para retaguear devolve null (evita re-render à toa)', () => {
+    const current: ChatItem[] = [{ kind: 'user_text', text: 'oi' }]
+    expect(mergeEngineFlags(current, [{ kind: 'user_text', text: 'oi' }])).toBeNull()
+    expect(mergeEngineFlags(current, [{ kind: 'user_text', text: 'outra', fromEngine: true }])).toBeNull()
   })
 })

@@ -100,3 +100,33 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       return items
   }
 }
+
+/**
+ * Retag para sessões LONGAS: o endpoint de histórico devolve só os últimos N
+ * eventos — quando a tela acumulou mais itens que isso, substituir o chat
+ * encolheria a conversa (o guard do ChatView rejeita). Este merge copia apenas
+ * as FLAGS que o transcript conhece e o stream ao vivo não (fromEngine,
+ * isApiError) para os itens já exibidos, casando por texto. Null = nada mudou.
+ */
+export function mergeEngineFlags(current: ChatItem[], reduced: ChatItem[]): ChatItem[] | null {
+  const engineTexts = new Set<string>()
+  const apiErrTexts = new Set<string>()
+  for (const it of reduced) {
+    if (it.kind === 'user_text' && it.fromEngine) engineTexts.add(it.text)
+    if (it.kind === 'assistant_text' && it.isApiError) apiErrTexts.add(it.text)
+  }
+  if (engineTexts.size === 0 && apiErrTexts.size === 0) return null
+  let changed = false
+  const next = current.map((it) => {
+    if (it.kind === 'user_text' && !it.fromEngine && engineTexts.has(it.text)) {
+      changed = true
+      return { ...it, fromEngine: true }
+    }
+    if (it.kind === 'assistant_text' && !it.isApiError && apiErrTexts.has(it.text)) {
+      changed = true
+      return { ...it, isApiError: true }
+    }
+    return it
+  })
+  return changed ? next : null
+}

@@ -9,7 +9,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import type { ChatItem, SessionStatus } from '../types'
 import { WsContext } from '../wsContext'
 import { isEditableUserText } from '../chat/history'
-import { applyEvent } from '../chat/applyEvent'
+import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
@@ -51,7 +51,16 @@ export function ChatView() {
         // histórico carregado não perde itens do que já está na tela.
         const reduced = events.reduce(applyEvent, [] as ChatItem[])
         const current = useStore.getState().chat[activeLocalId] ?? []
-        if (reduced.length >= current.length) setHistory(activeLocalId, events)
+        if (reduced.length >= current.length) {
+          setHistory(activeLocalId, events)
+        } else {
+          // Sessão LONGA: o histórico vem limitado (últimos N eventos) e reduz a
+          // menos itens do que a tela acumulou — substituir encolheria a conversa.
+          // Ainda assim aproveita a rebusca para RETAGUEAR o que o stream ao vivo
+          // não sabia (fromEngine/isApiError), casando por texto.
+          const retagged = mergeEngineFlags(current, reduced)
+          if (retagged) useStore.getState().setChatItems(activeLocalId, retagged)
+        }
       }
       markHistoryLoaded(activeLocalId, key)
     })

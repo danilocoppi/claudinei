@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import type { FileKind } from '../files'
-import { fileContentUrl } from '../files'
+import { fileContentUrl, langOfPath } from '../files'
 import { useStore } from '../store'
 import type { Components } from 'react-markdown'
 import { MarkdownPre } from './MarkdownPre'
@@ -92,7 +92,7 @@ export function FileBody({ kind, url, name, compact }: { kind: FileKind; url: st
       </div>
     )
   }
-  return <TextBody kind={kind} url={url} />
+  return <TextBody kind={kind} url={url} name={name} />
 }
 
 type TextState =
@@ -100,7 +100,7 @@ type TextState =
   | { status: 'error'; code: number }
   | { status: 'ok'; text: string }
 
-function TextBody({ kind, url }: { kind: FileKind; url: string }) {
+function TextBody({ kind, url, name }: { kind: FileKind; url: string; name: string }) {
   const { t } = useTranslation()
   const openExternalLink = useStore((s) => s.openExternalLink)
   const [state, setState] = useState<TextState>({ status: 'loading' })
@@ -152,6 +152,23 @@ function TextBody({ kind, url }: { kind: FileKind; url: string }) {
       <div className="markdown" style={{ lineHeight: 1.6 }}>
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={mdComponents}>
           {state.text}
+        </ReactMarkdown>
+      </div>
+    )
+  }
+
+  // Código: colore com o MESMO pipeline do chat (fence markdown → rehypeHighlight,
+  // sem innerHTML). Fence maior que qualquer sequência de ``` do arquivo (não
+  // quebra em arquivos que contêm markdown); cap de 300KB — acima disso o
+  // highlight travaria a UI e cai no <pre> puro.
+  const lang = kind === 'code' ? langOfPath(name) : null
+  if (lang && state.text.length <= 300_000) {
+    const runs = state.text.match(/`{3,}/g)
+    const fence = '`'.repeat(Math.max(3, ...(runs?.map((r) => r.length + 1) ?? [0])))
+    return (
+      <div className="markdown code-preview" style={{ lineHeight: 1.55 }}>
+        <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={{ pre: MarkdownPre }}>
+          {`${fence}${lang}\n${state.text}\n${fence}`}
         </ReactMarkdown>
       </div>
     )

@@ -72,6 +72,19 @@ const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', '
 const CODE_EXT = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'rb', 'java', 'c', 'h', 'cpp', 'cc', 'cs', 'php', 'swift', 'kt', 'sh', 'bash', 'zsh', 'sql', 'json', 'jsonc', 'yaml', 'yml', 'toml', 'ini', 'css', 'scss', 'less', 'html', 'xml', 'vue', 'svelte'])
 const TEXT_EXT = new Set(['txt', 'log', 'csv', 'tsv', 'env', 'gitignore', 'diff', 'patch', 'text'])
 
+// Linguagem do highlight.js pela extensão — para o preview de código colorido.
+// A maioria das extensões JÁ É um alias válido do hljs (js, ts, py, rb, sh…);
+// aqui só os desvios. Null = sem highlight (extensão desconhecida).
+const LANG_ALIAS: Record<string, string> = {
+  h: 'c', cc: 'cpp', jsonc: 'json', mjs: 'js', cjs: 'js',
+  vue: 'html', svelte: 'html', zsh: 'bash', toml: 'ini',
+}
+export function langOfPath(path: string): string | null {
+  const ext = /\.([A-Za-z0-9]{1,8})$/.exec(path)?.[1]?.toLowerCase() ?? ''
+  if (!CODE_EXT.has(ext)) return null
+  return LANG_ALIAS[ext] ?? ext
+}
+
 export function kindOfPath(path: string): FileKind {
   const m = /\.([A-Za-z0-9]{1,8})$/.exec(path)
   const ext = m?.[1]?.toLowerCase() ?? ''

@@ -146,3 +146,31 @@ it('header NÃO tem mais o botão Baixar (removido a pedido); binário mantém o
   expect(screen.queryByText('Baixar')).toBeNull()
   useStore.setState({ fileViewer: null })
 })
+
+describe('preview de código colorido (highlight estilo IDE, só leitura)', () => {
+  it('.js renderiza com tokens do highlight.js (const vira keyword)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('const x = 1\n', { status: 200 }))
+    open('code', '/p/app.js', 1)
+    render(<FileViewerModal />)
+    await waitFor(() => expect(document.querySelector('.code-preview code')).toBeTruthy())
+    const kw = document.querySelector('.code-preview .hljs-keyword')
+    expect(kw?.textContent).toBe('const')
+  })
+
+  it('arquivo de código contendo ``` não quebra o fence (conteúdo íntegro)', async () => {
+    const conteudo = 'const md = `\n```js\nx\n```\n`\n'
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(conteudo, { status: 200 }))
+    open('code', '/p/gera-doc.js', 1)
+    render(<FileViewerModal />)
+    await waitFor(() => expect(document.querySelector('.code-preview code')).toBeTruthy())
+    expect(document.querySelector('.code-preview code')!.textContent).toContain('```js')
+  })
+
+  it('extensão sem highlight (kind text) continua no <pre> puro', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('linha simples', { status: 200 }))
+    open('text', '/p/notas.txt', 1)
+    render(<FileViewerModal />)
+    await waitFor(() => expect(screen.getByText('linha simples')).toBeTruthy())
+    expect(document.querySelector('.code-preview')).toBeNull()
+  })
+})

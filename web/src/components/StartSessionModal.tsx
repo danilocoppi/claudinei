@@ -107,8 +107,10 @@ export function StartSessionModal({ project, onClose }: { project: Project; onCl
                     : undefined}
                   onClick={() => pickEngine(e.id)}
                 >
-                  <EngineIcon className="engine-picker__icon" icon={e.icon} />
-                  <span>{e.label}</span>
+                  <span className="engine-picker__id">
+                    <EngineIcon className="engine-picker__icon" icon={e.icon} />
+                    <span>{e.label}</span>
+                  </span>
                   {e.available === false && <span className="engine-picker__missing">{t('chat.engineNotInstalled')}</span>}
                 </button>
               ))}

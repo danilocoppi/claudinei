@@ -81,14 +81,23 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .file-link { color: var(--accent); text-decoration: underline dotted; cursor: pointer; }
 .file-link:hover { text-decoration-style: solid; }
 
-/* Seletor de engine (segmented control) no topo do modal de nova sessão */
-.engine-picker { display: flex; gap: 8px; }
+/* Seletor de engine (segmented control) no topo do modal de nova sessão.
+   min-width: 0 + wrap: com as 3 engines "não instaladas" os selos somados passam
+   da largura do modal — sem isto os botões não encolhem (min-width: auto do
+   flexbox) e o último vaza pra fora do vidro. O selo quebra pra uma 2ª linha
+   dentro do botão (flex-basis: 100%) em vez de espremer o rótulo. */
+.engine-picker { display: flex; flex-wrap: wrap; gap: 8px; }
 .engine-picker__btn {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; align-content: center; justify-content: center; gap: 6px 8px;
   padding: 9px 12px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 13px;
   background: rgba(0,0,0,.18); border: 1px solid var(--glass-border); color: var(--text-dim);
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
+.engine-picker__btn > span { white-space: nowrap; }
+/* Ícone + rótulo num grupo indivisível — sem ele o wrap podia soltar o ícone
+   numa linha e o rótulo noutra (visto com "Claude Code" na largura default). */
+.engine-picker__id { display: inline-flex; align-items: center; gap: 8px; }
+.engine-picker__btn .engine-picker__missing { flex-basis: 100%; text-align: center; }
 .engine-picker__btn:hover { background: rgba(0,0,0,.26); border-color: rgba(255,255,255,.2); }
 .engine-picker__btn.active { background: var(--glass-bg-strong); border-color: var(--accent); color: var(--text); }
 .engine-picker__icon { font-family: var(--emoji); font-size: 16px; line-height: 1; }

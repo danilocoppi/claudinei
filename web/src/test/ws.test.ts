@@ -52,4 +52,43 @@ describe('connectWs', () => {
     sock.onopen?.()
     expect(sock.send).toHaveBeenCalledWith(JSON.stringify({ type: 'send_message', text: 'oi' }))
   })
+
+  it('M13: usa wss:// quando a página é https (e ws:// quando http)', () => {
+    vi.stubGlobal('location', { host: 'x', protocol: 'https:' } as any)
+    connectWs(() => {})
+    expect(FakeWS.instances[0].url).toBe('wss://x/ws')
+    vi.stubGlobal('location', { host: 'x', protocol: 'http:' } as any)
+    connectWs(() => {})
+    expect(FakeWS.instances[1].url).toBe('ws://x/ws')
+  })
+
+  it('I8: chama onReconnect só na RE-conexão, nunca no primeiro open', () => {
+    const onReconnect = vi.fn()
+    connectWs(() => {}, onReconnect)
+    const first = FakeWS.instances[0]
+    first.readyState = FakeWS.OPEN
+    first.onopen?.()
+    expect(onReconnect).not.toHaveBeenCalled() // primeira conexão: nada a ressincronizar
+    first.onclose?.() // queda
+    vi.advanceTimersByTime(2000)
+    const second = FakeWS.instances[1]
+    second.readyState = FakeWS.OPEN
+    second.onopen?.()
+    expect(onReconnect).toHaveBeenCalledOnce()
+  })
+
+  it('M14: no flush do open, mensagens enfileiradas há mais de 15s são descartadas', () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1_000)
+    const conn = connectWs(() => {})
+    conn.send({ type: 'interrupt', localId: 'x' }) // clicado durante a queda…
+    now.mockReturnValue(1_000 + 16_000) // …16s atrás no momento do flush
+    conn.send({ type: 'send_message', text: 'fresca' })
+    const sock = FakeWS.instances[0]
+    sock.readyState = FakeWS.OPEN
+    sock.onopen?.()
+    expect(sock.send).toHaveBeenCalledTimes(1) // o interrupt velho NÃO é entregue
+    expect(sock.send).toHaveBeenCalledWith(JSON.stringify({ type: 'send_message', text: 'fresca' }))
+    now.mockRestore()
+  })
 })

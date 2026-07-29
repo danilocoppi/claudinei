@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync } from 'node:fs'
+import { tmpdir, homedir } from 'node:os'
+import { join, dirname } from 'node:path'
 import { isPackaged, cacheRoot, extractTree, buildIdOf, ensureNativeCache } from '../src/pkg-runtime.js'
 
 describe('isPackaged', () => {
@@ -13,8 +13,8 @@ describe('cacheRoot', () => {
     const r = cacheRoot('9', { XDG_CACHE_HOME: '/x/cache' } as never)
     expect(r).toBe('/x/cache/claudinei/native-9')
   })
-  it('sem XDG cai em tmpdir', () => {
-    expect(cacheRoot('9', {} as never)).toContain(join('claudinei', 'native-9'))
+  it('sem XDG cai em ~/.cache (spec XDG), não em /tmp', () => {
+    expect(cacheRoot('9', {} as never)).toBe(join(homedir(), '.cache', 'claudinei', 'native-9'))
   })
 })
 
@@ -36,6 +36,8 @@ describe('extractTree', () => {
     writeFileSync(join(src, 'c.txt'), 'C')
     extractTree(src, dst)
     expect(readFileSync(join(dst, 'c.txt'), 'utf8')).toBe('C')
+    // escrita atômica: nenhum .tmp- sobra no destino
+    expect(readdirSync(dst).filter((n) => n.includes('.tmp-'))).toEqual([])
     rmSync(src, { recursive: true }); rmSync(dst, { recursive: true })
   })
 })
@@ -67,7 +69,7 @@ describe('ensureNativeCache chaveado por build-id (rebuild atualiza a UI)', () =
     return assets
   }
 
-  it('build novo (build-id novo) → dir novo, index.html NOVO servido; o cache do build velho é podado', () => {
+  it('build novo (build-id novo) → dir novo, index.html NOVO servido; cache recente NÃO é podado', () => {
     process.env.XDG_CACHE_HOME = mkdtempSync(join(tmpdir(), 'cache-'))
     // build A
     const a = ensureNativeCache({ snapshotAssets: mkAssets('buildA', '<html>A</html>'), version: 'v1' })
@@ -76,8 +78,20 @@ describe('ensureNativeCache chaveado por build-id (rebuild atualiza a UI)', () =
     const b = ensureNativeCache({ snapshotAssets: mkAssets('buildB', '<html>B</html>'), version: 'v1' })
     expect(b.webDir).not.toBe(a.webDir)
     expect(readFileSync(join(b.webDir, 'index.html'), 'utf8')).toBe('<html>B</html>')
-    // poda: o cache do build A não fica acumulando
+    // o cache de A é recente: uma instância antiga ainda rodando pode precisar dele
+    expect(existsSync(a.webDir)).toBe(true)
+  })
+
+  it('poda só caches com mais de 7 dias (instância antiga rodando não perde os nativos)', () => {
+    process.env.XDG_CACHE_HOME = mkdtempSync(join(tmpdir(), 'cache-'))
+    const a = ensureNativeCache({ snapshotAssets: mkAssets('buildA', '<html>A</html>'), version: 'v1' })
+    const b = ensureNativeCache({ snapshotAssets: mkAssets('buildB', '<html>B</html>'), version: 'v1' })
+    // envelhece o cache de A (mtime > 7 dias) e roda um build novo → A é podado, B (recente) fica
+    const oldSec = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000
+    utimesSync(dirname(a.webDir), oldSec, oldSec)
+    ensureNativeCache({ snapshotAssets: mkAssets('buildC', '<html>C</html>'), version: 'v1' })
     expect(existsSync(a.webDir)).toBe(false)
+    expect(existsSync(b.webDir)).toBe(true)
   })
 
   it('sem build-id no snapshot cai na version (compat com binário antigo)', () => {

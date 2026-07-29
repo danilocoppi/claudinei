@@ -39,6 +39,7 @@ The frontend talks to the backend via REST + WebSocket (`/ws` for session events
 | **Node.js 22+** | developed and tested with **Node 24** |
 | **npm** | the repo uses npm workspaces (a single root `node_modules`) |
 | **Claude Code CLI** | the `claude` binary on PATH, **already authenticated** (run `claude` once → login). Install with `npm install -g @anthropic-ai/claude-code` |
+| **Other engines** (optional) | each one is used only if its CLI is on PATH and authenticated: **Codex** (`npm install -g @openai/codex`), **OpenCode** (`npm install -g opencode-ai`), **Kimi Code** (`npm install -g @moonshot-ai/kimi-code`, then `kimi login`) |
 | **git** | used by Claude Code's normal workflows |
 | **curl + tar** | used by the optional voice-transcription setup (standard on Linux and Windows 10+) |
 
@@ -299,7 +300,7 @@ Later launches reuse both. The Claude Code CLI is still a prerequisite on the ta
 ### Run the binary as a service (systemd)
 
 The binary serves the SPA **and** the API on one port (9105), so it's a **single** user
-service — no root needed (it runs with your PATH/HOME, where `claude`/`codex`/`opencode`
+service — no root needed (it runs with your PATH/HOME, where `claude`/`codex`/`opencode`/`kimi`
 and `~/.claudinei` live):
 
 ```bash
@@ -316,7 +317,7 @@ ExecStart=%h/Projects/Termaster/release/claudinei-linux-x64
 # ExecStart=%h/Projects/Termaster/release/claudinei-linux-x64 --host 0.0.0.0
 Restart=on-failure
 RestartSec=3
-# claude/codex/opencode must be on the service PATH (check with `which claude`):
+# claude/codex/opencode/kimi must be on the service PATH (check with `which claude`):
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]

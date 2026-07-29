@@ -37,4 +37,24 @@ describe('api de auth', () => {
     expect(handler).not.toHaveBeenCalled()
     window.removeEventListener('claudinei:unauthorized', handler)
   })
+
+  it('M18: 401 do transcribeAudio (fetch cru) também dispara claudinei:unauthorized', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ error: 'unauthorized' }, 401))
+    const handler = vi.fn()
+    window.addEventListener('claudinei:unauthorized', handler)
+    const { transcribeAudio } = await import('../api')
+    await expect(transcribeAudio(new Blob(['x']))).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
+    window.removeEventListener('claudinei:unauthorized', handler)
+  })
+
+  it('M18: 401 do uploadFile (fetch cru multipart) também dispara claudinei:unauthorized', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ error: 'unauthorized' }, 401))
+    const handler = vi.fn()
+    window.addEventListener('claudinei:unauthorized', handler)
+    const { uploadFile } = await import('../api')
+    await expect(uploadFile(new File(['x'], 'a.txt'))).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
+    window.removeEventListener('claudinei:unauthorized', handler)
+  })
 })

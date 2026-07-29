@@ -32,6 +32,11 @@ export function registerOrchestratorRoutes(
     const delivered = deps.manager.dispatchTask(next.toProjectId, next.fromProjectName ?? 'unknown', next.description, (status, result) => {
       tasks.setResult(next.id, status, result)
       broadcastTask(next.id)
+      // Falha (timeout/dead/stopped/busy) não passa por onSessionAvailable —
+      // sem este drain a próxima queued do projeto ficaria parada até o
+      // próximo POST /dispatch. setImmediate quebra a reentrância do caminho
+      // em que o onComplete é chamado sincronamente pelo dispatchTask.
+      if (status === 'failed') setImmediate(() => drain(next.toProjectId))
     })
     // A engine que executa só é conhecida na entrega (o dispatch pega a 1ª sessão
     // livre do projeto — pode ser o Claude, o Codex ou o OpenCode dele).
@@ -50,6 +55,10 @@ export function registerOrchestratorRoutes(
     const body = req.body as { fromProjectId?: number; toProjectName?: string; description?: string; fromEngine?: string }
     if (!body?.toProjectName || !body?.description) {
       return reply.code(400).send({ error: 'toProjectName and description are required' })
+    }
+    // Mesmo teto do mural/ask: a descrição vai ao SQLite e ao broadcast WS.
+    if (body.description.length > 50_000) {
+      return reply.code(400).send({ error: 'description must be at most 50000 chars' })
     }
     const target = projects.list().find((p) => p.name.toLowerCase() === body.toProjectName!.toLowerCase())
     if (!target) return reply.code(404).send({ error: `project "${body.toProjectName}" does not exist` })

@@ -165,17 +165,17 @@ describe('GET /api/files/content — fora de escopo (RBAC)', () => {
     const outsideDir = mkdtempSync(join(tmpdir(), 'files-routes-outside-'))
     outsideFile = join(outsideDir, 'segredo.txt')
     writeFileSync(outsideFile, 'top secret')
-    auth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
-    auth.users.create({ username: 'ana', password: 'abcd', projectIds: [anaProjectId] })
-    anaCookie = cookieOf(await authApp.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd' } }))
+    auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
+    auth.users.create({ username: 'ana', password: 'abcd1234', projectIds: [anaProjectId] })
+    anaCookie = cookieOf(await authApp.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd1234' } }))
   })
 
-  it('não-admin com path absoluto fora da raiz do projeto → 403 (mesmo com projectId válido)', async () => {
+  it('não-admin com path absoluto fora da raiz do projeto → 404 (indistinguível de inexistente — sem oráculo de existência)', async () => {
     const res = await authApp.inject({
       method: 'GET',
       url: `/api/files/content?path=${encodeURIComponent(outsideFile)}&projectId=${anaProjectId}`,
       cookies: anaCookie,
     })
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(404)
   })
 })

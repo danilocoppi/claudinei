@@ -6,6 +6,9 @@ import type { SessionStatus } from '../../claude/session.js'
 import { buildRunArgs, buildResumeArgs, hermesConfigEnv } from './opencode-args.js'
 import { createOpenCodeTurnParser } from './opencode-parser.js'
 
+// Margem sob o MAX_ARG_STRLEN do Linux (131071 bytes por argumento do argv).
+const MAX_PROMPT_BYTES = 120_000
+
 /** Sessão OpenCode turn-based: 1 processo `opencode run`/`run -s` por turno. */
 export class OpenCodeSession extends EventEmitter implements EngineSession {
   status: SessionStatus = 'starting'
@@ -32,6 +35,21 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
   send(text: string): void {
     if (this.status === 'stopped' || this.status === 'dead') throw new Error(`sessão não aceita mensagem no status ${this.status}`)
     if (this.status === 'working') throw new Error('turno em andamento')
+    // O prompt vai por argv (o `opencode run` não lê stdin) e o Linux limita um
+    // único argumento a ~128 KB (MAX_ARG_STRLEN). Acima disso o spawn falha com
+    // E2BIG e a sessão morreria com a mensagem perdida — rejeita com um result
+    // de erro claro e mantém a sessão viva.
+    if (Buffer.byteLength(text, 'utf8') > MAX_PROMPT_BYTES) {
+      this.emit('event', {
+        kind: 'result' as const,
+        subtype: 'error',
+        isError: true,
+        resultText: `mensagem grande demais para o OpenCode (~${Math.round(MAX_PROMPT_BYTES / 1024)} KB por mensagem; o prompt vai por argv). Divida a mensagem ou use outra engine.`,
+        costUsd: 0,
+        raw: {},
+      })
+      return
+    }
     const bin = this.opts.binOverride ?? this.opts.bin ?? process.env.CLAUDINEI_OPENCODE_BIN ?? 'opencode'
     const turnOpts = { model: this.model, effort: this.effort, prompt: text }
     const base = this.sessionId

@@ -35,8 +35,8 @@ describe('openCodeEngine', () => {
     expect(c.icon).toBeTruthy()
     expect(Array.isArray(c.models)).toBe(true)
   })
-  it('readHistory sem sessão → []', () => {
-    expect(openCodeEngine.readHistory('/nao/existe', 'ses_nada')).toEqual([])
+  it('readHistory sem sessão → []', async () => {
+    await expect(openCodeEngine.readHistory('/nao/existe', 'ses_nada')).resolves.toEqual([])
   })
   it('latestConversationId: nunca lança e é idempotente (cache) para projeto inexistente', () => {
     expect(() => openCodeEngine.latestConversationId('/nao/existe')).not.toThrow()

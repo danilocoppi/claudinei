@@ -106,3 +106,19 @@ Smoke Hermes: A perguntou a B via perguntar_agente (B respondeu 42), A publicou 
 ### D21 — Conversa parcial ao reviver (pedido explícito do /goal)
 - **Pedido:** "qnd der um resume de uma sessão que já existe, na web deve mostrar parcial da conversa anterior para ajudar o operador a se contextualizar."
 - **Escolha:** já coberto pela feature 2a/D4 — ao reviver, o `effectiveClaudeId` (id do Claude conhecido imediatamente pelo DB) dispara o carregamento do histórico do transcript, e o chat re-renderiza as mensagens anteriores. O operador abre a sessão revivida e vê a conversa que já existia, sem precisar reenviar nada. Nenhum trabalho adicional necessário — o requisito estava satisfeito pela arquitetura de histórico.
+
+## Engine Kimi Code (2026-07-29)
+
+### D22 — Como injetar o MCP hermes numa engine sem flag de MCP
+- **Contexto:** a CLI `kimi` (`@moonshot-ai/kimi-code` 0.30) não tem equivalente ao `--mcp-config` do Claude nem ao `-c mcp_servers.*` do Codex. Ela lê `mcp.json` do data root, resolvido de `KIMI_CODE_HOME` (fallback `~/.kimi-code`) — confirmado no bundle da CLI e por spike (as 6 tools do hermes apareceram no `mcp.tools_discovered`). Sem isso, sessões Kimi ficariam sem colaboração agente↔agente, e um `mcp.json` global não resolveria: cada sessão precisa do `CLAUDINEI_PROJECT_ID` do SEU projeto.
+- **Opções:** (A) escrever `.mcp.json` na raiz do projeto do usuário — polui o repo e entra no git dele; (B) `KIMI_CODE_HOME` por projeto, com login/config compartilhados por symlink; (C) desistir do hermes no Kimi.
+- **Escolha: (B).** Data root em `~/.claudinei/kimi-homes/<hash do caminho do projeto>` — determinístico, então `readHistory`/`latestConversationId` recalculam o mesmo dir sem estado extra. `credentials`/`oauth`/`config.toml`/`skills`/... são symlinks para o home real (login e preferências do usuário continuam valendo); só `mcp.json` e as sessões são por projeto. O `mcp.json` preserva os MCP servers do usuário e acrescenta o hermes (mesma filosofia do `OPENCODE_CONFIG_CONTENT`).
+- **Efeito colateral aceito e documentado no código:** sessões criadas pela plataforma não aparecem no `kimi` rodado à mão fora dela (data roots diferentes).
+- **Consequência de design:** `Engine.terminalCommand` passou a poder devolver `env`, propagado até o PTY (aditivo ao ambiente) — sem isso o terminal embutido abriria no data root errado e o `-r` não acharia a conversa.
+
+### D23 — Turno, retomada e histórico do Kimi
+- **Turn-based** (1 processo `kimi -p <prompt> --output-format stream-json` por turno), como Codex/OpenCode. `-p` não combina com `-y/--yolo` nem `--auto` (a CLI recusa): no modo prompt as tool calls já rodam sem aprovação — daí `permissions: []`.
+- **O id da conversa só chega no FIM do turno** (`{"role":"meta","type":"session.resume_hint"}`), diferente do Codex (que anuncia no início). Emitimos `init` assim mesmo para o manager persistir o `engineSessionId`; durante o 1º turno o "abrir no terminal" depende do fallback `latestConversationId`, que lê o `session_index.jsonl`.
+- **Histórico** vem do disco (`sessions/<wd>/<id>/agents/main/wire.jsonl`), não do `kimi export` (que gera ZIP). O texto do usuário sai do `turn.prompt`; o `context.append_message` seguinte é ignorado de propósito — repete o prompt e carrega os system-reminders de plugins/skills.
+- **Sem tokens/usage no stream** → `result` sem `tokens` (mesma situação do Claude); o card de usage por engine não conta Kimi.
+- **Prompt vai por argv** (`-p <valor>`) → mesma trava de ~120 KB do OpenCode (MAX_ARG_STRLEN), com erro claro no chat em vez de sessão morta.

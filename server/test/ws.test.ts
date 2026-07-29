@@ -50,6 +50,30 @@ const waitUntil = async (cond: () => boolean, ms = 5000) => {
 }
 
 describe('websocket hub', () => {
+  it('rejeita conexão com Origin de terceiro (CSWSH) sem enviar snapshot', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { origin: 'https://evil.example' } })
+    const msgs = collect(ws)
+    const closed = new Promise<number>((r) => ws.once('close', (code) => r(code)))
+    const gotSnapshot = waitUntil(() => msgs.some((m: any) => m.type === 'sessions_snapshot')).then(() => -1)
+    const code = await Promise.race([closed, gotSnapshot])
+    expect(code).toBe(1008)
+    expect(msgs.some((m: any) => m.type === 'sessions_snapshot')).toBe(false)
+  })
+
+  it('aceita conexão com Origin do próprio host', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { origin: `http://127.0.0.1:${port}` } })
+    const msgs = collect(ws)
+    await waitUntil(() => msgs.some((m: any) => m.type === 'sessions_snapshot'))
+    ws.close()
+  })
+
+  it('aceita conexão com Origin loopback (dev via Vite)', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { origin: 'http://localhost:9100' } })
+    const msgs = collect(ws)
+    await waitUntil(() => msgs.some((m: any) => m.type === 'sessions_snapshot'))
+    ws.close()
+  })
+
   it('envia snapshot ao conectar e retransmite eventos de sessão', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
     const msgs = collect(ws)

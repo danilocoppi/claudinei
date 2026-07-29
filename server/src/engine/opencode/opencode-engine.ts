@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import Database from 'better-sqlite3'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -11,19 +12,27 @@ const SLASH = ['new', 'sessions', 'models', 'share', 'compact', 'undo', 'redo', 
 
 function bin(): string { return process.env.CLAUDINEI_OPENCODE_BIN ?? 'opencode' }
 
-// Models são dinâmicos (dependem dos providers do usuário). Cacheados 5 min para
-// não spawnar `opencode models` a cada GET /api/engines. Falha → cache anterior ou
-// [] (não pode quebrar a rota).
+const execFileP = promisify(execFile)
+
+// Models são dinâmicos (dependem dos providers do usuário). Cacheados 5 min. O
+// refresh é ASSÍNCRONO e em background: `opencode models` pode levar até 5 s e a
+// versão síncrona congelava o GET /api/engines (e o event loop inteiro) — na
+// primeira chamada devolve [] e a lista aparece na recarga seguinte.
 let modelsCache: { at: number; models: string[] } | null = null
+let modelsRefreshing = false
 function listModels(): string[] {
-  if (modelsCache && Date.now() - modelsCache.at < 300_000) return modelsCache.models
-  let models: string[] = []
-  try {
-    const out = execFileSync(bin(), ['models'], { timeout: 5000, encoding: 'utf8' })
-    models = ['', ...out.split('\n').map((l) => l.trim()).filter(Boolean)]
-  } catch { models = modelsCache?.models ?? [] }
-  modelsCache = { at: Date.now(), models }
-  return models
+  const fresh = modelsCache && Date.now() - modelsCache.at < 300_000
+  if (!fresh && !modelsRefreshing) {
+    modelsRefreshing = true
+    execFile(bin(), ['models'], { timeout: 5000, encoding: 'utf8' }, (err, out) => {
+      modelsRefreshing = false
+      const models = err
+        ? (modelsCache?.models ?? []) // falha → mantém cache anterior ou [] (não quebra a rota)
+        : ['', ...out.split('\n').map((l) => l.trim()).filter(Boolean)]
+      modelsCache = { at: Date.now(), models }
+    })
+  }
+  return modelsCache?.models ?? []
 }
 
 // latestConversationId agora lê direto do SQLite do opencode (read-only, sem
@@ -65,9 +74,13 @@ export const openCodeEngine: Engine = {
   id: 'opencode',
   bin,
   createSession(opts: EngineSessionOptions): EngineSession { return new OpenCodeSession(opts) },
-  readHistory(_projectPath: string, sessionId: string): AgentEvent[] {
-    try { return parseExport(execFileSync(bin(), ['export', sessionId], { timeout: 8000, encoding: 'utf8' })) }
-    catch { return [] }
+  async readHistory(_projectPath: string, sessionId: string): Promise<AgentEvent[]> {
+    // Async: o export pode levar até 8 s — a versão síncrona congelava o event
+    // loop inteiro (WS/PTYs de todos) a cada carga de histórico.
+    try {
+      const { stdout } = await execFileP(bin(), ['export', sessionId], { timeout: 8000, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+      return parseExport(stdout)
+    } catch { return [] }
   },
   latestConversationId(projectPath: string): string | null {
     // Lê direto do SQLite do opencode (read-only, sem subprocesso). Antes rodava

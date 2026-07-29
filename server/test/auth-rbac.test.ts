@@ -50,10 +50,10 @@ beforeEach(async () => {
   const projects = createProjectsService(db)
   p1 = projects.create({ name: 'Alfa', path: mkdtempSync(join(tmpdir(), 'p1-')) })
   p2 = projects.create({ name: 'Beta', path: mkdtempSync(join(tmpdir(), 'p2-')) })
-  auth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
-  auth.users.create({ username: 'ana', password: 'abcd', projectIds: [p1.id] })
-  adminCookie = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd' } }))
-  anaCookie = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd' } }))
+  auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
+  auth.users.create({ username: 'ana', password: 'abcd1234', projectIds: [p1.id] })
+  adminCookie = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd1234' } }))
+  anaCookie = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd1234' } }))
 })
 
 describe('projetos', () => {

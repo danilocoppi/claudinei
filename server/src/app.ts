@@ -49,6 +49,8 @@ export interface AppDeps {
   onOrchestratorReady?: (drain: (projectId: number) => void) => void
   /** Auth multi-usuário. Ausente (testes legados) = sem auth: comportamento aberto de sempre. */
   auth?: AuthService
+  /** --insecure da CLI: pré-setup, libera também IPs não-loopback (rede confiável, por conta e risco). */
+  insecure?: boolean
   /** Pós revoke-all: derruba todos os WS. */
   onRevokeAll?: () => void
   /** Tokens/permissões de um usuário mudaram: derruba os WS dele. */
@@ -59,7 +61,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false })
   await app.register(websocket)
   if (deps.auth) {
-    await registerAuth(app, { auth: deps.auth })
+    await registerAuth(app, { auth: deps.auth, insecure: deps.insecure })
     registerAuthRoutes(app, { auth: deps.auth, onRevokeAll: deps.onRevokeAll, onUserInvalidated: deps.onUserInvalidated })
   }
 

@@ -6,6 +6,7 @@
 // quanto pelo shim .mjs em dev.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 
 interface Project {
@@ -37,15 +38,26 @@ interface OrchestratorTask {
 }
 
 /** Sobe o servidor MCP hermes (stdio) com as 6 tools de colaboração entre agentes. Resolve quando o transporte fecha. */
-export async function runHermes(opts: { api: string; projectId: number; serviceToken?: string; engine?: string }): Promise<void> {
-  const { api: API, projectId: PROJECT_ID, serviceToken, engine: ENGINE } = opts
+export async function runHermes(opts: { api: string; projectId: number; serviceToken?: string; serviceTokenFile?: string; engine?: string }): Promise<void> {
+  const { api: API, projectId: PROJECT_ID, engine: ENGINE } = opts
+
+  // Lido do ARQUIVO a cada chamada (não cacheado): o servidor reescreve o
+  // arquivo no revoke-all, então sessões longas continuam funcionando com o
+  // token novo sem reiniciar o MCP.
+  const currentToken = (): string | undefined => {
+    if (opts.serviceTokenFile) {
+      try { return readFileSync(opts.serviceTokenFile, 'utf8').trim() } catch { return opts.serviceToken }
+    }
+    return opts.serviceToken
+  }
 
   const call = async (path: string, init?: RequestInit): Promise<unknown> => {
+    const token = currentToken()
     const res = await fetch(`${API}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
-        ...(serviceToken ? { Authorization: `Bearer ${serviceToken}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     })
     const body = await res.json().catch(() => ({}))

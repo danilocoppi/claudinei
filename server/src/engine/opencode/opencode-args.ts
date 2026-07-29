@@ -21,7 +21,9 @@ export function hermesConfigEnv(hermes?: HermesOptions): Record<string, string> 
         environment: {
           CLAUDINEI_API: hermes.apiUrl,
           CLAUDINEI_PROJECT_ID: String(hermes.projectId),
-          ...(hermes.serviceToken ? { CLAUDINEI_SERVICE_TOKEN: hermes.serviceToken } : {}),
+          ...(hermes.serviceTokenFile
+            ? { CLAUDINEI_SERVICE_TOKEN_FILE: hermes.serviceTokenFile }
+            : hermes.serviceToken ? { CLAUDINEI_SERVICE_TOKEN: hermes.serviceToken } : {}),
           ...(hermes.engine ? { CLAUDINEI_ENGINE: hermes.engine } : {}),
         },
       },

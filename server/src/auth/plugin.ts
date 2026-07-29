@@ -48,7 +48,7 @@ export function isLoopbackIp(ip: string): boolean {
   return ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('127.')
 }
 
-export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService }): Promise<void> {
+export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean }): Promise<void> {
   await app.register(cookie)
   app.addHook('onRequest', async (req, reply) => {
     const rawPath = req.url.split('?')[0]
@@ -68,7 +68,9 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
 
     if (deps.auth.users.count() === 0) {
       // Pré-setup: sem credenciais no mundo — só o próprio computador entra.
-      if (!isLoopbackIp(req.ip)) {
+      // Exceção: --insecure (rede confiável, por conta e risco) libera também
+      // a LAN, cumprindo o que o guard de exposição promete para a flag.
+      if (!isLoopbackIp(req.ip) && !deps.insecure) {
         return reply.code(403).send({ error: 'setup_required_localhost_only' })
       }
       return
@@ -81,7 +83,11 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
     const payload = token ? deps.auth.tokens.verify(token) : null
     if (payload) {
       if (payload.sub === 'service') {
-        req.authUser = { kind: 'service' }
+        // ver ≠ service_token_version atual = token de serviço revogado
+        // (revoke-all). Tokens antigos sem ver contam como versão 0.
+        if ((payload.ver ?? 0) === deps.auth.users.serviceTokenVersion()) {
+          req.authUser = { kind: 'service' }
+        }
       } else {
         const id = Number(payload.sub)
         const ver = payload.ver

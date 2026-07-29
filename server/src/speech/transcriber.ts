@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createRequire } from 'node:module'
 import { speechPaths, speechInstalled } from './paths.js'
@@ -171,13 +171,28 @@ export function createSpeechService(opts: Opts): SpeechService {
 
   function transcribeOnce(wavPath: string): Promise<string> {
     return ensureWorker().then(() => new Promise<string>((resolve, reject) => {
+      const child = proc!
       const id = ++seq
+      // Timeout proporcional ao áudio: a rota aceita WAV de até 30 MB (~15 min
+      // a 16 kHz/16-bit) e o decode pode levar bem mais que o base de 30 s —
+      // dá ~2× a duração do áudio de folga, com teto de +10 min.
+      let extraMs = 0
+      try { extraMs = Math.min(600_000, Math.round(statSync(wavPath).size / 32_000) * 2000) } catch { /* stat falhou: fica o base */ }
       const timer = setTimeout(() => {
         pending.delete(id)
+        // O decode no worker é SÍNCRONO: após o timeout ele continua preso no
+        // áudio atual e todas as transcrições seguintes (fila serial)
+        // estourariam em cascata. Mata o worker — o próximo pedido spawna um
+        // novo, que recarrega o modelo.
+        if (proc === child) {
+          proc = null
+          readyPromise = null
+          child.kill('SIGKILL')
+        }
         reject(new Error('transcrição excedeu o tempo limite'))
-      }, timeoutMs)
+      }, timeoutMs + extraMs)
       pending.set(id, { resolve, reject, timer })
-      proc!.stdin.write(JSON.stringify({ id, wav: wavPath }) + '\n')
+      child.stdin.write(JSON.stringify({ id, wav: wavPath }) + '\n')
     }))
   }
 

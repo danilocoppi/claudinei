@@ -11,7 +11,7 @@ export function assertExposureAllowed(
   throw new Error(
     'Recusando expor na rede sem autenticação: as sessões rodam com --dangerously-skip-permissions ' +
     'e há terminal com shell real, então isso daria a qualquer um na rede controle total da sua máquina. ' +
-    'A autenticação chega no próximo incremento. Para forçar mesmo assim (rede confiável, por sua conta e ' +
-    'risco), suba com --insecure.',
+    'Crie o primeiro usuário acessando pelo próprio computador (localhost) e suba de novo com --host. ' +
+    'Para forçar mesmo assim (rede confiável, por sua conta e risco), suba com --insecure.',
   )
 }

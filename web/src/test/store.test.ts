@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import { displayStatusKey, dotClassOf } from '../engineSession'
 
 beforeEach(() => {
-  useStore.setState({ projects: [], sessions: {}, chat: {}, unread: {}, streaming: {}, activeLocalId: undefined, view: 'dashboard', board: [], tasks: [], sessionEffort: {} })
+  useStore.setState({ projects: [], sessions: {}, chat: {}, unread: {}, streaming: {}, historyLoadedFor: {}, activeLocalId: undefined, view: 'dashboard', board: [], tasks: [], sessionEffort: {} })
 })
 
 describe('store', () => {
@@ -187,13 +187,13 @@ describe('store', () => {
       expect(useStore.getState().unread['l1'] ?? 0).toBe(0)
     })
 
-    it('kind assistant limpa streaming[localId] e adiciona o item real no chat', () => {
+    it('kind assistant limpa streaming[localId] (apaga a CHAVE) e adiciona o item real no chat', () => {
       useStore.setState({ streaming: { l1: 'texto parcial em construção' } })
       useStore.getState().applyWsMessage({
         type: 'session_event', localId: 'l1',
         event: { kind: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'texto completo' }] }, raw: {} },
       })
-      expect(useStore.getState().streaming['l1']).toBe('')
+      expect('l1' in useStore.getState().streaming).toBe(false) // deletado, não '' (M20)
       expect(useStore.getState().chat['l1']).toHaveLength(1)
       expect(useStore.getState().chat['l1'][0]).toMatchObject({ kind: 'assistant_text', text: 'texto completo' })
     })
@@ -204,7 +204,7 @@ describe('store', () => {
         type: 'session_event', localId: 'l1',
         event: { kind: 'result', subtype: 'success', isError: false, resultText: 'ok', costUsd: 0, raw: {} },
       })
-      expect(useStore.getState().streaming['l1']).toBe('')
+      expect('l1' in useStore.getState().streaming).toBe(false)
     })
   })
 
@@ -241,6 +241,58 @@ describe('rebusca de histórico no fim do turno', () => {
   })
 })
 
+describe('resyncOnReconnect (I8: WS caiu e voltou — servidor não faz replay)', () => {
+  it('invalida os históricos carregados (ChatView rebusca) e descarta streaming órfão', () => {
+    useStore.setState({
+      historyLoadedFor: { l1: 'c1', l2: 'c2' },
+      streaming: { l1: 'resposta que nunca vai terminar de chegar' },
+    })
+    useStore.getState().resyncOnReconnect()
+    expect(useStore.getState().historyLoadedFor).toEqual({})
+    expect(useStore.getState().streaming).toEqual({})
+  })
+
+  it('não mexe no chat já renderizado (a rebusca é quem atualiza)', () => {
+    useStore.setState({
+      chat: { l1: [{ kind: 'user_text', text: 'oi' }] },
+      historyLoadedFor: { l1: 'c1' },
+    })
+    useStore.getState().resyncOnReconnect()
+    expect(useStore.getState().chat['l1']).toHaveLength(1)
+  })
+})
+
+describe('M20: mapas do store não crescem sem limite', () => {
+  it('board é podado nos últimos 200 posts', () => {
+    const cheio = Array.from({ length: 200 }, (_, i) => ({
+      id: i, projectId: 1, projectName: 'P', title: `t${i}`, content: 'x', createdAt: 't0',
+    }))
+    useStore.setState({ board: cheio })
+    useStore.getState().applyWsMessage({ type: 'board_post', id: 999, projectId: 1, projectName: 'P', title: 'novo', content: 'y' })
+    const board = useStore.getState().board
+    expect(board).toHaveLength(200)
+    expect(board[0].id).toBe(999) // o novo entra…
+    expect(board.some((p) => p.id === 199)).toBe(false) // …e o mais velho sai
+  })
+
+  it('sessions_snapshot poda entradas por-sessão de sessões que não existem mais', () => {
+    useStore.setState({
+      chat: { viva: [], morta: [{ kind: 'user_text', text: 'x' }] },
+      unread: { morta: 3 },
+      historyLoadedFor: { viva: 'c1', morta: 'c2' },
+      streaming: { morta: 'resto' },
+    })
+    useStore.getState().applyWsMessage({
+      type: 'sessions_snapshot',
+      sessions: [{ localId: 'viva', projectId: 1, status: 'idle', engineSessionId: 'c1', updatedAt: 'x' }],
+    })
+    expect(Object.keys(useStore.getState().chat)).toEqual(['viva'])
+    expect(useStore.getState().unread).toEqual({})
+    expect(useStore.getState().historyLoadedFor).toEqual({ viva: 'c1' })
+    expect(useStore.getState().streaming).toEqual({})
+  })
+})
+
 describe('terminal_activity (heurística do TUI)', () => {
   it('atualiza terminalActivity da sessão in_terminal', () => {
     useStore.setState({
@@ -264,6 +316,22 @@ describe('terminal_activity (heurística do TUI)', () => {
     })
     useStore.getState().applyWsMessage({ type: 'session_status', localId: 't1', status: 'stopped', engineSessionId: 'c' })
     expect(useStore.getState().sessions.t1.terminalActivity).toBeUndefined()
+  })
+
+  it('ENTRAR em in_terminal zera atividade velha (M19: transição de entrada)', () => {
+    useStore.setState({
+      sessions: { t1: { localId: 't1', projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude', terminalActivity: 'working' } as never },
+    })
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 't1', status: 'in_terminal', engineSessionId: 'c' })
+    expect(useStore.getState().sessions.t1.terminalActivity).toBeUndefined()
+  })
+
+  it('permanência em in_terminal preserva a atividade corrente', () => {
+    useStore.setState({
+      sessions: { t1: { localId: 't1', projectId: 1, status: 'in_terminal', engineSessionId: 'c', updatedAt: 'x', engine: 'claude', terminalActivity: 'waiting' } as never },
+    })
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 't1', status: 'in_terminal', engineSessionId: 'c' })
+    expect(useStore.getState().sessions.t1.terminalActivity).toBe('waiting')
   })
 })
 

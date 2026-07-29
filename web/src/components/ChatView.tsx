@@ -63,6 +63,11 @@ export function ChatView() {
         }
       }
       markHistoryLoaded(activeLocalId, key)
+    }).catch((err) => {
+      // NÃO marca como carregado: o próximo disparo do efeito (troca de sessão,
+      // mudança de status, invalidação por reconexão) tenta de novo. Sem este
+      // catch, a falha virava unhandled rejection e o histórico nunca carregava.
+      console.error('[chat] falha ao carregar histórico', err)
     })
   }, [activeLocalId, session?.engineSessionId, session?.status, loadedEngineSessionId])
 
@@ -188,7 +193,9 @@ export function ChatView() {
           <button className="ghost" onClick={() => openTerminal(session.localId)}>{t('chat.backToTerminal')}</button>
         </div>
       ) : (
-        <ChatInput localId={session.localId} disabled={session.status === 'dead' || session.status === 'stopped'} />
+        // key: remonta o input ao trocar de sessão — rascunho e anexos são estado
+        // local do ChatInput e vazariam (e seriam enviados) para a sessão errada.
+        <ChatInput key={session.localId} localId={session.localId} disabled={session.status === 'dead' || session.status === 'stopped'} />
       )}
       {editConfirm !== null && session && (
         <ConfirmDialog

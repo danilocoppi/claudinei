@@ -44,27 +44,27 @@ describe('pré-setup (0 usuários)', () => {
 })
 
 describe('configurado (≥1 usuário)', () => {
-  beforeEach(() => { auth.users.create({ username: 'root', password: 'abcd', isAdmin: true }) })
+  beforeEach(() => { auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true }) })
 
   it('sem token: /api/* → 401; assets do SPA passam; login é público', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/projects' })).statusCode).toBe(401)
     expect((await app.inject({ method: 'GET', url: '/api/health' })).statusCode).toBe(401)
     // rota inexistente fora de /api não é barrada pelo hook (404 do fastify, não 401)
     expect((await app.inject({ method: 'GET', url: '/assets/x.js' })).statusCode).toBe(404)
-    const { res } = await login('root', 'abcd')
+    const { res } = await login('root', 'abcd1234')
     expect(res.statusCode).toBe(200)
   })
 
   it('cookie válido passa; token com ver antigo (revogado) → 401', async () => {
-    const { cookie } = await login('root', 'abcd')
+    const { cookie } = await login('root', 'abcd1234')
     expect((await app.inject({ method: 'GET', url: '/api/projects', cookies: cookie })).statusCode).toBe(200)
     auth.users.revokeAll()
     expect((await app.inject({ method: 'GET', url: '/api/projects', cookies: cookie })).statusCode).toBe(401)
   })
 
   it('token de usuário excluído → 401', async () => {
-    const u = auth.users.create({ username: 'ana', password: 'abcd' })
-    const { cookie } = await login('ana', 'abcd')
+    const u = auth.users.create({ username: 'ana', password: 'abcd1234' })
+    const { cookie } = await login('ana', 'abcd1234')
     auth.users.remove(u.id)
     expect((await app.inject({ method: 'GET', url: '/api/sessions', cookies: cookie })).statusCode).toBe(401)
   })
@@ -115,7 +115,7 @@ describe('sliding refresh do cookie (hook onRequest)', () => {
     const secretDir = mkdtempSync(join(tmpdir(), 'auth-secret-'))
     const secretPath = join(secretDir, 'secret')
     const localAuth = createAuthService({ db, secretPath })
-    const user = localAuth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
+    const user = localAuth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
     const manager = createSessionManager({ db, broadcast: () => {} })
     const localApp = await buildApp({ config: loadConfig({}), db, manager, auth: localAuth })
 
@@ -150,7 +150,7 @@ describe('sliding refresh do cookie (hook onRequest)', () => {
     const secretDir = mkdtempSync(join(tmpdir(), 'auth-secret-svc-'))
     const secretPath = join(secretDir, 'secret')
     const localAuth = createAuthService({ db, secretPath })
-    localAuth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
+    localAuth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
     const manager = createSessionManager({ db, broadcast: () => {} })
     const localApp = await buildApp({ config: loadConfig({}), db, manager, auth: localAuth })
 

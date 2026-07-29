@@ -55,6 +55,19 @@ export class CodexSession extends EventEmitter implements EngineSession {
       if (this.stopping) { this.setStatus('stopped'); return }
       if (this.interrupting) { this.interrupting = false; this.setStatus('idle'); this.emit('exit', code); return }
       if (code !== 0 && !sawResult) { this.setStatus('dead'); this.emit('exit', code); return }
+      if (!sawResult) {
+        // Exit 0 sem nenhum result: sintetiza um de erro (como o OpenCode faz
+        // no close) — sem isto askAgent/dispatchTask ficariam pendurados até o
+        // timeout esperando um kind==='result' que nunca chega.
+        this.emit('event', {
+          kind: 'result' as const,
+          subtype: 'error',
+          isError: true,
+          resultText: this.lastStderr || 'codex terminou sem emitir resultado',
+          costUsd: 0,
+          raw: {},
+        })
+      }
       this.setStatus(sawResult ? 'needs_attention' : 'idle')
       this.emit('exit', code)
     })

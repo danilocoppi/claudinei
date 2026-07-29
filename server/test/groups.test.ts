@@ -65,13 +65,13 @@ describe('rotas /api/groups (RBAC)', () => {
     auth = createAuthService({ db })
     const manager = createSessionManager({ db, broadcast: () => {} })
     app = await buildApp({ config: loadConfig({}), db, manager, auth })
-    auth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
-    auth.users.create({ username: 'ana', password: 'abcd', projectIds: [front.id] })
+    auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
+    auth.users.create({ username: 'ana', password: 'abcd1234', projectIds: [front.id] })
   })
 
   it('admin cria/renomeia/exclui; não-admin toma 403 nas mutações', async () => {
-    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd' } }))
-    const ana = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd' } }))
+    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd1234' } }))
+    const ana = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd1234' } }))
 
     const created = await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'Projeto X' }, cookies: admin })
     expect(created.statusCode).toBe(201)
@@ -87,8 +87,8 @@ describe('rotas /api/groups (RBAC)', () => {
   })
 
   it('GET /api/groups: não-admin só vê grupos com ≥1 terminal acessível', async () => {
-    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd' } }))
-    const ana = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd' } }))
+    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd1234' } }))
+    const ana = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd1234' } }))
 
     const gx = (await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'Grupo do X' }, cookies: admin })).json()
     const gz = (await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'Grupo alheio' }, cookies: admin })).json()
@@ -103,7 +103,7 @@ describe('rotas /api/groups (RBAC)', () => {
   })
 
   it('nome inválido → 400; renomear grupo inexistente → 404', async () => {
-    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd' } }))
+    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd1234' } }))
     expect((await app.inject({ method: 'POST', url: '/api/groups', payload: { name: '   ' }, cookies: admin })).statusCode).toBe(400)
     expect((await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'x'.repeat(61) }, cookies: admin })).statusCode).toBe(400)
     expect((await app.inject({ method: 'PATCH', url: '/api/groups/999', payload: { name: 'ok' }, cookies: admin })).statusCode).toBe(404)
@@ -154,14 +154,14 @@ describe('applySidebarOrder (ordem unificada grupos + soltos)', () => {
     const auth = createAuthService({ db })
     const manager = createSessionManager({ db, broadcast: () => {} })
     const app = await buildApp({ config: loadConfig({}), db, manager, auth })
-    auth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
-    auth.users.create({ username: 'ana', password: 'abcd', projectIds: [front.id] })
+    auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
+    auth.users.create({ username: 'ana', password: 'abcd1234', projectIds: [front.id] })
     const cookieOf = (res: any): Record<string, string> => {
       const c = res.cookies.find((x: any) => x.name === COOKIE_NAME)
       return c ? { [COOKIE_NAME]: c.value } : {}
     }
-    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd' } }))
-    const ana = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd' } }))
+    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd1234' } }))
+    const ana = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'ana', password: 'abcd1234' } }))
     const g = (await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'G' }, cookies: admin })).json()
 
     expect((await app.inject({ method: 'PUT', url: '/api/sidebar-order', payload: { entries: [] }, cookies: ana })).statusCode).toBe(403)
@@ -195,12 +195,12 @@ describe('ícone e cor do grupo (padrão dos terminais)', () => {
     const auth = createAuthService({ db })
     const manager = createSessionManager({ db, broadcast: () => {} })
     const app = await buildApp({ config: loadConfig({}), db, manager, auth })
-    auth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
+    auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
     const cookieOf = (res: any): Record<string, string> => {
       const c = res.cookies.find((x: any) => x.name === COOKIE_NAME)
       return c ? { [COOKIE_NAME]: c.value } : {}
     }
-    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd' } }))
+    const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd1234' } }))
     const g = (await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'G', icon: '🎯', color: '#00ff00' }, cookies: admin })).json()
     expect(g).toMatchObject({ icon: '🎯', color: '#00ff00' })
     expect((await app.inject({ method: 'PATCH', url: `/api/groups/${g.id}`, payload: { color: 'vermelho' }, cookies: admin })).statusCode).toBe(400)

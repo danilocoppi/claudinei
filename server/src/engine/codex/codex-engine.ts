@@ -22,7 +22,7 @@ export const codexEngine: Engine = {
   createSession(opts: EngineSessionOptions): EngineSession {
     return new CodexSession(opts)
   },
-  readHistory(_projectPath: string, threadId: string): AgentEvent[] {
+  async readHistory(_projectPath: string, threadId: string): Promise<AgentEvent[]> {
     const file = findRollout(sessionsRoot(), threadId)
     return file ? parseRollout(file) : []
   },

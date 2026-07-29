@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentEvent } from '../types.js'
@@ -9,19 +10,23 @@ export function sessionsRoot(): string {
 
 /** Varre a árvore YYYY/MM/DD e devolve os caminhos de rollout .jsonl (mais recentes primeiro). */
 function allRollouts(root: string): string[] {
-  const out: string[] = []
+  // mtime coletado NA varredura: o sort antigo chamava statSync duas vezes por
+  // comparação (O(n log n) syscalls a cada request de histórico).
+  const out: Array<{ path: string; mtime: number }> = []
   const walk = (dir: string) => {
-    if (!existsSync(dir)) return
-    for (const name of readdirSync(dir)) {
+    let names: string[]
+    try { names = readdirSync(dir) } catch { return }
+    for (const name of names) {
       const p = join(dir, name)
       try {
-        if (statSync(p).isDirectory()) walk(p)
-        else if (name.startsWith('rollout-') && name.endsWith('.jsonl')) out.push(p)
+        const st = statSync(p)
+        if (st.isDirectory()) walk(p)
+        else if (name.startsWith('rollout-') && name.endsWith('.jsonl')) out.push({ path: p, mtime: st.mtimeMs })
       } catch { /* sumiu no meio */ }
     }
   }
   walk(root)
-  return out.sort((a, b) => (statSync(b).mtimeMs - statSync(a).mtimeMs))
+  return out.sort((a, b) => b.mtime - a.mtime).map((e) => e.path)
 }
 
 export function findRollout(root: string, threadId: string): string | null {
@@ -29,10 +34,11 @@ export function findRollout(root: string, threadId: string): string | null {
 }
 
 /** Normaliza um rollout do Codex (response_item da Responses API) para AgentEvent[]. */
-export function parseRollout(file: string): AgentEvent[] {
-  if (!existsSync(file)) return []
+export async function parseRollout(file: string): Promise<AgentEvent[]> {
+  let text: string
+  try { text = await readFile(file, 'utf8') } catch { return [] }
   const events: AgentEvent[] = []
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
+  for (const line of text.split('\n')) {
     const s = line.trim(); if (!s) continue
     let o: any; try { o = JSON.parse(s) } catch { continue }
     if (o.type !== 'response_item') continue
@@ -50,10 +56,25 @@ export function parseRollout(file: string): AgentEvent[] {
   return events
 }
 
+// Lê só o início do arquivo: o session_meta é a 1ª linha e o rollout inteiro
+// pode ter vários MB — ler tudo era o maior custo da busca por cwd.
+function readFirstLine(file: string): string | null {
+  let fd: number
+  try { fd = openSync(file, 'r') } catch { return null }
+  try {
+    const buf = Buffer.alloc(8192)
+    const n = readSync(fd, buf, 0, buf.length, 0)
+    const text = buf.toString('utf8', 0, n)
+    const nl = text.indexOf('\n')
+    return nl === -1 ? text : text.slice(0, nl)
+  } catch { return null } finally { closeSync(fd) }
+}
+
 export function latestThreadForCwd(root: string, cwd: string): string | null {
   for (const file of allRollouts(root)) {
+    const first = readFirstLine(file)
+    if (!first) continue
     try {
-      const first = readFileSync(file, 'utf8').split('\n', 1)[0]
       const o = JSON.parse(first)
       if (o?.type === 'session_meta' && o.payload?.cwd === cwd) return o.payload.id ?? null
     } catch { /* ignora */ }

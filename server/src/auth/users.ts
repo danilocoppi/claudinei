@@ -21,7 +21,7 @@ export interface AuthRow {
 
 const MAX_FAILURES = 5
 const LOCK_MS = 15 * 60_000
-const MIN_PASSWORD = 4
+const MIN_PASSWORD = 8
 
 export function createUsersService(db: Db, now: () => number = Date.now) {
   const projectIdsOf = (userId: number): number[] =>
@@ -137,8 +137,18 @@ export function createUsersService(db: Db, now: () => number = Date.now) {
       db.prepare('UPDATE users SET token_version=token_version+1 WHERE id=?').run(id)
     },
 
+    /** Versão atual do token de SERVIÇO (hermes) — persistida no kv settings. */
+    serviceTokenVersion(): number {
+      const row = db.prepare(`SELECT value FROM settings WHERE key='service_token_version'`).get() as { value: string } | undefined
+      return row ? Number(row.value) || 0 : 0
+    },
+
     revokeAll(): void {
       db.prepare('UPDATE users SET token_version=token_version+1').run()
+      // Também invalida o token de serviço: sem versão própria, o revoke-all
+      // deixava o token onipotente do hermes válido por até 30 dias.
+      db.prepare(`INSERT INTO settings(key, value) VALUES('service_token_version', '1')
+        ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`).run()
     },
   }
 }

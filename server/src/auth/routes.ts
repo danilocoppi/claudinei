@@ -13,11 +13,32 @@ export interface AuthRouteDeps {
   onUserInvalidated?: (userId: number) => void
 }
 
+// Rate limit de login por IP: complementa o lockout por conta — sem ele, 5
+// falhas com um username conhecido travam o dono legítimo indefinidamente
+// (DoS de conta) e usernames fantasmas podem ser martelados à vontade.
+const IP_WINDOW_MS = 15 * 60_000
+const IP_MAX_FAILURES = 20
+
 export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): void {
   const { auth } = deps
   const setAuthCookie = (reply: FastifyReply, userId: number): void => {
     const ver = auth.users.tokenVersion(userId) ?? 0
     reply.setCookie(COOKIE_NAME, auth.tokens.signUser(userId, ver), COOKIE_OPTS)
+  }
+
+  const ipFailures = new Map<string, { count: number; resetAt: number }>()
+  const ipLimited = (ip: string): boolean => {
+    const e = ipFailures.get(ip)
+    return !!e && Date.now() < e.resetAt && e.count >= IP_MAX_FAILURES
+  }
+  const registerIpFailure = (ip: string): void => {
+    const now = Date.now()
+    const e = ipFailures.get(ip)
+    if (!e || now >= e.resetAt) ipFailures.set(ip, { count: 1, resetAt: now + IP_WINDOW_MS })
+    else e.count++
+    if (ipFailures.size > 1000) {
+      for (const [k, v] of ipFailures) if (now >= v.resetAt) ipFailures.delete(k)
+    }
   }
 
   app.post('/api/auth/setup', async (req, reply) => {
@@ -38,6 +59,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   app.post('/api/auth/login', async (req, reply) => {
     const body = (req.body ?? {}) as { username?: string; password?: string }
     if (!body.username || !body.password) return reply.code(400).send({ error: 'username_and_password_required' })
+    if (ipLimited(req.ip)) return reply.code(429).send({ error: 'rate_limited', retryAfterMs: IP_WINDOW_MS })
     const row = auth.users.getByUsername(body.username)
     // resposta idêntica para "user não existe" e "senha errada" — não vaza usernames.
     // Também equalizamos o TEMPO: sem usuário, ainda rodamos um scrypt "dummy"
@@ -48,12 +70,14 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     // por-usuário e aceitável numa ferramenta local-first.
     if (!row) {
       await fakeVerifyAsync(body.password)
+      registerIpFailure(req.ip)
       return reply.code(401).send({ error: 'invalid_credentials' })
     }
     const lockedMs = auth.users.isLocked(row.id)
     if (lockedMs > 0) return reply.code(429).send({ error: 'locked', retryAfterMs: lockedMs })
     if (!(await verifyPasswordAsync(body.password, row.passwordHash))) {
       auth.users.registerFailure(row.id)
+      registerIpFailure(req.ip)
       return reply.code(401).send({ error: 'invalid_credentials' })
     }
     auth.users.clearFailures(row.id)

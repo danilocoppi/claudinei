@@ -5,6 +5,11 @@ export interface MicHandle {
   stop: () => Float32Array
 }
 
+/** Teto de gravação: ~10 min a 16kHz. Atingido, a captura para sozinha (o último
+ *  `onBuffer` entrega o acumulado) — sem teto, um mic esquecido ligado cresceria
+ *  o buffer sem limite. */
+export const MAX_CAPTURE_SAMPLES = 16000 * 600
+
 /** Há suporte a captura de microfone neste navegador? */
 export function micSupported(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
@@ -27,6 +32,12 @@ export function concatFloat32(chunks: Float32Array[]): Float32Array {
  * Começa a capturar o microfone. A cada `intervalMs`, chama `onBuffer` com o
  * buffer PCM acumulado (16kHz mono). Retorna um handle cujo `stop()` encerra
  * tudo e devolve o buffer final. Camada fina sobre Web Audio — smoke manual.
+ *
+ * O acúmulo é INCREMENTAL: um único Float32Array com capacidade dobrada sob
+ * demanda, copiando só o chunk novo (concatenar tudo a cada tick era O(n²)).
+ * Os callbacks recebem `subarray` do cumulativo — os consumidores só leem.
+ * Ao atingir MAX_CAPTURE_SAMPLES a captura para como o stop() pararia e o
+ * buffer final é entregue num último `onBuffer`.
  */
 export async function startMicCapture(
   onBuffer: (pcm: Float32Array) => void,
@@ -39,28 +50,54 @@ export async function startMicCapture(
   const processor = ac.createScriptProcessor(4096, 1, 1)
   const mute = ac.createGain()
   mute.gain.value = 0 // evita eco: processa sem tocar o som de volta
-  const chunks: Float32Array[] = []
+
+  let buf = new Float32Array(16000 * 60) // capacidade inicial ~1 min; dobra sob demanda
+  let len = 0
+  const append = (chunk: Float32Array) => {
+    if (len + chunk.length > buf.length) {
+      let cap = buf.length * 2
+      while (cap < len + chunk.length) cap *= 2
+      const bigger = new Float32Array(cap)
+      bigger.set(buf.subarray(0, len))
+      buf = bigger
+    }
+    buf.set(chunk, len)
+    len += chunk.length
+  }
+
+  let stopped = false
+  const teardown = () => {
+    if (stopped) return
+    stopped = true
+    clearInterval(timer)
+    processor.disconnect()
+    source.disconnect()
+    mute.disconnect()
+    stream.getTracks().forEach((t) => t.stop())
+    void ac.close()
+  }
+
   processor.onaudioprocess = (e) => {
-    chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)))
+    if (stopped) return
+    const data = e.inputBuffer.getChannelData(0)
+    const room = MAX_CAPTURE_SAMPLES - len
+    append(room < data.length ? data.subarray(0, room) : data)
+    if (len >= MAX_CAPTURE_SAMPLES) {
+      // teto atingido: libera mic/áudio como o stop() faria e sinaliza pelo
+      // mesmo canal dos ticks — o operador ainda transcreve tudo ao parar.
+      teardown()
+      onBuffer(buf.subarray(0, len))
+    }
   }
   source.connect(processor)
   processor.connect(mute)
   mute.connect(ac.destination)
-  const timer = setInterval(() => onBuffer(concatFloat32(chunks)), intervalMs)
+  const timer = setInterval(() => onBuffer(buf.subarray(0, len)), intervalMs)
 
-  let stopped = false
   return {
     stop() {
-      if (!stopped) {
-        stopped = true
-        clearInterval(timer)
-        processor.disconnect()
-        source.disconnect()
-        mute.disconnect()
-        stream.getTracks().forEach((t) => t.stop())
-        void ac.close()
-      }
-      return concatFloat32(chunks)
+      teardown()
+      return buf.subarray(0, len)
     },
   }
 }

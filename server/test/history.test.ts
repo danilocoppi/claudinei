@@ -12,7 +12,7 @@ describe('encodeCwd', () => {
 })
 
 describe('readTranscript', () => {
-  it('lê e classifica linhas do JSONL, ignorando lixo', () => {
+  it('lê e classifica linhas do JSONL, ignorando lixo', async () => {
     const cfgDir = mkdtempSync(join(tmpdir(), 'cfg-'))
     const projPath = '/tmp/meu-proj'
     const dir = join(cfgDir, 'projects', encodeCwd(projPath))
@@ -23,12 +23,12 @@ describe('readTranscript', () => {
       '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"olá!"}]}}',
       '',
     ].join('\n'))
-    const events = readTranscript(cfgDir, projPath, 'sid-1')
+    const events = await readTranscript(cfgDir, projPath, 'sid-1')
     expect(events.map((e) => e.kind)).toEqual(['user', 'assistant'])
   })
 
-  it('arquivo inexistente retorna []', () => {
-    expect(readTranscript('/nao/existe', '/x', 'sid')).toEqual([])
+  it('arquivo inexistente retorna []', async () => {
+    await expect(readTranscript('/nao/existe', '/x', 'sid')).resolves.toEqual([])
   })
 })
 

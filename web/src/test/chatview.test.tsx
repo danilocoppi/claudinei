@@ -322,6 +322,37 @@ it('1ª mensagem otimista NÃO some quando o init chega com o transcript ainda v
   expect(useStore.getState().chat.a.some((i) => i.kind === 'user_text' && (i as { text: string }).text === 'primeira mensagem')).toBe(true)
 })
 
+it('I9: rascunho do input NÃO vaza ao trocar de sessão (key remonta o ChatInput)', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  useStore.setState({ sessions: { a: sess('a', { status: 'idle' }), b: sess('b', { status: 'idle' }) } })
+  const { rerender } = render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  const ta = (await screen.findByPlaceholderText(/Mensagem para o Claude Code/)) as HTMLTextAreaElement
+  fireEvent.change(ta, { target: { value: 'rascunho da sessão a' } })
+  expect(ta.value).toBe('rascunho da sessão a')
+
+  useStore.setState({ activeLocalId: 'b' })
+  rerender(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  const ta2 = (await screen.findByPlaceholderText(/Mensagem para o Claude Code/)) as HTMLTextAreaElement
+  expect(ta2.value).toBe('') // sessão b começa limpa; nada para enviar na sessão errada
+  spy.mockRestore()
+})
+
+it('M15: falha do fetchHistory não marca como carregado (retry possível) e não estoura unhandled rejection', async () => {
+  const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+    if (String(url).includes('/history')) return Promise.reject(new Error('rede caiu'))
+    return Promise.resolve(jsonResponse([]))
+  })
+  render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  await vi.waitFor(() => expect(spy.mock.calls.some((c) => c[0] === '/api/sessions/a/history')).toBe(true))
+  await new Promise((r) => setTimeout(r, 0))
+  // NÃO marcado como carregado: o próximo disparo do efeito rebusca
+  expect(useStore.getState().historyLoadedFor['a']).toBeUndefined()
+  expect(errSpy).toHaveBeenCalled() // a falha foi logada, não engolida nem estourada
+  spy.mockRestore()
+  errSpy.mockRestore()
+})
+
 it('engine com CLI não instalada: aba mostra "não instalada" e NÃO oferece o ▶', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
   useStore.setState({

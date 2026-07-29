@@ -17,24 +17,30 @@ set -euo pipefail
 FONT_URL="https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf"
 DEST_DIR="${HOME}/.local/share/fonts"
 DEST="${DEST_DIR}/NotoColorEmoji.ttf"
+TMP="${DEST}.tmp"
 
 echo "==> Instalando Noto Color Emoji (atual) em ${DEST}"
 mkdir -p "${DEST_DIR}"
 
+# baixa num .tmp e só move para o destino após validar — um download
+# interrompido nunca deixa um .ttf truncado instalado
+trap 'rm -f "${TMP}"' EXIT
+
 if command -v curl >/dev/null 2>&1; then
-  curl -fSL -o "${DEST}" "${FONT_URL}"
+  curl -fSL -o "${TMP}" "${FONT_URL}"
 elif command -v wget >/dev/null 2>&1; then
-  wget -O "${DEST}" "${FONT_URL}"
+  wget -O "${TMP}" "${FONT_URL}"
 else
   echo "erro: preciso de curl ou wget para baixar a fonte." >&2
   exit 1
 fi
 
-size=$(stat -c%s "${DEST}" 2>/dev/null || stat -f%z "${DEST}")
+size=$(stat -c%s "${TMP}" 2>/dev/null || stat -f%z "${TMP}")
 if [ "${size}" -lt 1000000 ]; then
   echo "erro: o arquivo baixado parece pequeno demais (${size} bytes) — download falhou?" >&2
   exit 1
 fi
+mv "${TMP}" "${DEST}"
 echo "==> Baixado (${size} bytes)."
 
 echo "==> Atualizando o cache de fontes (fc-cache)…"

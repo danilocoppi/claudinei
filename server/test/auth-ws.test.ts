@@ -27,7 +27,7 @@ let baseUrl: string
 let p1: { id: number }, p2: { id: number }
 
 const loginCookie = async (username: string) => {
-  const res = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password: 'abcd' } })
+  const res = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password: 'abcd1234' } })
   const c = res.cookies.find((x: any) => x.name === COOKIE_NAME) as any
   return `${COOKIE_NAME}=${c.value}`
 }
@@ -92,8 +92,8 @@ beforeEach(async () => {
   const projects = createProjectsService(db)
   p1 = projects.create({ name: 'Alfa', path: mkdtempSync(join(tmpdir(), 'p1-')) })
   p2 = projects.create({ name: 'Beta', path: mkdtempSync(join(tmpdir(), 'p2-')) })
-  auth.users.create({ username: 'root', password: 'abcd', isAdmin: true })
-  auth.users.create({ username: 'ana', password: 'abcd', projectIds: [p1.id] })
+  auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
+  auth.users.create({ username: 'ana', password: 'abcd1234', projectIds: [p1.id] })
 })
 
 afterEach(async () => { await app.close() })
@@ -163,6 +163,21 @@ describe('revogação derruba sockets', () => {
 })
 
 describe('comandos do WS respeitam RBAC', () => {
+  it('frame com localId não-string não derruba o servidor', async () => {
+    const anaWs = openWs(await loginCookie('ana'))
+    await opened(anaWs); await nextMsg(anaWs)
+    const err = nextMsg(anaWs)
+    // better-sqlite3 lança sincronamente ao receber boolean no bind — o guard
+    // do não-admin precisa estar protegido, senão vira uncaughtException.
+    anaWs.send(JSON.stringify({ type: 'mark_read', localId: true }))
+    await expect(err).resolves.toMatchObject({ type: 'error' })
+    // servidor (e o próprio socket) continuam vivos após o frame malformado
+    const err2 = nextMsg(anaWs)
+    anaWs.send(JSON.stringify({ type: 'interrupt', localId: 'nao-existe' }))
+    await expect(err2).resolves.toMatchObject({ type: 'error' })
+    anaWs.close()
+  })
+
   it('send_message em sessão de projeto alheio → erro forbidden', async () => {
     const start = await app.inject({ method: 'POST', url: `/api/projects/${p2.id}/sessions`, headers: { cookie: await loginCookie('root') }, payload: {} })
     const localId = start.json().localId

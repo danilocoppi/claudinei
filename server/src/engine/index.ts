@@ -5,10 +5,12 @@ import { registerEngine, hasEngine } from './registry.js'
 import { claudeEngine } from './claude-engine.js'
 import { codexEngine } from './codex/codex-engine.js'
 import { openCodeEngine } from './opencode/opencode-engine.js'
+import { kimiEngine } from './kimi/kimi-engine.js'
 
 if (!hasEngine(claudeEngine.id)) registerEngine(claudeEngine)
 if (!hasEngine(codexEngine.id)) registerEngine(codexEngine)
 if (!hasEngine(openCodeEngine.id)) registerEngine(openCodeEngine)
+if (!hasEngine(kimiEngine.id)) registerEngine(kimiEngine)
 
 export { getEngine, hasEngine, listEngines, registerEngine, DEFAULT_ENGINE_ID } from './registry.js'
 export type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, EngineId, AgentEvent } from './types.js'

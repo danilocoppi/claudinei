@@ -51,7 +51,13 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db; mana
   app.delete('/api/projects/:id', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
     const id = Number((req.params as { id: string }).id)
-    if (deps.manager.hasActiveSession(id)) {
+    // Sessão in_terminal sai do mapa `live` mas o PTY continua rodando — o
+    // delete em cascata da linha da sessão deixaria o canal órfão no
+    // terminalManager (onExit vira no-op). Barra também esse caso.
+    const inTerminal = (deps.db.prepare(
+      `SELECT COUNT(*) c FROM sessions WHERE project_id=? AND status='in_terminal'`,
+    ).get(id) as any).c as number
+    if (deps.manager.hasActiveSession(id) || inTerminal > 0) {
       return reply.code(409).send({ error: 'projeto tem uma sessão ativa; finalize-a antes de excluir' })
     }
     svc.remove(id)

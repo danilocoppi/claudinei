@@ -36,7 +36,8 @@ export function createTokenService(secret: Buffer) {
   return {
     signUser: (userId: number, tokenVersion: number): string =>
       signUser({ sub: String(userId), ver: tokenVersion }),
-    signService: (): string => signService({ sub: 'service' }),
+    /** ver = service_token_version atual — permite ao revoke-all invalidar também o token de serviço. */
+    signService: (ver = 0): string => signService({ sub: 'service', ver }),
     verify(token: string): TokenPayload | null {
       try {
         return verifier(token) as TokenPayload

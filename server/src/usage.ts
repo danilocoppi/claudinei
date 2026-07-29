@@ -49,6 +49,7 @@ export function createUsageService(opts: Opts = {}): UsageService {
     if (!token) return []
     const res = await fetchFn(endpoint, {
       headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },
+      signal: AbortSignal.timeout(10_000), // sem isto um stall pendura ~300s (default do undici)
     })
     if (!res.ok) return []
     const body = (await res.json()) as { limits?: unknown }

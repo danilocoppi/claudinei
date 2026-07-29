@@ -114,7 +114,11 @@ export function Sidebar() {
       ))
       setProjects(res.projects)
       setGroups(res.groups)
-    } catch { await refetchAll() }
+    } catch {
+      // fallback: ressincroniza do servidor; se ATÉ o refetch falhar (rede fora),
+      // só loga — deixar estourar viraria unhandled rejection nos handlers `void`.
+      try { await refetchAll() } catch (err) { console.error('[sidebar] refetch após falha de ordenação falhou', err) }
+    }
   }
 
   // Remove o item arrastado da estrutura (de onde estiver) e devolve [estrutura, item].

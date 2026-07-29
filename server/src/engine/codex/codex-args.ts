@@ -28,7 +28,11 @@ function optionArgs(opts: TurnArgs): string[] {
     // projectId é number, mas passa pelo mesmo escaper (coagido a string) — não
     // confiar no tipo TS em runtime; remove a assimetria validador/sanitizador.
     args.push('-c', `mcp_servers.hermes.env.CLAUDINEI_PROJECT_ID=${tomlStr(String(opts.hermes.projectId))}`)
-    if (opts.hermes.serviceToken) {
+    if (opts.hermes.serviceTokenFile) {
+      // Só o CAMINHO do arquivo 0600 vai no argv — o token em si ficaria
+      // visível em `ps`/cmdline para qualquer usuário local do SO.
+      args.push('-c', `mcp_servers.hermes.env.CLAUDINEI_SERVICE_TOKEN_FILE=${tomlStr(opts.hermes.serviceTokenFile)}`)
+    } else if (opts.hermes.serviceToken) {
       args.push('-c', `mcp_servers.hermes.env.CLAUDINEI_SERVICE_TOKEN=${tomlStr(opts.hermes.serviceToken)}`)
     }
     if (opts.hermes.engine) {

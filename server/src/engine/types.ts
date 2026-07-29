@@ -56,9 +56,14 @@ export interface Engine {
   /** Binário da CLI desta engine (resolvido de env) — usado p/ sondar disponibilidade no PATH. */
   bin(): string
   createSession(opts: EngineSessionOptions): EngineSession
-  readHistory(projectPath: string, engineSessionId: string): AgentEvent[]
+  /** Pode ser assíncrono: históricos grandes (transcript de 30 MB, `opencode export`) não podem bloquear o event loop. */
+  readHistory(projectPath: string, engineSessionId: string): AgentEvent[] | Promise<AgentEvent[]>
   latestConversationId(projectPath: string): string | null
-  /** Comando do terminal interativo. resumeSessionId ausente/null → sessão NOVA (fresh), sem retomar. */
-  terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }): { file: string; args: string[] }
+  /**
+   * Comando do terminal interativo. resumeSessionId ausente/null → sessão NOVA (fresh), sem retomar.
+   * `env` (opcional) é MESCLADO ao ambiente do PTY — o Kimi precisa disso para abrir
+   * no mesmo data root (KIMI_CODE_HOME) das sessões do chat.
+   */
+  terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }): { file: string; args: string[]; env?: Record<string, string> }
   capabilities(): EngineCapabilities
 }

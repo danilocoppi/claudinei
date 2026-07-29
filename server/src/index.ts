@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { loadConfig, migrateLegacyDataDir, parseCliArgs, resolveSelfUrl } from './config.js'
 import { assertExposureAllowed, isLoopbackHost } from './expose-guard.js'
@@ -20,6 +20,7 @@ if (process.argv.includes('--hermes')) {
     api: process.env.CLAUDINEI_API || 'http://127.0.0.1:9105',
     projectId: Number(process.env.CLAUDINEI_PROJECT_ID || '0'),
     serviceToken: process.env.CLAUDINEI_SERVICE_TOKEN,
+    serviceTokenFile: process.env.CLAUDINEI_SERVICE_TOKEN_FILE,
     engine: process.env.CLAUDINEI_ENGINE,
   })
 } else if (process.argv.includes('--speech-worker')) {
@@ -121,7 +122,11 @@ if (process.argv.includes('--hermes')) {
     console.error(String((err as Error).message))
     process.exit(1)
   }
-  const serviceToken = auth.tokens.signService()
+  const serviceToken = auth.tokens.signService(auth.users.serviceTokenVersion())
+  // O token de serviço NUNCA vai em argv (visível em `ps` para qualquer usuário
+  // do SO): fica num arquivo 0600 e as engines recebem só o caminho.
+  const serviceTokenFile = join(dirname(config.dbPath), 'service-token')
+  writeFileSync(serviceTokenFile, serviceToken, { mode: 0o600 })
   const settings = createSettingsService(db)
   const wsHub = createWsHub()
   const terminalManager = createTerminalManager({ ptyFactory: nodePtyFactory })
@@ -155,7 +160,7 @@ if (process.argv.includes('--hermes')) {
   const manager = createSessionManager({
     db,
     broadcast: (m) => wsHub.broadcast(m),
-    hermes: { command: config.hermesCommand, args: config.hermesArgs, apiUrl: config.selfUrl, serviceToken },
+    hermes: { command: config.hermesCommand, args: config.hermesArgs, apiUrl: config.selfUrl, serviceTokenFile },
     keepSessionsPerProject: config.keepSessionsPerProject,
     onSlashCommands: (cmds) => settings.setSlashCommands(cmds),
     onSessionAvailable: (projectId) => drain?.(projectId),
@@ -164,7 +169,9 @@ if (process.argv.includes('--hermes')) {
       cwd: opts.cwd,
       file: opts.file,
       args: opts.args,
+      env: opts.env,
       onExit: opts.onExit,
+      onActivity: opts.onActivity,
     }),
   })
 
@@ -177,9 +184,15 @@ if (process.argv.includes('--hermes')) {
   const webDist = process.env.CLAUDINEI_PKG_WEB ?? join(__dirname, '..', '..', 'web', 'dist')
   const app = await buildApp({
     config, db, manager, wsHub, terminalManager, speech, usage, engineUsage, auth,
+    insecure: !!cli.insecure,
     webDist: existsSync(webDist) ? webDist : undefined,
     onOrchestratorReady: (d) => { drain = d },
-    onRevokeAll: () => wsHub.closeAll(),
+    onRevokeAll: () => {
+      wsHub.closeAll()
+      // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
+      // do arquivo a cada chamada, então sessões vivas continuam funcionando.
+      writeFileSync(serviceTokenFile, auth.tokens.signService(auth.users.serviceTokenVersion()), { mode: 0o600 })
+    },
     onUserInvalidated: (id) => wsHub.closeUser(id),
   })
   await app.listen({ port, host })

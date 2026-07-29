@@ -20,5 +20,6 @@ await runHermes({
   // Authorization e tomam 401 — a colaboração falha calada. O modo `--hermes`
   // (binário empacotado, server/src/index.ts) já repassa; o shim de dev precisa igual.
   serviceToken: process.env.CLAUDINEI_SERVICE_TOKEN,
+  serviceTokenFile: process.env.CLAUDINEI_SERVICE_TOKEN_FILE,
   engine: process.env.CLAUDINEI_ENGINE,
 })

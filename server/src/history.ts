@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { classifyLine } from './claude/parser.js'
 import type { ClaudeEvent } from './claude/events.js'
@@ -29,11 +30,14 @@ export function latestTranscriptId(claudeConfigDir: string, projectPath: string)
   return best?.id ?? null
 }
 
-export function readTranscript(claudeConfigDir: string, projectPath: string, engineSessionId: string): ClaudeEvent[] {
+// Async: o transcript pode passar de 30 MB — a leitura síncrona congelava o
+// event loop inteiro (WS/PTYs de todos) a cada carga de histórico.
+export async function readTranscript(claudeConfigDir: string, projectPath: string, engineSessionId: string): Promise<ClaudeEvent[]> {
   const file = transcriptPath(claudeConfigDir, projectPath, engineSessionId)
-  if (!existsSync(file)) return []
+  let text: string
+  try { text = await readFile(file, 'utf8') } catch { return [] }
   const events: ClaudeEvent[] = []
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
+  for (const line of text.split('\n')) {
     const evt = classifyLine(line)
     if (evt && evt.kind !== 'parse_error') events.push(evt)
   }

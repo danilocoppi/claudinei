@@ -39,6 +39,8 @@ describe('createUsageService', () => {
     expect(String(url)).toBe('https://api.anthropic.com/api/oauth/usage')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer tok-teste')
     expect((init.headers as Record<string, string>)['anthropic-beta']).toBe('oauth-2025-04-20')
+    // timeout: sem signal um stall penduraria ~300s
+    expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('cache: duas chamadas dentro do cacheMs fazem UM fetch', async () => {

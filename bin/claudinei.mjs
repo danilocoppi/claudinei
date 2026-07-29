@@ -25,4 +25,19 @@ if (!existsSync(model)) {
 // sobe o servidor via tsx, repassando as flags (--host/--port/--insecure)
 const child = spawn('npx', ['tsx', join(root, 'server', 'src', 'index.ts'), ...process.argv.slice(2)],
   { cwd: root, stdio: 'inherit' })
-child.on('exit', (code) => process.exit(code ?? 0))
+child.on('error', (err) => {
+  console.error(`não consegui iniciar o servidor via npx: ${err.message}. O npm/npx está no PATH?`)
+  process.exit(1)
+})
+// Com stdio inherit o SIGINT do Ctrl-C já chega ao grupo inteiro; o forward
+// cobre `kill <pid>` direto no wrapper.
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => child.kill(sig))
+child.on('exit', (code, signal) => {
+  if (signal) {
+    // morte por sinal não pode virar exit 0: restaura o default e re-levanta.
+    process.removeAllListeners(signal)
+    process.kill(process.pid, signal)
+    return
+  }
+  process.exit(code ?? 0)
+})

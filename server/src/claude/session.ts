@@ -20,6 +20,8 @@ export interface HermesOptions {
   projectId: number
   /** JWT de serviço assinado pelo servidor, repassado ao script via env (auth multi-usuário). Ausente = sem token. */
   serviceToken?: string
+  /** Caminho de um arquivo 0600 com o JWT de serviço. Preferido sobre serviceToken: só o CAMINHO vai no argv/config da engine (o token em si ficaria visível em `ps`/cmdline para qualquer usuário do SO). */
+  serviceTokenFile?: string
   /** Engine dona desta sessão (claude/codex/opencode) — marca quem despachou nas tasks. */
   engine?: string
 }
@@ -76,7 +78,9 @@ export function buildClaudeArgs(opts: {
           env: {
             CLAUDINEI_API: opts.hermes.apiUrl,
             CLAUDINEI_PROJECT_ID: String(opts.hermes.projectId),
-            ...(opts.hermes.serviceToken ? { CLAUDINEI_SERVICE_TOKEN: opts.hermes.serviceToken } : {}),
+            ...(opts.hermes.serviceTokenFile
+              ? { CLAUDINEI_SERVICE_TOKEN_FILE: opts.hermes.serviceTokenFile }
+              : opts.hermes.serviceToken ? { CLAUDINEI_SERVICE_TOKEN: opts.hermes.serviceToken } : {}),
             ...(opts.hermes.engine ? { CLAUDINEI_ENGINE: opts.hermes.engine } : {}),
           },
         },

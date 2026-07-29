@@ -35,9 +35,9 @@ describe('resolveInScope', () => {
     expect(r).toMatchObject({ exists: true, inScope: true })
     expect(r.real).toBe(realpathSync(join(proj.path, 'a.txt')))
   })
-  it('fora do projeto (não-admin) → inScope:false', () => {
+  it('fora do projeto (não-admin) → responde como inexistente (sem oráculo de existência)', () => {
     const r = resolveInScope(join(root, 'secret', 'k.txt'), proj, false)
-    expect(r).toMatchObject({ exists: true, inScope: false })
+    expect(r).toMatchObject({ exists: false, inScope: false })
     expect(r.real).toBeUndefined()
   })
   it('admin → inScope mesmo fora do projeto', () => {
@@ -56,9 +56,9 @@ describe('resolveInScope', () => {
     expect(r.inScope).toBe(false)
     expect(r.real).toBeUndefined()
   })
-  it('diretório → exists mas inScope:false (não é arquivo)', () => {
+  it('diretório (não-admin) → responde como inexistente (não é arquivo)', () => {
     const r = resolveInScope(proj.path, proj, false)
-    expect(r).toMatchObject({ exists: true, inScope: false })
+    expect(r).toMatchObject({ exists: false, inScope: false })
     expect(r.real).toBeUndefined()
   })
   it('inexistente → exists:false', () => {

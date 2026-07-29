@@ -23,6 +23,8 @@ export interface TerminalLauncherOpts {
   cwd: string
   file: string
   args: string[]
+  /** Mesclado ao ambiente do PTY (ex.: KIMI_CODE_HOME do projeto). */
+  env?: Record<string, string>
   onExit: () => void
   onActivity?: (activity: 'working' | 'waiting' | 'idle') => void
 }
@@ -39,7 +41,7 @@ interface Deps {
   /** Injetável: lança o Claude interativo num PTY e retorna o token do canal. Obrigatório para openInTerminal. */
   terminalLauncher?: (opts: TerminalLauncherOpts) => string
   /** Se presente, toda sessão criada recebe o MCP hermes (agente↔agente + mural) via --mcp-config. */
-  hermes?: { command: string; args: string[]; apiUrl: string; serviceToken?: string }
+  hermes?: { command: string; args: string[]; apiUrl: string; serviceToken?: string; serviceTokenFile?: string }
   /** Chamado quando um evento init traz a lista de slash commands (para persistir). */
   onSlashCommands?: (cmds: string[]) => void
   /** Quantas sessões terminais (dead/stopped) manter por projeto no prune de arranque (default 5). */
@@ -113,7 +115,9 @@ export function createSessionManager(deps: Deps) {
         }
       }
       if (event.kind === 'result' && event.tokens) {
-        deps.onEngineUsage?.(engine, event.tokens)
+        // Métrica nunca derruba o processo: isto roda dentro do handler de
+        // stdout da engine — um erro do SQLite aqui viraria uncaughtException.
+        try { deps.onEngineUsage?.(engine, event.tokens) } catch {}
       }
       deps.broadcast({ type: 'session_event', localId, event })
     })
@@ -311,7 +315,7 @@ export function createSessionManager(deps: Deps) {
       if (resumeId && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(resumeId)) {
         throw new Error('id de sessão inválido')
       }
-      const { file, args } = getEngine(engineId).terminalCommand({
+      const { file, args, env } = getEngine(engineId).terminalCommand({
         resumeSessionId: resumeId,
         projectPath: project.path,
       })
@@ -341,6 +345,7 @@ export function createSessionManager(deps: Deps) {
           cwd: project.path,
           file,
           args,
+          env,
           // Heurística de atividade do TUI: broadcast efêmero (não persiste) — a
           // sidebar mostra "no terminal · processando/esperando você" ao vivo.
           onActivity: (activity) => {
@@ -426,12 +431,18 @@ export function createSessionManager(deps: Deps) {
 
     askAgent(toProjectId: number, fromLabel: string, question: string, timeoutMs = 120_000): Promise<string> {
       let target: { session: EngineSession; projectId: number } | undefined
+      let anyActive = false
       for (const [, entry] of live) {
-        if (entry.projectId === toProjectId && ACTIVE.has(entry.session.status)) { target = entry; break }
+        if (entry.projectId !== toProjectId || !ACTIVE.has(entry.session.status)) continue
+        anyActive = true
+        // Pula sessões ocupadas: com 2 engines no mesmo projeto (uma working,
+        // outra idle), a entrega vai para a livre — não falha com "busy".
+        if (entry.session.status !== 'working') { target = entry; break }
       }
-      if (!target) return Promise.reject(new Error('target project has no active session'))
-      if (target.session.status === 'working') {
-        return Promise.reject(new Error('target agent is busy; try again shortly'))
+      if (!target) {
+        return Promise.reject(new Error(anyActive
+          ? 'target agent is busy; try again shortly'
+          : 'target project has no active session'))
       }
       const session = target.session
 
@@ -449,10 +460,14 @@ export function createSessionManager(deps: Deps) {
           resolve(evt.resultText)
         }
         const onStatus = (status: SessionStatus) => {
-          if (settled || status !== 'dead') return
+          // 'stopped' cobre também openInTerminal (que passa por session.stop()):
+          // sem isso o waiter ficaria pendurado até o timeout com o agente já fora.
+          if (settled || (status !== 'dead' && status !== 'stopped')) return
           settled = true
           cleanup()
-          reject(new Error('target agent exited unexpectedly before responding'))
+          reject(new Error(status === 'dead'
+            ? 'target agent exited unexpectedly before responding'
+            : 'target agent was stopped before responding'))
         }
         const timer = setTimeout(() => {
           if (settled) return
@@ -483,12 +498,15 @@ export function createSessionManager(deps: Deps) {
       timeoutMs = 600_000,
     ): EngineId | null {
       let target: { session: EngineSession; projectId: number; engine: EngineId } | undefined
+      let anyActive = false
       for (const [, entry] of live) {
-        if (entry.projectId === toProjectId && ACTIVE.has(entry.session.status)) { target = entry; break }
+        if (entry.projectId !== toProjectId || !ACTIVE.has(entry.session.status)) continue
+        anyActive = true
+        if (entry.session.status !== 'working') { target = entry; break }
       }
-      if (!target) { onComplete('failed', 'target project has no active session'); return null }
-      if (target.session.status === 'working') {
-        onComplete('failed', 'target agent is busy'); return null
+      if (!target) {
+        onComplete('failed', anyActive ? 'target agent is busy' : 'target project has no active session')
+        return null
       }
       const session = target.session
 
@@ -505,10 +523,10 @@ export function createSessionManager(deps: Deps) {
         onComplete('completed', evt.resultText)
       }
       const onStatus = (status: SessionStatus) => {
-        if (settled || status !== 'dead') return
+        if (settled || (status !== 'dead' && status !== 'stopped')) return
         settled = true
         cleanup()
-        onComplete('failed', 'target agent exited')
+        onComplete('failed', status === 'dead' ? 'target agent exited' : 'target agent was stopped')
       }
       const timer = setTimeout(() => {
         if (settled) return

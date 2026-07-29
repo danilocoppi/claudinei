@@ -79,7 +79,7 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
     expect(findRollout(join(tmpdir(), 'codex-sessions-inexistente'), 'qualquer')).toBeNull()
   })
 
-  it('parseRollout normaliza message (user/assistant) e reasoning em AgentEvent', () => {
+  it('parseRollout normaliza message (user/assistant) e reasoning em AgentEvent', async () => {
     root = mkdtempSync(join(tmpdir(), 'codex-sessions-'))
     const threadId = 'thread-parse'
     const file = writeRollout(root, threadId, ['2026', '01', '01'], [
@@ -89,7 +89,7 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
       assistantMessage('PONG'),
     ])
 
-    const events = parseRollout(file)
+    const events = await parseRollout(file)
     expect(events).toHaveLength(3)
 
     expect(events[0].kind).toBe('user')
@@ -102,7 +102,7 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
     expect((events[2] as any).message).toMatchObject({ role: 'assistant', content: [{ type: 'text', text: 'PONG' }] })
   })
 
-  it('parseRollout ignora function_call e não lança em linha corrompida', () => {
+  it('parseRollout ignora function_call e não lança em linha corrompida', async () => {
     root = mkdtempSync(join(tmpdir(), 'codex-sessions-'))
     const threadId = 'thread-garbage'
     const dir = join(root, '2026', '01', '02')
@@ -116,15 +116,14 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
     ].join('\n') + '\n'
     writeFileSync(file, raw)
 
-    expect(() => parseRollout(file)).not.toThrow()
-    const events = parseRollout(file)
+    const events = await parseRollout(file)
     expect(events).toHaveLength(1)
     expect(events[0].kind).toBe('assistant')
     expect((events[0] as any).message.content[0]).toMatchObject({ type: 'text', text: 'depois do lixo' })
   })
 
-  it('parseRollout devolve [] quando o arquivo não existe', () => {
-    expect(parseRollout(join(tmpdir(), 'nao-existe-de-jeito-nenhum.jsonl'))).toEqual([])
+  it('parseRollout devolve [] quando o arquivo não existe', async () => {
+    await expect(parseRollout(join(tmpdir(), 'nao-existe-de-jeito-nenhum.jsonl'))).resolves.toEqual([])
   })
 
   it('latestThreadForCwd devolve o thread_id do rollout cujo cwd bate', () => {

@@ -43,7 +43,7 @@ export function resolveInScope(raw: string, project: { id: number; path: string 
   let realFile: string
   let st: ReturnType<typeof statSync>
   try { realFile = realpathSync(abs); st = statSync(realFile) } catch { return { path: raw, exists: false, inScope: false } }
-  if (!st.isFile()) return { path: raw, exists: true, inScope: false }
+  if (!st.isFile()) return { path: raw, exists: isAdmin, inScope: false }
   let inScope = isAdmin
   if (!inScope && project) {
     try {
@@ -51,6 +51,10 @@ export function resolveInScope(raw: string, project: { id: number; path: string 
       inScope = realFile === realRoot || realFile.startsWith(realRoot + sep)
     } catch { inScope = false }
   }
+  // Não-admin fora do escopo responde como "não existe": exists:true aqui (e o
+  // 404-vs-403 derivado dele) seria um oráculo de existência de arquivos
+  // arbitrários do SO para quem só tem acesso a um projeto.
+  if (!inScope && !isAdmin) return { path: raw, exists: false, inScope: false }
   return {
     path: raw,
     exists: true,

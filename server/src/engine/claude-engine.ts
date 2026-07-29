@@ -43,7 +43,7 @@ export const claudeEngine: Engine = {
     })
   },
 
-  readHistory(projectPath: string, engineSessionId: string): AgentEvent[] {
+  readHistory(projectPath: string, engineSessionId: string): Promise<AgentEvent[]> {
     return readTranscript(claudeConfigDir(), projectPath, engineSessionId)
   },
 

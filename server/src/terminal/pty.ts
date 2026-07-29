@@ -5,13 +5,13 @@ export interface PtyProcess {
   onExit(cb: (e: { exitCode: number }) => void): void
   write(data: string): void
   resize(cols: number, rows: number): void
-  kill(): void
+  kill(signal?: string): void
 }
 
 export type PtyFactory = (
   file: string,
   args: string[],
-  opts: { cwd: string; cols: number; rows: number },
+  opts: { cwd: string; cols: number; rows: number; env?: Record<string, string> },
 ) => PtyProcess
 
 export const nodePtyFactory: PtyFactory = (file, args, opts) => {
@@ -20,13 +20,15 @@ export const nodePtyFactory: PtyFactory = (file, args, opts) => {
     cwd: opts.cwd,
     cols: opts.cols,
     rows: opts.rows,
-    env: process.env as Record<string, string>,
+    // opts.env é ADITIVO (não substitui o ambiente): a engine só sobrepõe as
+    // chaves que precisa, ex.: KIMI_CODE_HOME do projeto.
+    env: { ...process.env, ...opts.env } as Record<string, string>,
   })
   return {
     onData: (cb) => { p.onData(cb) },
     onExit: (cb) => { p.onExit(({ exitCode }) => cb({ exitCode })) },
     write: (d) => p.write(d),
     resize: (cols, rows) => p.resize(cols, rows),
-    kill: () => p.kill(),
+    kill: (signal) => p.kill(signal),
   }
 }

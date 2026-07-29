@@ -107,7 +107,12 @@ export const fetchTasks = (limit?: number) =>
 export async function transcribeAudio(wav: Blob): Promise<{ text: string }> {
   const res = await fetch('/api/transcribe', { method: 'POST', body: wav, headers: { 'Content-Type': 'audio/wav' } })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((data as { error?: string }).error ?? `transcrição falhou (${res.status})`)
+  if (!res.ok) {
+    // fetch cru (corpo binário), mas o 401 recebe o mesmo tratamento do req():
+    // sessão expirada/revogada → volta à tela de login (o App escuta).
+    if (res.status === 401) window.dispatchEvent(new Event('claudinei:unauthorized'))
+    throw new Error((data as { error?: string }).error ?? `transcrição falhou (${res.status})`)
+  }
   return data as { text: string }
 }
 
@@ -128,6 +133,8 @@ export const uploadFile = async (file: File, name?: string): Promise<{ path: str
   fd.append('file', file, name ?? file.name)
   const res = await fetch('/api/uploads', { method: 'POST', body: fd })
   if (!res.ok) {
+    // fetch cru (multipart), mas o 401 recebe o mesmo tratamento do req().
+    if (res.status === 401) window.dispatchEvent(new Event('claudinei:unauthorized'))
     const body = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(body.error ?? res.statusText)
   }

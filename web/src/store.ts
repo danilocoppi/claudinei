@@ -36,6 +36,16 @@ const BUILTIN_ENGINES: EngineMeta[] = [
   },
 ]
 
+/** Teto do feed do board em memória: broadcasts só fazem prepend — sem poda, cresce sem limite. */
+const BOARD_MAX = 200
+
+/** Mantém em `map` só as chaves presentes em `keep`; devolve o próprio `map` se nada mudou. */
+function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>): Record<string, T> {
+  const kept = Object.keys(map).filter((k) => k in keep)
+  if (kept.length === Object.keys(map).length) return map
+  return Object.fromEntries(kept.map((k) => [k, map[k]]))
+}
+
 interface State {
   authStatus: 'loading' | 'setup' | 'login' | 'ready'
   me: import('./api').Me | null
@@ -82,6 +92,10 @@ interface State {
   /** Substitui os itens do chat já reduzidos (usado pelo retag de sessões longas). */
   setChatItems(localId: string, items: ChatItem[]): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
+  /** Reconexão do WS: eventos podem ter se perdido na queda. Invalida os históricos
+   *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
+   *  órfãos (cursor piscando de uma resposta que nunca vai terminar de chegar). */
+  resyncOnReconnect(): void
   addLocalUserText(localId: string, text: string): void
   requestEdit(localId: string, text: string): void
   applyWsMessage(msg: any): void
@@ -147,6 +161,8 @@ export const useStore = create<State>((set, get) => ({
   markHistoryLoaded: (localId, engineSessionId) =>
     set((s) => ({ historyLoadedFor: { ...s.historyLoadedFor, [localId]: engineSessionId } })),
 
+  resyncOnReconnect: () => set({ historyLoadedFor: {}, streaming: {} }),
+
   addLocalUserText: (localId, text) =>
     set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text }] } })),
 
@@ -157,7 +173,15 @@ export const useStore = create<State>((set, get) => ({
     if (msg.type === 'sessions_snapshot') {
       const sessions: Record<string, SessionInfo> = {}
       for (const info of msg.sessions as SessionInfo[]) sessions[info.localId] = info
-      set({ sessions })
+      // Sessão que sumiu do snapshot foi deletada: leva junto as entradas dela nos
+      // mapas por-sessão — sem esta poda, chat/unread/etc. crescem para sempre.
+      set((s) => ({
+        sessions,
+        chat: pruneOrphans(s.chat, sessions),
+        unread: pruneOrphans(s.unread, sessions),
+        historyLoadedFor: pruneOrphans(s.historyLoadedFor, sessions),
+        streaming: pruneOrphans(s.streaming, sessions),
+      }))
     } else if (msg.type === 'session_status') {
       const prev = get().sessions[msg.localId]?.status
       const projectId = get().sessions[msg.localId]?.projectId
@@ -188,7 +212,13 @@ export const useStore = create<State>((set, get) => ({
             permissionMode: msg.permissionMode ?? s.sessions[msg.localId]?.permissionMode,
             effort: msg.effort !== undefined ? msg.effort : s.sessions[msg.localId]?.effort,
             engine: msg.engine ?? s.sessions[msg.localId]?.engine ?? 'claude',
-            terminalActivity: msg.status === 'in_terminal' ? s.sessions[msg.localId]?.terminalActivity : undefined,
+            // Atividade do TUI só sobrevive à PERMANÊNCIA em in_terminal; na entrada
+            // (status anterior não era in_terminal) zera — senão dois in_terminal
+            // consecutivos mostrariam atividade velha do terminal anterior.
+            terminalActivity:
+              msg.status === 'in_terminal' && s.sessions[msg.localId]?.status === 'in_terminal'
+                ? s.sessions[msg.localId]?.terminalActivity
+                : undefined,
           },
         },
       }))
@@ -230,11 +260,16 @@ export const useStore = create<State>((set, get) => ({
         const nextChat = applyEvent(s.chat[localId] ?? [], event)
         const isActive = s.activeLocalId === localId && s.view === 'chat'
         const grew = nextChat.length > (s.chat[localId] ?? []).length
-        const clearsStreaming = event.kind === 'assistant' || event.kind === 'result'
+        // Apaga a CHAVE (não grava '') para o mapa não acumular entradas mortas.
+        let streaming = s.streaming
+        if ((event.kind === 'assistant' || event.kind === 'result') && localId in s.streaming) {
+          const { [localId]: _gone, ...rest } = s.streaming
+          streaming = rest
+        }
         return {
           chat: { ...s.chat, [localId]: nextChat },
           unread: isActive || !grew ? s.unread : { ...s.unread, [localId]: (s.unread[localId] ?? 0) + 1 },
-          streaming: clearsStreaming ? { ...s.streaming, [localId]: '' } : s.streaming,
+          streaming,
         }
       })
     } else if (msg.type === 'board_post') {
@@ -246,7 +281,7 @@ export const useStore = create<State>((set, get) => ({
         content: msg.content,
         createdAt: msg.createdAt ?? new Date().toISOString(),
       }
-      set((s) => ({ board: [post, ...s.board] }))
+      set((s) => ({ board: [post, ...s.board].slice(0, BOARD_MAX) }))
     } else if (msg.type === 'task_update') {
       const task = msg.task as Task | undefined
       if (!task) return

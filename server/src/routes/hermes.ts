@@ -5,6 +5,11 @@ import { createProjectsService } from '../projects.js'
 import { createMuralService } from '../mural.js'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
 
+// Teto de tamanho: título/conteúdo/pergunta vão direto ao SQLite e ao
+// broadcast WS — sem limite, um agente em loop incha o banco de todos.
+const MAX_TITLE_CHARS = 500
+const MAX_TEXT_CHARS = 50_000
+
 export function registerHermesRoutes(
   app: FastifyInstance,
   deps: { db: Db; manager: SessionManager; broadcast?: (msg: object) => void },
@@ -34,6 +39,9 @@ export function registerHermesRoutes(
     if (!body?.projectId || !body?.title || !body?.content) {
       return reply.code(400).send({ error: 'projectId, title and content are required' })
     }
+    if (body.title.length > MAX_TITLE_CHARS || body.content.length > MAX_TEXT_CHARS) {
+      return reply.code(400).send({ error: `title must be at most ${MAX_TITLE_CHARS} chars and content at most ${MAX_TEXT_CHARS} chars` })
+    }
     const project = projects.get(Number(body.projectId))
     if (!project) return reply.code(400).send({ error: 'project does not exist' })
     if (!requireProjectAccess(req, reply, project.id)) return
@@ -53,6 +61,9 @@ export function registerHermesRoutes(
     const body = req.body as { fromProjectId?: number; toProjectName?: string; question?: string }
     if (!body?.toProjectName || !body?.question) {
       return reply.code(400).send({ error: 'toProjectName and question are required' })
+    }
+    if (body.question.length > MAX_TEXT_CHARS) {
+      return reply.code(400).send({ error: `question must be at most ${MAX_TEXT_CHARS} chars` })
     }
     const target = projects.list().find((p) => p.name.toLowerCase() === body.toProjectName!.toLowerCase())
     if (!target) return reply.code(404).send({ error: `project "${body.toProjectName}" does not exist` })

@@ -47,7 +47,12 @@ export default function App() {
   const [ws, setWs] = useState<ReturnType<typeof connectWs>>()
   useEffect(() => {
     if (authStatus !== 'ready') return
-    const client = connectWs((msg) => useStore.getState().applyWsMessage(msg))
+    const client = connectWs(
+      (msg) => useStore.getState().applyWsMessage(msg),
+      // RE-conexão: eventos perdidos na queda não são reenviados pelo servidor —
+      // invalida os históricos carregados (o ChatView rebusca) e limpa streaming órfão.
+      () => useStore.getState().resyncOnReconnect(),
+    )
     setWs(client)
     return () => { client.close(); setWs(undefined) }
   }, [authStatus])

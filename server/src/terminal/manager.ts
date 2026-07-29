@@ -8,6 +8,8 @@ export interface OpenOpts {
   cwd: string
   file: string
   args: string[]
+  /** Mesclado ao ambiente do PTY (ex.: KIMI_CODE_HOME do projeto). */
+  env?: Record<string, string>
   onExit: () => void
   /** Heurística de atividade do TUI (working/waiting/idle) lida do fluxo do PTY. */
   onActivity?: (activity: TerminalActivity) => void
@@ -41,6 +43,28 @@ export function createTerminalManager(deps: { ptyFactory: PtyFactory }) {
     for (const c of entry.clients) if (c.readyState === 1) c.send(data)
   }
 
+  // kill com escalonamento: processo que ignora o sinal padrão leva SIGKILL;
+  // se nem assim o exit chegar (zumbi), força a limpeza — sem isso a entry
+  // (buffer de 256 KB + clients) ficaria no Map para sempre e os clients
+  // nunca receberiam "sessão encerrada". Os timers são cancelados pelo
+  // onExit real via exitWaiters.
+  const killWithEscalation = (localId: string, entry: PtyEntry) => {
+    const t1 = setTimeout(() => {
+      try { entry.proc.kill('SIGKILL') } catch { /* já morto */ }
+      const t2 = setTimeout(() => {
+        if (entries.get(localId) !== entry) return
+        fanout(entry, '\r\n— sessão encerrada —\r\n')
+        entries.delete(localId)
+        entry.exitWaiters.splice(0).forEach((w) => w())
+      }, 2000)
+      t2.unref?.()
+      entry.exitWaiters.push(() => clearTimeout(t2))
+    }, 3000)
+    t1.unref?.()
+    entry.exitWaiters.push(() => clearTimeout(t1))
+    entry.proc.kill()
+  }
+
   return {
     open(localId: string, opts: OpenOpts): string {
       const existing = entries.get(localId)
@@ -48,7 +72,7 @@ export function createTerminalManager(deps: { ptyFactory: PtyFactory }) {
         existing.token = randomBytes(24).toString('hex')
         return existing.token
       }
-      const proc = deps.ptyFactory(opts.file, opts.args, { cwd: opts.cwd, cols: 80, rows: 24 })
+      const proc = deps.ptyFactory(opts.file, opts.args, { cwd: opts.cwd, cols: 80, rows: 24, env: opts.env })
       const entry: PtyEntry = { proc, buffer: '', token: randomBytes(24).toString('hex'), clients: new Set(), exited: false, exitWaiters: [] }
       entries.set(localId, entry)
       const tracker = opts.onActivity ? createActivityTracker(opts.onActivity) : null
@@ -91,7 +115,7 @@ export function createTerminalManager(deps: { ptyFactory: PtyFactory }) {
       const entry = entries.get(localId)
       if (entry && !entry.exited) {
         entry.exited = true
-        entry.proc.kill()
+        killWithEscalation(localId, entry)
       }
     },
 
@@ -109,7 +133,7 @@ export function createTerminalManager(deps: { ptyFactory: PtyFactory }) {
       })
       if (!entry.exited) {
         entry.exited = true
-        entry.proc.kill()
+        killWithEscalation(localId, entry)
       }
       return wait
     },

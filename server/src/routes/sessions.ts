@@ -122,8 +122,8 @@ export function registerSessionRoutes(app: FastifyInstance, deps: { db: Db; mana
       const row = deps.db.prepare('SELECT continue_latest FROM sessions WHERE local_id=?').get(localId) as any
       if (!row?.continue_latest) return []
       const prev = engine.latestConversationId(project.path)
-      return prev ? engine.readHistory(project.path, prev).slice(-HISTORY_EVENT_LIMIT) : []
+      return prev ? (await engine.readHistory(project.path, prev)).slice(-HISTORY_EVENT_LIMIT) : []
     }
-    return engine.readHistory(project.path, info.engineSessionId).slice(-HISTORY_EVENT_LIMIT)
+    return (await engine.readHistory(project.path, info.engineSessionId)).slice(-HISTORY_EVENT_LIMIT)
   })
 }

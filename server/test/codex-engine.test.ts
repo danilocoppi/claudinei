@@ -33,7 +33,7 @@ describe('codexEngine', () => {
     expect(c.models.length).toBeGreaterThan(0)
   })
 
-  it('readHistory sem rollout → []', () => {
-    expect(codexEngine.readHistory('/nao/existe', 'THREAD-NADA')).toEqual([])
+  it('readHistory sem rollout → []', async () => {
+    await expect(codexEngine.readHistory('/nao/existe', 'THREAD-NADA')).resolves.toEqual([])
   })
 })

@@ -164,7 +164,7 @@ export const en = {
     errTranscribe: 'Transcription failed — is the server running with the model installed?',
   },
   usage: {
-    claude: 'Claude', tokens: 'tokens', tokensToday: '{{n}} today', tokensTip: 'Cumulative tokens reported by the engine (no plan-limit API available).', tokenBreakdown: '{{in}} in · {{out}} out · {{reasoning}} reasoning',
+    claude: 'Claude', plans: 'Plans', weekly: 'weekly', tokens: 'tokens', tokensToday: '{{n}} today', tokensTip: 'Cumulative tokens reported by the engine (no plan-limit API available).', tokenBreakdown: '{{in}} in · {{out}} out · {{reasoning}} reasoning',
     title: 'Usage', advanced: 'Advanced', session: 'Current session', weeklyAll: 'All models',
     resets: 'resets {{when}}', pace: '{{percent}}% used · pace {{ratio}}× sustainable',
   },

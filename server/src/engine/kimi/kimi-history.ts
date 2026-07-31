@@ -99,6 +99,39 @@ export async function parseWire(file: string): Promise<AgentEvent[]> {
   return events
 }
 
+export interface TurnTokens { input: number; cachedInput: number; output: number; reasoning: number; total: number }
+
+/**
+ * Tokens do ÚLTIMO turno, somados dos `step.end` do wire (o stdout do `kimi -p`
+ * não expõe usage — só o arquivo tem). Convenção de `total` igual à do Codex:
+ * entrada + saída + raciocínio, sem contar o cache lido.
+ */
+export async function readLastTurnTokens(projectPath: string, sessionId: string): Promise<TurnTokens | undefined> {
+  const dir = sessionDirOf(projectPath, sessionId)
+  if (!dir) return undefined
+  let text: string
+  try { text = await readFile(join(dir, 'agents', 'main', 'wire.jsonl'), 'utf8') } catch { return undefined }
+
+  const lines = text.split('\n')
+  // Só o turno atual: recomeça a contagem a cada turn.prompt.
+  let input = 0, cachedInput = 0, output = 0
+  let vistos = 0
+  for (const line of lines) {
+    const s = line.trim(); if (!s) continue
+    let o: any; try { o = JSON.parse(s) } catch { continue }
+    if (o.type === 'turn.prompt') { input = 0; cachedInput = 0; output = 0; vistos = 0; continue }
+    if (o.type !== 'context.append_loop_event' || o.event?.type !== 'step.end') continue
+    const u = o.event.usage
+    if (!u) continue
+    vistos++
+    input += (u.inputOther ?? 0) + (u.inputCacheCreation ?? 0)
+    cachedInput += u.inputCacheRead ?? 0
+    output += u.output ?? 0
+  }
+  if (vistos === 0) return undefined
+  return { input, cachedInput, output, reasoning: 0, total: input + output }
+}
+
 export function readHistory(projectPath: string, sessionId: string): Promise<AgentEvent[]> {
   const dir = sessionDirOf(projectPath, sessionId)
   if (!dir) return Promise.resolve([])

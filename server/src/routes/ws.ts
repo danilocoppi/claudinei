@@ -74,6 +74,11 @@ export function createWsHub() {
         socket.on('message', (data) => {
           let msg: any
           try { msg = JSON.parse(data.toString()) } catch { return }
+          // `null`, número e string são JSON VÁLIDO: sem esta guarda o handler
+          // desreferencia msg.type/msg.localId — e o próprio catch abaixo faz
+          // msg.localId, então o TypeError escapa do try e vira
+          // uncaughtException (processo inteiro cai com 1 frame `null`).
+          if (!msg || typeof msg !== 'object') return
           try {
             const u = client.user
             if (u && u.kind === 'user' && !u.isAdmin) {

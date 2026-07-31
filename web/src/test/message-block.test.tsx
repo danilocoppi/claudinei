@@ -185,3 +185,28 @@ describe('callout de erro da API da engine', () => {
     expect(document.querySelector('.api-error')).toBeNull()
   })
 })
+
+describe('anexo na bolha do usuário vira link de arquivo', () => {
+  const UPLOAD = '/home/u/.claudinei/uploads/001-colado-225550.png'
+
+  it('path já resolvido (existe e no escopo) vira .file-link clicável', () => {
+    // o envio troca o token [📎 nome] pelo caminho do upload: o texto da bolha
+    // carrega o path cru e precisa virar link, como já acontece no lado do agente
+    useStore.setState({ fileResolved: { [UPLOAD]: { path: UPLOAD, exists: true, inScope: true, kind: 'image' } } })
+    render(<MessageBlock item={{ kind: 'user_text', text: `olha isso ${UPLOAD} aqui` }} />)
+    const link = document.querySelector('a.file-link') as HTMLAnchorElement
+    expect(link).toBeTruthy()
+    expect(link.textContent).toBe(UPLOAD)
+    // texto ao redor preservado
+    expect(screen.getByText(/olha isso/)).toBeTruthy()
+    fireEvent.click(link)
+    expect(useStore.getState().fileMenu).toMatchObject({ path: UPLOAD, kind: 'image' })
+  })
+
+  it('path fora do escopo (ou inexistente) continua texto puro', () => {
+    useStore.setState({ fileResolved: { [UPLOAD]: { path: UPLOAD, exists: false, inScope: false } } })
+    render(<MessageBlock item={{ kind: 'user_text', text: `veja ${UPLOAD}` }} />)
+    expect(document.querySelector('a.file-link')).toBeNull()
+    expect(screen.getByText(new RegExp('veja'))).toBeTruthy()
+  })
+})

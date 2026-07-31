@@ -85,6 +85,31 @@ describe('GET /api/usage', () => {
     await app.close()
   })
 
+  it('mistura os limites das fontes extras (Kimi) na MESMA lista, na ordem', async () => {
+    const app = Fastify()
+    const claude = { kind: 'session', group: 'session', label: null, percent: 10, severity: 'normal', resetsAt: 'x' }
+    const kimi = { kind: 'kimi_weekly', group: 'weekly', label: null, percent: 90, severity: 'danger', resetsAt: 'y', provider: 'kimi' }
+    await registerUsageRoutes(app, {
+      usage: { getLimits: async () => [claude] },
+      extraUsage: [{ getLimits: async () => [kimi] }],
+    })
+    const limits = (await app.inject({ method: 'GET', url: '/api/usage' })).json().limits
+    expect(limits).toEqual([claude, kimi]) // Claude primeiro, extras depois
+    await app.close()
+  })
+
+  it('fonte extra que explode não derruba as barras das outras', async () => {
+    const app = Fastify()
+    await registerUsageRoutes(app, {
+      usage: { getLimits: async () => [{ kind: 'session', group: 'session', label: null, percent: 10, severity: 'normal', resetsAt: 'x' }] },
+      extraUsage: [{ getLimits: async () => { throw new Error('kimi fora do ar') } }],
+    })
+    const res = await app.inject({ method: 'GET', url: '/api/usage' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().limits).toHaveLength(1)
+    await app.close()
+  })
+
   it('sem engineUsage nas deps (testes legados) → tokens: {}', async () => {
     const app = Fastify()
     await registerUsageRoutes(app, { usage: { getLimits: async () => [] } })

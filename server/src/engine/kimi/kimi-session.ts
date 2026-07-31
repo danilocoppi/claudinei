@@ -6,6 +6,7 @@ import type { SessionStatus } from '../../claude/session.js'
 import { buildTurnArgs } from './kimi-args.js'
 import { createKimiTurnParser } from './kimi-parser.js'
 import { ensureKimiHome } from './kimi-home.js'
+import { readLastTurnTokens, type TurnTokens } from './kimi-history.js'
 
 // O prompt vai por argv (`-p <prompt>`) e o Linux limita um argumento a 131071
 // bytes (MAX_ARG_STRLEN) — mesma restrição do OpenCode. Acima disso o spawn
@@ -69,10 +70,17 @@ export class KimiSession extends EventEmitter implements EngineSession {
     this.proc.stderr.on('data', (d) => {
       const s = d.toString(); this.stderrTail.push(s); if (this.stderrTail.length > 20) this.stderrTail.shift(); this.emit('stderr', s)
     })
-    this.proc.on('close', (code) => {
+    this.proc.on('close', async (code) => {
       this.proc = undefined
       if (this.stopping) { this.setStatus('stopped'); return }
       if (this.interrupting) { this.interrupting = false; this.setStatus('idle'); this.emit('exit', code); return }
+      // Tokens do turno: o stdout não traz usage, mas o wire.jsonl da sessão sim.
+      // Falha aqui nunca impede o result (só fica sem métrica). A sessão segue
+      // 'working' durante o await, então um send() concorrente continua barrado.
+      let tokens: TurnTokens | undefined
+      if (this.sessionId) {
+        try { tokens = await readLastTurnTokens(this.opts.projectPath, this.sessionId) } catch { tokens = undefined }
+      }
       // A CLI não emite um evento de "fim de turno": o fim É o exit. Sintetiza
       // o result (sucesso ou erro) SEMPRE — sem ele, askAgent/dispatchTask
       // ficariam pendurados até o timeout esperando um kind==='result'.
@@ -84,6 +92,7 @@ export class KimiSession extends EventEmitter implements EngineSession {
         resultText: failed ? (this.lastStderr || `kimi terminou com código ${code}`) : parser.lastText(),
         costUsd: 0,
         raw: {},
+        tokens,
       })
       if (failed) { this.setStatus('dead'); this.emit('exit', code); return }
       this.setStatus('needs_attention')

@@ -34,6 +34,8 @@ export interface AppDeps {
   terminalManager?: TerminalManager
   speech?: Pick<SpeechService, 'installed' | 'transcribe'>
   usage?: Pick<UsageService, 'getLimits'>
+  /** Limites de plano de outros provedores (Kimi) — misturados na mesma lista do /api/usage. */
+  extraUsage?: Array<Pick<UsageService, 'getLimits'>>
   /** Acumulador de tokens por engine (Codex etc.) exposto ao lado dos limites de plano em /api/usage. */
   engineUsage?: Pick<EngineUsageService, 'all'>
   /** Caminho absoluto de web/dist (SPA buildado). Se ausente, o static não é registrado. */
@@ -77,7 +79,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })
-  if (deps.usage) await registerUsageRoutes(app, { usage: deps.usage, engineUsage: deps.engineUsage })
+  if (deps.usage) await registerUsageRoutes(app, { usage: deps.usage, extraUsage: deps.extraUsage, engineUsage: deps.engineUsage })
   if (deps.terminalManager) registerTerminalRoutes(app, { manager: deps.manager, terminalManager: deps.terminalManager })
   if (deps.wsHub) deps.wsHub.register(app, { manager: deps.manager })
 

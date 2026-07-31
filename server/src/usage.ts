@@ -11,6 +11,8 @@ export interface UsageLimit {
   percent: number
   severity: string
   resetsAt: string
+  /** Provedor do limite. Ausente = Claude (default histórico); 'kimi' etc. quando a lista mistura planos. */
+  provider?: string
 }
 
 export interface UsageService { getLimits(): Promise<UsageLimit[]> }

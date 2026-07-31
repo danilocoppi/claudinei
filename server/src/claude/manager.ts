@@ -269,13 +269,21 @@ export function createSessionManager(deps: Deps) {
         if ((opts.model || opts.permissionMode) && entry.session.status === 'working') {
           throw new Error('sessão está trabalhando; aguarde o turno terminar')
         }
-        if (opts.model) await entry.session.setModel(opts.model)
+        // model !== undefined inclui '' (voltar ao Padrão): as engines turn-based
+        // tratam '' como "sem -m no próximo turno"; no Claude o protocolo não tem
+        // reset, então o setModel('') é no-op no processo vivo (vale no relaunch).
+        if (opts.model !== undefined) await entry.session.setModel(opts.model)
         if (opts.permissionMode) await entry.session.setPermissionMode(opts.permissionMode)
         if (opts.effort !== undefined) await entry.session.setEffort(opts.effort === 'auto' ? '' : opts.effort)
       }
+      // '' = limpar (Padrão): COALESCE não distingue "limpar" de "não tocar",
+      // então o model tem update próprio com NULLIF.
+      if (opts.model !== undefined) {
+        deps.db.prepare(`UPDATE sessions SET model = NULLIF(?, ''), updated_at = datetime('now') WHERE local_id = ?`).run(opts.model, localId)
+      }
       deps.db.prepare(
-        `UPDATE sessions SET model = COALESCE(?, model), permission_mode = COALESCE(?, permission_mode), updated_at = datetime('now') WHERE local_id = ?`,
-      ).run(opts.model ?? null, opts.permissionMode ?? null, localId)
+        `UPDATE sessions SET permission_mode = COALESCE(?, permission_mode), updated_at = datetime('now') WHERE local_id = ?`,
+      ).run(opts.permissionMode ?? null, localId)
       if (opts.effort !== undefined) {
         // 'auto' limpa (volta ao padrão do modelo); a aplicação ao processo vivo é
         // feita pelo front via mensagem /effort — aqui só persistimos p/ o relaunch

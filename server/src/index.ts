@@ -151,6 +151,9 @@ if (process.argv.includes('--hermes')) {
     workerPath: process.env.CLAUDINEI_PKG_NATIVE ? '--speech-worker' : undefined,
   })
   const usage = createUsageService()
+  // Limites do plano do Kimi (mesma fonte do /status da CLI) na MESMA lista do card.
+  const { createKimiUsageService } = await import('./engine/kimi/kimi-usage.js')
+  const kimiUsage = createKimiUsageService()
   const engineUsage = createEngineUsageService(db)
   // drain nasce do orchestrator, que só existe depois do buildApp — mas o
   // manager (criado agora, antes) precisa poder chamá-lo assim que uma sessão
@@ -183,7 +186,7 @@ if (process.argv.includes('--hermes')) {
   // não do cwd do processo.
   const webDist = process.env.CLAUDINEI_PKG_WEB ?? join(__dirname, '..', '..', 'web', 'dist')
   const app = await buildApp({
-    config, db, manager, wsHub, terminalManager, speech, usage, engineUsage, auth,
+    config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage], engineUsage, auth,
     insecure: !!cli.insecure,
     webDist: existsSync(webDist) ? webDist : undefined,
     onOrchestratorReady: (d) => { drain = d },

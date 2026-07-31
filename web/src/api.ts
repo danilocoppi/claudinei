@@ -119,6 +119,8 @@ export async function transcribeAudio(wav: Blob): Promise<{ text: string }> {
 export interface UsageLimit {
   kind: string; group: string; label: string | null
   percent: number; severity: string; resetsAt: string
+  /** Ausente = Claude (default histórico); 'kimi' etc. quando a lista mistura planos. */
+  provider?: string
 }
 /** Tokens por engine (ex.: Codex — o Claude não reporta tokens aqui). */
 export interface EngineTokens { input: number; cachedInput: number; output: number; reasoning: number; total: number }

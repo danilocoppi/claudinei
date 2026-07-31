@@ -178,6 +178,18 @@ describe('comandos do WS respeitam RBAC', () => {
     anaWs.close()
   })
 
+  it('frame com corpo `null` não derruba o servidor', async () => {
+    const anaWs = openWs(await loginCookie('ana'))
+    await opened(anaWs); await nextMsg(anaWs)
+    // `null` é JSON válido: o handler desreferencia msg.localId (inclusive no
+    // catch), então sem guarda vira uncaughtException e mata o processo.
+    anaWs.send('null')
+    const err = nextMsg(anaWs)
+    anaWs.send(JSON.stringify({ type: 'interrupt', localId: 'nao-existe' }))
+    await expect(err).resolves.toMatchObject({ type: 'error' })
+    anaWs.close()
+  })
+
   it('send_message em sessão de projeto alheio → erro forbidden', async () => {
     const start = await app.inject({ method: 'POST', url: `/api/projects/${p2.id}/sessions`, headers: { cookie: await loginCookie('root') }, payload: {} })
     const localId = start.json().localId

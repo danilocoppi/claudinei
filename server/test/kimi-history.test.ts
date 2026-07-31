@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { kimiHomeFor } from '../src/engine/kimi/kimi-home.js'
-import { latestSessionId, sessionDirOf, readHistory, parseWire } from '../src/engine/kimi/kimi-history.js'
+import { latestSessionId, sessionDirOf, readHistory, parseWire, readLastTurnTokens } from '../src/engine/kimi/kimi-history.js'
 
 const PROJ = '/tmp/proj-hist'
 const OTHER = '/tmp/proj-outro'
@@ -102,5 +102,33 @@ describe('readHistory (wire.jsonl)', () => {
     const events = await readHistory(PROJ, 'session_c')
     expect(events).toHaveLength(1)
     expect((events[0] as any).message.content[0].text).toBe('ok')
+  })
+})
+
+describe('tokens do turno (wire.jsonl)', () => {
+  const stepEnd = (usage: unknown) => ({ type: 'context.append_loop_event', event: { type: 'step.end', usage } })
+
+  it('soma os step.end do ÚLTIMO turno (o anterior não entra)', async () => {
+    seed('session_tok', PROJ, [
+      { type: 'turn.prompt', input: [{ type: 'text', text: 'turno 1' }], origin: { kind: 'user' } },
+      stepEnd({ inputOther: 1000, output: 50, inputCacheRead: 20000, inputCacheCreation: 0 }),
+      { type: 'turn.prompt', input: [{ type: 'text', text: 'turno 2' }], origin: { kind: 'user' } },
+      stepEnd({ inputOther: 300, output: 20, inputCacheRead: 5000, inputCacheCreation: 100 }),
+      stepEnd({ inputOther: 200, output: 30, inputCacheRead: 1000, inputCacheCreation: 0 }),
+    ])
+    const tk = await readLastTurnTokens(PROJ, 'session_tok')
+    expect(tk).toEqual({
+      input: 600,          // 300+100 + 200
+      cachedInput: 6000,   // 5000 + 1000
+      output: 50,          // 20 + 30
+      reasoning: 0,
+      total: 650,          // entrada + saída (cache lido fora, como no Codex)
+    })
+  })
+
+  it('sem step.end (ou sessão inexistente) → undefined, não zero', async () => {
+    seed('session_sem', PROJ, [{ type: 'turn.prompt', input: [], origin: { kind: 'user' } }])
+    await expect(readLastTurnTokens(PROJ, 'session_sem')).resolves.toBeUndefined()
+    await expect(readLastTurnTokens(PROJ, 'session_fantasma')).resolves.toBeUndefined()
   })
 })

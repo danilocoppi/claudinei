@@ -30,6 +30,38 @@ describe('GET /api/engines', () => {
   })
 })
 
+describe('GET /api/engines — ordem de exibição', () => {
+  it('ordem canônica (claude, codex, kimi, opencode) com as NÃO instaladas por último', async () => {
+    const prev = { codex: process.env.CLAUDINEI_CODEX_BIN, kimi: process.env.CLAUDINEI_KIMI_BIN }
+    // codex e kimi ausentes → devem cair para o fim, preservando a ordem entre si
+    process.env.CLAUDINEI_CODEX_BIN = `/nao/existe/codex-${Date.now()}`
+    process.env.CLAUDINEI_KIMI_BIN = `/nao/existe/kimi-${Date.now()}`
+    try {
+      const engines = (await app.inject({ method: 'GET', url: '/api/engines' })).json() as any[]
+      const instaladas = engines.filter((e) => e.available !== false).map((e) => e.id)
+      const ausentes = engines.filter((e) => e.available === false).map((e) => e.id)
+      // as ausentes ficam DEPOIS de todas as instaladas
+      expect(engines.map((e) => e.id)).toEqual([...instaladas, ...ausentes])
+      // e a ordem canônica se mantém dentro de cada grupo (sort estável)
+      expect(ausentes.filter((id) => id === 'codex' || id === 'kimi')).toEqual(['codex', 'kimi'])
+    } finally {
+      for (const [k, v] of [['CLAUDINEI_CODEX_BIN', prev.codex], ['CLAUDINEI_KIMI_BIN', prev.kimi]] as const) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v
+      }
+    }
+  })
+
+  it('sem nenhuma ausente, vale a ordem do registry', async () => {
+    const engines = (await app.inject({ method: 'GET', url: '/api/engines' })).json() as any[]
+    const ids = engines.map((e) => e.id)
+    const canonica = ['claude', 'codex', 'kimi', 'opencode']
+    // compara só as que estão no mesmo grupo de disponibilidade do claude
+    const instaladas = engines.filter((e) => e.available !== false).map((e) => e.id)
+    expect(instaladas).toEqual(canonica.filter((id) => instaladas.includes(id)))
+    expect(ids.length).toBe(canonica.length)
+  })
+})
+
 describe('GET /api/engines — disponibilidade da CLI', () => {
   it('engine com binário inexistente vem com available:false; instalada vem true', async () => {
     const prev = process.env.CLAUDINEI_OPENCODE_BIN

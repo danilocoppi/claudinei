@@ -25,8 +25,19 @@ export function stripAnsi(s: string): string {
   return s.replace(OSC_RE, '').replace(CSI_RE, '').replace(ESC_RE, '')
 }
 
-const WORKING_RE = /esc to interrupt/i
-const WAITING_RE = /do you want|would you like|❯\s*\d+\.|waiting for your input/i
+// Rodapé de "processando" das TUIs. Cada CLI escreve a sua frase — e ELAS MUDAM
+// entre versões: o `esc to interrupt` original sumiu do Claude 2.1.220, o que
+// deixava a heurística morta para TODAS as engines. Extraídas dos binários
+// instalados (strings): Claude "Esc to stop"/"esc to cancel"/"Ctrl+C to stop",
+// Codex "Ctrl-C to stop"/"Esc to cancel"/"Ctrl+C now to cancel", Kimi
+// "Ctrl-C to stop"/"Esc / Ctrl-C to stop"/"Esc to cancel". 'interrupt' fica por
+// compatibilidade com versões antigas.
+//
+// Um diálogo parado também pode exibir "Esc to cancel" e disparar um 'working'
+// falso — ele se corrige sozinho: sem output novo, a avaliação de silêncio
+// reclassifica como waiting/idle em ~1,2 s.
+const WORKING_RE = /(?:esc(?:ape)?|ctrl[ +-]?c)[^\n]{0,24}to (?:interrupt|stop|cancel)/i
+const WAITING_RE = /do you want|would you like|❯\s*\d+\.|waiting for your input|\(y\/n\)|allow (?:this|command)|approve\?/i
 
 export interface ActivityTracker {
   feed(chunk: string): void

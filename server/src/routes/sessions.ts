@@ -8,7 +8,6 @@ import { createSettingsService } from '../settings.js'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
 import { hasEngine, DEFAULT_ENGINE_ID, getEngine, listEngines } from '../engine/index.js'
 
-const MODEL_ALLOWLIST = new Set(['fable', 'opus', 'sonnet', 'haiku'])
 const PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'plan', 'bypassPermissions'])
 // Níveis persistíveis do effort ('auto' limpa; 'ultracode' é por sessão — o front não persiste).
 // Vão ao argv/config da engine no relaunch, então allowlist estrita — mas
@@ -26,6 +25,19 @@ export const HISTORY_EVENT_LIMIT = 300
 // Nomes completos (ex.: claude-fable-5, claude-haiku-4-5-20251001): charset
 // estrito — vai ao argv do claude, então nada de metachars.
 const FULL_MODEL_RE = /^claude-[a-z0-9-]+$/
+
+// Modelo válido = id declarado nas capabilities DA ENGINE da sessão ('' = Padrão,
+// limpa o model salvo). Cada engine tem seus ids (kimi-code/k3, gpt-5.6-sol...) —
+// validar contra o allowlist do Claude descartava o model das outras engines
+// silenciosamente. Claude aceita também o nome completo (claude-*) por compat com
+// clientes da API. Valor inválido → undefined ("não toca" no PATCH / vira Padrão
+// no POST) — defesa: o model vai ao argv da engine.
+function sanitizeModel(engineId: string, model: string | undefined): string | undefined {
+  if (model === undefined || model === '') return model
+  if (getEngine(engineId).capabilities().models.includes(model)) return model
+  if (engineId === DEFAULT_ENGINE_ID && FULL_MODEL_RE.test(model)) return model
+  return undefined
+}
 
 export function registerSessionRoutes(app: FastifyInstance, deps: { db: Db; manager: SessionManager; config: Config }) {
   const projects = createProjectsService(deps.db)
@@ -52,11 +64,9 @@ export function registerSessionRoutes(app: FastifyInstance, deps: { db: Db; mana
     const body = (req.body ?? {}) as { continueConversation?: boolean; permissionMode?: string; model?: string; engine?: string }
     const engine = body?.engine ?? DEFAULT_ENGINE_ID
     if (!hasEngine(engine)) return reply.code(400).send({ error: 'unknown_engine' })
-    // Defesa: model vai ao argv do claude (--model <valor>) — só aceita alias
-    // do allowlist ou nome completo com charset seguro; o resto vira Padrão.
-    const model = body?.model && (MODEL_ALLOWLIST.has(body.model) || FULL_MODEL_RE.test(body.model))
-      ? body.model
-      : undefined
+    // Defesa: model vai ao argv da engine — só aceita id das capabilities dela
+    // ('' = Padrão, equivale a não mandar model na criação).
+    const model = sanitizeModel(engine, body?.model) || undefined
     const permissionMode = body?.permissionMode && PERMISSION_MODES.has(body.permissionMode)
       ? (body.permissionMode as PermissionMode)
       : 'bypassPermissions'
@@ -74,9 +84,11 @@ export function registerSessionRoutes(app: FastifyInstance, deps: { db: Db; mana
 
   app.patch('/api/sessions/:localId/options', async (req, reply) => {
     const { localId } = req.params as { localId: string }
-    if (!guardSession(req, reply, localId)) return
+    const info = guardSession(req, reply, localId)
+    if (!info) return
     const body = (req.body ?? {}) as { model?: string; permissionMode?: string; effort?: string }
-    const model = body.model && (MODEL_ALLOWLIST.has(body.model) || FULL_MODEL_RE.test(body.model)) ? body.model : undefined
+    // '' explícito = voltar ao Padrão (limpa o model); inválido = não toca.
+    const model = sanitizeModel(info.engine as string, body.model)
     if (body.permissionMode !== undefined && !PERMISSION_MODES.has(body.permissionMode)) {
       return reply.code(400).send({ error: 'modo de permissão inválido' })
     }

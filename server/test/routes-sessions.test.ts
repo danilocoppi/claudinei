@@ -4,7 +4,8 @@ import { openDb, type Db } from '../src/db.js'
 import { loadConfig } from '../src/config.js'
 import { createSessionManager } from '../src/claude/manager.js'
 import { ClaudeSession, type SessionOptions } from '../src/claude/session.js'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { __resetModelsCache } from '../src/engine/kimi/kimi-engine.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -220,6 +221,71 @@ describe('rotas de sessões', () => {
     await app.inject({ method: 'POST', url: `/api/sessions/${r1.json().localId}/stop` })
   })
 
+})
+
+describe('model por engine (a validação é das capabilities da engine, não só do Claude)', () => {
+  // Os modelos do Kimi vêm do config.toml do usuário (KIMI_CODE_HOME isolado por
+  // teste, como em kimi-engine.test.ts) — ids como "kimi-code/k3" não batem no
+  // allowlist do Claude e eram descartados silenciosamente pela rota.
+  const envBackup = { KIMI_CODE_HOME: process.env.KIMI_CODE_HOME }
+  beforeEach(() => {
+    const home = mkdtempSync(join(tmpdir(), 'kimi-user-'))
+    writeFileSync(join(home, 'config.toml'),
+      'default_model = "kimi-code/k3"\n\n[models."kimi-code/k3"]\nmodel = "k3"\n\n[models."kimi-code/kimi-for-coding"]\nmodel = "kimi-for-coding"\n')
+    process.env.KIMI_CODE_HOME = home
+    __resetModelsCache()
+  })
+  afterEach(() => {
+    if (envBackup.KIMI_CODE_HOME === undefined) delete process.env.KIMI_CODE_HOME
+    else process.env.KIMI_CODE_HOME = envBackup.KIMI_CODE_HOME
+    __resetModelsCache()
+  })
+
+  it('cria sessão kimi com model declarado no config → 201 e persiste', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${projectId}/sessions`,
+      payload: { engine: 'kimi', model: 'kimi-code/k3' },
+    })
+    expect(res.statusCode).toBe(201)
+    const { localId } = res.json()
+    const row = db.prepare('SELECT model FROM sessions WHERE local_id=?').get(localId) as any
+    expect(row.model).toBe('kimi-code/k3')
+    await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
+  })
+
+  it('PATCH /options em sessão kimi aplica o model e devolve no SessionInfo', async () => {
+    const r1 = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions`, payload: { engine: 'kimi' } })
+    const { localId } = r1.json()
+    await waitUntil(() => { const row = db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any; return row?.status === 'idle' })
+    const res = await app.inject({ method: 'PATCH', url: `/api/sessions/${localId}/options`, payload: { model: 'kimi-code/kimi-for-coding' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().model).toBe('kimi-code/kimi-for-coding')
+    const row = db.prepare('SELECT model FROM sessions WHERE local_id=?').get(localId) as any
+    expect(row.model).toBe('kimi-code/kimi-for-coding')
+    await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
+  })
+
+  it('PATCH /options com model de outra engine ("opus" em sessão kimi) é ignorado', async () => {
+    const r1 = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions`, payload: { engine: 'kimi' } })
+    const { localId } = r1.json()
+    const res = await app.inject({ method: 'PATCH', url: `/api/sessions/${localId}/options`, payload: { model: 'opus' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().model == null).toBe(true)
+    await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
+  })
+
+  it('PATCH /options com model:"" limpa (volta ao Padrão)', async () => {
+    const r1 = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions`, payload: { engine: 'kimi', model: 'kimi-code/k3' } })
+    const { localId } = r1.json()
+    await waitUntil(() => { const row = db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any; return row?.status === 'idle' })
+    const res = await app.inject({ method: 'PATCH', url: `/api/sessions/${localId}/options`, payload: { model: '' } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().model == null).toBe(true)
+    const row = db.prepare('SELECT model FROM sessions WHERE local_id=?').get(localId) as any
+    expect(row.model == null).toBe(true)
+    await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
+  })
 })
 
 describe('preview de conversa anterior (sessão nova com --continue, antes do init)', () => {

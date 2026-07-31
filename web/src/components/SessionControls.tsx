@@ -83,7 +83,7 @@ export function SessionControls({ session }: { session: SessionInfo }) {
           <div className="sess-pop glass" style={{ bottom: pos.bottom, right: pos.right }} onClick={(e) => e.stopPropagation()}>
             <div className="sess-pop__eyebrow">{t('controls.model')}</div>
             {models.map((m) => (
-              <div key={m || 'default'} className={`sess-pop__item ${m === model ? 'active' : ''}`} onClick={() => void apply({ model: m || undefined })}>
+              <div key={m || 'default'} className={`sess-pop__item ${m === model ? 'active' : ''}`} onClick={() => void apply({ model: m })}>
                 <span>{MODEL_KEY[m] ? t(MODEL_KEY[m] as any) : m}</span>{m === model && <span className="sess-pop__check">✓</span>}
               </div>
             ))}

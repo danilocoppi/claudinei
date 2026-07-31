@@ -6,10 +6,14 @@ import type { ElementContent, Parents, Root, Text } from 'hast'
 import { visitParents } from 'unist-util-visit-parents'
 import { extractCandidatePaths } from './files'
 
-// Não mexe em texto dentro de <code>/<pre> (blocos ou inline code, já com spans do
-// rehype-highlight por dentro) nem de <a> já existente — evita mascarar código ou
-// aninhar links.
-const SKIP_TAGS = new Set(['code', 'pre', 'a'])
+// Não mexe em BLOCO de código (<pre>, com os spans do rehype-highlight por dentro)
+// nem dentro de <a> já existente — evita mascarar código e aninhar links.
+//
+// Código INLINE (`/caminho/arquivo.md` entre crases) NÃO entra aqui de propósito:
+// é como as engines escrevem caminho na prosa quase sempre, e pular <code> deixava
+// justamente esses sem link. O <a> vira filho do <code>; se o path não resolver, o
+// components.a do MessageBlock devolve o texto puro — code que não é arquivo fica igual.
+const SKIP_TAGS = new Set(['pre', 'a'])
 
 export default function rehypeFilePaths() {
   return (tree: Root) => {

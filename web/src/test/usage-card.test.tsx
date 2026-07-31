@@ -75,3 +75,44 @@ describe('ⓘ das cores de ritmo', () => {
     expect(screen.queryByText(/O que as cores significam/)).toBeNull()
   })
 })
+
+describe('UsageCard — planos misturados (Claude + Kimi)', () => {
+  const MIXED = [
+    ...LIMITS,
+    { kind: 'kimi_weekly', group: 'weekly', label: null, percent: 90, severity: 'danger', resetsAt: new Date(Date.now() + 38 * 3_600_000).toISOString(), provider: 'kimi' },
+    { kind: 'kimi_5h', group: 'session', label: null, percent: 1, severity: 'normal', resetsAt: new Date(Date.now() + 0.4 * 3_600_000).toISOString(), provider: 'kimi' },
+  ]
+
+  it('barras do Kimi entram na mesma lista, rotuladas com o provedor', async () => {
+    vi.mocked(fetchUsage).mockResolvedValue({ limits: MIXED } as never)
+    render(<UsageCard />)
+    expect(await screen.findByText('Sessão atual')).toBeTruthy()   // Claude segue igual
+    expect(screen.getByText('Kimi · semanal')).toBeTruthy()
+    expect(screen.getByText('Kimi · 5h')).toBeTruthy()
+    expect(screen.getByText('90%')).toBeTruthy()
+  })
+
+  it('cabeçalho deixa de dizer "Claude" quando a lista mistura provedores', async () => {
+    vi.mocked(fetchUsage).mockResolvedValue({ limits: MIXED } as never)
+    render(<UsageCard />)
+    expect(await screen.findByText('Planos')).toBeTruthy()
+    expect(screen.queryByText('Claude')).toBeNull()
+  })
+
+  it('modo simples mostra a sessão do Claude E a barra mais crítica do Kimi', async () => {
+    localStorage.setItem('claudinei.usageAdvanced', '0')
+    vi.mocked(fetchUsage).mockResolvedValue({ limits: MIXED } as never)
+    render(<UsageCard />)
+    expect(await screen.findByText('Sessão atual')).toBeTruthy()
+    expect(screen.getByText('Kimi · semanal')).toBeTruthy()  // 90% > 1%
+    expect(screen.queryByText('Kimi · 5h')).toBeNull()
+    expect(screen.queryByText('Todos os modelos')).toBeNull() // simples não lista o resto do Claude
+  })
+
+  it('só Claude na lista → cabeçalho continua "Claude"', async () => {
+    vi.mocked(fetchUsage).mockResolvedValue({ limits: LIMITS } as never)
+    render(<UsageCard />)
+    expect(await screen.findByText('Claude')).toBeTruthy()
+    expect(screen.queryByText('Planos')).toBeNull()
+  })
+})

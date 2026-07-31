@@ -14,22 +14,22 @@ const RELATIVE_RE = /\b[\w.\-]+(?:\/[\w.\-]+)+\.[A-Za-z0-9]{1,8}\b/g
 // "https://site.com/logo.png" casaria como "/site.com/logo.png".
 const URL_RE = /\b(?:https?|ftp):\/\/\S+/gi
 
-/** Extrai candidatos a path de arquivo de um texto livre (mensagens de chat). */
-export function extractCandidatePaths(text: string): string[] {
+interface PathRange { start: number; end: number; path: string }
+
+/** Candidatos a path COM posição, em ordem e sem sobreposição. */
+function candidateRanges(text: string): PathRange[] {
   if (!text) return []
   // Mascara URLs preservando o comprimento/índices, pra não interferir nos matches
   // de path ao redor e evitar reconstruir offsets manualmente.
   const masked = text.replace(URL_RE, (m) => ' '.repeat(m.length))
 
-  const absoluteRanges: Array<{ start: number; end: number }> = []
-  const found = new Set<string>()
+  const ranges: PathRange[] = []
   for (const m of masked.matchAll(ABSOLUTE_RE)) {
-    absoluteRanges.push({ start: m.index, end: m.index + m[0].length })
-    found.add(m[0])
+    ranges.push({ start: m.index, end: m.index + m[0].length, path: m[0] })
   }
 
   const overlapsAbsolute = (start: number, end: number) =>
-    absoluteRanges.some((r) => start < r.end && end > r.start)
+    ranges.some((r) => start < r.end && end > r.start)
 
   for (const m of masked.matchAll(RELATIVE_RE)) {
     const start = m.index
@@ -37,10 +37,37 @@ export function extractCandidatePaths(text: string): string[] {
     // Descarta o "docs/notas.md" residual de dentro de um "~/docs/notas.md" já achado
     // (mesma lógica pro "home/user/a.ts" dentro de "/home/user/a.ts").
     if (overlapsAbsolute(start, end)) continue
-    found.add(m[0])
+    ranges.push({ start, end, path: m[0] })
   }
 
-  return [...found]
+  return ranges.sort((a, b) => a.start - b.start)
+}
+
+/** Extrai candidatos a path de arquivo de um texto livre (mensagens de chat). */
+export function extractCandidatePaths(text: string): string[] {
+  return [...new Set(candidateRanges(text).map((r) => r.path))]
+}
+
+export interface TextSegment { text: string; path?: string }
+
+/**
+ * Quebra o texto em segmentos, marcando os trechos que são candidatos a path.
+ * Para linkificar mensagens renderizadas como TEXTO PURO (a bolha do operador,
+ * que não passa por markdown/rehype) — é lá que caem os anexos, já que o envio
+ * troca o token `[📎 nome]` pelo caminho do upload.
+ */
+export function splitCandidatePaths(text: string): TextSegment[] {
+  const ranges = candidateRanges(text)
+  if (ranges.length === 0) return text ? [{ text }] : []
+  const out: TextSegment[] = []
+  let at = 0
+  for (const r of ranges) {
+    if (r.start > at) out.push({ text: text.slice(at, r.start) })
+    out.push({ text: text.slice(r.start, r.end), path: r.path })
+    at = r.end
+  }
+  if (at < text.length) out.push({ text: text.slice(at) })
+  return out
 }
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {

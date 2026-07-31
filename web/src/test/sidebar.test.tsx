@@ -415,3 +415,52 @@ describe('editor do grupo — overlays não ficam presos na sidebar', () => {
     expect(document.querySelector('body > .overlay-above-popover .modal-overlay')).toBeTruthy()
   })
 })
+
+describe('uma bolinha por engine viva no card', () => {
+  const projeto = [{ id: 1, name: 'Alpha', path: '/tmp/a', color: '#f00', icon: '🅰️' }]
+
+  it('três engines vivas → três bolinhas, com o status de cada no title', () => {
+    useStore.setState({
+      projects: projeto,
+      sessions: {
+        s1: sess('s1', 1, 'idle', 'claude'),
+        s2: sess('s2', 1, 'working', 'codex'),
+        s3: sess('s3', 1, 'in_terminal', 'kimi'),
+      },
+      engines: [CLAUDE, CODEX, { ...CODEX, id: 'kimi', label: 'Kimi Code', icon: '🌙' }],
+    })
+    render(<Sidebar />)
+    const dots = screen.getByTestId('term-card').querySelectorAll('.term-card__dots .status-dot')
+    expect(dots.length).toBe(3)
+    // ordem = prioridade de status (working > in_terminal > idle)
+    const titles = [...dots].map((d) => d.getAttribute('title'))
+    expect(titles[0]).toContain('Codex')
+    expect(titles.join(' | ')).toContain('Kimi Code')
+    expect(titles.join(' | ')).toContain('Claude Code')
+  })
+
+  it('sessões paradas não contam como bolinha', () => {
+    useStore.setState({
+      projects: projeto,
+      sessions: {
+        s1: sess('s1', 1, 'working', 'claude'),
+        s2: sess('s2', 1, 'dead', 'codex'),
+        s3: sess('s3', 1, 'stopped', 'kimi'),
+      },
+    })
+    render(<Sidebar />)
+    expect(screen.getByTestId('term-card').querySelectorAll('.term-card__dots .status-dot').length).toBe(1)
+  })
+
+  it('uma engine só → segue exatamente uma bolinha (comportamento de sempre)', () => {
+    useStore.setState({ projects: projeto, sessions: { s1: sess('s1', 1, 'idle', 'claude') } })
+    render(<Sidebar />)
+    expect(screen.getByTestId('term-card').querySelectorAll('.term-card__dots .status-dot').length).toBe(1)
+  })
+
+  it('projeto sem sessão viva ainda mostra a bolinha da parada (não some nada)', () => {
+    useStore.setState({ projects: projeto, sessions: { s1: sess('s1', 1, 'stopped', 'claude') } })
+    render(<Sidebar />)
+    expect(screen.getByTestId('term-card').querySelectorAll('.status-dot').length).toBe(1)
+  })
+})

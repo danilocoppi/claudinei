@@ -239,3 +239,32 @@ describe('bloco de código com botão de copiar', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('cd ~/x && npm run package'))
   })
 })
+
+describe('MessageBlock — path dentro de código inline', () => {
+  const PLAN = '/home/danilo/.claude/plans/vou-explicar-um-novo-tidy-finch.md'
+
+  it('path entre crases vira link (é como as engines escrevem caminho na prosa)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      okJson([{ path: PLAN, exists: true, inScope: true, kind: 'markdown', size: 120 }]),
+    )
+    render(<MessageBlock item={{ kind: 'assistant_text', text: `O plano está em \`${PLAN}\`, com as fases.` }} />)
+
+    const link = await waitFor(() => {
+      const el = document.querySelector('a.file-link')
+      expect(el).toBeTruthy()
+      return el as HTMLAnchorElement
+    })
+    expect(link.textContent).toBe(PLAN)
+    // continua sendo código inline: o <a> é filho do <code>, não o substitui
+    expect(link.closest('code')).toBeTruthy()
+  })
+
+  it('BLOCO de código segue intocado (nada de link dentro de ```)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      okJson([{ path: PLAN, exists: true, inScope: true, kind: 'markdown', size: 120 }]),
+    )
+    render(<MessageBlock item={{ kind: 'assistant_text', text: `\`\`\`sh\ncat ${PLAN}\n\`\`\`` }} />)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(document.querySelector('pre a.file-link')).toBeNull()
+  })
+})

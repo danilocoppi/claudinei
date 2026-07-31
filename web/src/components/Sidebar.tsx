@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
 import { createGroup, deleteGroup, deleteProject, fetchGroups, fetchProjects, putSidebarOrder, setProjectGroup, updateGroup, type Group } from '../api'
 import { useStore } from '../store'
-import { displayStatusKey, dotClassOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
+import { displayStatusKey, dotClassOf, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -222,6 +222,7 @@ export function Sidebar() {
 
   const renderCard = (p: Project) => {
     const s = sessionOf(p.id)
+    const live = liveSessionsOf(p.id, sessions)
     const active = !!s && s.localId === activeLocalId && (view === 'chat' || view === 'terminal')
     const canOpen = !!s && s.status !== 'stopped' && s.status !== 'dead'
     const revivable = !!s && (s.status === 'stopped' || s.status === 'dead')
@@ -272,7 +273,18 @@ export function Sidebar() {
         <div className="term-card__status">
           {s ? (
             <>
-              <span className={dotClassOf(s)} />
+              {/* Uma bolinha por engine VIVA (Claude + Codex + Kimi juntos aparecem
+                  todas); com uma só, é exatamente a bolinha de sempre. O texto e o
+                  ícone ao lado seguem descrevendo a sessão principal. */}
+              <span className="term-card__dots">
+                {(live.length > 1 ? live : [s]).map((ls) => (
+                  <span
+                    key={ls.localId}
+                    className={dotClassOf(ls)}
+                    title={`${engineOf(ls)?.label ?? ls.engine} · ${t(`status.${displayStatusKey(ls)}` as 'status.in_terminal')}`}
+                  />
+                ))}
+              </span>
               {engineOf(s) && (
                 <EngineIcon className="engine-badge" title={engineOf(s)!.label} icon={engineOf(s)!.icon} />
               )}

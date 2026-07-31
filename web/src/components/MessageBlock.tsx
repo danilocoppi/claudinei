@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
@@ -10,7 +10,7 @@ import type { ChatItem } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
 import { WsContext } from '../wsContext'
-import { extractCandidatePaths, kindOfPath, resolveFiles } from '../files'
+import { extractCandidatePaths, kindOfPath, resolveFiles, splitCandidatePaths } from '../files'
 import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
 import rehypeFilePaths from '../rehypeFilePaths'
 import { MarkdownPre } from './MarkdownPre'
@@ -25,6 +25,67 @@ export function MessageBlock({ item, currentLocalId, onEdit }: { item: ChatItem;
 
 /** Mensagens acima disso colapsam: mostra as primeiras linhas + botão de expandir. */
 const COLLAPSE_LINES = 13
+
+/**
+ * Resolve (uma vez por path, via cache do store) candidatos contra o escopo do
+ * projeto. A dep é a lista SERIALIZADA: um array novo a cada render re-dispararia
+ * o efeito para sempre.
+ */
+function useResolveFileCandidates(candidates: string[], projectId?: number): void {
+  const setFilesResolved = useStore((s) => s.setFilesResolved)
+  const key = candidates.join('\u0000')
+  useEffect(() => {
+    const pending = key ? key.split('\u0000').filter((p) => !(p in useStore.getState().fileResolved)) : []
+    if (pending.length === 0) return
+    let cancelled = false
+    resolveFiles(pending, projectId)
+      .then((results) => { if (!cancelled) setFilesResolved(results) })
+      .catch(() => { /* falha de resolve: paths ficam como texto puro (degrade silencioso) */ })
+    return () => { cancelled = true }
+  }, [key, projectId, setFilesResolved])
+}
+
+/**
+ * Texto puro com os paths de arquivo clicáveis. A bolha do operador não passa
+ * por markdown (texto digitado não deve virar HTML), então o rehypeFilePaths do
+ * lado do assistente não a alcança — sem isto o anexo que o envio transforma em
+ * caminho (`[📎 nome]` → /home/.../uploads/x.png) fica como texto morto.
+ */
+function TextWithFileLinks({ text, projectId, localId }: { text: string; projectId?: number; localId?: string }) {
+  const fileResolved = useStore((s) => s.fileResolved)
+  const openFileMenu = useStore((s) => s.openFileMenu)
+  const segments = useMemo(() => splitCandidatePaths(text), [text])
+  const candidates = useMemo(
+    () => [...new Set(segments.filter((s) => s.path).map((s) => s.path!))],
+    [segments],
+  )
+  useResolveFileCandidates(candidates, projectId)
+
+  return (
+    <div style={{ whiteSpace: 'pre-wrap' }}>
+      {segments.map((seg, i) => {
+        const resolved = seg.path ? fileResolved[seg.path] : undefined
+        // Só vira link quando o servidor confirma que existe e está no escopo —
+        // mesma regra do texto do assistente (nada de link quebrado na prosa).
+        if (!seg.path || !resolved?.exists || !resolved.inScope || !resolved.kind) return seg.text
+        const kind = resolved.kind
+        return (
+          <a
+            key={i}
+            className="file-link"
+            href="#"
+            onClick={(e) => {
+              e.preventDefault()
+              openFileMenu({ x: e.clientX, y: e.clientY, path: seg.path!, kind, projectId, localId })
+            }}
+          >
+            {seg.text}
+          </a>
+        )
+      })}
+    </div>
+  )
+}
 
 /**
  * Bolha do lado do usuário. Duas variações sobre a bolha padrão:
@@ -59,7 +120,7 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
       <div style={{ maxWidth: '70%' }}>
         <div className={`msg-bubble${item.fromEngine ? ' msg-bubble--engine' : ''}`}>
           {engineLabel && <div className="msg-from-engine__by">by {engineLabel}</div>}
-          <div style={{ whiteSpace: 'pre-wrap' }}>{shown}</div>
+          <TextWithFileLinks text={shown} projectId={session?.projectId} localId={currentLocalId} />
           {overflow > 0 && (
             <button type="button" className="msg-expand" onClick={() => setExpanded(!expanded)}>
               {collapsed ? `▾ ${t('chat.showAll', { n: overflow })}` : `▴ ${t('chat.collapse')}`}
@@ -193,21 +254,15 @@ function linkHrefCandidates(text: string): string[] {
 function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLocalId?: string }) {
   const sessions = useStore((s) => s.sessions)
   const fileResolved = useStore((s) => s.fileResolved)
-  const setFilesResolved = useStore((s) => s.setFilesResolved)
   const openFileMenu = useStore((s) => s.openFileMenu)
   const openExternalLink = useStore((s) => s.openExternalLink)
   const projectId = currentLocalId ? sessions[currentLocalId]?.projectId : undefined
 
-  useEffect(() => {
-    const candidates = [...new Set([...extractCandidatePaths(text), ...linkHrefCandidates(text)])]
-    const pending = candidates.filter((p) => !(p in useStore.getState().fileResolved))
-    if (pending.length === 0) return
-    let cancelled = false
-    resolveFiles(pending, projectId)
-      .then((results) => { if (!cancelled) setFilesResolved(results) })
-      .catch(() => { /* falha de resolve: paths ficam como texto puro (degrade silencioso) */ })
-    return () => { cancelled = true }
-  }, [text, projectId, setFilesResolved])
+  const candidates = useMemo(
+    () => [...new Set([...extractCandidatePaths(text), ...linkHrefCandidates(text)])],
+    [text],
+  )
+  useResolveFileCandidates(candidates, projectId)
 
   const components: Components = {
     // Blocos de código (sugestões de comandos etc.) ganham o botão de copiar.

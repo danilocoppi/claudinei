@@ -231,7 +231,10 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     })
   }
 
-  setModel(model: string): Promise<void> { return this.sendControl('set_model', { model }) }
+  // '' = voltar ao modelo Padrão: o protocolo de controle só troca por um modelo
+  // nomeado (não tem "reset"), então no processo vivo é no-op — o Padrão vale no
+  // relaunch (argv sem --model). As engines turn-based tratam '' nativamente.
+  setModel(model: string): Promise<void> { return model ? this.sendControl('set_model', { model }) : Promise.resolve() }
   setPermissionMode(mode: string): Promise<void> { return this.sendControl('set_permission_mode', { mode }) }
   /** No-op: o Claude aplica effort via mensagem /effort do frontend (protocolo próprio, inalterado). */
   setEffort(_effort: string): Promise<void> { return Promise.resolve() }

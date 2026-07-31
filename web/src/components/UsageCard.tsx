@@ -22,7 +22,29 @@ function labelFor(l: UsageLimit, t: TFunction): string {
   if (l.label) return l.label
   if (l.kind === 'session') return t('usage.session')
   if (l.kind === 'weekly_all') return t('usage.weeklyAll')
+  // Planos de outros provedores dividem a lista com os do Claude: o prefixo diz
+  // de quem é a barra (kimi_weekly → "Kimi · semanal", kimi_5h → "Kimi · 5h").
+  if (l.kind === 'kimi_weekly') return `Kimi · ${t('usage.weekly')}`
+  if (l.kind.startsWith('kimi_')) return `Kimi · ${l.kind.slice('kimi_'.length)}`
   return l.kind.replace(/_/g, ' ')
+}
+
+/**
+ * Modo simples: a barra da sessão do Claude (como sempre) MAIS a mais crítica de
+ * cada outro provedor — sem isso um limite de plano do Kimi em 90% ficaria
+ * invisível para quem nunca liga o "Avançado".
+ */
+function simpleView(limits: UsageLimit[]): UsageLimit[] {
+  const claude = limits.filter((l) => (l.provider ?? 'claude') === 'claude')
+  const head = claude.find((l) => l.group === 'session') ?? claude[0] ?? limits[0]
+  const others = new Map<string, UsageLimit>()
+  for (const l of limits) {
+    const p = l.provider ?? 'claude'
+    if (p === 'claude') continue
+    const cur = others.get(p)
+    if (!cur || l.percent > cur.percent) others.set(p, l)
+  }
+  return [head, ...others.values()].filter(Boolean)
 }
 
 function resetText(resetsAt: string, locale: string): string {
@@ -68,7 +90,9 @@ export function UsageCard() {
 
   const now = Date.now()
   // modo simples: só a barra da sessão (fallback: a primeira, se a API mudar)
-  const visible = advanced ? limits : [limits.find((l) => l.group === 'session') ?? limits[0]]
+  const visible = advanced ? limits : simpleView(limits)
+  // Cabeçalho só diz "Claude" quando a lista é só dele; misturada, vira neutro.
+  const mixed = limits.some((l) => (l.provider ?? 'claude') !== 'claude')
   return (
     <div className="usage-card glass">
       <div className="usage-card__head">
@@ -81,7 +105,7 @@ export function UsageCard() {
       </div>
       {limits.length > 0 && (
         <div className="usage-card__group">
-          {t('usage.claude')}
+          {mixed ? t('usage.plans') : t('usage.claude')}
           <button type="button" className="usage-info-btn" title={t('usageInfo.title')}
                   aria-label={t('usageInfo.title')} onClick={() => setShowInfo(true)}>
             ⓘ

@@ -166,7 +166,7 @@ export const ptBR: typeof en = {
     errTranscribe: 'A transcrição falhou — o servidor está no ar com o modelo instalado?',
   },
   usage: {
-    claude: 'Claude', tokens: 'tokens', tokensToday: '{{n}} hoje', tokensTip: 'Tokens acumulados reportados pela engine (sem API de limite de plano).', tokenBreakdown: '{{in}} entrada · {{out}} saída · {{reasoning}} raciocínio',
+    claude: 'Claude', plans: 'Planos', weekly: 'semanal', tokens: 'tokens', tokensToday: '{{n}} hoje', tokensTip: 'Tokens acumulados reportados pela engine (sem API de limite de plano).', tokenBreakdown: '{{in}} entrada · {{out}} saída · {{reasoning}} raciocínio',
     title: 'Uso', advanced: 'Avançado', session: 'Sessão atual', weeklyAll: 'Todos os modelos',
     resets: 'reseta {{when}}', pace: '{{percent}}% usado · ritmo {{ratio}}× do sustentável',
   },

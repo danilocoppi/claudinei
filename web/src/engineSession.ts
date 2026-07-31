@@ -64,15 +64,29 @@ const STATUS_PRIORITY: Record<SessionInfo['status'], number> = {
 }
 
 /** A sessão "cara do projeto": maior prioridade de status; empate → mais recente. */
+/** Prioridade de status; empate → mais recente. Ordem única do card e das bolinhas. */
+const byPriorityThenRecency = (a: SessionInfo, b: SessionInfo): number => {
+  const pa = STATUS_PRIORITY[a.status] ?? 0
+  const pb = STATUS_PRIORITY[b.status] ?? 0
+  if (pa !== pb) return pb - pa
+  return a.updatedAt < b.updatedAt ? 1 : -1
+}
+
 export function primarySessionOf(projectId: number, sessions: Record<string, SessionInfo>): SessionInfo | undefined {
   return Object.values(sessions)
     .filter((s) => s.projectId === projectId)
-    .sort((a, b) => {
-      const pa = STATUS_PRIORITY[a.status] ?? 0
-      const pb = STATUS_PRIORITY[b.status] ?? 0
-      if (pa !== pb) return pb - pa
-      return a.updatedAt < b.updatedAt ? 1 : -1
-    })[0]
+    .sort(byPriorityThenRecency)[0]
+}
+
+/**
+ * TODAS as sessões vivas do projeto (na prática, uma por engine), na mesma ordem
+ * do primarySessionOf — o card da sidebar mostra uma bolinha para cada, para o
+ * operador ver de relance que há Claude + Codex + Kimi rodando ali.
+ */
+export function liveSessionsOf(projectId: number, sessions: Record<string, SessionInfo>): SessionInfo[] {
+  return Object.values(sessions)
+    .filter((s) => s.projectId === projectId && LIVE_STATUSES.has(s.status))
+    .sort(byPriorityThenRecency)
 }
 
 /** Não-lidos do PROJETO inteiro (soma de todas as engines — o badge de uma não pode sumir porque outra foi exibida). */

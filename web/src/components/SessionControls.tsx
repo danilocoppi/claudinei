@@ -28,7 +28,12 @@ export function SessionControls({ session }: { session: SessionInfo }) {
   const [flash, setFlash] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
-  const disabled = session.status === 'working'
+  // Turno em andamento: model e permissão NÃO podem trocar (o control_request no
+  // meio do turno não vale — o servidor também recusa), mas o effort pode. Antes o
+  // pill inteiro ficava `disabled`: clique não abria nada E o browser não mostra
+  // title de botão desabilitado, então parecia quebrado. Agora abre e cada item
+  // diz por que está indisponível.
+  const busy = session.status === 'working'
   const mode = (session.permissionMode ?? 'bypassPermissions') as PermissionMode
   const model = session.model ?? ''
 
@@ -73,17 +78,23 @@ export function SessionControls({ session }: { session: SessionInfo }) {
 
   return (
     <>
-      <button ref={ref} data-testid="session-controls-pill" className="input-action sess-pill" disabled={disabled}
-              title={disabled ? t('controls.workingHint') : t('controls.title')} onClick={toggle}>
+      <button ref={ref} data-testid="session-controls-pill" className="input-action sess-pill"
+              title={busy ? `${t('controls.title')} — ${t('controls.workingHint')}` : t('controls.title')} onClick={toggle}>
         <span className="sess-pill__gear" style={{ color: MODE_COLOR[mode] }}>⚙</span>
         {flash && <span className="sess-pill__flash">✓</span>}
       </button>
       {open && createPortal(
         <div className="sess-pop__overlay" onClick={() => setOpen(false)}>
           <div className="sess-pop glass" style={{ bottom: pos.bottom, right: pos.right }} onClick={(e) => e.stopPropagation()}>
-            <div className="sess-pop__eyebrow">{t('controls.model')}</div>
+            <div className="sess-pop__eyebrow">
+              {t('controls.model')}
+              {busy && <span className="sess-pop__hint"> · {t('controls.workingHint')}</span>}
+            </div>
             {models.map((m) => (
-              <div key={m || 'default'} className={`sess-pop__item ${m === model ? 'active' : ''}`} onClick={() => void apply({ model: m })}>
+              <div key={m || 'default'}
+                   className={`sess-pop__item ${m === model ? 'active' : ''}${busy ? ' sess-pop__item--off' : ''}`}
+                   title={busy ? t('controls.workingHint') : undefined}
+                   onClick={() => { if (!busy) void apply({ model: m }) }}>
                 <span>{MODEL_KEY[m] ? t(MODEL_KEY[m] as any) : m}</span>{m === model && <span className="sess-pop__check">✓</span>}
               </div>
             ))}
@@ -96,9 +107,15 @@ export function SessionControls({ session }: { session: SessionInfo }) {
             ))}
             {permissions.length > 0 && (
               <>
-                <div className="sess-pop__eyebrow">{t('controls.permission')}</div>
+                <div className="sess-pop__eyebrow">
+                  {t('controls.permission')}
+                  {busy && <span className="sess-pop__hint"> · {t('controls.workingHint')}</span>}
+                </div>
                 {permissions.map((m) => (
-                  <div key={m} className={`sess-pop__item ${m === mode ? 'active' : ''}`} onClick={() => void apply({ permissionMode: m as PermissionMode })}>
+                  <div key={m}
+                       className={`sess-pop__item ${m === mode ? 'active' : ''}${busy ? ' sess-pop__item--off' : ''}`}
+                       title={busy ? t('controls.workingHint') : undefined}
+                       onClick={() => { if (!busy) void apply({ permissionMode: m as PermissionMode }) }}>
                     <span className="sess-pill__dot" style={{ background: MODE_COLOR[m as PermissionMode] }} />
                     <span style={{ flex: 1 }}>{t(MODE_KEY[m as PermissionMode] as any)}</span>{m === mode && <span className="sess-pop__check">✓</span>}
                   </div>

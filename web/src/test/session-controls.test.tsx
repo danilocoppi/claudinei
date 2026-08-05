@@ -52,9 +52,43 @@ describe('SessionControls', () => {
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/s1/options', expect.objectContaining({ method: 'PATCH' })))
   })
 
-  it('desabilitado quando a sessão está trabalhando', () => {
-    render(<SessionControls session={sess({ status: 'working' })} />)
-    expect((screen.getByTestId('session-controls-pill') as HTMLButtonElement).disabled).toBe(true)
+  describe('turno em andamento', () => {
+    // O pill ficava `disabled`: o clique não abria nada e o browser nem mostra o
+    // title de um botão desabilitado — parecia quebrado. Agora abre e explica.
+    it('o menu ABRE (não fica morto) e a dica aparece no título do pill', () => {
+      render(<SessionControls session={sess({ status: 'working' })} />)
+      const pill = screen.getByTestId('session-controls-pill') as HTMLButtonElement
+      expect(pill.disabled).toBe(false)
+      expect(pill.title).toContain('aguarde o turno atual terminar')
+      fireEvent.click(pill)
+      expect(screen.getByText('Opus')).toBeTruthy()
+    })
+
+    it('clicar num modelo durante o turno não dispara PATCH (e o item aparece inerte)', () => {
+      render(<SessionControls session={sess({ status: 'working' })} />)
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      const item = screen.getByText('Opus').closest('.sess-pop__item') as HTMLElement
+      expect(item.className).toContain('sess-pop__item--off')
+      fireEvent.click(item)
+      expect(globalThis.fetch).not.toHaveBeenCalled()
+    })
+
+    it('effort CONTINUA disponível durante o turno (o backend aceita)', () => {
+      render(<SessionControls session={sess({ status: 'working' })} />)
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      const high = screen.getByText('high').closest('.sess-pop__item') as HTMLElement
+      expect(high.className).not.toContain('sess-pop__item--off')
+    })
+
+    it('sessão ociosa: modelo continua clicável e faz PATCH', async () => {
+      render(<SessionControls session={sess()} />)
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      fireEvent.click(screen.getByText('Opus'))
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/sessions/s1/options',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ model: 'opus' }) }),
+      ))
+    })
   })
 
   describe('effort', () => {

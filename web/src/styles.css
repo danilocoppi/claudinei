@@ -442,6 +442,11 @@ button.term-card__action--play:hover { color: var(--ok); }
 .sess-pop__eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-dim); padding:8px 8px 4px; }
 .sess-pop__item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; font-size:13px; }
 .sess-pop__item:hover { background:var(--glass-bg-strong); }
+/* Item indisponível no turno em andamento (model/permissão): visível, mas inerte —
+   melhor que o pill inteiro desabilitado, que não dizia por quê. */
+.sess-pop__item--off { opacity:.42; cursor:not-allowed; }
+.sess-pop__item--off:hover { background:transparent; }
+.sess-pop__hint { text-transform:none; letter-spacing:0; color:var(--warn); }
 .sess-pop__item.active { background:var(--glass-bg-strong); }
 .sess-pop__check { color:var(--accent); font-weight:600; }
 .sess-pop__warn { font-size:11px; color:#e8b33f; padding:6px 8px; }

@@ -84,7 +84,7 @@ describe('autocomplete de slash no ChatInput', () => {
 
 describe('autocomplete de slash por engine (SP-C Task 6)', () => {
   const CLAUDE: EngineMeta = {
-    id: 'claude', label: 'Claude Code', icon: '✳',
+    id: 'claude', label: 'Claude Code', icon: 'claude',
     models: ['', 'fable', 'opus', 'sonnet', 'haiku'], efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
     permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'], slashSource: 'protocol', slashCommands: [],
   }

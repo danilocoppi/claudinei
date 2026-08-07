@@ -10,7 +10,7 @@ const sess = (o: Partial<SessionInfo> = {}): SessionInfo =>
 
 // Espelha as capabilities reais do backend (server/src/engine/{claude,codex}).
 const CLAUDE: EngineMeta = {
-  id: 'claude', label: 'Claude Code', icon: '✳',
+  id: 'claude', label: 'Claude Code', icon: 'claude',
   models: ['', 'fable', 'opus', 'sonnet', 'haiku'],
   efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
   permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],

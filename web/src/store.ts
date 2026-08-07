@@ -5,7 +5,7 @@ import type { FileKind, ScopeResult } from './files'
 import { applyEvent } from './chat/applyEvent'
 import { notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK } from './slash'
-import { OPENAI_ICON } from './components/EngineIcon'
+import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 
 /**
  * Fallback embutido para `store.engines`, usado até `GET /api/engines` resolver (ou se falhar).
@@ -17,7 +17,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
   {
     id: 'claude',
     label: 'Claude Code',
-    icon: '✳',
+    icon: CLAUDE_ICON,
     models: ['', 'fable', 'opus', 'sonnet', 'haiku'],
     efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
     permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],

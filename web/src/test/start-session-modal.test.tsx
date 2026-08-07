@@ -9,7 +9,7 @@ const project: Project = { id: 1, name: 'AiShiba', path: '/tmp/a', color: '#ff00
 // Espelha as capabilities reais do backend (server/src/engine/{claude,codex}) —
 // em produção o App carrega isto no boot via GET /api/engines.
 const CLAUDE: EngineMeta = {
-  id: 'claude', label: 'Claude Code', icon: '✳',
+  id: 'claude', label: 'Claude Code', icon: 'claude',
   models: ['', 'fable', 'opus', 'sonnet', 'haiku'],
   efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
   permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],

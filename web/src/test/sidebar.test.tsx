@@ -8,12 +8,12 @@ const sess = (localId: string, projectId: number, status: SessionInfo['status'],
   ({ localId, projectId, status, engineSessionId: 'c', updatedAt: 'x', engine })
 
 const CLAUDE: EngineMeta = {
-  id: 'claude', label: 'Claude Code', icon: '✳',
+  id: 'claude', label: 'Claude Code', icon: 'claude',
   models: ['', 'fable', 'opus', 'sonnet', 'haiku'], efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
   permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'], slashSource: 'protocol', slashCommands: [],
 }
 const CODEX: EngineMeta = {
-  id: 'codex', label: 'Codex', icon: '◆',
+  id: 'codex', label: 'Codex', icon: 'openai',
   models: ['', 'gpt-5.6-sol'], efforts: ['low', 'medium', 'high', 'xhigh'], permissions: [],
   slashSource: 'curated', slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
 }
@@ -158,8 +158,12 @@ describe('Sidebar Terminais', () => {
       const cards = screen.getAllByTestId('term-card')
       const alphaCard = cards.find((c) => c.textContent?.includes('Alpha'))!
       const betaCard = cards.find((c) => c.textContent?.includes('Beta'))!
-      expect(alphaCard.querySelector('.engine-badge')?.textContent).toBe('✳')
-      expect(betaCard.querySelector('.engine-badge')?.textContent).toBe('◆')
+      // Claude e Codex são logomarks SVG (tokens 'claude'/'openai'), não glyphs de
+      // texto — o que distingue um do outro no badge é o title com o label da engine.
+      expect(alphaCard.querySelector('.engine-badge svg')).toBeTruthy()
+      expect(betaCard.querySelector('.engine-badge svg')).toBeTruthy()
+      expect(alphaCard.querySelector('.engine-badge')?.getAttribute('title')).toBe('Claude Code')
+      expect(betaCard.querySelector('.engine-badge')?.getAttribute('title')).toBe('Codex')
     })
 
     it('sem sessão, o card não mostra badge de engine', () => {

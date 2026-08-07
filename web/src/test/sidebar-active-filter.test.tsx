@@ -10,7 +10,7 @@ const sess = (localId: string, projectId: number, status: SessionStatus): Sessio
   ({ localId, projectId, status, engineSessionId: 'c', updatedAt: 'x', engine: 'claude' })
 
 const CLAUDE: EngineMeta = {
-  id: 'claude', label: 'Claude Code', icon: '✳',
+  id: 'claude', label: 'Claude Code', icon: 'claude',
   models: [''], efforts: ['auto'], permissions: [], slashSource: 'protocol', slashCommands: [],
 }
 

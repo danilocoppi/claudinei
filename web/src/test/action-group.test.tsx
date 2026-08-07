@@ -36,7 +36,7 @@ describe('ChatView agrupa ações consecutivas', () => {
   const sess = (status: SessionInfo['status']): SessionInfo =>
     ({ localId: 'a', projectId: 1, status, engineSessionId: 'c', updatedAt: 'x', engine: 'claude' })
   const CLAUDE: EngineMeta = {
-    id: 'claude', label: 'Claude Code', icon: '✳', models: [''], efforts: ['auto'],
+    id: 'claude', label: 'Claude Code', icon: 'claude', models: [''], efforts: ['auto'],
     permissions: ['default'], slashSource: 'protocol', slashCommands: [],
   }
 

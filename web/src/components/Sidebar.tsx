@@ -5,6 +5,7 @@ import type { Project, SessionInfo } from '../types'
 import { createGroup, deleteGroup, deleteProject, fetchGroups, fetchProjects, putSidebarOrder, setProjectGroup, updateGroup, type Group } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
+import { entryKey, entryOrder, filterEntries, type Entry } from '../sidebarEntries'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -26,15 +27,12 @@ const loadCollapsed = (): number[] => {
   } catch { return [] }
 }
 
-// A sidebar é uma lista de ENTRADAS num espaço único de posições: um grupo (com os
-// filhos na ordem) ou um terminal solto — é o que permite arrastar um GRUPO para
-// qualquer lugar entre os terminais.
-type Entry =
-  | { kind: 'group'; g: Group; items: Project[] }
-  | { kind: 'project'; p: Project }
-
-const entryKey = (e: Entry): string => (e.kind === 'group' ? `g-${e.g.id}` : `p-${e.p.id}`)
-const entryOrder = (e: Entry): number => (e.kind === 'group' ? (e.g.sortOrder ?? 0) : (e.p.sortOrder ?? 0))
+// Filtro "somente ativos" (estado de VISÃO, como o de grupos colapsados): esconde
+// terminais e grupos sem agente de pé. Não toca em nada no servidor.
+const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
+const loadActiveOnly = (): boolean => {
+  try { return localStorage.getItem(ACTIVE_ONLY_KEY) === '1' } catch { return false }
+}
 
 // O que está sendo arrastado (card de terminal ou cabeçalho de grupo).
 type Drag = { kind: 'project'; id: number } | { kind: 'group'; id: number }
@@ -70,6 +68,14 @@ export function Sidebar() {
   const [groupColor, setGroupColor] = useState('#7c5cff')
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
+  const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
+
+  const toggleActiveOnly = () => {
+    setActiveOnly((cur) => {
+      try { localStorage.setItem(ACTIVE_ONLY_KEY, cur ? '0' : '1') } catch { /* só não persiste */ }
+      return !cur
+    })
+  }
 
   // A sessão "cara do projeto" no card: prioridade de status (needs_attention >
   // working > starting > in_terminal > idle > paradas); empate → mais recente.
@@ -88,6 +94,18 @@ export function Sidebar() {
     if (a.kind !== b.kind) return a.kind === 'group' ? -1 : 1
     return 0
   })
+
+  // Arrastar com a lista filtrada corromperia a ordem: applySidebarOrder (backend) só
+  // atualiza as entradas RECEBIDAS, com sort_order recomeçando do zero — os escondidos
+  // manteriam valores antigos que colidem com esses, e a ordem apareceria embaralhada
+  // ao desligar o filtro. Enquanto filtra, não arrasta.
+  const canDrag = isAdmin && !activeOnly
+  // O terminal ABERTO agora continua visível mesmo parado — mesma condição que acende
+  // o card como `active`. Fora do chat/terminal não há pin: o activeLocalId sobrevive
+  // à navegação, e um terminal visitado uma vez ficaria pinado para sempre.
+  const pinnedLocalId = view === 'chat' || view === 'terminal' ? activeLocalId : undefined
+  // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
+  const visibleEntries = activeOnly ? filterEntries(entries, sessions, pinnedLocalId) : entries
 
   const toggleGroup = (id: number) => {
     setCollapsed((cur) => {
@@ -239,7 +257,7 @@ export function Sidebar() {
           overKey === key && drag !== null && !(drag.kind === 'project' && drag.id === p.id) ? 'drop-target' : '',
         ].filter(Boolean).join(' ')}
         style={{ ['--term-color' as string]: p.color }}
-        draggable={isAdmin}
+        draggable={canDrag}
         onDragStart={() => setDrag({ kind: 'project', id: p.id })}
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setOverKey(key) }}
         onDragEnd={clearDrag}
@@ -320,6 +338,9 @@ export function Sidebar() {
     const isCollapsed = collapsed.includes(g.id)
     const badgeSum = items.reduce((acc, p) => acc + unreadOf(p.id, sessions, unread), 0)
     const key = `g-${g.id}`
+    // Com o filtro ligado, `items` só tem os ativos — o total real vem do store. O
+    // contador vira "3/8" para não parecer que os outros sumiram do grupo.
+    const total = projects.filter((p) => p.groupId === g.id).length
     return (
       <div
         key={key}
@@ -336,7 +357,7 @@ export function Sidebar() {
       >
         <div
           className="term-group__header"
-          draggable={isAdmin}
+          draggable={canDrag}
           onDragStart={(e) => { e.stopPropagation(); setDrag({ kind: 'group', id: g.id }) }}
           onDragEnd={clearDrag}
           onClick={() => toggleGroup(g.id)}
@@ -344,7 +365,7 @@ export function Sidebar() {
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <span className="term-group__icon">{g.icon ?? '🗂️'}</span>
           <span className="term-group__name">{g.name}</span>
-          <span className="term-group__count">{items.length}</span>
+          <span className="term-group__count">{activeOnly ? `${items.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
           {isCollapsed && (
             <span className="term-group__dots">
@@ -405,13 +426,23 @@ export function Sidebar() {
         onDrop={(e) => { e.preventDefault(); void dropOnRoot() }}
       >
         <span className="eyebrow">{t('sidebar.terminals')}</span>
+        <label className="switch switch--sm term-header__filter" title={t('sidebar.activeOnlyHint')}>
+          <input type="checkbox" checked={activeOnly} onChange={toggleActiveOnly} aria-label={t('sidebar.activeOnly')} />
+          <span className="track" />
+          <span className="thumb" />
+        </label>
         {isAdmin && <button className="ghost term-header__add" onClick={() => setShowNew(true)}>{t('sidebar.addTerminal')}</button>}
       </div>
 
       <div className="term-list">
-        {entries.map((e) => (e.kind === 'group' ? renderGroup(e.g, e.items) : renderCard(e.p)))}
+        {visibleEntries.map((e) => (e.kind === 'group' ? renderGroup(e.g, e.items) : renderCard(e.p)))}
         {projects.length === 0 && (
           <div className="term-list__empty">{t('sidebar.empty')}</div>
+        )}
+        {/* Tem terminal, mas o filtro escondeu todos: o texto de "crie o primeiro"
+            diria a coisa errada aqui. */}
+        {projects.length > 0 && activeOnly && visibleEntries.length === 0 && (
+          <div className="term-list__empty">{t('sidebar.emptyActive')}</div>
         )}
         {/* zona de drop do FIM da lista (mandar pro final) */}
         {drag !== null && (

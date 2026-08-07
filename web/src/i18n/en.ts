@@ -34,6 +34,8 @@ export const en = {
     editGroup: 'Edit group', groupIcon: 'Group icon',
     deleteGroupHint: 'Terminals are kept — they go back to the root list.',
     empty: 'No terminals yet — create the first one with “+ Terminal”.',
+    activeOnly: 'Active only', activeOnlyHint: 'Show only terminals with a running agent',
+    emptyActive: 'No active terminals right now.',
     interaction: 'Terminal interaction', board: 'Board', tasks: 'Tasks',
     overview: 'Overview',
     revive: 'Revive', startSession: 'Start session', editTerminal: 'Edit', deleteTerminal: 'Delete', options: 'Options',

@@ -36,6 +36,8 @@ export const ptBR: typeof en = {
     editGroup: 'Editar grupo', groupIcon: 'Ícone do grupo',
     deleteGroupHint: 'Os terminais são mantidos — voltam para a lista raiz.',
     empty: 'Nenhum terminal ainda — crie o primeiro no “+ Terminal”.',
+    activeOnly: 'Somente ativos', activeOnlyHint: 'Mostrar apenas terminais com agente de pé',
+    emptyActive: 'Nenhum terminal ativo agora.',
     interaction: 'Interação entre terminais', board: 'Mural', tasks: 'Tarefas',
     overview: 'Visão geral',
     revive: 'Reviver', startSession: 'Iniciar sessão', editTerminal: 'Editar', deleteTerminal: 'Excluir', options: 'Opções',

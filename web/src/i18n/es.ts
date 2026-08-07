@@ -36,6 +36,8 @@ export const es: typeof en = {
     editGroup: 'Editar grupo', groupIcon: 'Icono del grupo',
     deleteGroupHint: 'Las terminales se conservan — vuelven a la lista raíz.',
     empty: 'Aún no hay terminales — crea el primero con “+ Terminal”.',
+    activeOnly: 'Solo activos', activeOnlyHint: 'Mostrar solo terminales con un agente en marcha',
+    emptyActive: 'Ninguna terminal activa ahora.',
     interaction: 'Interacción entre terminales', board: 'Tablón', tasks: 'Tareas',
     overview: 'Vista general',
     revive: 'Reanudar', startSession: 'Iniciar sesión', editTerminal: 'Editar', deleteTerminal: 'Eliminar', options: 'Opciones',

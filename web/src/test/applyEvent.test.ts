@@ -167,6 +167,20 @@ describe('mensagens de usuário geradas pela engine (isMeta/isCompactSummary)', 
     expect(items).toEqual([{ kind: 'user_text', text: 'This session is being continued…', fromEngine: true }])
   })
 
+  // AO VIVO o CLI não manda isMeta: o mesmo conteúdo (skill, harness) chega marcado
+  // como `isSynthetic`. Só o TRANSCRIPT usa isMeta — medido no stream-json do CLI
+  // 2.1.223: idêntico texto de skill, ao vivo {isSynthetic:true} e no histórico
+  // {isMeta:true}. Sem tratar os dois, a skill aparece como bolha do usuário até o
+  // histórico recarregar.
+  it('user com raw.isSynthetic vira user_text com fromEngine (caminho ao vivo)', () => {
+    const items = applyEvent([], {
+      kind: 'user',
+      message: { role: 'user', content: [{ type: 'text', text: 'Base directory for this skill: /x' }] },
+      raw: { type: 'user', isSynthetic: true },
+    } as never)
+    expect(items).toEqual([{ kind: 'user_text', text: 'Base directory for this skill: /x', fromEngine: true }])
+  })
+
   it('user normal NÃO ganha fromEngine', () => {
     const items = applyEvent([], {
       kind: 'user',

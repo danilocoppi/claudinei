@@ -76,7 +76,14 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       const fromSubagent = !!raw?.parent_tool_use_id
       // Conteúdo do lado do usuário que a ENGINE injetou (não foi digitado):
       // isMeta (skills/harness) e isCompactSummary (continuação de contexto).
-      const fromEngine = !!(raw?.isMeta || raw?.isCompactSummary)
+      //
+      // `isSynthetic` é a MESMA coisa vista pelo outro lado: o stream-json AO VIVO
+      // não manda isMeta — marca o injetado como isSynthetic; só o transcript usa
+      // isMeta. Medido no CLI 2.1.223 com o texto idêntico de uma skill: ao vivo
+      // {isSynthetic:true}, no histórico {isMeta:true}. Sem os dois, toda skill
+      // aparecia como bolha do usuário até o histórico recarregar (o retag de
+      // mergeEngineFlags só alcança o caminho de sessão longa).
+      const fromEngine = !!(raw?.isMeta || raw?.isCompactSummary || raw?.isSynthetic)
       const marks = { ...(fromSubagent ? { fromSubagent } : {}), ...(fromEngine ? { fromEngine } : {}) }
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
       let next = items

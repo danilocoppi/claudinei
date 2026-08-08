@@ -24,5 +24,11 @@ if (process.env.KIMI_FAKE_HANG === '1') {
   out({ role: 'assistant', content: `echo:${prompt}` })
   // A CLI real anuncia o id da conversa só no FIM do turno.
   out({ role: 'meta', type: 'session.resume_hint', session_id: sessionId, command: `kimi -r ${sessionId}`, content: 'To resume…' })
-  process.exit(0)
+  if (process.env.KIMI_FAKE_HANG_AFTER_TURN === '1') {
+    // O bug real da CLI: o turno TERMINA (resume_hint emitido, turn.ended no
+    // wire) mas o processo não encerra — fica ocioso em ep_poll até ser morto.
+    setInterval(() => {}, 1000)
+  } else {
+    process.exit(0)
+  }
 }

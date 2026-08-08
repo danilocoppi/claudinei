@@ -14,6 +14,19 @@ import { readLastTurnTokens, type TurnTokens } from './kimi-history.js'
 // falharia com E2BIG e a mensagem se perderia.
 const MAX_PROMPT_BYTES = 120_000
 
+/**
+ * Quanto esperar o processo encerrar sozinho DEPOIS de a CLI anunciar o fim do
+ * turno (session.resume_hint, a última linha do stream).
+ *
+ * Medido em produção: o `kimi-code` às vezes conclui o turno — resume_hint
+ * emitido, `turn.ended` no wire.jsonl — e simplesmente não sai; fica ocioso em
+ * ep_poll, sem rede, com dezenas de threads e io_uring abertos. Como o turno só
+ * era finalizado no evento 'close', a sessão ficava presa em "working" para
+ * sempre, sem nada acontecendo. No caminho normal o processo sai em bem menos
+ * que isto, então esta janela só entra em ação quando a CLI trava.
+ */
+const TURN_END_GRACE_MS = 5_000
+
 /** Sessão Kimi turn-based: 1 processo `kimi -p` por turno. */
 export class KimiSession extends EventEmitter implements EngineSession {
   status: SessionStatus = 'starting'
@@ -27,7 +40,7 @@ export class KimiSession extends EventEmitter implements EngineSession {
 
   get lastStderr(): string { return this.stderrTail.join('').trim() }
 
-  constructor(private opts: EngineSessionOptions & { binOverride?: string }) {
+  constructor(private opts: EngineSessionOptions & { binOverride?: string; turnEndGraceMs?: number }) {
     super()
     this.model = opts.model
     if (opts.resumeSessionId) this.sessionId = opts.resumeSessionId
@@ -65,8 +78,28 @@ export class KimiSession extends EventEmitter implements EngineSession {
     this.proc = spawn(bin, args, { cwd: this.opts.projectPath, stdio: ['ignore', 'pipe', 'pipe'], env })
     this.setStatus('working')
     let sawOutput = false
+    let sawTurnEnd = false
+    let reaper: NodeJS.Timeout | undefined
+    const clearReaper = () => { if (reaper) { clearTimeout(reaper); reaper = undefined } }
+
     const parser = createKimiTurnParser((evt) => {
       if (evt.kind === 'init' && evt.sessionId) this.sessionId = evt.sessionId
+      // `init` nasce do session.resume_hint, que a CLI imprime como ÚLTIMA linha
+      // do turno: daqui em diante só falta o processo sair. Se ele não sair
+      // (bug conhecido da CLI), encerra — o 'close' resultante segue o caminho
+      // normal de finalização, em vez de deixar a sessão presa em "working".
+      if (evt.kind === 'init') {
+        sawTurnEnd = true
+        clearReaper()
+        reaper = setTimeout(() => {
+          const p = this.proc
+          if (!p) return
+          p.kill('SIGTERM')
+          const hard = setTimeout(() => { try { p.kill('SIGKILL') } catch { /* já morreu */ } }, 2_000)
+          hard.unref?.()
+        }, this.opts.turnEndGraceMs ?? TURN_END_GRACE_MS)
+        reaper.unref?.()
+      }
       if (evt.kind === 'assistant' || evt.kind === 'user') sawOutput = true
       this.emit('event', evt)
     }, this.model)
@@ -76,6 +109,7 @@ export class KimiSession extends EventEmitter implements EngineSession {
     })
     this.proc.on('close', async (code) => {
       this.proc = undefined
+      clearReaper()
       if (this.stopping) { this.setStatus('stopped'); return }
       if (this.interrupting) { this.interrupting = false; this.setStatus('idle'); this.emit('exit', code); return }
       // Tokens do turno: o stdout não traz usage, mas o wire.jsonl da sessão sim.
@@ -88,7 +122,10 @@ export class KimiSession extends EventEmitter implements EngineSession {
       // A CLI não emite um evento de "fim de turno": o fim É o exit. Sintetiza
       // o result (sucesso ou erro) SEMPRE — sem ele, askAgent/dispatchTask
       // ficariam pendurados até o timeout esperando um kind==='result'.
-      const failed = code !== 0 && !sawOutput
+      // `sawTurnEnd`: quando nós mesmos encerramos o processo pendurado, o exit
+      // vem por sinal (code null) — mas o turno tinha TERMINADO. Sem isto, um
+      // turno bem-sucedido viraria "dead" com mensagem de erro.
+      const failed = code !== 0 && !sawOutput && !sawTurnEnd
       this.emit('event', {
         kind: 'result' as const,
         subtype: failed ? 'error' : 'success',

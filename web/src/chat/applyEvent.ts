@@ -34,6 +34,14 @@ function classifyUserText(text: string): ChatItem[] {
     return body ? [{ kind: 'command_output', text: body, ...(out[1] === 'stderr' ? { isError: true } : {}) }] : []
   }
 
+  // Task de outro terminal: o backend a escreve no stdin do CLI como se fosse uma
+  // mensagem digitada (manager.ts, dispatch_task), então no transcript ela é
+  // indistinguível de texto do operador — o prefixo é o único sinal que sobrevive.
+  // O reminder é retirado antes para não grudar no fim do corpo.
+  const cleaned = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+  const task = cleaned.match(/^\[Task from ([^\]]+)\]:\s*([\s\S]*)$/)
+  if (task) return [{ kind: 'task_message', from: task[1].trim(), text: task[2].trim() }]
+
   // injeções misturáveis ao texto real: extrai notas e limpa o resto
   const items: ChatItem[] = []
   let rest = text

@@ -547,7 +547,10 @@ export function createSessionManager(deps: Deps) {
       session.on('status', onStatus)
 
       try {
-        session.send(`[Task from ${fromLabel}]: ${description}`)
+        // echoToClients: a UI não tem como saber desta mensagem sozinha (o CLI não
+        // ecoa e ninguém a inseriu localmente) — sem isso a task só aparecia no
+        // chat do terminal-alvo depois de um refresh.
+        session.send(`[Task from ${fromLabel}]: ${description}`, { echoToClients: true })
       } catch (err) {
         settled = true
         cleanup()

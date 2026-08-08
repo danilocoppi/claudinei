@@ -29,7 +29,13 @@ export interface EngineSession extends EventEmitter {
   sessionId?: string
   readonly lastStderr: string
   start(): void
-  send(text: string): void
+  /**
+   * `echoToClients`: emite também um evento `user` com o mesmo texto, para a UI
+   * mostrar a mensagem na hora. Usado quando quem envia é o SERVIDOR (task de outro
+   * terminal): nenhuma engine devolve a mensagem que recebe, e a UI só desenha o que
+   * ela própria inseriu ao digitar — sem o eco, a mensagem só aparece num refresh.
+   */
+  send(text: string, opts?: { echoToClients?: boolean }): void
   markRead(): void
   interrupt(): Promise<void>
   setModel(model: string): Promise<void>

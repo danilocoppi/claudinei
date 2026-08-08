@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { Readable } from 'node:stream'
 import type { EngineSession, EngineSessionOptions } from '../types.js'
 import type { SessionStatus } from '../../claude/session.js'
+import { userEchoEvent } from '../echo.js'
 import { buildTurnArgs } from './kimi-args.js'
 import { createKimiTurnParser } from './kimi-parser.js'
 import { ensureKimiHome } from './kimi-home.js'
@@ -34,7 +35,7 @@ export class KimiSession extends EventEmitter implements EngineSession {
 
   start(): void { this.setStatus('idle') } // turn-based: nada spawna aqui
 
-  send(text: string): void {
+  send(text: string, opts?: { echoToClients?: boolean }): void {
     if (this.status === 'stopped' || this.status === 'dead') throw new Error(`sessão não aceita mensagem no status ${this.status}`)
     if (this.status === 'working') throw new Error('turno em andamento')
     if (Buffer.byteLength(text, 'utf8') > MAX_PROMPT_BYTES) {
@@ -48,6 +49,9 @@ export class KimiSession extends EventEmitter implements EngineSession {
       })
       return
     }
+    // Depois da checagem de tamanho: mensagem rejeitada não pode aparecer no chat
+    // como se tivesse entrado.
+    if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
     const bin = this.opts.binOverride ?? this.opts.bin ?? process.env.CLAUDINEI_KIMI_BIN ?? 'kimi'
     const base = buildTurnArgs({ model: this.model, prompt: text, resumeSessionId: this.sessionId })
     const args = this.opts.extraArgsOverride ? [...this.opts.extraArgsOverride, ...base] : base

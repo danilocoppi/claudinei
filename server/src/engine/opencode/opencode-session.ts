@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { Readable } from 'node:stream'
 import type { EngineSession, EngineSessionOptions } from '../types.js'
 import type { SessionStatus } from '../../claude/session.js'
+import { userEchoEvent } from '../echo.js'
 import { buildRunArgs, buildResumeArgs, hermesConfigEnv } from './opencode-args.js'
 import { createOpenCodeTurnParser } from './opencode-parser.js'
 
@@ -32,7 +33,7 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
 
   start(): void { this.setStatus('idle') } // turn-based: nada spawna aqui
 
-  send(text: string): void {
+  send(text: string, opts?: { echoToClients?: boolean }): void {
     if (this.status === 'stopped' || this.status === 'dead') throw new Error(`sessão não aceita mensagem no status ${this.status}`)
     if (this.status === 'working') throw new Error('turno em andamento')
     // O prompt vai por argv (o `opencode run` não lê stdin) e o Linux limita um
@@ -50,6 +51,9 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
       })
       return
     }
+    // Depois da checagem de tamanho: mensagem rejeitada não pode aparecer no chat
+    // como se tivesse entrado.
+    if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
     const bin = this.opts.binOverride ?? this.opts.bin ?? process.env.CLAUDINEI_OPENCODE_BIN ?? 'opencode'
     const turnOpts = { model: this.model, effort: this.effort, prompt: text }
     const base = this.sessionId

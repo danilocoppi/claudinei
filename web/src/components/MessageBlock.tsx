@@ -140,6 +140,50 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
   )
 }
 
+/**
+ * Task despachada por outro terminal. Fica do lado direito como o texto do
+ * operador (entrou nesta sessão como ENTRADA, não como resposta), mas com chip de
+ * origem e cor próprios — quem lê precisa saber de cara que não foi ele que digitou.
+ * Corpo em markdown: quem despacha escreve em .md, e sem isso chegava com os
+ * asteriscos e as cercas de código literais na tela.
+ * Sem o lápis de editar: reenviar a task como se fosse sua não faz sentido.
+ */
+function TaskMessageBubble({
+  item, currentLocalId,
+}: {
+  item: Extract<ChatItem, { kind: 'task_message' }>
+  currentLocalId?: string
+}) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+
+  const lines = item.text.split('\n')
+  const overflow = lines.length - COLLAPSE_LINES
+  const collapsed = overflow > 0 && !expanded
+  const shown = collapsed ? lines.slice(0, COLLAPSE_LINES).join('\n') + '\n…' : item.text
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6, margin: '8px 0' }}>
+      <ForwardButton text={item.text} currentLocalId={currentLocalId} />
+      <div style={{ maxWidth: '70%' }}>
+        <div className="msg-bubble msg-bubble--task">
+          <div className="msg-task__from">
+            <span aria-hidden="true">🗂</span> {t('chat.taskFrom', { from: item.from })}
+          </div>
+          <div className="markdown" style={{ lineHeight: 1.6 }}>
+            <AssistantMarkdown text={shown} currentLocalId={currentLocalId} />
+          </div>
+          {overflow > 0 && (
+            <button type="button" className="msg-expand" onClick={() => setExpanded(!expanded)}>
+              {collapsed ? `▾ ${t('chat.showAll', { n: overflow })}` : `▴ ${t('chat.collapse')}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SubagentWrapper({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   return (
@@ -219,6 +263,8 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
           🔔 {item.text}
         </div>
       )
+    case 'task_message':
+      return <TaskMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'tool_call':
       return <ToolCallCard item={item} />
   }

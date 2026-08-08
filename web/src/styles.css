@@ -387,6 +387,16 @@ button.term-card__action--play:hover { color: var(--ok); }
   font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
   color: #58c4dc; font-weight: 700; margin-bottom: 6px;
 }
+/* Task despachada por outro terminal: âmbar, para não se confundir nem com a bolha
+   do operador nem com a da engine (ciano). */
+.msg-bubble--task {
+  background: rgba(226, 165, 74, .12);
+  border-color: rgba(226, 165, 74, .38);
+}
+.msg-task__from {
+  font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+  color: #e2a54a; font-weight: 700; margin-bottom: 6px;
+}
 /* Expandir/recolher de mensagem longa do usuário (> 13 linhas) */
 .msg-expand {
   display: block; margin-top: 8px; padding: 3px 10px;

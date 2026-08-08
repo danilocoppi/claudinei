@@ -71,3 +71,10 @@ export type ChatItem =
   | { kind: 'command_output'; text: string; isError?: boolean; fromSubagent?: boolean }
   /** Nota do sistema injetada no transcript (ex.: task-notification de tarefa em 2º plano). */
   | { kind: 'system_note'; text: string; fromSubagent?: boolean }
+  /**
+   * Task despachada por OUTRO terminal (hermes dispatch_task). Entra pelo mesmo
+   * canal de uma mensagem digitada — o backend escreve no stdin do CLI —, então no
+   * transcript o prefixo `[Task from …]` é o único sinal que sobra de que não foi o
+   * operador que escreveu. `from` é o terminal de origem; `text` é o corpo (markdown).
+   */
+  | { kind: 'task_message'; from: string; text: string; fromSubagent?: boolean }

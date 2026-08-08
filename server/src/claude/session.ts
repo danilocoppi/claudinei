@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { createLineParser } from './parser.js'
 import type { ClaudeEvent } from './events.js'
 import type { EngineSession } from '../engine/types.js'
+import { userEchoEvent } from '../engine/echo.js'
 
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' | 'stopped' | 'dead' | 'in_terminal'
 
@@ -198,7 +199,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     this.emit('event', evt)
   }
 
-  send(text: string): void {
+  send(text: string, opts?: { echoToClients?: boolean }): void {
     // Enviar DURANTE 'working' é válido: o CLI incorpora a mensagem no turno
     // em andamento (steering, igual à TUI) — provado empiricamente: o adendo
     // entra na mesma resposta e sai um único result. Só stopped/dead recusam.
@@ -207,6 +208,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     }
     const msg = { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }
     this.proc.stdin.write(JSON.stringify(msg) + '\n')
+    if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
     this.setStatus('working')
   }
 

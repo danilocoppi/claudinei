@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { EngineSession, EngineSessionOptions } from '../types.js'
 import type { SessionStatus } from '../../claude/session.js'
+import { userEchoEvent } from '../echo.js'
 import { buildExecArgs, buildResumeArgs } from './codex-args.js'
 import { createCodexTurnParser } from './codex-parser.js'
 
@@ -30,9 +31,10 @@ export class CodexSession extends EventEmitter implements EngineSession {
     this.setStatus('idle')
   }
 
-  send(text: string): void {
+  send(text: string, opts?: { echoToClients?: boolean }): void {
     if (this.status === 'stopped' || this.status === 'dead') throw new Error(`sessão não aceita mensagem no status ${this.status}`)
     if (this.status === 'working') throw new Error('turno em andamento')
+    if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
     const bin = this.opts.binOverride ?? this.opts.bin ?? process.env.CLAUDINEI_CODEX_BIN ?? 'codex'
     const turnOpts = { model: this.model, effort: this.effort, hermes: this.opts.hermes }
     const baseArgs = this.sessionId ? buildResumeArgs(this.sessionId, turnOpts) : buildExecArgs(turnOpts)

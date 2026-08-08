@@ -245,3 +245,28 @@ describe('mergeEngineFlags — retag em sessão longa (histórico limitado)', ()
     expect(mergeEngineFlags(current, [{ kind: 'user_text', text: 'outra', fromEngine: true }])).toBeNull()
   })
 })
+
+describe('task despachada de outro terminal ([Task from …])', () => {
+  const evt = (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } })
+
+  it('vira task_message com a origem separada do corpo', () => {
+    const items = applyEvent([], evt('[Task from AIFinex - Frontend]: mude o sizing') as never)
+    expect(items).toEqual([{ kind: 'task_message', from: 'AIFinex - Frontend', text: 'mude o sizing' }])
+  })
+
+  it('preserva o corpo markdown multilinha intacto', () => {
+    const body = '**negrito**\n\n```js\nconst a = 1\n```\n- item'
+    const items = applyEvent([], evt(`[Task from Origem]: ${body}`) as never)
+    expect(items).toEqual([{ kind: 'task_message', from: 'Origem', text: body }])
+  })
+
+  it('ignora system-reminder anexado pelo harness', () => {
+    const items = applyEvent([], evt('[Task from X]: faça algo<system-reminder>ruído</system-reminder>') as never)
+    expect(items).toEqual([{ kind: 'task_message', from: 'X', text: 'faça algo' }])
+  })
+
+  it('mensagem normal do usuário NÃO vira task', () => {
+    const items = applyEvent([], evt('olha essa [Task from algo]: no meio da frase') as never)
+    expect(items).toEqual([{ kind: 'user_text', text: 'olha essa [Task from algo]: no meio da frase' }])
+  })
+})

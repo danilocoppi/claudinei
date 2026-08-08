@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { basename, extname } from 'node:path'
+import { basename, dirname, extname } from 'node:path'
 import { canAccessProject } from '../auth/guards.js'
 import { resolveInScope } from '../files/scope.js'
 import type { ProjectsService } from '../projects.js'
@@ -11,6 +12,17 @@ const MIME: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp',
   '.ico': 'image/x-icon', '.pdf': 'application/pdf',
+}
+
+/**
+ * Abre a pasta no gerenciador de arquivos do desktop. Desacoplado (spawn sem shell,
+ * detached) para o processo do Claudinei não ficar preso ao gerenciador — e para o
+ * teste poder injetar um dublê no lugar.
+ */
+function defaultRevealInFolder(dir: string): void {
+  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open'
+  const child = spawn(cmd, [dir], { detached: true, stdio: 'ignore' })
+  child.unref()
 }
 
 // authUser === undefined = auth desativada (modo local single-user) → trata como admin.
@@ -28,7 +40,40 @@ function projectFor(req: FastifyRequest, projects: ProjectsService, projectId?: 
   return p ? { id: p.id, path: p.path } : null
 }
 
-export function registerFileRoutes(app: FastifyInstance, deps: { projects: ProjectsService }): void {
+/**
+ * A requisição veio da PRÓPRIA máquina do servidor?
+ *
+ * "Abrir na pasta" executa um programa no host. A UI já esconde o item fora de
+ * localhost, mas esconder um botão não impede ninguém de chamar a rota direto —
+ * quem chega pela rede é barrado aqui.
+ */
+function isLocalRequest(req: FastifyRequest): boolean {
+  const ip = req.ip
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
+}
+
+export function registerFileRoutes(
+  app: FastifyInstance,
+  deps: { projects: ProjectsService; revealInFolder?: (dir: string) => void },
+): void {
+  // Abre o gerenciador de arquivos na pasta do arquivo. O caminho NUNCA vai cru
+  // para o SO: passa pelo mesmo resolveInScope das outras rotas, então o
+  // parâmetro não vira "abra qualquer pasta da máquina".
+  app.post('/api/files/reveal', async (req, reply) => {
+    if (!isLocalRequest(req)) return reply.code(403).send({ error: 'somente local' })
+    const body = req.body as { path?: unknown; projectId?: number }
+    const raw = typeof body?.path === 'string' ? body.path : ''
+    if (!raw) return reply.code(404).send({ error: 'arquivo não encontrado' })
+    const project = projectFor(req, deps.projects, body?.projectId)
+    const r = resolveInScope(raw, project, isAdminReq(req))
+    if (!r.exists || !r.inScope || !r.real) return reply.code(404).send({ error: 'arquivo não encontrado' })
+    const open = deps.revealInFolder ?? defaultRevealInFolder
+    try { open(dirname(r.real)) } catch (err) {
+      return reply.code(500).send({ error: (err as Error).message })
+    }
+    return { ok: true }
+  })
+
   app.post('/api/files/resolve', async (req) => {
     const body = req.body as { paths?: unknown; projectId?: number }
     const paths = Array.isArray(body?.paths)

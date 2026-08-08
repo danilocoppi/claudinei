@@ -198,6 +198,8 @@ export const en = {
     tooLarge: 'File too large to preview — download it instead.',
     notFound: 'File not found.',
     openPopup: 'Open in popup', openInline: 'View inline in chat',
+    copyPath: 'Copy path', copyFullPath: 'Copy full path',
+    revealInFolder: 'Reveal in folder',
     resizeHint: 'Drag to adjust the height; double-click to reset', forbidden: 'You do not have permission to access this file.',
     loading: 'Loading…', openTitle: 'View file',
   },

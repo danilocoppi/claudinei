@@ -167,3 +167,9 @@ export const updateUser = (id: number, patch: { password?: string; isAdmin?: boo
   req<AdminUser>(`/api/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
 export const deleteUser = (id: number) => req<void>(`/api/auth/users/${id}`, { method: 'DELETE' })
 export const revokeAllSessions = () => req<void>('/api/auth/revoke-all', { method: 'POST' })
+
+/** Abre a pasta do arquivo no gerenciador do desktop. Só funciona em acesso local:
+ * o backend recusa (403) requisição vinda pela rede, porque isto executa um
+ * programa na máquina do servidor. */
+export const revealFile = (path: string, projectId?: number) =>
+  req<{ ok: true }>('/api/files/reveal', { method: 'POST', body: JSON.stringify({ path, projectId }) })

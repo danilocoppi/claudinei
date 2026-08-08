@@ -1,25 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    // Clipboard API indisponível (contexto não-seguro/browser antigo): fallback.
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      ta.remove()
-      return ok
-    } catch { return false }
-  }
-}
+import { copyText } from '../clipboard'
 
 /** Botão de copiar conteúdo (áreas de comando/resultado das tools): um clique
  * copia o texto cru pro clipboard e mostra o ✓ por um instante. */

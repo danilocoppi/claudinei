@@ -47,3 +47,32 @@ describe('MessageBlock — task de outro terminal', () => {
     expect(screen.queryByLabelText(/editar/i)).toBeTruthy()
   })
 })
+
+describe('MessageBlock — conteúdo injetado pela engine (skills)', () => {
+  const injected = (text: string): ChatItem => ({ kind: 'user_text', text, fromEngine: true })
+
+  it('renderiza markdown: títulos viram heading, não "#" literal', () => {
+    const { container } = render(<MessageBlock item={injected('# Frontend Design\n\ntexto')} />)
+    expect(container.querySelector('h1')?.textContent).toBe('Frontend Design')
+    expect(container.textContent).not.toContain('# Frontend Design')
+  })
+
+  it('renderiza negrito e lista do corpo da skill', () => {
+    const { container } = render(<MessageBlock item={injected('**forte**\n\n- um\n- dois')} />)
+    expect(container.querySelector('strong')?.textContent).toBe('forte')
+    expect(container.querySelectorAll('li')).toHaveLength(2)
+  })
+
+  it('mantém a bolha de engine (marcação de que não foi digitado)', () => {
+    const { container } = render(<MessageBlock item={injected('# t')} />)
+    expect(container.querySelector('.msg-bubble--engine')).toBeTruthy()
+  })
+
+  // Regressão: o que o operador DIGITA continua literal — um "#" ou "*" no meio de
+  // um caminho não pode virar título ou itálico sozinho.
+  it('mensagem digitada pelo operador NÃO interpreta markdown', () => {
+    const { container } = render(<MessageBlock item={{ kind: 'user_text', text: '# nao vira titulo' }} />)
+    expect(container.querySelector('h1')).toBeNull()
+    expect(container.textContent).toContain('# nao vira titulo')
+  })
+})

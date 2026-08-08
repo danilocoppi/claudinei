@@ -120,7 +120,15 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
       <div style={{ maxWidth: '70%' }}>
         <div className={`msg-bubble${item.fromEngine ? ' msg-bubble--engine' : ''}`}>
           {engineLabel && <div className="msg-from-engine__by">by {engineLabel}</div>}
-          <TextWithFileLinks text={shown} projectId={session?.projectId} localId={currentLocalId} />
+          {/* Injetado pela engine (skill, resumo de compact) é escrito em .md —
+              sem markdown, o corpo de uma skill chega com "#", "##" e "**" na
+              tela. O que o OPERADOR digita segue literal de propósito: um "#" ou
+              "*" no meio de um caminho não pode virar título ou itálico sozinho. */}
+          {item.fromEngine
+            ? <div className="markdown" style={{ lineHeight: 1.6 }}>
+                <AssistantMarkdown text={shown} currentLocalId={currentLocalId} />
+              </div>
+            : <TextWithFileLinks text={shown} projectId={session?.projectId} localId={currentLocalId} />}
           {overflow > 0 && (
             <button type="button" className="msg-expand" onClick={() => setExpanded(!expanded)}>
               {collapsed ? `▾ ${t('chat.showAll', { n: overflow })}` : `▴ ${t('chat.collapse')}`}

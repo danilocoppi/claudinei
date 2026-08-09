@@ -146,6 +146,18 @@ button.engine-tab__play {
 }
 button.engine-tab__play:hover:not(:disabled) { background: var(--glass-bg-strong); filter: none; }
 
+/* Encerrar a sessão DESTA engine. Discreto por padrão (fica ao lado de cada aba
+   viva, não é ação de rotina) e vermelho só no hover, quando o gesto é
+   deliberado — mesma geometria do ▶ para as abas não dançarem. */
+button.engine-tab__stop {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-right: 4px; padding: 0; flex: none;
+  border: none; border-radius: 6px; background: transparent; color: var(--text-dim);
+  line-height: 0; cursor: pointer; opacity: .65;
+  transition: background .15s ease, color .15s ease, opacity .15s ease;
+}
+button.engine-tab__stop:hover { background: var(--glass-bg-strong); color: var(--err); opacity: 1; filter: none; }
+
 /* Linha de opção (título + descrição + toggle) */
 .option-row {
   display: flex; align-items: center; gap: 14px;

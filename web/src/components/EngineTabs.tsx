@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { isLive, sessionForEngine, startOrReviveEngine, displayStatusKey, dotClassOf } from '../engineSession'
+import { stopSession } from '../api'
 import type { SessionInfo, SessionStatus } from '../types'
 import { EngineIcon } from './EngineIcon'
+import { ConfirmDialog } from './ConfirmDialog'
 
 /**
  * Abas por engine de um projeto — usadas no header do ChatView E na barra do
@@ -20,6 +22,18 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   const openSession = useStore((s) => s.openSession)
   const openTerminal = useStore((s) => s.openTerminal)
   const [startingEngine, setStartingEngine] = useState<string | null>(null)
+  // Encerrar é por ENGINE: um terminal pode ter Claude + Codex + Kimi vivos ao
+  // mesmo tempo, e derrubar um não pode derrubar os outros.
+  const [stopFor, setStopFor] = useState<{ session: SessionInfo; label: string } | null>(null)
+
+  const confirmStop = () => {
+    if (!stopFor) return
+    const { localId } = stopFor.session
+    setStopFor(null)
+    // A conversa fica no histórico e a engine pode ser revivida pelo ▶ da aba —
+    // encerrar não descarta nada, só libera o processo.
+    void stopSession(localId).catch(() => {})
+  }
 
   const handleStartEngine = async (engineId: string) => {
     if (startingEngine) return
@@ -63,6 +77,20 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
                 {tabSession ? t(`status.${displayStatusKey(tabSession)}` as 'status.in_terminal') : t('sidebar.noSession')}
               </span>
             </button>
+            {live && tabSession && (
+              <button
+                type="button"
+                className="engine-tab__stop"
+                title={t('chat.stopEngine', { engine: e.label })}
+                aria-label={t('chat.stopEngine', { engine: e.label })}
+                onClick={() => setStopFor({ session: tabSession, label: e.label })}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+                     strokeLinecap="round" aria-hidden="true">
+                  <path d="M12 3v9" /><path d="M6.5 6.5a8 8 0 1 0 11 0" />
+                </svg>
+              </button>
+            )}
             {!live && (e.available === false ? (
               // CLI não instalada no servidor: não oferece o ▶ (a sessão nasceria
               // morta) — badge com o comando de instalação no tooltip.
@@ -86,6 +114,19 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
           </div>
         )
       })}
+      {stopFor && (
+        <ConfirmDialog
+          title={t('chat.stopEngineTitle', { engine: stopFor.label })}
+          // O aviso do turno perdido só aparece quando há turno: fora disso
+          // encerrar é inócuo, e um alerta constante ensina a ignorar o diálogo.
+          message={stopFor.session.status === 'working'
+            ? `${t('chat.stopEngineWorking')}\n\n${t('chat.stopEngineMsg')}`
+            : t('chat.stopEngineMsg')}
+          confirmLabel={t('chat.stopEngineConfirm')}
+          onConfirm={confirmStop}
+          onClose={() => setStopFor(null)}
+        />
+      )}
     </div>
   )
 }

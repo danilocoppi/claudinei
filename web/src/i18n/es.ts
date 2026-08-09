@@ -86,7 +86,7 @@ export const es: typeof en = {
     interrupted: 'Interrumpido por el usuario',
     actionsGroup: '{{count}} acciones',
     showAll: 'mostrar todo (+{{n}} líneas)', collapse: 'contraer',
-    taskFrom: 'Tarea de {{from}}',
+    taskFrom: 'Tarea de {{from}}', subagentPrompt: 'Instrucción al subagente',
     editWorkingTitle: '¿Editar e interrumpir?',
     editWorkingMsg: 'El motor está procesando. Editar este mensaje INTERRUMPE el turno en curso y reinicia la conversación desde él.\nSi solo quieres corregir un mensaje en cola, cancela y espera a que termine el turno.',
     editWorkingConfirm: 'Interrumpir y editar',

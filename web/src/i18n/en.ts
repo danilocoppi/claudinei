@@ -84,7 +84,7 @@ export const en = {
     interrupted: 'Interrupted by the user',
     actionsGroup: '{{count}} actions',
     showAll: 'show all (+{{n}} lines)', collapse: 'collapse',
-    taskFrom: 'Task from {{from}}',
+    taskFrom: 'Task from {{from}}', subagentPrompt: 'Instruction to subagent',
     editWorkingTitle: 'Edit and interrupt?',
     editWorkingMsg: 'The engine is processing. Editing this message INTERRUPTS the turn in progress and restarts the conversation from it.\nIf you only want to fix a queued message, cancel and wait for the turn to finish.',
     editWorkingConfirm: 'Interrupt and edit',

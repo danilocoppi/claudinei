@@ -397,6 +397,16 @@ button.term-card__action--play:hover { color: var(--ok); }
   font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
   color: #e2a54a; font-weight: 700; margin-bottom: 6px;
 }
+/* Instrução que o orquestrador mandou a um subagente: violeta, alinhada com a
+   borda do ↳ subagent que envolve o bloco — nem operador, nem engine, nem task. */
+.msg-bubble--subagent {
+  background: rgba(140, 122, 255, .12);
+  border-color: rgba(140, 122, 255, .38);
+}
+.msg-subagent__to {
+  font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+  color: #a99bff; font-weight: 700; margin-bottom: 6px;
+}
 /* Expandir/recolher de mensagem longa do usuário (> 13 linhas) */
 .msg-expand {
   display: block; margin-top: 8px; padding: 3px 10px;

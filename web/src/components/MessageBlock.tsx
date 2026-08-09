@@ -113,18 +113,28 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
   const engineLabel = item.fromEngine
     ? (engines.find((e) => e.id === session?.engine)?.label ?? 'engine')
     : null
+  // Aparece do lado do operador mas NÃO foi ele quem escreveu: skill/harness
+  // (fromEngine) ou a instrução que o orquestrador mandou ao subagente
+  // (fromSubagent). Os dois vêm em markdown e nenhum é editável.
+  const injected = !!item.fromEngine || !!item.fromSubagent
+  const bubbleKind = item.fromEngine ? ' msg-bubble--engine' : item.fromSubagent ? ' msg-bubble--subagent' : ''
 
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6, margin: '8px 0' }}>
       <ForwardButton text={item.text} currentLocalId={currentLocalId} />
       <div style={{ maxWidth: '70%' }}>
-        <div className={`msg-bubble${item.fromEngine ? ' msg-bubble--engine' : ''}`}>
+        <div className={`msg-bubble${bubbleKind}`}>
           {engineLabel && <div className="msg-from-engine__by">by {engineLabel}</div>}
-          {/* Injetado pela engine (skill, resumo de compact) é escrito em .md —
-              sem markdown, o corpo de uma skill chega com "#", "##" e "**" na
-              tela. O que o OPERADOR digita segue literal de propósito: um "#" ou
-              "*" no meio de um caminho não pode virar título ou itálico sozinho. */}
-          {item.fromEngine
+          {item.fromSubagent && !item.fromEngine && (
+            <div className="msg-subagent__to">
+              <span aria-hidden="true">↳</span> {t('chat.subagentPrompt')}
+            </div>
+          )}
+          {/* Conteúdo injetado (skill, prompt de subagente) é escrito em .md —
+              sem markdown ele chega com "#", "##" e "**" na tela. O que o
+              OPERADOR digita segue literal de propósito: um "#" ou "*" no meio
+              de um caminho não pode virar título ou itálico sozinho. */}
+          {injected
             ? <div className="markdown" style={{ lineHeight: 1.6 }}>
                 <AssistantMarkdown text={shown} currentLocalId={currentLocalId} />
               </div>
@@ -136,7 +146,9 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
           )}
         </div>
       </div>
-      {onEdit && (
+      {/* Editar só o que o operador escreveu: reenviar uma skill ou o prompt de
+          um subagente como se fosse mensagem sua não faz sentido. */}
+      {onEdit && !injected && (
         <button type="button" className="ghost msg-edit" aria-label={t('chat.edit')} title={t('chat.edit')} onClick={onEdit}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

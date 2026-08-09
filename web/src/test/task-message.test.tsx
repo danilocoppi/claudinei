@@ -76,3 +76,42 @@ describe('MessageBlock — conteúdo injetado pela engine (skills)', () => {
     expect(container.textContent).toContain('# nao vira titulo')
   })
 })
+
+describe('MessageBlock — instrução enviada a um subagente', () => {
+  const toSub = (text: string): ChatItem => ({ kind: 'user_text', text, fromSubagent: true })
+
+  it('renderiza markdown do prompt, não "##" literal', () => {
+    const { container } = render(<MessageBlock item={toSub('## Task Description\n\ncorpo')} />)
+    expect(container.querySelector('h2')?.textContent).toBe('Task Description')
+    expect(container.textContent).not.toContain('## Task Description')
+  })
+
+  it('renderiza lista e código inline do prompt', () => {
+    const { container } = render(<MessageBlock item={toSub('- `utils/cookies.js` (AUTH)\n- outro')} />)
+    expect(container.querySelectorAll('li')).toHaveLength(2)
+    expect(container.querySelector('code')?.textContent).toBe('utils/cookies.js')
+  })
+
+  it('usa bolha própria, distinta da do operador e da de engine', () => {
+    const { container } = render(<MessageBlock item={toSub('x')} />)
+    expect(container.querySelector('.msg-bubble--subagent')).toBeTruthy()
+    expect(container.querySelector('.msg-bubble--engine')).toBeNull()
+  })
+
+  // Mira no chip em si: o wrapper "↳ subagente" já contém essa palavra, então
+  // buscar só pelo texto passaria mesmo sem o chip existir.
+  it('mostra o chip identificando que é instrução ao subagente', () => {
+    const { container } = render(<MessageBlock item={toSub('x')} />)
+    expect(container.querySelector('.msg-subagent__to')?.textContent).toMatch(/instrução ao subagente/i)
+  })
+
+  it('não oferece editar — não foi o operador que escreveu', () => {
+    render(<MessageBlock item={toSub('x')} onEdit={() => {}} />)
+    expect(screen.queryByLabelText(/editar/i)).toBeNull()
+  })
+
+  it('mantém o wrapper de subagente que já existia', () => {
+    const { container } = render(<MessageBlock item={toSub('x')} />)
+    expect(container.textContent).toMatch(/subagent/i)
+  })
+})

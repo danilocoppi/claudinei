@@ -86,7 +86,7 @@ export const ptBR: typeof en = {
     interrupted: 'Interrompido pelo usuário',
     actionsGroup: '{{count}} ações',
     showAll: 'mostrar tudo (+{{n}} linhas)', collapse: 'recolher',
-    taskFrom: 'Task de {{from}}',
+    taskFrom: 'Task de {{from}}', subagentPrompt: 'Instrução ao subagente',
     editWorkingTitle: 'Editar e interromper?',
     editWorkingMsg: 'A engine está processando. Editar esta mensagem INTERROMPE o turno em andamento e recomeça a conversa a partir dela.\nSe você só quer corrigir uma mensagem que entrou na fila, cancele e espere o turno terminar.',
     editWorkingConfirm: 'Interromper e editar',

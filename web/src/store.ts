@@ -212,6 +212,9 @@ export const useStore = create<State>((set, get) => ({
             permissionMode: msg.permissionMode ?? s.sessions[msg.localId]?.permissionMode,
             effort: msg.effort !== undefined ? msg.effort : s.sessions[msg.localId]?.effort,
             engine: msg.engine ?? s.sessions[msg.localId]?.engine ?? 'claude',
+            // Subagentes de background rodando agora (estado do processo, não do
+            // banco): o servidor manda a lista completa a cada mudança.
+            backgroundTasks: msg.backgroundTasks ?? s.sessions[msg.localId]?.backgroundTasks ?? [],
             // Atividade do TUI só sobrevive à PERMANÊNCIA em in_terminal; na entrada
             // (status anterior não era in_terminal) zera — senão dois in_terminal
             // consecutivos mostrariam atividade velha do terminal anterior.

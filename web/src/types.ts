@@ -19,6 +19,12 @@ export interface SessionInfo {
   engine: string
   /** Heurística de atividade do TUI enquanto in_terminal (efêmero, via WS). */
   terminalActivity?: 'working' | 'waiting' | 'idle'
+  /**
+   * Subagentes despachados com run_in_background que ainda rodam. Eles seguem
+   * trabalhando DEPOIS que o turno que os despachou fecha — é o que impede a
+   * sessão de parecer parada enquanto ainda há trabalho em curso.
+   */
+  backgroundTasks?: { id: string; description: string; type: string }[]
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */

@@ -180,7 +180,7 @@ export function ChatView() {
         {/* Só com a sessão em `working`: num turno interrompido o tool_call do
             Agent fica sem resultado para sempre, e a faixa afirmaria que há
             subagente trabalhando quando não há mais nada rodando. */}
-        {session.status === 'working' && <RunningSubagents items={items} />}
+        {session.status === 'working' && <RunningSubagents items={items} backgroundTasks={session.backgroundTasks} />}
         {session.status === 'working' && !streamingText && (
           <div className="typing" data-testid="typing-indicator" aria-label={t('chat.processing')}>
             <span /><span /><span />

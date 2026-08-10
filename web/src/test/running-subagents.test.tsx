@@ -75,3 +75,36 @@ describe('RunningSubagents', () => {
     expect(screen.queryByText(/tarefa completa/)).toBeNull()
   })
 })
+
+/**
+ * Subagente de background: continua rodando DEPOIS que o turno que o despachou
+ * fecha, e seu tool_call já recebeu resultado no despacho — a detecção pelo chat
+ * não o alcança. O servidor manda a lista pelo status da sessão.
+ */
+describe('RunningSubagents — tasks em background', () => {
+  const bg = (id: string, description: string, type = 'general-purpose') => ({ id, description, type })
+
+  it('lista a task de background mesmo sem nada pendente no chat', () => {
+    render(<RunningSubagents items={[]} backgroundTasks={[bg('a1', 'Contar de 1 a 5')]} />)
+    expect(screen.getByText('Contar de 1 a 5')).toBeTruthy()
+    expect(screen.getByText(/1 subagente\b/i)).toBeTruthy()
+  })
+
+  it('soma background com os de primeiro plano na contagem', () => {
+    render(<RunningSubagents items={[agent('t1', 'Primeiro plano')]} backgroundTasks={[bg('a1', 'Em background')]} />)
+    expect(screen.getByText(/2 subagentes/i)).toBeTruthy()
+    expect(screen.getByText('Primeiro plano')).toBeTruthy()
+    expect(screen.getByText('Em background')).toBeTruthy()
+  })
+
+  it('não duplica quando a mesma task aparece nas duas fontes', () => {
+    render(<RunningSubagents items={[agent('a1', 'Mesma')]} backgroundTasks={[bg('a1', 'Mesma')]} />)
+    expect(screen.getByText(/1 subagente\b/i)).toBeTruthy()
+    expect(screen.getAllByText('Mesma')).toHaveLength(1)
+  })
+
+  it('nada a mostrar sem chat pendente e sem background', () => {
+    const { container } = render(<RunningSubagents items={[]} backgroundTasks={[]} />)
+    expect(container.innerHTML).toBe('')
+  })
+})

@@ -14,10 +14,26 @@ import type { ChatItem } from '../types'
  * interrompido o tool_call fica sem resultado para sempre, e a lista passaria a
  * afirmar que há alguém trabalhando quando não há.
  */
-export function RunningSubagents({ items }: { items: ChatItem[] }) {
+export function RunningSubagents({
+  items, backgroundTasks = [],
+}: {
+  items: ChatItem[]
+  /** Subagentes de background, vindos do status da sessão (ver nota abaixo). */
+  backgroundTasks?: { id: string; description: string; type: string }[]
+}) {
   const { t } = useTranslation()
   const [openId, setOpenId] = useState<string | null>(null)
-  const running = runningSubagents(items)
+  const fromChat = runningSubagents(items)
+  // Um subagente de background não é detectável pelo chat: seu tool_call recebeu
+  // resultado no instante do despacho e ele segue rodando depois do turno. Quem
+  // sabe dele é o servidor, que acompanha os eventos de task do CLI.
+  const seen = new Set(fromChat.map((s) => s.id))
+  const running = [
+    ...fromChat,
+    ...backgroundTasks
+      .filter((b) => !seen.has(b.id))
+      .map((b) => ({ id: b.id, description: b.description, type: b.type, prompt: '', activity: [] as ChatItem[] })),
+  ]
   if (running.length === 0) return null
 
   return (

@@ -16,6 +16,12 @@ export interface SessionInfo {
   permissionMode: PermissionMode
   /** Effort persistido (low..max) ou null = padrão (auto). */
   effort: string | null
+  /**
+   * Subagentes despachados com run_in_background que ainda rodam. Vem da sessão
+   * VIVA (não do banco): é estado do processo, não persistido. Ausente/vazio =
+   * nada em background.
+   */
+  backgroundTasks?: { id: string; description: string; type: string }[]
 }
 
 export interface TerminalLauncherOpts {
@@ -91,7 +97,7 @@ export function createSessionManager(deps: Deps) {
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
       const info = infoOf(localId)
-      deps.broadcast({ type: 'session_status', localId, projectId, engine: info?.engine ?? engine, status, engineSessionId: effectiveEngineSessionId(localId, session), detail, model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null })
+      deps.broadcast({ type: 'session_status', localId, projectId, engine: info?.engine ?? engine, status, engineSessionId: effectiveEngineSessionId(localId, session), detail, model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null, backgroundTasks: info?.backgroundTasks ?? [] })
       if (status === 'dead' || status === 'stopped') live.delete(localId)
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => deps.onSessionAvailable?.(projectId))
@@ -111,7 +117,7 @@ export function createSessionManager(deps: Deps) {
         if (event.sessionId) {
           persist(localId, session.status, event.sessionId)
           const infoI = infoOf(localId)
-          deps.broadcast({ type: 'session_status', localId, projectId, engine: infoI?.engine ?? engine, status: session.status, engineSessionId: event.sessionId, model: infoI?.model ?? null, permissionMode: infoI?.permissionMode, effort: infoI?.effort ?? null })
+          deps.broadcast({ type: 'session_status', localId, projectId, engine: infoI?.engine ?? engine, status: session.status, engineSessionId: event.sessionId, model: infoI?.model ?? null, permissionMode: infoI?.permissionMode, effort: infoI?.effort ?? null, backgroundTasks: infoI?.backgroundTasks ?? [] })
         }
       }
       if (event.kind === 'result' && event.tokens) {
@@ -123,7 +129,7 @@ export function createSessionManager(deps: Deps) {
     })
     session.start()
     const info0 = infoOf(localId)
-    deps.broadcast({ type: 'session_status', localId, projectId, engine: info0?.engine ?? engine, status: session.status, engineSessionId: effectiveEngineSessionId(localId, session), model: info0?.model ?? null, permissionMode: info0?.permissionMode, effort: info0?.effort ?? null })
+    deps.broadcast({ type: 'session_status', localId, projectId, engine: info0?.engine ?? engine, status: session.status, engineSessionId: effectiveEngineSessionId(localId, session), model: info0?.model ?? null, permissionMode: info0?.permissionMode, effort: info0?.effort ?? null, backgroundTasks: info0?.backgroundTasks ?? [] })
   }
 
   const infoOf = (localId: string): SessionInfo | undefined => {
@@ -140,6 +146,7 @@ export function createSessionManager(deps: Deps) {
       model: row.model ?? null,
       permissionMode: (row.permission_mode ?? 'bypassPermissions') as PermissionMode,
       effort: row.effort ?? null,
+      backgroundTasks: liveEntry?.session.backgroundTasks ?? [],
     }
   }
 

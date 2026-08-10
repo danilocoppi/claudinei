@@ -99,9 +99,22 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   private stopping = false
   private stderrTail: string[] = []
   private controlSeq = 0
+  /**
+   * Tasks despachadas com run_in_background que ainda rodam. O CLI manda a lista
+   * COMPLETA a cada mudança (system/background_tasks_changed), então ela é a fonte
+   * autoritativa — substituímos, nunca acumulamos. `task_started` chega antes e
+   * traz description/subagent_type, que a lista não repete.
+   */
+  private bgTasks = new Map<string, { id: string; description: string; type: string }>()
+  private bgMeta = new Map<string, { description: string; type: string }>()
   private pendingControls = new Map<string, { resolve: () => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
 
   get lastStderr(): string { return this.stderrTail.join('').trim() }
+
+  /** Tasks em background ainda rodando nesta sessão. */
+  get backgroundTasks(): { id: string; description: string; type: string }[] {
+    return [...this.bgTasks.values()]
+  }
 
   constructor(private opts: SessionOptions) {
     super()
@@ -195,6 +208,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
         })
       }
     }
+    if (evt.kind === 'system') this.trackBackgroundTasks(evt.raw)
     // A engine pode retomar SOZINHA, sem ninguém mandar mensagem: quando uma task
     // despachada com run_in_background termina, o CLI fecha o turno (result) e
     // dispara um turno NOVO por conta própria — init, conteúdo e um segundo result
@@ -210,7 +224,14 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
         (this.status === 'idle' || this.status === 'needs_attention')) {
       this.setStatus('working')
     }
-    if (evt.kind === 'result' && this.status === 'working') this.setStatus('needs_attention')
+    // Um result com task de background ativa NÃO encerra o trabalho: só o turno
+    // que a despachou acabou. Marcar needs_attention aqui mostraria o terminal
+    // parado — e o filtro "somente ativos" o esconderia — enquanto o subagente
+    // ainda trabalha. A lista esvazia sozinha (o CLI avisa) e o result seguinte
+    // fecha normalmente.
+    if (evt.kind === 'result' && this.status === 'working' && this.bgTasks.size === 0) {
+      this.setStatus('needs_attention')
+    }
     this.emit('event', evt)
   }
 
@@ -263,6 +284,10 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   }
 
   async stop(): Promise<void> {
+    // Nada continua rodando depois que o processo morre: segurar a lista deixaria
+    // a sessão parecendo ocupada para sempre.
+    this.bgTasks.clear()
+    this.bgMeta.clear()
     if (!this.proc || this.status === 'stopped' || this.status === 'dead') return
     this.stopping = true
     this.proc.stdin.end()
@@ -271,6 +296,46 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       const timer = setTimeout(() => { proc.kill('SIGKILL') }, 10_000)
       proc.once('close', () => { clearTimeout(timer); resolve() })
     })
+  }
+
+  /**
+   * Acompanha as tasks em background pelos eventos `system` do CLI:
+   *  - task_started: traz description/subagent_type (a lista não repete isso)
+   *  - background_tasks_changed: a lista COMPLETA do que roda agora
+   *  - task_updated (completed/failed): tira a task na hora
+   */
+  private trackBackgroundTasks(raw: unknown): void {
+    const o = raw as { subtype?: string; tasks?: unknown; task_id?: string; description?: string; subagent_type?: string; patch?: { status?: string } }
+    if (o?.subtype === 'task_started' && o.task_id) {
+      this.bgMeta.set(o.task_id, { description: o.description ?? '', type: o.subagent_type ?? '' })
+      return
+    }
+    if (o?.subtype === 'task_updated' && o.task_id) {
+      const st = o.patch?.status
+      if (st === 'completed' || st === 'failed') this.dropBackgroundTask(o.task_id)
+      return
+    }
+    if (o?.subtype !== 'background_tasks_changed' || !Array.isArray(o.tasks)) return
+    const before = [...this.bgTasks.keys()].join(',')
+    this.bgTasks.clear()
+    for (const t of o.tasks as { task_id?: string; description?: string }[]) {
+      if (!t?.task_id) continue
+      const meta = this.bgMeta.get(t.task_id)
+      this.bgTasks.set(t.task_id, {
+        id: t.task_id,
+        description: t.description ?? meta?.description ?? '',
+        type: meta?.type ?? '',
+      })
+    }
+    // A UI precisa saber que a composição mudou mesmo quando o status não muda —
+    // o canal de status é o que o manager já retransmite para os clientes.
+    if (before !== [...this.bgTasks.keys()].join(',')) this.emit('status', this.status)
+  }
+
+  private dropBackgroundTask(id: string): void {
+    if (!this.bgTasks.delete(id)) return
+    this.bgMeta.delete(id)
+    this.emit('status', this.status)
   }
 
   private setStatus(s: SessionStatus): void {

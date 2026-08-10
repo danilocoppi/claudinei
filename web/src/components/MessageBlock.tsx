@@ -317,7 +317,7 @@ function linkHrefCandidates(text: string): string[] {
     .map(normalizeHref)
 }
 
-function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLocalId?: string }) {
+export function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLocalId?: string }) {
   const sessions = useStore((s) => s.sessions)
   const fileResolved = useStore((s) => s.fileResolved)
   const openFileMenu = useStore((s) => s.openFileMenu)

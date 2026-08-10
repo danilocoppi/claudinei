@@ -157,3 +157,29 @@ describe('RunningSubagents — parar um subagente pelo chip', () => {
     expect(screen.queryByText('faça')).toBeNull()
   })
 })
+
+describe('RunningSubagents — markdown no detalhe', () => {
+  const md = '**Leia primeiro** e edite `src/pages/login/index.jsx`\n\n- item um\n- item dois'
+
+  it('renderiza negrito do prompt em vez de mostrar os asteriscos', () => {
+    const { container } = render(<RunningSubagents items={[]}
+      backgroundTasks={[{ id: 'a1', description: 'Task 13', type: 'general-purpose', prompt: md }]} />)
+    fireEvent.click(screen.getByText('Task 13'))
+    expect(container.querySelector('.subagent__prompt strong')?.textContent).toBe('Leia primeiro')
+    expect(container.textContent).not.toContain('**Leia primeiro**')
+  })
+
+  it('renderiza caminho em crase como código', () => {
+    const { container } = render(<RunningSubagents items={[]}
+      backgroundTasks={[{ id: 'a1', description: 'Task 13', type: '', prompt: md }]} />)
+    fireEvent.click(screen.getByText('Task 13'))
+    expect(container.querySelector('.subagent__prompt code')?.textContent).toBe('src/pages/login/index.jsx')
+  })
+
+  it('renderiza lista do prompt', () => {
+    const { container } = render(<RunningSubagents items={[]}
+      backgroundTasks={[{ id: 'a1', description: 'Task 13', type: '', prompt: md }]} />)
+    fireEvent.click(screen.getByText('Task 13'))
+    expect(container.querySelectorAll('.subagent__prompt li')).toHaveLength(2)
+  })
+})

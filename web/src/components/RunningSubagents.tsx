@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { runningSubagents } from '../subagents'
+import { AssistantMarkdown } from './MessageBlock'
 import type { ChatItem } from '../types'
 
 /**
@@ -83,7 +84,14 @@ export function RunningSubagents({
               {open && (
                 <div className="subagent__detail">
                   {s.type && <div className="subagent__type">{s.type}</div>}
-                  {s.prompt && <div className="subagent__prompt">{s.prompt}</div>}
+                  {/* O prompt do subagente é escrito em .md como o das tasks —
+                      sem renderizar, os "**" e as crases dos caminhos chegam
+                      literais na tela. */}
+                  {s.prompt && (
+                    <div className="subagent__prompt markdown">
+                      <AssistantMarkdown text={s.prompt} />
+                    </div>
+                  )}
                   {/* Sem tipo, prompt nem atividade o painel saía como um retângulo
                       em branco — nada indicava se era erro ou ausência de dado. */}
                   {!s.type && !s.prompt && s.activity.length === 0 && (

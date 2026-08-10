@@ -535,10 +535,19 @@ button.subagent__stop:hover { opacity: 1; color: var(--err); background: rgba(25
   font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
   color: #a99bff; font-weight: 700; margin-bottom: 4px;
 }
+/* O prompt vai renderizado como markdown: sem `white-space: pre-wrap`, que
+   duplicaria as quebras que os <p>/<li> já produzem. Margens apertadas porque
+   isto é um painel auxiliar, não a conversa. */
 .subagent__prompt {
-  font-size: 12px; color: var(--text-dim); white-space: pre-wrap;
-  max-height: 160px; overflow: auto; margin-bottom: 6px;
+  font-size: 12px; color: var(--text-dim);
+  max-height: 220px; overflow: auto; margin-bottom: 6px;
 }
+.subagent__prompt > :first-child { margin-top: 0; }
+.subagent__prompt > :last-child { margin-bottom: 0; }
+.subagent__prompt p, .subagent__prompt ul, .subagent__prompt ol { margin: 4px 0; }
+.subagent__prompt ul, .subagent__prompt ol { padding-left: 18px; }
+.subagent__prompt pre { padding: 8px; font-size: 11px; }
+.subagent__prompt code { font-size: 11px; }
 .subagent__activity { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-dim); }
 .subagent__activity li { margin: 1px 0; }
 

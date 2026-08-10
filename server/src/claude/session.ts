@@ -105,14 +105,14 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    * autoritativa — substituímos, nunca acumulamos. `task_started` chega antes e
    * traz description/subagent_type, que a lista não repete.
    */
-  private bgTasks = new Map<string, { id: string; description: string; type: string }>()
-  private bgMeta = new Map<string, { description: string; type: string }>()
+  private bgTasks = new Map<string, { id: string; description: string; type: string; prompt: string }>()
+  private bgMeta = new Map<string, { description: string; type: string; prompt: string }>()
   private pendingControls = new Map<string, { resolve: () => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
 
   get lastStderr(): string { return this.stderrTail.join('').trim() }
 
   /** Tasks em background ainda rodando nesta sessão. */
-  get backgroundTasks(): { id: string; description: string; type: string }[] {
+  get backgroundTasks(): { id: string; description: string; type: string; prompt: string }[] {
     return [...this.bgTasks.values()]
   }
 
@@ -305,9 +305,9 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    *  - task_updated (completed/failed): tira a task na hora
    */
   private trackBackgroundTasks(raw: unknown): void {
-    const o = raw as { subtype?: string; tasks?: unknown; task_id?: string; description?: string; subagent_type?: string; patch?: { status?: string } }
+    const o = raw as { subtype?: string; tasks?: unknown; task_id?: string; description?: string; subagent_type?: string; prompt?: string; patch?: { status?: string } }
     if (o?.subtype === 'task_started' && o.task_id) {
-      this.bgMeta.set(o.task_id, { description: o.description ?? '', type: o.subagent_type ?? '' })
+      this.bgMeta.set(o.task_id, { description: o.description ?? '', type: o.subagent_type ?? '', prompt: o.prompt ?? '' })
       return
     }
     if (o?.subtype === 'task_updated' && o.task_id) {
@@ -325,6 +325,8 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
         id: t.task_id,
         description: t.description ?? meta?.description ?? '',
         type: meta?.type ?? '',
+        // O prompt só vem no task_started; a lista de mudança não o repete.
+        prompt: meta?.prompt ?? '',
       })
     }
     // A UI precisa saber que a composição mudou mesmo quando o status não muda —

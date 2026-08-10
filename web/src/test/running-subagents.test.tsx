@@ -82,7 +82,7 @@ describe('RunningSubagents', () => {
  * não o alcança. O servidor manda a lista pelo status da sessão.
  */
 describe('RunningSubagents — tasks em background', () => {
-  const bg = (id: string, description: string, type = 'general-purpose') => ({ id, description, type })
+  const bg = (id: string, description: string, type = 'general-purpose', prompt = '') => ({ id, description, type, prompt })
 
   it('lista a task de background mesmo sem nada pendente no chat', () => {
     render(<RunningSubagents items={[]} backgroundTasks={[bg('a1', 'Contar de 1 a 5')]} />)
@@ -106,5 +106,22 @@ describe('RunningSubagents — tasks em background', () => {
   it('nada a mostrar sem chat pendente e sem background', () => {
     const { container } = render(<RunningSubagents items={[]} backgroundTasks={[]} />)
     expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('RunningSubagents — painel sem conteúdo', () => {
+  it('mostra o prompt da task de background ao expandir', () => {
+    render(<RunningSubagents items={[]} backgroundTasks={[{ id: 'a1', description: 'Tokens', type: 'Explore', prompt: 'gere os tokens de tema' }]} />)
+    fireEvent.click(screen.getByText('Tokens'))
+    expect(screen.getByText('gere os tokens de tema')).toBeTruthy()
+  })
+
+  /** Sem tipo, sem prompt e sem atividade o painel saía como um retângulo vazio. */
+  it('avisa em vez de abrir um painel em branco', () => {
+    const { container } = render(<RunningSubagents items={[]} backgroundTasks={[{ id: 'a1', description: 'Só descrição', type: '', prompt: '' }]} />)
+    fireEvent.click(screen.getByText('Só descrição'))
+    const detail = container.querySelector('.subagent__detail')
+    expect(detail).toBeTruthy()
+    expect(detail?.textContent?.trim()).not.toBe('')
   })
 })

@@ -21,7 +21,7 @@ export interface SessionInfo {
    * VIVA (não do banco): é estado do processo, não persistido. Ausente/vazio =
    * nada em background.
    */
-  backgroundTasks?: { id: string; description: string; type: string }[]
+  backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
 }
 
 export interface TerminalLauncherOpts {

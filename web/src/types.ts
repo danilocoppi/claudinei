@@ -24,7 +24,7 @@ export interface SessionInfo {
    * trabalhando DEPOIS que o turno que os despachou fecha — é o que impede a
    * sessão de parecer parada enquanto ainda há trabalho em curso.
    */
-  backgroundTasks?: { id: string; description: string; type: string }[]
+  backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */

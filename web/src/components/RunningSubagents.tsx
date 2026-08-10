@@ -19,7 +19,7 @@ export function RunningSubagents({
 }: {
   items: ChatItem[]
   /** Subagentes de background, vindos do status da sessão (ver nota abaixo). */
-  backgroundTasks?: { id: string; description: string; type: string }[]
+  backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
 }) {
   const { t } = useTranslation()
   const [openId, setOpenId] = useState<string | null>(null)
@@ -32,7 +32,7 @@ export function RunningSubagents({
     ...fromChat,
     ...backgroundTasks
       .filter((b) => !seen.has(b.id))
-      .map((b) => ({ id: b.id, description: b.description, type: b.type, prompt: '', activity: [] as ChatItem[] })),
+      .map((b) => ({ id: b.id, description: b.description, type: b.type, prompt: b.prompt, activity: [] as ChatItem[] })),
   ]
   if (running.length === 0) return null
 
@@ -64,6 +64,11 @@ export function RunningSubagents({
                 <div className="subagent__detail">
                   {s.type && <div className="subagent__type">{s.type}</div>}
                   {s.prompt && <div className="subagent__prompt">{s.prompt}</div>}
+                  {/* Sem tipo, prompt nem atividade o painel saía como um retângulo
+                      em branco — nada indicava se era erro ou ausência de dado. */}
+                  {!s.type && !s.prompt && s.activity.length === 0 && (
+                    <div className="subagent__prompt">{t('chat.subagentNoDetail')}</div>
+                  )}
                   {s.activity.length > 0 && (
                     <ul className="subagent__activity">
                       {s.activity.map((a, i) => (

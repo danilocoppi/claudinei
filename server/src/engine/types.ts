@@ -32,7 +32,7 @@ export interface EngineSession extends EventEmitter {
    * Subagentes em background ainda rodando. Só o Claude Code tem esse conceito
    * hoje; nas outras engines fica ausente.
    */
-  readonly backgroundTasks?: { id: string; description: string; type: string }[]
+  readonly backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
   start(): void
   /**
    * `echoToClients`: emite também um evento `user` com o mesmo texto, para a UI

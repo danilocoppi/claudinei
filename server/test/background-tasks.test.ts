@@ -71,7 +71,7 @@ describe('tasks em background seguram o fim do turno', () => {
     feed(session, started('a1', 'Contar de 1 a 5', 'Explore'))
     feed(session, tasksChanged([{ task_id: 'a1', description: 'Contar de 1 a 5' }]))
     expect(session.backgroundTasks).toEqual([
-      { id: 'a1', description: 'Contar de 1 a 5', type: 'Explore' },
+      { id: 'a1', description: 'Contar de 1 a 5', type: 'Explore', prompt: 'faça Contar de 1 a 5' },
     ])
   })
 
@@ -100,5 +100,27 @@ describe('tasks em background seguram o fim do turno', () => {
     feed(session, tasksChanged([{ task_id: 'a1', description: 'Um' }]))
     await session.stop()
     expect(session.backgroundTasks).toEqual([])
+  })
+})
+
+/**
+ * O task_started traz também o `prompt`. Sem guardá-lo, expandir um subagente de
+ * background mostrava um painel vazio: a lista não repete a descrição longa e a
+ * atividade interna não vem no stream principal.
+ */
+describe('detalhe da task em background', () => {
+  it('guarda o prompt que o task_started trouxe', () => {
+    session = ready()
+    feed(session, started('a1', 'Contar', 'Explore'))
+    feed(session, tasksChanged([{ task_id: 'a1', description: 'Contar' }]))
+    expect(session.backgroundTasks[0]).toMatchObject({
+      id: 'a1', description: 'Contar', type: 'Explore', prompt: 'faça Contar',
+    })
+  })
+
+  it('sem task_started prévio, expõe a task mesmo assim (sem prompt)', () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'zz', description: 'Órfã' }]))
+    expect(session.backgroundTasks[0]).toMatchObject({ id: 'zz', description: 'Órfã', prompt: '' })
   })
 })

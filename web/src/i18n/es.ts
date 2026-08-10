@@ -92,6 +92,7 @@ export const es: typeof en = {
     stopEngineWorking: 'Hay un turno en curso; se perderá.',
     stopEngineConfirm: 'Finalizar',
     subagentsRunning: '{{count}} subagente trabajando', subagentsRunning_other: '{{count}} subagentes trabajando',
+    subagentNoDetail: 'Sin detalles disponibles para este subagente.',
     editWorkingTitle: '¿Editar e interrumpir?',
     editWorkingMsg: 'El motor está procesando. Editar este mensaje INTERRUMPE el turno en curso y reinicia la conversación desde él.\nSi solo quieres corregir un mensaje en cola, cancela y espera a que termine el turno.',
     editWorkingConfirm: 'Interrumpir y editar',

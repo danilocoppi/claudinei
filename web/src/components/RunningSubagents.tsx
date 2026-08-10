@@ -15,11 +15,17 @@ import type { ChatItem } from '../types'
  * afirmar que há alguém trabalhando quando não há.
  */
 export function RunningSubagents({
-  items, backgroundTasks = [],
+  items, backgroundTasks = [], onStopTask,
 }: {
   items: ChatItem[]
   /** Subagentes de background, vindos do status da sessão (ver nota abaixo). */
   backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  /**
+   * Para UM subagente. Só existe para os de background: parar por id usa o
+   * `stop_task` do protocolo, que pede um task_id — um subagente de primeiro
+   * plano não tem um, ele vive dentro do turno (quem o para é o Stop do chat).
+   */
+  onStopTask?: (taskId: string) => void
 }) {
   const { t } = useTranslation()
   const [openId, setOpenId] = useState<string | null>(null)
@@ -28,6 +34,7 @@ export function RunningSubagents({
   // resultado no instante do despacho e ele segue rodando depois do turno. Quem
   // sabe dele é o servidor, que acompanha os eventos de task do CLI.
   const seen = new Set(fromChat.map((s) => s.id))
+  const bgIds = new Set(backgroundTasks.map((b) => b.id))
   const running = [
     ...fromChat,
     ...backgroundTasks
@@ -60,6 +67,19 @@ export function RunningSubagents({
                 <span className="subagent__label">{label}</span>
                 <span className="subagent__count">{s.activity.length}</span>
               </button>
+              {onStopTask && bgIds.has(s.id) && (
+                <button
+                  type="button"
+                  className="subagent__stop"
+                  title={t('chat.stopSubagent', { name: label })}
+                  aria-label={t('chat.stopSubagent', { name: label })}
+                  // stopPropagation: o ✕ mora dentro do chip; sem isso o clique
+                  // também abriria/fecharia o detalhe.
+                  onClick={(e) => { e.stopPropagation(); onStopTask(s.id) }}
+                >
+                  ✕
+                </button>
+              )}
               {open && (
                 <div className="subagent__detail">
                   {s.type && <div className="subagent__type">{s.type}</div>}

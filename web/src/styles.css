@@ -514,6 +514,19 @@ button.subagent__chip:hover { background: rgba(140, 122, 255, .2); filter: none;
   width: 7px; height: 7px; border-radius: 50%; flex: none;
   background: #a99bff; animation: typing-bounce 1.2s infinite ease-in-out both;
 }
+/* ✕ de parar um subagente: some no repouso e só aparece no hover do chip —
+   está a um clique de matar trabalho, não pode convidar ao clique distraído. */
+button.subagent__stop {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: 2px; padding: 0; flex: none;
+  border: none; border-radius: 50%; background: transparent;
+  color: var(--text-dim); font-size: 10px; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity .15s ease, color .15s ease, background .15s ease;
+}
+.subagent:hover button.subagent__stop, button.subagent__stop:focus-visible { opacity: .75; }
+button.subagent__stop:hover { opacity: 1; color: var(--err); background: rgba(255,255,255,.12); filter: none; }
+
+.subagent { display: inline-flex; align-items: center; }
 .subagent__detail {
   margin: 6px 0 2px; padding: 8px 10px; border-radius: 10px;
   background: rgba(0,0,0,.18); border: 1px solid var(--glass-border);

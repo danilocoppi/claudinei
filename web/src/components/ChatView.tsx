@@ -1,7 +1,7 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { fetchHistory } from '../api'
+import { fetchHistory, stopSubagentTask } from '../api'
 import { EngineTabs } from './EngineTabs'
 import { MessageBlock } from './MessageBlock'
 import { ChatInput } from './ChatInput'
@@ -180,7 +180,11 @@ export function ChatView() {
         {/* Só com a sessão em `working`: num turno interrompido o tool_call do
             Agent fica sem resultado para sempre, e a faixa afirmaria que há
             subagente trabalhando quando não há mais nada rodando. */}
-        {session.status === 'working' && <RunningSubagents items={items} backgroundTasks={session.backgroundTasks} />}
+        {session.status === 'working' && <RunningSubagents
+            items={items}
+            backgroundTasks={session.backgroundTasks}
+            onStopTask={(taskId) => { void stopSubagentTask(session.localId, taskId).catch(() => {}) }}
+          />}
         {session.status === 'working' && !streamingText && (
           <div className="typing" data-testid="typing-indicator" aria-label={t('chat.processing')}>
             <span /><span /><span />

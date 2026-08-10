@@ -278,9 +278,34 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   setEffort(_effort: string): Promise<void> { return Promise.resolve() }
 
   /** Aborta o turno em andamento. Fora de 'working' é no-op (o turno já acabou). */
-  interrupt(): Promise<void> {
-    if (this.status !== 'working') return Promise.resolve()
-    return this.sendControl('interrupt', {}, { allowWorking: true })
+  /**
+   * Para uma task de background pelo id. O `interrupt` NÃO alcança essas tasks:
+   * ele aborta o TURNO, e uma task de background não vive dentro do turno — é
+   * justamente por isso que o turno fecha e ela continua. O protocolo tem um
+   * comando próprio: { subtype: 'stop_task', task_id } — "Stops a running task."
+   */
+  async stopTask(taskId: string): Promise<void> {
+    if (!this.proc || this.status === 'stopped' || this.status === 'dead') return
+    // A CLI confirma e anuncia a saída pelo task_updated; o dropBackgroundTask é
+    // rede de segurança para o caso de o anúncio não vir.
+    try { await this.sendControl('stop_task', { task_id: taskId }, { allowWorking: true }) }
+    finally { this.dropBackgroundTask(taskId) }
+  }
+
+  /**
+   * Parar significa parar TUDO: o turno em andamento E as tasks de background que
+   * ele deixou rodando. Antes só o turno era abortado, então o Stop do chat
+   * deixava os subagentes de background trabalhando.
+   */
+  async interrupt(): Promise<void> {
+    const pending = [...this.bgTasks.keys()]
+    // O guard antigo (`status !== 'working'` → no-op) deixava o Stop sem efeito e
+    // sem aviso; com task pendente ainda há o que parar mesmo fora de working.
+    if (this.status === 'working') {
+      await this.sendControl('interrupt', {}, { allowWorking: true })
+    }
+    // Uma falha ao parar uma task não pode impedir as outras: são independentes.
+    await Promise.allSettled(pending.map((id) => this.stopTask(id)))
   }
 
   async stop(): Promise<void> {

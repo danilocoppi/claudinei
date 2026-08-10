@@ -173,3 +173,7 @@ export const revokeAllSessions = () => req<void>('/api/auth/revoke-all', { metho
  * programa na máquina do servidor. */
 export const revealFile = (path: string, projectId?: number) =>
   req<{ ok: true }>('/api/files/reveal', { method: 'POST', body: JSON.stringify({ path, projectId }) })
+
+/** Para UM subagente de background da sessão, sem tocar no resto. */
+export const stopSubagentTask = (localId: string, taskId: string) =>
+  req<void>(`/api/sessions/${localId}/tasks/${encodeURIComponent(taskId)}/stop`, { method: 'POST' })

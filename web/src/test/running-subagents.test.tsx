@@ -125,3 +125,35 @@ describe('RunningSubagents — painel sem conteúdo', () => {
     expect(detail?.textContent?.trim()).not.toBe('')
   })
 })
+
+describe('RunningSubagents — parar um subagente pelo chip', () => {
+  it('oferece o ✕ apenas em task de background (é a que tem task_id)', () => {
+    render(<RunningSubagents items={[agent('t1', 'Primeiro plano')]}
+      backgroundTasks={[{ id: 'a1', description: 'Em background', type: '', prompt: '' }]}
+      onStopTask={() => {}} />)
+    expect(screen.getByTitle(/parar em background/i)).toBeTruthy()
+    expect(screen.queryByTitle(/parar primeiro plano/i)).toBeNull()
+  })
+
+  it('clicar no ✕ para aquele subagente', () => {
+    const stopped: string[] = []
+    render(<RunningSubagents items={[]}
+      backgroundTasks={[{ id: 'a1', description: 'Um', type: '', prompt: '' }, { id: 'a2', description: 'Dois', type: '', prompt: '' }]}
+      onStopTask={(id) => stopped.push(id)} />)
+    fireEvent.click(screen.getByTitle(/parar dois/i))
+    expect(stopped).toEqual(['a2'])
+  })
+
+  it('sem handler, não mostra o ✕', () => {
+    render(<RunningSubagents items={[]} backgroundTasks={[{ id: 'a1', description: 'Um', type: '', prompt: '' }]} />)
+    expect(screen.queryByTitle(/parar um/i)).toBeNull()
+  })
+
+  it('o ✕ não abre nem fecha o detalhe do chip', () => {
+    render(<RunningSubagents items={[]}
+      backgroundTasks={[{ id: 'a1', description: 'Um', type: 'Explore', prompt: 'faça' }]}
+      onStopTask={() => {}} />)
+    fireEvent.click(screen.getByTitle(/parar um/i))
+    expect(screen.queryByText('faça')).toBeNull()
+  })
+})

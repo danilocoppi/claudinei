@@ -124,3 +124,49 @@ describe('detalhe da task em background', () => {
     expect(session.backgroundTasks[0]).toMatchObject({ id: 'zz', description: 'Órfã', prompt: '' })
   })
 })
+
+/**
+ * "Parar" precisa parar TUDO. O control `interrupt` aborta o TURNO, e uma task de
+ * background não vive dentro do turno — era por isso que o Stop do chat a deixava
+ * rodando. O protocolo tem um comando próprio para ela:
+ *   { subtype: 'stop_task', task_id }   "Stops a running task."
+ */
+describe('parar tasks em background', () => {
+  const wait = async (fn: () => boolean) => {
+    for (let i = 0; i < 60 && !fn(); i++) await new Promise((r) => setTimeout(r, 25))
+  }
+
+  it('stopTask tira a task da lista', async () => {
+    session = ready()
+    feed(session, started('a1', 'Um'))
+    feed(session, tasksChanged([{ task_id: 'a1', description: 'Um' }]))
+    expect(session.backgroundTasks).toHaveLength(1)
+
+    await session.stopTask('a1')
+    await wait(() => session!.backgroundTasks.length === 0)
+    expect(session.backgroundTasks).toEqual([])
+  })
+
+  it('interrupt para também as tasks em background', async () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'a1', description: 'Um' }, { task_id: 'a2', description: 'Dois' }]))
+
+    await session.interrupt()
+    await wait(() => session!.backgroundTasks.length === 0)
+    expect(session.backgroundTasks).toEqual([])
+  })
+
+  /**
+   * O guard antigo (`status !== 'working'` → no-op) deixava o Stop sem efeito
+   * nenhum e sem aviso. Com task em background ainda há o que parar.
+   */
+  it('interrupt fora de working ainda para as tasks pendentes', async () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'a1', description: 'Um' }]))
+    ;(session as unknown as { setStatus: (s: string) => void }).setStatus('idle')
+
+    await session.interrupt()
+    await wait(() => session!.backgroundTasks.length === 0)
+    expect(session.backgroundTasks).toEqual([])
+  })
+})

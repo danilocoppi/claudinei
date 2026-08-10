@@ -93,6 +93,7 @@ export const ptBR: typeof en = {
     stopEngineConfirm: 'Encerrar',
     subagentsRunning: '{{count}} subagente trabalhando', subagentsRunning_other: '{{count}} subagentes trabalhando',
     subagentNoDetail: 'Sem detalhes disponíveis para este subagente.',
+    stopSubagent: 'Parar {{name}}',
     editWorkingTitle: 'Editar e interromper?',
     editWorkingMsg: 'A engine está processando. Editar esta mensagem INTERROMPE o turno em andamento e recomeça a conversa a partir dela.\nSe você só quer corrigir uma mensagem que entrou na fila, cancele e espere o turno terminar.',
     editWorkingConfirm: 'Interromper e editar',

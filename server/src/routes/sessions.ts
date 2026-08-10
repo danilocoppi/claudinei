@@ -109,6 +109,15 @@ export function registerSessionRoutes(app: FastifyInstance, deps: { db: Db; mana
     return reply.code(204).send()
   })
 
+  // Parar UM subagente de background (o ✕ do chip na faixa de subagentes), sem
+  // derrubar a sessão nem os outros subagentes.
+  app.post('/api/sessions/:localId/tasks/:taskId/stop', async (req, reply) => {
+    const { localId, taskId } = req.params as { localId: string; taskId: string }
+    if (!guardSession(req, reply, localId)) return
+    await deps.manager.stopBackgroundTask(localId, taskId)
+    return reply.code(204).send()
+  })
+
   app.post('/api/sessions/:localId/revive', async (req, reply) => {
     const { localId } = req.params as { localId: string }
     if (!guardSession(req, reply, localId)) return

@@ -232,6 +232,16 @@ export function createSessionManager(deps: Deps) {
       await live.get(localId)?.session.stop()
     },
 
+    /**
+     * Para UM subagente de background sem tocar no resto da sessão. Só o Claude
+     * Code tem esse conceito; nas outras engines o método não existe e a chamada
+     * vira no-op.
+     */
+    async stopBackgroundTask(localId: string, taskId: string): Promise<void> {
+      const session = live.get(localId)?.session as { stopTask?: (id: string) => Promise<void> } | undefined
+      await session?.stopTask?.(taskId)
+    },
+
     revive(localId: string): SessionInfo {
       const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
       if (!row) throw new Error(`sessão ${localId} não existe`)

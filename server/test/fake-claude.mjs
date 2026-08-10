@@ -33,6 +33,12 @@ rl.on('line', (line) => {
       out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
       return
     }
+    if (r.subtype === 'stop_task') {
+      // Como a CLI real: confirma e anuncia que a task saiu.
+      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {} } })
+      out({ type: 'system', subtype: 'task_updated', task_id: r.task_id, patch: { status: 'completed' } })
+      return
+    }
     if (r.mode === 'timeout-test') return            // simula não-resposta (testa timeout)
     if (r.mode === 'fail-test') { out({ type: 'control_response', response: { subtype: 'error', request_id: msg.request_id, error: 'modo inválido' } }); return }
     out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: r.mode ? { mode: r.mode } : {} } })

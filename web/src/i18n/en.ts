@@ -91,6 +91,7 @@ export const en = {
     stopEngineConfirm: 'Shut down',
     subagentsRunning: '{{count}} subagent working', subagentsRunning_other: '{{count}} subagents working',
     subagentNoDetail: 'No details available for this subagent.',
+    stopSubagent: 'Stop {{name}}',
     editWorkingTitle: 'Edit and interrupt?',
     editWorkingMsg: 'The engine is processing. Editing this message INTERRUPTS the turn in progress and restarts the conversation from it.\nIf you only want to fix a queued message, cancel and wait for the turn to finish.',
     editWorkingConfirm: 'Interrupt and edit',

@@ -56,25 +56,30 @@ export type ClaudeEvent =
   | { kind: 'parse_error'; line: string }
   | { kind: 'stream'; text: string; raw: unknown }
 
+/**
+ * `parentId`: id do tool_use do Agent que produziu este item — presente só no que
+ * veio de um subagente. `fromSubagent` diz QUE veio de um; o parentId diz DE QUAL,
+ * que é o que permite acompanhar vários subagentes em paralelo separadamente.
+ */
 export type ChatItem =
   // fromEngine: conteúdo que aparece do lado do usuário mas foi injetado pela
   // engine/harness (isMeta, resumo de compact) — não foi digitado pelo operador.
-  | { kind: 'user_text'; text: string; fromSubagent?: boolean; fromEngine?: boolean }
+  | { kind: 'user_text'; text: string; fromSubagent?: boolean; parentId?: string; fromEngine?: boolean }
   // isApiError: erro interno da API do provedor que o CLI injeta como texto do
   // assistant ("API Error: …") — vira callout de erro, não resposta normal.
-  | { kind: 'assistant_text'; text: string; fromSubagent?: boolean; isApiError?: boolean }
-  | { kind: 'thinking'; text: string; fromSubagent?: boolean }
-  | { kind: 'tool_call'; id: string; name: string; input: unknown; result?: string; isError?: boolean; fromSubagent?: boolean }
+  | { kind: 'assistant_text'; text: string; fromSubagent?: boolean; parentId?: string; isApiError?: boolean }
+  | { kind: 'thinking'; text: string; fromSubagent?: boolean; parentId?: string }
+  | { kind: 'tool_call'; id: string; name: string; input: unknown; result?: string; isError?: boolean; fromSubagent?: boolean; parentId?: string }
   /** Slash command digitado no terminal (ex.: /exit), registrado no transcript. */
-  | { kind: 'local_command'; command: string; args?: string; fromSubagent?: boolean }
+  | { kind: 'local_command'; command: string; args?: string; fromSubagent?: boolean; parentId?: string }
   /** Saída (stdout/stderr) de um slash command local. */
-  | { kind: 'command_output'; text: string; isError?: boolean; fromSubagent?: boolean }
+  | { kind: 'command_output'; text: string; isError?: boolean; fromSubagent?: boolean; parentId?: string }
   /** Nota do sistema injetada no transcript (ex.: task-notification de tarefa em 2º plano). */
-  | { kind: 'system_note'; text: string; fromSubagent?: boolean }
+  | { kind: 'system_note'; text: string; fromSubagent?: boolean; parentId?: string }
   /**
    * Task despachada por OUTRO terminal (hermes dispatch_task). Entra pelo mesmo
    * canal de uma mensagem digitada — o backend escreve no stdin do CLI —, então no
    * transcript o prefixo `[Task from …]` é o único sinal que sobra de que não foi o
    * operador que escreveu. `from` é o terminal de origem; `text` é o corpo (markdown).
    */
-  | { kind: 'task_message'; from: string; text: string; fromSubagent?: boolean }
+  | { kind: 'task_message'; from: string; text: string; fromSubagent?: boolean; parentId?: string }

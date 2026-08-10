@@ -64,6 +64,10 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
     case 'assistant': {
       const parentId = (evt.raw as any)?.parent_tool_use_id
       const fromSubagent = !!parentId
+      // Guardar de QUAL subagente veio (não só QUE veio de um) é o que permite
+      // acompanhar vários em paralelo: sem o parentId, as ações de três
+      // subagentes simultâneos viram uma lista indistinguível.
+      const sub = fromSubagent ? { fromSubagent: true as const, parentId: parentId as string } : {}
       // Erro interno da API do provedor: flag do transcript OU prefixo do texto
       // (o stream ao vivo não carrega a flag; o texto é gerado pelo próprio CLI).
       const flaggedApiError = !!(evt.raw as any)?.isApiErrorMessage
@@ -72,16 +76,17 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       for (const b of blocks) {
         if (b.type === 'text' && b.text) {
           const isApiError = flaggedApiError || /^API Error:/i.test(b.text)
-          added.push({ kind: 'assistant_text', text: b.text, ...(fromSubagent ? { fromSubagent } : {}), ...(isApiError ? { isApiError } : {}) })
+          added.push({ kind: 'assistant_text', text: b.text, ...sub, ...(isApiError ? { isApiError } : {}) })
         }
-        else if (b.type === 'thinking' && b.thinking) added.push({ kind: 'thinking', text: b.thinking, ...(fromSubagent ? { fromSubagent } : {}) })
-        else if (b.type === 'tool_use' && b.id && b.name) added.push({ kind: 'tool_call', id: b.id, name: b.name, input: b.input, ...(fromSubagent ? { fromSubagent } : {}) })
+        else if (b.type === 'thinking' && b.thinking) added.push({ kind: 'thinking', text: b.thinking, ...sub })
+        else if (b.type === 'tool_use' && b.id && b.name) added.push({ kind: 'tool_call', id: b.id, name: b.name, input: b.input, ...sub })
       }
       return added.length ? [...items, ...added] : items
     }
     case 'user': {
       const raw = evt.raw as any
-      const fromSubagent = !!raw?.parent_tool_use_id
+      const parentId = raw?.parent_tool_use_id
+      const fromSubagent = !!parentId
       // Conteúdo do lado do usuário que a ENGINE injetou (não foi digitado):
       // isMeta (skills/harness) e isCompactSummary (continuação de contexto).
       //
@@ -92,7 +97,7 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       // aparecia como bolha do usuário até o histórico recarregar (o retag de
       // mergeEngineFlags só alcança o caminho de sessão longa).
       const fromEngine = !!(raw?.isMeta || raw?.isCompactSummary || raw?.isSynthetic)
-      const marks = { ...(fromSubagent ? { fromSubagent } : {}), ...(fromEngine ? { fromEngine } : {}) }
+      const marks = { ...(fromSubagent ? { fromSubagent: true as const, parentId: parentId as string } : {}), ...(fromEngine ? { fromEngine } : {}) }
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
       let next = items
       for (const b of blocks) {

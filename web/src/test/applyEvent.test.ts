@@ -58,7 +58,7 @@ describe('applyEvent', () => {
       [],
       assistantEvt([{ type: 'text', text: 'trabalho do subagente' }], { parent_tool_use_id: 'toolu_x' }),
     )
-    expect(out).toEqual([{ kind: 'assistant_text', text: 'trabalho do subagente', fromSubagent: true }])
+    expect(out).toEqual([{ kind: 'assistant_text', text: 'trabalho do subagente', fromSubagent: true, parentId: 'toolu_x' }])
   })
 
   it('evento assistant sem parent_tool_use_id não marca fromSubagent', () => {
@@ -268,5 +268,25 @@ describe('task despachada de outro terminal ([Task from …])', () => {
   it('mensagem normal do usuário NÃO vira task', () => {
     const items = applyEvent([], evt('olha essa [Task from algo]: no meio da frase') as never)
     expect(items).toEqual([{ kind: 'user_text', text: 'olha essa [Task from algo]: no meio da frase' }])
+  })
+})
+
+describe('parentId — de QUAL subagente o item veio', () => {
+  it('assistant de subagente carrega o parentId junto do fromSubagent', () => {
+    const out = applyEvent([], assistantEvt([{ type: 'text', text: 'oi' }], { parent_tool_use_id: 'toolu_A' }))
+    expect(out).toEqual([{ kind: 'assistant_text', text: 'oi', fromSubagent: true, parentId: 'toolu_A' }])
+  })
+
+  it('tool_call de subagente carrega o parentId', () => {
+    const out = applyEvent([], assistantEvt(
+      [{ type: 'tool_use', id: 'x1', name: 'Read', input: {} }],
+      { parent_tool_use_id: 'toolu_B' },
+    ))
+    expect(out[0]).toMatchObject({ kind: 'tool_call', fromSubagent: true, parentId: 'toolu_B' })
+  })
+
+  it('item do agente principal não ganha parentId', () => {
+    const out = applyEvent([], assistantEvt([{ type: 'text', text: 'oi' }]))
+    expect((out[0] as { parentId?: string }).parentId).toBeUndefined()
   })
 })

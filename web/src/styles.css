@@ -486,6 +486,49 @@ button.term-card__action--play:hover { color: var(--ok); }
 .sess-pop__check { color:var(--accent); font-weight:600; }
 .sess-pop__warn { font-size:11px; color:#e8b33f; padding:6px 8px; }
 .sess-pop__error { font-size:12px; color:var(--err); padding:6px 8px; }
+/* Subagentes em execução, logo acima das bolinhas de "processando". Enquanto eles
+   trabalham o chat principal fica mudo — esta faixa é a única pista de que algo
+   está acontecendo, então informa sem roubar a atenção da conversa. */
+.subagents { margin: 6px 0 0; }
+.subagents__head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; letter-spacing: .4px; text-transform: uppercase;
+  color: var(--text-dim); font-weight: 700; margin-bottom: 6px;
+}
+.subagents__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.subagent { max-width: 100%; }
+button.subagent__chip {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+  padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  background: rgba(140, 122, 255, .12); border: 1px solid rgba(140, 122, 255, .35);
+  color: var(--text); font-size: 12px; line-height: 1.4;
+}
+button.subagent__chip:hover { background: rgba(140, 122, 255, .2); filter: none; }
+.subagent__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent__count {
+  font-size: 10px; padding: 0 6px; border-radius: 999px;
+  background: rgba(255,255,255,.1); color: var(--text-dim);
+}
+/* Pulsa para dizer "ainda rodando" sem precisar de texto. */
+.subagent__spinner {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: #a99bff; animation: typing-bounce 1.2s infinite ease-in-out both;
+}
+.subagent__detail {
+  margin: 6px 0 2px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(0,0,0,.18); border: 1px solid var(--glass-border);
+}
+.subagent__type {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+  color: #a99bff; font-weight: 700; margin-bottom: 4px;
+}
+.subagent__prompt {
+  font-size: 12px; color: var(--text-dim); white-space: pre-wrap;
+  max-height: 160px; overflow: auto; margin-bottom: 6px;
+}
+.subagent__activity { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-dim); }
+.subagent__activity li { margin: 1px 0; }
+
 .typing { display:inline-flex; gap:5px; align-items:center; padding:10px 4px; }
 .typing span { width:7px; height:7px; border-radius:50%; background:var(--text-dim); animation:typing-bounce 1.2s infinite ease-in-out both; }
 .typing span:nth-child(2){ animation-delay:.15s; } .typing span:nth-child(3){ animation-delay:.3s; }

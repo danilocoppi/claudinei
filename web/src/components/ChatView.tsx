@@ -10,6 +10,7 @@ import type { ChatItem, SessionStatus } from '../types'
 import { WsContext } from '../wsContext'
 import { isEditableUserText } from '../chat/history'
 import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
+import { RunningSubagents } from './RunningSubagents'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
@@ -176,6 +177,10 @@ export function ChatView() {
             </div>
           </div>
         )}
+        {/* Só com a sessão em `working`: num turno interrompido o tool_call do
+            Agent fica sem resultado para sempre, e a faixa afirmaria que há
+            subagente trabalhando quando não há mais nada rodando. */}
+        {session.status === 'working' && <RunningSubagents items={items} />}
         {session.status === 'working' && !streamingText && (
           <div className="typing" data-testid="typing-indicator" aria-label={t('chat.processing')}>
             <span /><span /><span />

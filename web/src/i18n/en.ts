@@ -89,6 +89,7 @@ export const en = {
     stopEngineMsg: 'The session ends and the process is released. The conversation stays in the history — you can revive it later with the tab’s ▶.',
     stopEngineWorking: 'A turn is in progress; it will be lost.',
     stopEngineConfirm: 'Shut down',
+    subagentsRunning: '{{count}} subagent working', subagentsRunning_other: '{{count}} subagents working',
     editWorkingTitle: 'Edit and interrupt?',
     editWorkingMsg: 'The engine is processing. Editing this message INTERRUPTS the turn in progress and restarts the conversation from it.\nIf you only want to fix a queued message, cancel and wait for the turn to finish.',
     editWorkingConfirm: 'Interrupt and edit',

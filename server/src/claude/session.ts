@@ -195,6 +195,21 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
         })
       }
     }
+    // A engine pode retomar SOZINHA, sem ninguém mandar mensagem: quando uma task
+    // despachada com run_in_background termina, o CLI fecha o turno (result) e
+    // dispara um turno NOVO por conta própria — init, conteúdo e um segundo result
+    // com origin.kind='task-notification' (medido no CLI real). Como a sessão só
+    // entrava em 'working' pelo send() do operador, esse turno rodava inteiro com a
+    // UI dizendo "idle": conteúdo pingando na tela, bolinha apagada e o filtro
+    // "somente ativos" escondendo o terminal justamente enquanto ele trabalhava.
+    //
+    // Só idle/needs_attention voltam a working: stopped/dead não podem ser
+    // ressuscitados por um evento atrasado, e in_terminal é outra visão (o PTY é
+    // que manda no status dela).
+    if ((evt.kind === 'assistant' || evt.kind === 'stream') &&
+        (this.status === 'idle' || this.status === 'needs_attention')) {
+      this.setStatus('working')
+    }
     if (evt.kind === 'result' && this.status === 'working') this.setStatus('needs_attention')
     this.emit('event', evt)
   }

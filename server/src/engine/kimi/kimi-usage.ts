@@ -5,15 +5,17 @@
 // PRÓPRIA CLI. Aqui só LEMOS: token vencido → devolve [] (as barras somem) em
 // vez de tentar o refresh, porque refresh token costuma ser de uso único e
 // girá-lo por fora deslogaria a CLI do usuário.
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { UsageLimit } from '../../usage.js'
-import { userKimiHome } from './kimi-home.js'
+import { kimiHomesRoot, userKimiHome } from './kimi-home.js'
 
 const HOUR_MS = 3_600_000
 
 interface Opts {
   credentialsPath?: string
+  /** Raiz dos homes por projeto (default: ~/.claudinei/kimi-homes). Injetável em teste. */
+  homesRoot?: string
   endpoint?: string
   fetchFn?: typeof fetch
   cacheMs?: number
@@ -71,6 +73,7 @@ function kindFor(windowMs: number | null): string {
 
 export function createKimiUsageService(opts: Opts = {}) {
   const credentialsPath = opts.credentialsPath ?? join(userKimiHome(), 'credentials', 'kimi-code.json')
+  const homesRoot = opts.homesRoot ?? kimiHomesRoot()
   const base = (process.env.KIMI_CODE_BASE_URL ?? 'https://api.kimi.com/coding/v1').replace(/\/+$/, '')
   const endpoint = opts.endpoint ?? `${base}/usages`
   const fetchFn = opts.fetchFn ?? fetch
@@ -87,11 +90,40 @@ export function createKimiUsageService(opts: Opts = {}) {
     },
   }
 
+  /**
+   * Um access_token AINDA VÁLIDO, venha de onde vier.
+   *
+   * As sessões do Claudinei rodam com um KIMI_CODE_HOME por projeto
+   * (~/.claudinei/kimi-homes/<hash>), e é lá que a CLI grava as credenciais —
+   * o ~/.kimi-code costuma nem existir. Olhando só o home do usuário, o
+   * readFileSync falhava e as barras do Kimi sumiam sem explicação.
+   *
+   * O token dura ~15 min e quem o renova é a CLI, então entre vários homes o
+   * bom é o de expiração mais distante: os outros já venceram.
+   */
+  function pickToken(): { token: string; from: string } | null {
+    const candidates = [credentialsPath]
+    try {
+      for (const dir of readdirSync(homesRoot)) candidates.push(join(homesRoot, dir, 'credentials', 'kimi-code.json'))
+    } catch { /* sem homes por projeto: fica só o do usuário */ }
+
+    let best: { token: string; from: string; exp: number } | null = null
+    for (const file of candidates) {
+      let creds: { access_token?: string; expires_at?: number }
+      try { creds = JSON.parse(readFileSync(file, 'utf8')) } catch { continue }
+      const token = creds.access_token
+      // expires_at é epoch em SEGUNDOS; sem token válido nem chamamos (evita 401 à toa).
+      const exp = typeof creds.expires_at === 'number' ? creds.expires_at * 1000 : Infinity
+      if (!token || exp <= now()) continue
+      if (!best || exp > best.exp) best = { token, from: file, exp }
+    }
+    return best ? { token: best.token, from: best.from } : null
+  }
+
   async function fetchLimits(): Promise<UsageLimit[]> {
-    const creds = JSON.parse(readFileSync(credentialsPath, 'utf8')) as { access_token?: string; expires_at?: number }
-    const token = creds.access_token
-    // expires_at é epoch em SEGUNDOS; sem token válido nem chamamos (evita 401 à toa).
-    if (!token || (typeof creds.expires_at === 'number' && creds.expires_at * 1000 <= now())) return []
+    const picked = pickToken()
+    if (!picked) return []
+    const token = picked.token
 
     const res = await fetchFn(endpoint, {
       headers: { Authorization: `Bearer ${token}` },

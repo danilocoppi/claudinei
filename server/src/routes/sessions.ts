@@ -39,7 +39,16 @@ function sanitizeModel(engineId: string, model: string | undefined): string | un
   return undefined
 }
 
-export function registerSessionRoutes(app: FastifyInstance, deps: { db: Db; manager: SessionManager; config: Config }) {
+export function registerSessionRoutes(app: FastifyInstance, deps: {
+  db: Db
+  manager: SessionManager
+  config: Config
+  /**
+   * Necessário para encerrar uma sessão ABERTA NO TERMINAL: ela sai do mapa
+   * `live` do manager quando vai para o PTY, então manager.stop() não a alcança.
+   */
+  terminalManager?: { closeAndWait(localId: string, timeoutMs?: number): Promise<void> }
+}) {
   const projects = createProjectsService(deps.db)
   const settings = createSettingsService(deps.db)
 
@@ -104,7 +113,16 @@ export function registerSessionRoutes(app: FastifyInstance, deps: { db: Db; mana
 
   app.post('/api/sessions/:localId/stop', async (req, reply) => {
     const { localId } = req.params as { localId: string }
-    if (!guardSession(req, reply, localId)) return
+    const info = guardSession(req, reply, localId)
+    if (!info) return
+    // No terminal quem segura o processo é o PTY: a sessão saiu do `live` ao ser
+    // aberta lá, e manager.stop() (que só olha o `live`) virava um no-op
+    // silencioso — o ⏻ não fazia nada. Fechar o PTY dispara o onExit, que já
+    // marca a sessão como stopped e avisa os clientes.
+    if (info.status === 'in_terminal' && deps.terminalManager) {
+      await deps.terminalManager.closeAndWait(localId)
+      return reply.code(204).send()
+    }
     await deps.manager.stop(localId)
     return reply.code(204).send()
   })

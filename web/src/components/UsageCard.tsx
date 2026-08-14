@@ -91,6 +91,20 @@ export function UsageCard() {
   const now = Date.now()
   // modo simples: só a barra da sessão (fallback: a primeira, se a API mudar)
   const visible = advanced ? limits : simpleView(limits)
+  // Barras de OUTRO provedor (Kimi) vão para o bloco da engine correspondente:
+  // deixá-las na lista de planos separava a mesma engine em dois lugares — a
+  // barra aqui em cima e os tokens lá embaixo.
+  const providerOf = (l: UsageLimit) => l.provider ?? 'claude'
+  const claudeBars = visible.filter((l) => providerOf(l) === 'claude')
+  const barsByEngine = new Map<string, UsageLimit[]>()
+  for (const l of visible) {
+    const p = providerOf(l)
+    if (p === 'claude') continue
+    barsByEngine.set(p, [...(barsByEngine.get(p) ?? []), l])
+  }
+  // Uma engine entra na lista se tem tokens OU barras: sem isso, o Kimi que
+  // ainda não reportou token nenhum perderia as barras que acabou de ganhar.
+  const engineIds = [...new Set([...tokenEntries.map(([id]) => id), ...barsByEngine.keys()])]
   // Cabeçalho só diz "Claude" quando a lista é só dele; misturada, vira neutro.
   const mixed = limits.some((l) => (l.provider ?? 'claude') !== 'claude')
   return (
@@ -103,16 +117,18 @@ export function UsageCard() {
           <span className="thumb" />
         </label>
       </div>
-      {limits.length > 0 && (
+      {claudeBars.length > 0 && (
         <div className="usage-card__group">
-          {mixed ? t('usage.plans') : t('usage.claude')}
+          {/* Cada provedor tem seu próprio bloco agora, então este título fala só
+              do Claude — não é mais uma lista misturada. */}
+          {t('usage.claude')}
           <button type="button" className="usage-info-btn" title={t('usageInfo.title')}
                   aria-label={t('usageInfo.title')} onClick={() => setShowInfo(true)}>
             ⓘ
           </button>
         </div>
       )}
-      {limits.length > 0 && visible.map((l) => {
+      {claudeBars.map((l) => {
         const win = windowFor(l.group)
         const ratio = win ? paceRatio(l.percent, expectedPercent(l.resetsAt, win.windowMs, win.chunkMs, now)) : null
         const color = paceColor(ratio)
@@ -132,22 +148,48 @@ export function UsageCard() {
           </div>
         )
       })}
-      {tokenEntries.map(([id, tk]) => {
+      {engineIds.map((id) => {
         const meta = engines.find((e) => e.id === id)
+        const tk = tokens[id]
+        const bars = barsByEngine.get(id) ?? []
         return (
-          <div key={id} className="usage-tokens" title={t('usage.tokensTip')}>
+          <div key={id} className="usage-engine">
             <div className="usage-tokens__group">
               {meta?.icon && <EngineIcon icon={meta.icon} />}
               {meta?.label ?? id}
             </div>
+            {bars.map((l) => {
+              const win = windowFor(l.group)
+              const ratio = win ? paceRatio(l.percent, expectedPercent(l.resetsAt, win.windowMs, win.chunkMs, now)) : null
+              const color = paceColor(ratio)
+              const tip = ratio !== null
+                ? t('usage.pace', { percent: l.percent, ratio: (Math.round(ratio * 10) / 10).toLocaleString(i18n.language) })
+                : `${l.percent}%`
+              return (
+                <div key={l.kind + (l.label ?? '')} className="usage-row" title={tip}>
+                  <div className="usage-row__head">
+                    <span className="usage-row__label">{labelFor(l, t)}</span>
+                    <span className="usage-row__pct">{l.percent}%</span>
+                  </div>
+                  <div className="usage-bar">
+                    <div className="usage-bar__fill" style={{ width: `${Math.min(100, l.percent)}%`, background: color }} />
+                  </div>
+                  <div className="usage-row__reset">{t('usage.resets', { when: resetText(l.resetsAt, i18n.language) })}</div>
+                </div>
+              )
+            })}
+            {tk && (
+            <div className="usage-tokens" title={t('usage.tokensTip')}>
             <div className="usage-tokens__total">
               <span className="usage-tokens__num">{fmtTokens(tk.total.total)}</span>
               <span className="usage-tokens__unit">{t('usage.tokens')}</span>
               <span className="usage-tokens__today">{t('usage.tokensToday', { n: fmtTokens(tk.today.total) })}</span>
             </div>
-            <div className="usage-tokens__breakdown">
-              {t('usage.tokenBreakdown', { in: fmtTokens(tk.total.input), out: fmtTokens(tk.total.output), reasoning: fmtTokens(tk.total.reasoning) })}
-            </div>
+              <div className="usage-tokens__breakdown">
+                {t('usage.tokenBreakdown', { in: fmtTokens(tk.total.input), out: fmtTokens(tk.total.output), reasoning: fmtTokens(tk.total.reasoning) })}
+              </div>
+              </div>
+            )}
           </div>
         )
       })}

@@ -294,8 +294,15 @@ button.term-card__action--play:hover { color: var(--ok); }
 /* Rótulo de grupo (separa Claude / Codex dentro do card) */
 .usage-card__group { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); opacity: .8; margin-top: 2px; }
 /* Seção de tokens por engine (ex.: Codex — não tem limite de plano, só tokens) */
-.usage-tokens { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px solid var(--glass-border); }
-.usage-tokens:first-of-type { border-top: 0; padding-top: 0; }
+/* Bloco de uma engine: nome + suas barras de plano + seus tokens, juntos. As
+   barras do Kimi ficavam na lista de planos e os tokens aqui embaixo — mesma
+   engine em dois lugares. A separação passou para cá; o .usage-tokens interno
+   não precisa mais de borda própria. */
+.usage-engine {
+  display: flex; flex-direction: column; gap: 4px;
+  padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--glass-border);
+}
+.usage-tokens { display: flex; flex-direction: column; gap: 2px; }
 .usage-tokens__group { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text); }
 .usage-tokens__group > span { font-family: var(--emoji); font-size: 13px; line-height: 1; }
 .usage-tokens__total { display: flex; align-items: baseline; gap: 5px; }

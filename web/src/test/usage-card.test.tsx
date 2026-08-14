@@ -92,11 +92,13 @@ describe('UsageCard — planos misturados (Claude + Kimi)', () => {
     expect(screen.getByText('90%')).toBeTruthy()
   })
 
-  it('cabeçalho deixa de dizer "Claude" quando a lista mistura provedores', async () => {
+  // As barras de outro provedor saíram da lista de planos e passaram para o bloco
+  // da própria engine, então esta seção voltou a falar só do Claude — não existe
+  // mais lista "misturada" para o cabeçalho renomear.
+  it('cabeçalho segue dizendo "Claude" mesmo havendo outros provedores', async () => {
     vi.mocked(fetchUsage).mockResolvedValue({ limits: MIXED } as never)
     render(<UsageCard />)
-    expect(await screen.findByText('Planos')).toBeTruthy()
-    expect(screen.queryByText('Claude')).toBeNull()
+    expect(await screen.findByText('Claude')).toBeTruthy()
   })
 
   it('modo simples mostra a sessão do Claude E a barra mais crítica do Kimi', async () => {

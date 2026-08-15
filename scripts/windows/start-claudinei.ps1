@@ -12,18 +12,26 @@
 # `-Force` derruba a instância no ar mesmo saudável (usado pelo restart).
 $ErrorActionPreference = 'Stop'
 
-# PRIMEIRA COISA: esconder o próprio console. O `-WindowStyle Hidden` da linha de
-# comando NÃO basta — quando o Agendador roda a tarefa na sessão interativa, o
-# console do powershell aparece assim mesmo (comprovado: janela visível pertencendo
-# ao processo da tarefa). Aqui é o SW_HIDE na marra, no handle do console real.
+# PRIMEIRA COISA: garantir que não sobre janela. A tarefa roda dentro de
+# `conhost --headless` (ver install-autostart.ps1), que já não cria janela; este
+# SW_HIDE é a rede de segurança para quem executar o script à mão num console
+# clássico. Não confie nele sozinho: quando o Windows Terminal é o terminal padrão,
+# GetConsoleWindow() devolve um PseudoConsoleWindow (proxy invisível) e a janela
+# real é do WindowsTerminal.exe — esconder o proxy não muda nada. Por isso o
+# resultado vai para o boot.log em vez de ser engolido por um catch mudo.
+$janelaVisivel = $null
 try {
-  $hide = Add-Type -Name ClWin -Namespace Cl -PassThru -MemberDefinition @'
+  $win = Add-Type -Name ClWin -Namespace Cl -PassThru -MemberDefinition @'
 [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
 [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
 '@
-  $h = $hide::GetConsoleWindow()
-  if ($h -ne [IntPtr]::Zero) { [void]$hide::ShowWindow($h, 0) }   # 0 = SW_HIDE
-} catch { }   # sem janela para esconder (ou sem user32): segue o jogo
+  $h = $win::GetConsoleWindow()
+  if ($h -ne [IntPtr]::Zero) {
+    [void]$win::ShowWindow($h, 0)   # 0 = SW_HIDE
+    $janelaVisivel = $win::IsWindowVisible($h)
+  }
+} catch { $janelaVisivel = "falhou: $($_.Exception.Message)" }
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # scripts/windows -> raiz do repo
 $entry = Join-Path $root 'bin\claudinei.mjs'
@@ -69,7 +77,7 @@ if ($owner) {
   Start-Sleep -Seconds 2
 }
 
-Boot "iniciando  $root"
+Boot "iniciando  $root  (janela do console ainda visivel apos hide: $janelaVisivel)"
 
 # node pode não estar no PATH da sessão da tarefa; cai no caminho padrão da instalação
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source

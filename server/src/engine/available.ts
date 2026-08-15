@@ -3,12 +3,23 @@ import { delimiter, isAbsolute, join } from 'node:path'
 
 const WINDOWS = process.platform === 'win32'
 
+/** Lê `name` do env. No Windows as variáveis são case-insensitive: o process.env
+ *  do Node emula isso, mas um objeto COMUM não — `{ ...process.env }.PATH` é
+ *  undefined quando o processo herdou a variável como `Path` (o normal quando o
+ *  pai é powershell/cmd). O terminal passa justamente um objeto desses. */
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const direct = env[name]
+  if (direct !== undefined || !WINDOWS) return direct
+  const key = Object.keys(env).find((k) => k.toLowerCase() === name.toLowerCase())
+  return key === undefined ? undefined : env[key]
+}
+
 /** Nomes a testar para `bin`. No Windows o executável mora com extensão
  *  (`claude.exe`), e é o PATHEXT que diz quais valem; '' vem primeiro para o
  *  caso de o chamador já ter passado o nome completo. Fora do Windows, só o nome. */
 function candidates(bin: string, env: NodeJS.ProcessEnv): string[] {
   if (!WINDOWS) return [bin]
-  const exts = (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  const exts = (envValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
   return ['', ...exts].map((ext) => bin + ext)
 }
 
@@ -32,7 +43,7 @@ export function resolveBin(bin: string, env: NodeJS.ProcessEnv = process.env): s
     }
     return null
   }
-  for (const dir of (env.PATH ?? '').split(delimiter)) {
+  for (const dir of (envValue(env, 'PATH') ?? '').split(delimiter)) {
     if (!dir) continue
     for (const candidate of candidates(bin, env)) {
       const full = join(dir, candidate)

@@ -260,12 +260,12 @@ That registers a **Claudinei** task with two triggers: your **logon** (20 s dela
 the server, and a **watchdog** every 2 minutes brings it back if it ever dies. It starts
 right away too — open **http://127.0.0.1:9105**.
 
-**No window.** The server runs with its own console created hidden (`CreateNoWindow`),
-so nothing shows up on the desktop or the taskbar. Two things had to be done for that,
-both learned the hard way:
+**No window at all** — verified by sampling every visible window for 15 s across a start:
+zero windows appear, not even a flash. Three things were needed, each learned the hard way:
 
-- `powershell.exe -WindowStyle Hidden` is **not** honoured when Task Scheduler runs the task in the interactive session — the console shows up anyway. The launcher hides it itself (`ShowWindow(GetConsoleWindow(), SW_HIDE)`), which leaves a ~150 ms flash at logon. Zero flash needs the task set to "run whether the user is logged on or not", which requires admin rights to register and may break Claude Code's credential access — not the default here.
-- The server must **not** share the launcher's console (`-NoNewWindow`): a console event there (Ctrl-C, close, session end) kills the server too — it died once with `0xC000013A` (STATUS_CONTROL_C_EXIT) exactly like that.
+- The task's action is **`conhost.exe --headless powershell.exe …`**, not `powershell.exe`. On Windows 11 the default terminal application is Windows Terminal, which hosts *any* console app in a window of its own — a black empty window titled `…\powershell.exe`. Neither `-WindowStyle Hidden` nor hiding `GetConsoleWindow()` touches it: under Terminal that handle is a `PseudoConsoleWindow` (an invisible proxy) while the real window belongs to `WindowsTerminal.exe`. Closing it killed the whole hosted tree — server included. A headless conhost creates no window and never delegates to Terminal.
+- The server gets **its own console** (`CreateNoWindow`), not the launcher's (`-NoNewWindow`): a console event on a shared console (Ctrl-C, close, session end) kills the server too — it died once with `0xC000013A` (STATUS_CONTROL_C_EXIT) exactly like that.
+- That console is hidden, **not absent**. Spawning the server fully detached (no console) looks tempting, but the app spawns the engine CLIs without `windowsHide`, so each one would pop its own console window. An invisible console that children inherit is what keeps them invisible.
 
 Day-to-day:
 

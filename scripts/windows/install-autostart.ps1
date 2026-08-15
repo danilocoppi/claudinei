@@ -28,7 +28,14 @@ if (-not (Test-Path $launcher)) { throw "launcher não encontrado: $launcher" }
 $psArgs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcher`""
 if ($ExtraArgs.Count -gt 0) { $psArgs += ' ' + ($ExtraArgs -join ' ') }
 
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $psArgs `
+# O launcher roda DENTRO de `conhost --headless`: no Windows 11 o terminal padrão é
+# o Windows Terminal, que hospeda qualquer app de console numa janela PRÓPRIA dele.
+# Contra isso não adianta `-WindowStyle Hidden` nem esconder o GetConsoleWindow():
+# aquele handle é um PseudoConsoleWindow (proxy invisível) e a janela de verdade
+# pertence ao WindowsTerminal.exe — era a janela preta que sobrava na tela, e
+# fechá-la matava a árvore inteira, servidor junto. O conhost headless não cria
+# janela nenhuma e não delega para o Terminal.
+$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless powershell.exe $psArgs" `
   -WorkingDirectory (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 
 # Dois gatilhos: o logon sobe o serviço; o periódico é o vigia. Com

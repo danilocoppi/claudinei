@@ -22,6 +22,16 @@ describe('binAvailable', () => {
     chmodSync(join(dir, 'quase'), 0o644)
     expect(binAvailable('quase', { PATH: dir } as NodeJS.ProcessEnv)).toBe(false)
   })
+  // Regressão: no Windows as variáveis de ambiente são case-insensitive e o
+  // process.env do Node emula isso — mas `{ ...process.env }` (o que a fábrica do
+  // PTY passa adiante) é objeto comum, onde `.PATH` é undefined se o processo
+  // herdou `Path`. Dava "File not found: " ao abrir o terminal embutido.
+  it.runIf(process.platform === 'win32')('PATH escrito como "Path" ainda é encontrado', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bins-'))
+    writeFileSync(join(dir, 'minha-engine.exe'), '')
+    const env = { Path: dir, PathExt: '.EXE' } as unknown as NodeJS.ProcessEnv
+    expect(binAvailable('minha-engine', env)).toBe(true)
+  })
   it('PATH vazio/bin vazio → false, sem lançar', () => {
     expect(binAvailable('claude', { PATH: '' } as NodeJS.ProcessEnv)).toBe(false)
     expect(binAvailable('', {} as NodeJS.ProcessEnv)).toBe(false)

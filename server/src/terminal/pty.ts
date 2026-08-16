@@ -1,4 +1,5 @@
 import { spawn as ptySpawn, type IPty } from 'node-pty'
+import { resolveBin } from '../engine/available.js'
 
 export interface PtyProcess {
   onData(cb: (data: string) => void): void
@@ -15,14 +16,20 @@ export type PtyFactory = (
 ) => PtyProcess
 
 export const nodePtyFactory: PtyFactory = (file, args, opts) => {
-  const p: IPty = ptySpawn(file, args, {
+  // opts.env é ADITIVO (não substitui o ambiente): a engine só sobrepõe as
+  // chaves que precisa, ex.: KIMI_CODE_HOME do projeto.
+  const env = { ...process.env, ...opts.env } as Record<string, string>
+  // Só no Windows: o ConPTY NÃO procura no PATH — nome nu vira caminho vazio e o
+  // spawn morre com "File not found: " (sem nome depois dos dois-pontos, que é o
+  // sintoma). Resolvemos com o MESMO env que o processo vai receber. Em
+  // Linux/macOS nada muda: o node-pty resolve pelo PATH no execvp, como sempre.
+  const command = process.platform === 'win32' ? (resolveBin(file, env) ?? file) : file
+  const p: IPty = ptySpawn(command, args, {
     name: 'xterm-256color',
     cwd: opts.cwd,
     cols: opts.cols,
     rows: opts.rows,
-    // opts.env é ADITIVO (não substitui o ambiente): a engine só sobrepõe as
-    // chaves que precisa, ex.: KIMI_CODE_HOME do projeto.
-    env: { ...process.env, ...opts.env } as Record<string, string>,
+    env,
   })
   return {
     onData: (cb) => { p.onData(cb) },

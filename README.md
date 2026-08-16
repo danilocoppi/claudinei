@@ -235,25 +235,49 @@ npm run dev -w web       # in another terminal
 $env:CLAUDINEI_CLAUDE_BIN = "C:\Users\<you>\AppData\Roaming\npm\claude.cmd"
 ```
 
-### Start with Windows (Task Scheduler)
+**Embedded terminal:** ConPTY does not search the `PATH`, so a bare command name would
+fail with `File not found:` (no name after the colon — that's the tell). `server/src/terminal/pty.ts`
+resolves the name against `PATH`/`PATHEXT` before spawning; on Linux/macOS it's a no-op.
 
-1. Create `C:\Users\<you>\Termaster\start-claudinei.cmd`:
-
-```bat
-@echo off
-cd /d C:\Users\<you>\Termaster\server
-start "claudinei-server" /min cmd /c "npx tsx src/index.ts"
-cd /d C:\Users\<you>\Termaster\web
-start "claudinei-web" /min cmd /c "npx vite --port 9100 --strictPort"
-```
-
-2. Register it at logon:
+**Single command (one process, one port)** — like on Linux, the backend also serves the built SPA, so there's no separate Vite port:
 
 ```powershell
-schtasks /create /tn "Claudinei" /sc onlogon /tr "C:\Users\<you>\Termaster\start-claudinei.cmd"
+npm run build -w web    # build the frontend once (or whenever it changes)
+npm start               # or: node bin\claudinei.mjs  →  http://127.0.0.1:9105
 ```
 
-(Alternatives: a shortcut to the `.cmd` in the `shell:startup` folder, or [NSSM](https://nssm.cc) to run it as a real service with automatic restarts.)
+### Start with Windows (Task Scheduler)
+
+The scripts in `scripts\windows\` do it — no administrator needed (the task belongs to
+your user, with **your** PATH/HOME, where `claude` and `~\.claudinei` live):
+
+```powershell
+npm run build -w web    # the autostart serves web/dist — build before installing
+powershell -ExecutionPolicy Bypass -File scripts\windows\install-autostart.ps1
+```
+
+That registers a **Claudinei** task with two triggers: your **logon** (20 s delay) starts
+the server, and a **watchdog** every 2 minutes brings it back if it ever dies. It starts
+right away too — open **http://127.0.0.1:9105**.
+
+**No window at all** — verified by sampling every visible window for 15 s across a start:
+zero windows appear, not even a flash. Three things were needed, each learned the hard way:
+
+- The task's action is **`conhost.exe --headless powershell.exe …`**, not `powershell.exe`. On Windows 11 the default terminal application is Windows Terminal, which hosts *any* console app in a window of its own — a black empty window titled `…\powershell.exe`. Neither `-WindowStyle Hidden` nor hiding `GetConsoleWindow()` touches it: under Terminal that handle is a `PseudoConsoleWindow` (an invisible proxy) while the real window belongs to `WindowsTerminal.exe`. Closing it killed the whole hosted tree — server included. A headless conhost creates no window and never delegates to Terminal.
+- The server gets **its own console** (`CreateNoWindow`), not the launcher's (`-NoNewWindow`): a console event on a shared console (Ctrl-C, close, session end) kills the server too — it died once with `0xC000013A` (STATUS_CONTROL_C_EXIT) exactly like that.
+- That console is hidden, **not absent**. Spawning the server fully detached (no console) looks tempting, but the app spawns the engine CLIs without `windowsHide`, so each one would pop its own console window. An invisible console that children inherit is what keeps them invisible.
+
+Day-to-day:
+
+- **Restart after a rebuild:** `powershell -ExecutionPolicy Bypass -File scripts\windows\restart-claudinei.ps1`.
+- **Stop for real:** `…\stop-claudinei.ps1`. Use it instead of just ending the task in the GUI: Task Scheduler kills only the task's own process, leaving the server orphaned on port 9105 (and the watchdog will find it healthy and leave it alone).
+- **Logs:** `~\.claudinei\logs\` — `claudinei.log` (stdout), `claudinei.err.log` (stderr), `boot.log` (start/stop/watchdog history); the previous run is kept as `.prev`.
+- **Extra flags:** `install-autostart.ps1 -ExtraArgs '--port','9200'` (passed straight to `bin\claudinei.mjs`); watchdog interval: `-WatchdogMinutes 5`.
+- **Status:** `Get-ScheduledTask -TaskName Claudinei` · **remove:** `install-autostart.ps1 -Uninstall`.
+- A logon task lives with your session: it stops when you log off and comes back on the next logon.
+- The `.ps1` files are saved as **UTF-8 with BOM** on purpose: Windows PowerShell 5.1 reads BOM-less files as ANSI, and an em dash inside a string then turns into a curly quote that breaks the parser.
+
+(Alternatives: a shortcut in the `shell:startup` folder, or [NSSM](https://nssm.cc) to run it as a real Windows service.)
 
 ---
 

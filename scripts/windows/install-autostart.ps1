@@ -11,9 +11,25 @@ param(
   [switch]$Uninstall,
   [switch]$NoStart,           # registra sem iniciar agora
   [string[]]$ExtraArgs = @(), # ex.: --port 9200
-  [int]$WatchdogMinutes = 2   # de quanto em quanto tempo checar se o servidor caiu
+  [int]$WatchdogMinutes = 2,  # de quanto em quanto tempo checar se o servidor caiu
+  [switch]$RunAsAdmin         # servidor (e todo terminal/engine que ele abrir) com token elevado
 )
 $ErrorActionPreference = 'Stop'
+
+# Registrar tarefa elevada exige um processo elevado. Se pediram -RunAsAdmin sem
+# elevação, relança a si mesmo pedindo o UAC (uma vez) e sai.
+$souAdmin = (New-Object Security.Principal.WindowsPrincipal(
+  [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
+  [Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($RunAsAdmin -and -not $souAdmin) {
+  Write-Host 'preciso de elevação para registrar a tarefa como admin — confirme o UAC'
+  $repasse = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-RunAsAdmin',
+               '-TaskName', "`"$TaskName`"", '-WatchdogMinutes', $WatchdogMinutes)
+  if ($NoStart) { $repasse += '-NoStart' }
+  if ($ExtraArgs.Count -gt 0) { $repasse += @('-ExtraArgs', ($ExtraArgs -join ',')) }
+  Start-Process powershell -Verb RunAs -ArgumentList $repasse -Wait
+  return
+}
 
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
   Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -49,8 +65,12 @@ $logon.Delay = 'PT20S'   # deixa a rede/PATH assentarem antes de subir
 $watchdog = New-ScheduledTaskTrigger -Once -At (Get-Date).Date `
   -RepetitionInterval (New-TimeSpan -Minutes $WatchdogMinutes)
 $trigger = @($logon, $watchdog)
+# RunLevel Highest = o servidor nasce com token elevado, e TUDO que ele abrir
+# (terminais embutidos, claude/codex/kimi, comandos dentro deles) herda isso.
+# Tarefa elevada não pede UAC no logon — o prompt acontece só aqui, no registro.
+$nivel = if ($RunAsAdmin) { 'Highest' } else { 'Limited' }
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
-  -LogonType Interactive -RunLevel Limited
+  -LogonType Interactive -RunLevel $nivel
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) `
   -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -Hidden
@@ -60,7 +80,7 @@ $settings.MultipleInstances = 'IgnoreNew'   # já está rodando? não sobe uma s
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Principal $principal -Settings $settings `
   -Description 'Claudinei — interface web local para sessões do Claude Code (http://127.0.0.1:9105)' | Out-Null
-Write-Host "tarefa '$TaskName' registrada (logon de $env:USERNAME, sem janela, vigia a cada $WatchdogMinutes min)"
+Write-Host "tarefa '$TaskName' registrada (logon de $env:USERNAME, sem janela, vigia a cada $WatchdogMinutes min, nivel=$nivel)"
 
 if (-not $NoStart) {
   Start-ScheduledTask -TaskName $TaskName

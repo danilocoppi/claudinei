@@ -177,3 +177,10 @@ export const revealFile = (path: string, projectId?: number) =>
 /** Para UM subagente de background da sessão, sem tocar no resto. */
 export const stopSubagentTask = (localId: string, taskId: string) =>
   req<void>(`/api/sessions/${localId}/tasks/${encodeURIComponent(taskId)}/stop`, { method: 'POST' })
+
+/** Inicia o fluxo OAuth de reautenticação do Claude; devolve as URLs do login. */
+export const startSessionAuth = (localId: string) =>
+  req<{ manualUrl: string; automaticUrl: string }>(`/api/sessions/${localId}/auth/start`, { method: 'POST' })
+/** Fecha o fluxo com o código (ou URL de callback) trazido do navegador. */
+export const completeSessionAuth = (localId: string, code: string) =>
+  req<void>(`/api/sessions/${localId}/auth/complete`, { method: 'POST', body: JSON.stringify({ code }) })

@@ -107,9 +107,18 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    */
   private bgTasks = new Map<string, { id: string; description: string; type: string; prompt: string }>()
   private bgMeta = new Map<string, { description: string; type: string; prompt: string }>()
-  private pendingControls = new Map<string, { resolve: () => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+  /** OAuth do Claude expirado (a CLI respondeu `auth_expired`). Ver detectAuthExpired. */
+  private authExpiredFlag = false
+  private pendingControls = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
 
   get lastStderr(): string { return this.stderrTail.join('').trim() }
+
+  /**
+   * A sessão parou por credencial expirada? A partir daqui todo turno falha até
+   * reautenticar — a UI usa isto para oferecer o login em vez de mostrar mais um
+   * erro genérico de API.
+   */
+  get authExpired(): boolean { return this.authExpiredFlag }
 
   /** Tasks em background ainda rodando nesta sessão. */
   get backgroundTasks(): { id: string; description: string; type: string; prompt: string }[] {
@@ -192,7 +201,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
         if (pending) {
           clearTimeout(pending.timer)
           this.pendingControls.delete(rid)
-          if (raw.response?.subtype === 'success') pending.resolve()
+          if (raw.response?.subtype === 'success') pending.resolve(raw.response?.response)
           else pending.reject(new Error(raw.response?.error ?? 'controle falhou'))
         }
         return // não vaza como evento de chat
@@ -209,6 +218,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       }
     }
     if (evt.kind === 'system') this.trackBackgroundTasks(evt.raw)
+    this.detectAuthExpired(evt)
     // A engine pode retomar SOZINHA, sem ninguém mandar mensagem: quando uma task
     // despachada com run_in_background termina, o CLI fecha o turno (result) e
     // dispara um turno NOVO por conta própria — init, conteúdo e um segundo result
@@ -248,18 +258,41 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     this.setStatus('working')
   }
 
+  /**
+   * Inicia o fluxo OAuth de reautenticação — o mesmo que a TUI dispara no
+   * `/login`. Devolve as duas URLs que a CLI oferece: a automática (o navegador
+   * volta sozinho ao callback) e a manual (o usuário copia um código). Quando o
+   * token expira, a CLI passa a responder `auth_expired` e a sessão vira uma
+   * sequência de erros sem explicação; isto é o caminho de volta sem abrir o
+   * terminal.
+   *
+   * `allowWorking`: a expiração costuma ser descoberta NO MEIO de um turno.
+   */
+  async startAuth(): Promise<{ manualUrl: string; automaticUrl: string }> {
+    const res = (await this.sendControl('claude_authenticate', { loginWithClaudeAi: true }, { allowWorking: true })) as
+      { manualUrl?: string; automaticUrl?: string } | undefined
+    return { manualUrl: res?.manualUrl ?? '', automaticUrl: res?.automaticUrl ?? '' }
+  }
+
+  /** Entrega o código/URL que o usuário trouxe do navegador e fecha o fluxo. */
+  async completeAuth(codeOrUrl: string): Promise<void> {
+    await this.sendControl('claude_oauth_callback', { manualUrl: codeOrUrl }, { allowWorking: true })
+    this.authExpiredFlag = false
+    this.emit('status', this.status)
+  }
+
   markRead(): void {
     if (this.status === 'needs_attention') this.setStatus('idle')
   }
 
-  private sendControl(subtype: string, payload: object, opts?: { allowWorking?: boolean }): Promise<void> {
+  private sendControl(subtype: string, payload: object, opts?: { allowWorking?: boolean }): Promise<unknown> {
     const workingBlocked = this.status === 'working' && !opts?.allowWorking
     if (!this.proc || this.status === 'stopped' || this.status === 'dead' || workingBlocked) {
       return Promise.reject(new Error(`sessão não aceita controle no status ${this.status}`))
     }
     const request_id = `ctrl-${++this.controlSeq}`
     const proc = this.proc
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingControls.delete(request_id)
         reject(new Error('sem resposta do Claude ao controle (timeout)'))
@@ -272,8 +305,8 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   // '' = voltar ao modelo Padrão: o protocolo de controle só troca por um modelo
   // nomeado (não tem "reset"), então no processo vivo é no-op — o Padrão vale no
   // relaunch (argv sem --model). As engines turn-based tratam '' nativamente.
-  setModel(model: string): Promise<void> { return model ? this.sendControl('set_model', { model }) : Promise.resolve() }
-  setPermissionMode(mode: string): Promise<void> { return this.sendControl('set_permission_mode', { mode }) }
+  async setModel(model: string): Promise<void> { if (model) await this.sendControl('set_model', { model }) }
+  async setPermissionMode(mode: string): Promise<void> { await this.sendControl('set_permission_mode', { mode }) }
   /** No-op: o Claude aplica effort via mensagem /effort do frontend (protocolo próprio, inalterado). */
   setEffort(_effort: string): Promise<void> { return Promise.resolve() }
 
@@ -321,6 +354,30 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       const timer = setTimeout(() => { proc.kill('SIGKILL') }, 10_000)
       proc.once('close', () => { clearTimeout(timer); resolve() })
     })
+  }
+
+  /**
+   * A CLI avisa a expiração com um texto fixo — `auth_expired`:
+   * "Your session has expired. Please run /login to sign in again."
+   *
+   * Casar pelo texto é feio, mas é o que chega no stream: o erro vem como texto
+   * de assistant marcado isApiErrorMessage, sem código de erro estruturado. A
+   * frase é específica o bastante para não confundir com 529/rate limit, que são
+   * os outros "API Error" que aparecem de verdade.
+   */
+  private detectAuthExpired(evt: ClaudeEvent): void {
+    if (this.authExpiredFlag) return
+    let text = ''
+    if (evt.kind === 'assistant') {
+      const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
+      text = blocks.map((b) => (b as { text?: string }).text ?? '').join(' ')
+    } else if (evt.kind === 'result') {
+      text = evt.resultText ?? ''
+    }
+    if (!/session has expired|Please run \/login|auth_expired/i.test(text)) return
+    this.authExpiredFlag = true
+    // Reusa o canal de status: é assim que o manager retransmite aos clientes.
+    this.emit('status', this.status)
   }
 
   /**

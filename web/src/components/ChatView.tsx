@@ -11,6 +11,7 @@ import { WsContext } from '../wsContext'
 import { isEditableUserText } from '../chat/history'
 import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
 import { RunningSubagents } from './RunningSubagents'
+import { ReauthBanner } from './ReauthBanner'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
@@ -194,6 +195,9 @@ export function ChatView() {
       </div>
       {/* Arquivo aberto INLINE: dockado aqui (fora da rolagem do chat) para
           continuar visível enquanto o operador digita e a conversa anda. */}
+      {/* Credencial expirada: sem isto a sessão só empilha erros de API e o
+          operador precisa lembrar sozinho de rodar /login no terminal. */}
+      <ReauthBanner localId={session.localId} expired={session.authExpired} />
       <InlineFileView localId={session.localId} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">

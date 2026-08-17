@@ -33,6 +33,23 @@ rl.on('line', (line) => {
       out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
       return
     }
+    if (r.subtype === 'claude_authenticate') {
+      // Como a CLI real: devolve as duas URLs do fluxo OAuth.
+      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {
+        manualUrl: 'https://claude.ai/oauth/authorize?manual=1',
+        automaticUrl: 'https://claude.ai/oauth/authorize?auto=1',
+      } } })
+      return
+    }
+    if (r.subtype === 'claude_oauth_callback') {
+      // Código inválido é recusado, como no fluxo real.
+      if (String(r.manualUrl ?? '').includes('ruim')) {
+        out({ type: 'control_response', response: { subtype: 'error', request_id: msg.request_id, error: 'código inválido' } })
+        return
+      }
+      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: { ok: true } } })
+      return
+    }
     if (r.subtype === 'stop_task') {
       // Como a CLI real: confirma e anuncia que a task saiu.
       out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {} } })

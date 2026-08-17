@@ -878,3 +878,22 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .term-group__header:hover .term-group__caret { color: var(--group-color, currentColor); }
 .group-edit__icon { font-size: 18px; width: 42px; padding: 4px 0; flex: none; }
 .group-edit__color { padding: 2px 8px 6px; }
+
+/* Aviso de credencial expirada + fluxo de reautenticação, logo acima do input:
+   é onde o operador está olhando quando os turnos começam a falhar. Âmbar como
+   os outros avisos que pedem ação, não vermelho de erro fatal — dá para
+   resolver ali mesmo. */
+.reauth {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 8px 20px 0; padding: 10px 14px; border-radius: 12px;
+  background: rgba(245, 196, 81, .10); border: 1px solid rgba(245, 196, 81, .35);
+  font-size: 13px;
+}
+.reauth__head { display: flex; align-items: center; gap: 8px; }
+.reauth__head > span:nth-child(2) { flex: 1; }
+.reauth__flow { display: flex; flex-direction: column; gap: 6px; }
+.reauth__link { color: var(--accent); font-weight: 600; }
+.reauth__hint { color: var(--text-dim); font-size: 12px; }
+.reauth__row { display: flex; gap: 8px; }
+.reauth__row input { flex: 1; min-width: 0; font-size: 12.5px; }
+.reauth__error { color: var(--err); font-size: 12px; }

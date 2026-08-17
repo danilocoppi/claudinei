@@ -22,6 +22,8 @@ export interface SessionInfo {
    * nada em background.
    */
   backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  /** Credencial do Claude expirada: a UI mostra "reautenticar" no lugar do erro cru. */
+  authExpired?: boolean
 }
 
 export interface TerminalLauncherOpts {
@@ -97,7 +99,7 @@ export function createSessionManager(deps: Deps) {
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
       const info = infoOf(localId)
-      deps.broadcast({ type: 'session_status', localId, projectId, engine: info?.engine ?? engine, status, engineSessionId: effectiveEngineSessionId(localId, session), detail, model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null, backgroundTasks: info?.backgroundTasks ?? [] })
+      deps.broadcast({ type: 'session_status', localId, projectId, engine: info?.engine ?? engine, status, engineSessionId: effectiveEngineSessionId(localId, session), detail, model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null, backgroundTasks: info?.backgroundTasks ?? [], authExpired: info?.authExpired ?? false })
       if (status === 'dead' || status === 'stopped') live.delete(localId)
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => deps.onSessionAvailable?.(projectId))
@@ -117,7 +119,7 @@ export function createSessionManager(deps: Deps) {
         if (event.sessionId) {
           persist(localId, session.status, event.sessionId)
           const infoI = infoOf(localId)
-          deps.broadcast({ type: 'session_status', localId, projectId, engine: infoI?.engine ?? engine, status: session.status, engineSessionId: event.sessionId, model: infoI?.model ?? null, permissionMode: infoI?.permissionMode, effort: infoI?.effort ?? null, backgroundTasks: infoI?.backgroundTasks ?? [] })
+          deps.broadcast({ type: 'session_status', localId, projectId, engine: infoI?.engine ?? engine, status: session.status, engineSessionId: event.sessionId, model: infoI?.model ?? null, permissionMode: infoI?.permissionMode, effort: infoI?.effort ?? null, backgroundTasks: infoI?.backgroundTasks ?? [], authExpired: infoI?.authExpired ?? false })
         }
       }
       if (event.kind === 'result' && event.tokens) {
@@ -129,7 +131,7 @@ export function createSessionManager(deps: Deps) {
     })
     session.start()
     const info0 = infoOf(localId)
-    deps.broadcast({ type: 'session_status', localId, projectId, engine: info0?.engine ?? engine, status: session.status, engineSessionId: effectiveEngineSessionId(localId, session), model: info0?.model ?? null, permissionMode: info0?.permissionMode, effort: info0?.effort ?? null, backgroundTasks: info0?.backgroundTasks ?? [] })
+    deps.broadcast({ type: 'session_status', localId, projectId, engine: info0?.engine ?? engine, status: session.status, engineSessionId: effectiveEngineSessionId(localId, session), model: info0?.model ?? null, permissionMode: info0?.permissionMode, effort: info0?.effort ?? null, backgroundTasks: info0?.backgroundTasks ?? [], authExpired: info0?.authExpired ?? false })
   }
 
   const infoOf = (localId: string): SessionInfo | undefined => {
@@ -147,6 +149,7 @@ export function createSessionManager(deps: Deps) {
       permissionMode: (row.permission_mode ?? 'bypassPermissions') as PermissionMode,
       effort: row.effort ?? null,
       backgroundTasks: liveEntry?.session.backgroundTasks ?? [],
+      authExpired: liveEntry?.session.authExpired ?? false,
     }
   }
 
@@ -237,6 +240,20 @@ export function createSessionManager(deps: Deps) {
      * Code tem esse conceito; nas outras engines o método não existe e a chamada
      * vira no-op.
      */
+    /** Inicia o fluxo OAuth de reautenticação da sessão (só Claude). */
+    async startAuth(localId: string): Promise<{ manualUrl: string; automaticUrl: string }> {
+      const session = live.get(localId)?.session
+      if (!session?.startAuth) throw new Error('esta engine não suporta reautenticação')
+      return session.startAuth()
+    },
+
+    /** Fecha o fluxo com o código/URL que o operador trouxe do navegador. */
+    async completeAuth(localId: string, codeOrUrl: string): Promise<void> {
+      const session = live.get(localId)?.session
+      if (!session?.completeAuth) throw new Error('esta engine não suporta reautenticação')
+      await session.completeAuth(codeOrUrl)
+    },
+
     async stopBackgroundTask(localId: string, taskId: string): Promise<void> {
       const session = live.get(localId)?.session as { stopTask?: (id: string) => Promise<void> } | undefined
       await session?.stopTask?.(taskId)

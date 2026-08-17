@@ -33,6 +33,11 @@ export interface EngineSession extends EventEmitter {
    * hoje; nas outras engines fica ausente.
    */
   readonly backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  /** Credencial expirada (só Claude): a UI oferece reautenticar em vez de mais um erro. */
+  readonly authExpired?: boolean
+  /** Fluxo OAuth de reautenticação — só o Claude Code expõe. */
+  startAuth?(): Promise<{ manualUrl: string; automaticUrl: string }>
+  completeAuth?(codeOrUrl: string): Promise<void>
   start(): void
   /**
    * `echoToClients`: emite também um evento `user` com o mesmo texto, para a UI

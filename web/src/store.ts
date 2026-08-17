@@ -215,6 +215,7 @@ export const useStore = create<State>((set, get) => ({
             // Subagentes de background rodando agora (estado do processo, não do
             // banco): o servidor manda a lista completa a cada mudança.
             backgroundTasks: msg.backgroundTasks ?? s.sessions[msg.localId]?.backgroundTasks ?? [],
+            authExpired: msg.authExpired ?? s.sessions[msg.localId]?.authExpired ?? false,
             // Atividade do TUI só sobrevive à PERMANÊNCIA em in_terminal; na entrada
             // (status anterior não era in_terminal) zera — senão dois in_terminal
             // consecutivos mostrariam atividade velha do terminal anterior.

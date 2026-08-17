@@ -136,6 +136,31 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     return reply.code(204).send()
   })
 
+  // Reautenticação do Claude sem sair da web: `startAuth` devolve as URLs do
+  // fluxo OAuth e `completeAuth` fecha com o código que o operador trouxe.
+  app.post('/api/sessions/:localId/auth/start', async (req, reply) => {
+    const { localId } = req.params as { localId: string }
+    if (!guardSession(req, reply, localId)) return
+    try {
+      return await deps.manager.startAuth(localId)
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message })
+    }
+  })
+
+  app.post('/api/sessions/:localId/auth/complete', async (req, reply) => {
+    const { localId } = req.params as { localId: string }
+    if (!guardSession(req, reply, localId)) return
+    const code = (req.body as { code?: unknown })?.code
+    if (typeof code !== 'string' || !code.trim()) return reply.code(400).send({ error: 'código ausente' })
+    try {
+      await deps.manager.completeAuth(localId, code.trim())
+      return reply.code(204).send()
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message })
+    }
+  })
+
   app.post('/api/sessions/:localId/revive', async (req, reply) => {
     const { localId } = req.params as { localId: string }
     if (!guardSession(req, reply, localId)) return

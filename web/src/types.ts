@@ -25,6 +25,11 @@ export interface SessionInfo {
    * sessão de parecer parada enquanto ainda há trabalho em curso.
    */
   backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  /**
+   * Credencial do Claude expirada. A partir daqui todo turno falha até
+   * reautenticar — a UI oferece o login em vez de mostrar mais um erro de API.
+   */
+  authExpired?: boolean
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */

@@ -105,6 +105,14 @@ export const ptBR: typeof en = {
     engineNotInstalled: 'não instalada',
     engineNotInstalledHint: 'CLI não encontrada no PATH do servidor. Instale',
   },
+  engineAuth: {
+    expired: 'A sessão do Claude expirou — reautentique para continuar.',
+    reauth: 'Reautenticar',
+    openLogin: 'Abrir login do Claude',
+    pasteHint: 'Autorize na aba que abriu. Se ela não voltar sozinha (por exemplo, se você está acessando de outro aparelho), cole aqui o código que aparecer:',
+    codePlaceholder: 'código de autorização',
+    finish: 'Concluir',
+  },
   toolcall: { result: 'Resultado:', running: 'executando…' },
   terminal: {
     backToChat: '← Voltar ao chat', reconnecting: 'desconectado — reconectando…',

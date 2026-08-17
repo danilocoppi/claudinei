@@ -103,6 +103,14 @@ export const en = {
     engineNotInstalled: 'not installed',
     engineNotInstalledHint: 'CLI not found on the server PATH. Install it',
   },
+  engineAuth: {
+    expired: 'Your Claude session has expired — sign in again to continue.',
+    reauth: 'Re-authenticate',
+    openLogin: 'Open Claude login',
+    pasteHint: 'Authorize in the tab that opened. If it does not come back on its own (for example, if you are on another device), paste the code here:',
+    codePlaceholder: 'authorization code',
+    finish: 'Finish',
+  },
   toolcall: { result: 'Result:', running: 'running…' },
   terminal: {
     backToChat: '← Back to chat', reconnecting: 'disconnected — reconnecting…',

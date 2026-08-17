@@ -105,6 +105,14 @@ export const es: typeof en = {
     engineNotInstalled: 'no instalada',
     engineNotInstalledHint: 'CLI no encontrada en el PATH del servidor. Instálala',
   },
+  engineAuth: {
+    expired: 'La sesión de Claude expiró — vuelve a autenticarte para continuar.',
+    reauth: 'Reautenticar',
+    openLogin: 'Abrir login de Claude',
+    pasteHint: 'Autoriza en la pestaña que se abrió. Si no vuelve sola (por ejemplo, si estás en otro dispositivo), pega aquí el código:',
+    codePlaceholder: 'código de autorización',
+    finish: 'Finalizar',
+  },
   toolcall: { result: 'Resultado:', running: 'ejecutando…' },
   terminal: {
     backToChat: '← Volver al chat', reconnecting: 'desconectado — reconectando…',

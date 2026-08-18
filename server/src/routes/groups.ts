@@ -71,25 +71,51 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
   // Ordem completa da sidebar (drag & drop de grupos E terminais no mesmo espaço).
   // ---- Setores: um nível acima do grupo (grupos E terminais dentro) ----
 
+  /** Não-admin só vê setor que contenha ao menos um terminal acessível — direto
+   *  ou dentro de um grupo dele. Sem atravessar os dois níveis, um setor cujos
+   *  terminais estão todos agrupados apareceria vazio para quem tem acesso a eles. */
   app.get('/api/sectors', async (req) => {
-    void req
-    return groups.listSectors()
+    const all = groups.listSectors()
+    const u = req.authUser
+    if (!u || (u.kind === 'user' && u.isAdmin)) return all
+    const sectorOfGroup = new Map(groups.list().map((g) => [g.id, g.sectorId]))
+    const visible = new Set<number>()
+    for (const p of projects.list()) {
+      if (!canAccessProject(u, p.id)) continue
+      const sid = p.sectorId ?? (p.groupId !== null ? sectorOfGroup.get(p.groupId) ?? null : null)
+      if (sid !== null && sid !== undefined) visible.add(sid)
+    }
+    return all.filter((s) => visible.has(s.id))
   })
 
   app.post('/api/sectors', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    const name = String((req.body as { name?: unknown })?.name ?? '').trim()
-    if (!name) return reply.code(400).send({ error: 'nome obrigatório' })
-    return reply.code(201).send(groups.createSector(name))
+    const body = req.body as { name?: unknown; icon?: unknown; color?: unknown }
+    const name = validName(body?.name)
+    if (!name) return reply.code(400).send({ error: 'nome do setor inválido (1..60 caracteres)' })
+    return reply.code(201).send(groups.createSector(name, validIcon(body?.icon) ?? undefined, validColor(body?.color) ?? undefined))
   })
 
   app.patch('/api/sectors/:id', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
     const body = req.body as { name?: unknown; icon?: unknown; color?: unknown }
     const patch: { name?: string; icon?: string; color?: string } = {}
-    if (typeof body?.name === 'string' && body.name.trim()) patch.name = body.name.trim()
-    if (typeof body?.icon === 'string' && body.icon.trim()) patch.icon = body.icon.trim()
-    if (typeof body?.color === 'string' && body.color.trim()) patch.color = body.color.trim()
+    if (body?.name !== undefined) {
+      const name = validName(body.name)
+      if (!name) return reply.code(400).send({ error: 'nome do setor inválido (1..60 caracteres)' })
+      patch.name = name
+    }
+    if (body?.icon !== undefined) {
+      const icon = validIcon(body.icon)
+      if (!icon) return reply.code(400).send({ error: 'ícone inválido' })
+      patch.icon = icon
+    }
+    if (body?.color !== undefined) {
+      const color = validColor(body.color)
+      if (!color) return reply.code(400).send({ error: 'cor inválida (use #rrggbb)' })
+      patch.color = color
+    }
+    if (Object.keys(patch).length === 0) return reply.code(400).send({ error: 'nada para atualizar' })
     try {
       return groups.updateSector(Number((req.params as { id: string }).id), patch)
     } catch (err) {
@@ -99,7 +125,9 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
 
   app.delete('/api/sectors/:id', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    groups.removeSector(Number((req.params as { id: string }).id))
+    const id = Number((req.params as { id: string }).id)
+    if (!groups.listSectors().some((s) => s.id === id)) return reply.code(404).send({ error: `setor ${id} não existe` })
+    groups.removeSector(id)
     return reply.code(204).send()
   })
 

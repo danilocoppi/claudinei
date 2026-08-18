@@ -8,6 +8,8 @@ export interface ProjectGroup {
   color: string
   /** Posição no espaço unificado da sidebar (compartilhado com projects.sort_order). */
   sortOrder: number
+  /** Setor em que o grupo vive, ou null na raiz. */
+  sectorId: number | null
 }
 
 export interface Sector {
@@ -33,22 +35,22 @@ export type SidebarEntry =
 export function createGroupsService(db: Db) {
   return {
     list(): ProjectGroup[] {
-      return (db.prepare(`SELECT id, name, icon, color, sort_order FROM project_groups ORDER BY sort_order ASC, id ASC`).all() as any[])
-        .map((r) => ({ id: r.id, name: r.name, icon: r.icon ?? '🗂️', color: r.color ?? '#7c5cff', sortOrder: r.sort_order }))
+      return (db.prepare(`SELECT id, name, icon, color, sort_order, sector_id FROM project_groups ORDER BY sort_order ASC, id ASC`).all() as any[])
+        .map((r) => ({ id: r.id, name: r.name, icon: r.icon ?? '🗂️', color: r.color ?? '#7c5cff', sortOrder: r.sort_order, sectorId: r.sector_id ?? null }))
     },
     create(name: string, icon = '🗂️', color = '#7c5cff'): ProjectGroup {
       const nextOrder = (db.prepare(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM project_groups`).get() as any).n
       const info = db.prepare(`INSERT INTO project_groups (name, icon, color, sort_order) VALUES (?, ?, ?, ?)`).run(name, icon, color, nextOrder)
-      return { id: Number(info.lastInsertRowid), name, icon, color, sortOrder: nextOrder }
+      return { id: Number(info.lastInsertRowid), name, icon, color, sortOrder: nextOrder, sectorId: null }
     },
 
     /** Atualiza nome/ícone/cor (subset). */
     update(id: number, patch: { name?: string; icon?: string; color?: string }): ProjectGroup {
-      const cur = (db.prepare(`SELECT id, name, icon, color, sort_order FROM project_groups WHERE id=?`).get(id) as any)
+      const cur = (db.prepare(`SELECT id, name, icon, color, sort_order, sector_id FROM project_groups WHERE id=?`).get(id) as any)
       if (!cur) throw new Error(`grupo ${id} não existe`)
       const next = { name: patch.name ?? cur.name, icon: patch.icon ?? cur.icon, color: patch.color ?? cur.color }
       db.prepare(`UPDATE project_groups SET name=?, icon=?, color=? WHERE id=?`).run(next.name, next.icon, next.color, id)
-      return { id, ...next, sortOrder: cur.sort_order }
+      return { id, ...next, sortOrder: cur.sort_order, sectorId: cur.sector_id ?? null }
     },
     rename(id: number, name: string): ProjectGroup {
       return this.update(id, { name })

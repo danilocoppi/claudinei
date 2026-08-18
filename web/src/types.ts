@@ -2,7 +2,7 @@ export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' 
 
 export type PermissionMode = 'default' | 'auto' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
-export interface Project { id: number; name: string; path: string; color: string; icon: string; groupId?: number | null; sortOrder?: number }
+export interface Project { id: number; name: string; path: string; color: string; icon: string; groupId?: number | null; sectorId?: number | null; sortOrder?: number }
 
 export interface SessionInfo {
   localId: string

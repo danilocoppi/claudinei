@@ -135,3 +135,20 @@ describe('applySidebarOrder com três níveis', () => {
     expect(rowOf(p)).toMatchObject({ group_id: g.id, sector_id: null })
   })
 })
+
+/**
+ * O front monta a árvore a partir de `groups` + `projects`: sem o `sectorId` em
+ * cada grupo, ele não tem como saber que um grupo mora dentro de um setor — e o
+ * desenharia na raiz, contradizendo a ordem que o backend acabou de gravar.
+ */
+describe('list() expõe o setor do grupo', () => {
+  it('devolve sectorId nulo na raiz e preenchido dentro de um setor', () => {
+    const s = svc.createSector('Trading')
+    const raiz = svc.create('Raiz')
+    const dentro = svc.create('Dentro')
+    svc.setGroupSector(dentro.id, s.id)
+    const byName = Object.fromEntries(svc.list().map((g) => [g.name, g]))
+    expect(byName['Raiz'].sectorId).toBeNull()
+    expect(byName['Dentro'].sectorId).toBe(s.id)
+  })
+})

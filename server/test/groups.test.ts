@@ -110,6 +110,74 @@ describe('rotas /api/groups (RBAC)', () => {
   })
 })
 
+/**
+ * Setor espelha grupo também na fronteira HTTP. Divergir aqui é o modo silencioso
+ * de falhar: um setor com cor "azul" (em vez de #rrggbb) entra no banco e só
+ * aparece como CSS quebrado, e um setor alheio visível vaza o nome do time.
+ */
+describe('rotas /api/sectors (RBAC e validação, como grupos)', () => {
+  let app: Awaited<ReturnType<typeof buildApp>>
+  let auth: AuthService
+  const cookieOf = (res: any): Record<string, string> => {
+    const c = res.cookies.find((x: any) => x.name === COOKIE_NAME)
+    return c ? { [COOKIE_NAME]: c.value } : {}
+  }
+  const login = async (username: string) =>
+    cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password: 'abcd1234' } }))
+
+  beforeEach(async () => {
+    auth = createAuthService({ db })
+    const manager = createSessionManager({ db, broadcast: () => {} })
+    app = await buildApp({ config: loadConfig({}), db, manager, auth })
+    auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
+    auth.users.create({ username: 'ana', password: 'abcd1234', projectIds: [front.id] })
+  })
+
+  it('não-admin toma 403 nas mutações, inclusive ao mover para setor', async () => {
+    const admin = await login('root')
+    const ana = await login('ana')
+    const s = (await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: 'Trading' }, cookies: admin })).json()
+
+    expect((await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: 'Nope' }, cookies: ana })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'PATCH', url: `/api/sectors/${s.id}`, payload: { name: 'Nope' }, cookies: ana })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'DELETE', url: `/api/sectors/${s.id}`, cookies: ana })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'PATCH', url: `/api/projects/${front.id}/sector`, payload: { sectorId: s.id }, cookies: ana })).statusCode).toBe(403)
+  })
+
+  it('GET /api/sectors: não-admin só vê setores com ≥1 terminal acessível', async () => {
+    const admin = await login('root')
+    const ana = await login('ana')
+    const meu = (await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: 'Meu' }, cookies: admin })).json()
+    const alheio = (await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: 'Alheio' }, cookies: admin })).json()
+    // 'Meu' recebe o terminal da ana DENTRO DE UM GRUPO — o acesso tem de atravessar
+    // os dois níveis, não só os terminais soltos no setor.
+    const g = (await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'G' }, cookies: admin })).json()
+    await app.inject({ method: 'PATCH', url: `/api/groups/${g.id}/sector`, payload: { sectorId: meu.id }, cookies: admin })
+    await app.inject({ method: 'PATCH', url: `/api/projects/${front.id}/group`, payload: { groupId: g.id }, cookies: admin })
+    await app.inject({ method: 'PATCH', url: `/api/projects/${other.id}/sector`, payload: { sectorId: alheio.id }, cookies: admin })
+
+    expect(((await app.inject({ method: 'GET', url: '/api/sectors', cookies: admin })).json() as any[]).map((x) => x.name).sort())
+      .toEqual(['Alheio', 'Meu'])
+    expect(((await app.inject({ method: 'GET', url: '/api/sectors', cookies: ana })).json() as any[]).map((x) => x.name))
+      .toEqual(['Meu'])
+  })
+
+  it('valida nome, ícone e cor como o grupo faz', async () => {
+    const admin = await login('root')
+    expect((await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: '   ' }, cookies: admin })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: 'x'.repeat(61) }, cookies: admin })).statusCode).toBe(400)
+    const s = (await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: 'ok' }, cookies: admin })).json()
+    expect((await app.inject({ method: 'PATCH', url: `/api/sectors/${s.id}`, payload: { color: 'azul' }, cookies: admin })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PATCH', url: `/api/sectors/${s.id}`, payload: { name: 'x'.repeat(61) }, cookies: admin })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'PATCH', url: '/api/sectors/999', payload: { name: 'ok' }, cookies: admin })).statusCode).toBe(404)
+  })
+
+  it('apagar setor inexistente responde 404 em vez de fingir sucesso', async () => {
+    const admin = await login('root')
+    expect((await app.inject({ method: 'DELETE', url: '/api/sectors/999', cookies: admin })).statusCode).toBe(404)
+  })
+})
+
 describe('applySidebarOrder (ordem unificada grupos + soltos)', () => {
   it('numera grupos, filhos e soltos no MESMO espaço; a estrutura define o pertencimento', () => {
     const groups = createGroupsService(db)

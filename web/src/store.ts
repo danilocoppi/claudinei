@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
-import type { BoardPost, Group, Task } from './api'
+import type { BoardPost, Group, Sector, Task } from './api'
 import type { FileKind, ScopeResult } from './files'
 import { applyEvent } from './chat/applyEvent'
 import { notifySessionChange } from './notifications'
@@ -68,6 +68,8 @@ interface State {
   sessionEffort: Record<string, string>
   /** Grupos visuais de terminais (sidebar). */
   groups: Group[]
+  /** Setores: um nível acima do grupo, contendo grupos e terminais. */
+  sectors: Sector[]
   view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal'
   board: BoardPost[]
   tasks: Task[]
@@ -86,6 +88,7 @@ interface State {
   setFilesResolved(results: ScopeResult[]): void
   setProjects(projects: Project[]): void
   setGroups(groups: Group[]): void
+  setSectors(sectors: Sector[]): void
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
   setHistory(localId: string, events: ClaudeEvent[]): void
@@ -134,6 +137,7 @@ export const useStore = create<State>((set, get) => ({
   engines: BUILTIN_ENGINES,
   sessionEffort: {},
   groups: [],
+  sectors: [],
   view: 'dashboard',
   board: [],
   tasks: [],
@@ -147,6 +151,8 @@ export const useStore = create<State>((set, get) => ({
   setProjects: (projects) => set({ projects }),
 
   setGroups: (groups) => set({ groups }),
+
+  setSectors: (sectors) => set({ sectors }),
 
   setSlashCommands: (cmds) => set((s) => (cmds.length ? { slashCommands: cmds } : s)),
 

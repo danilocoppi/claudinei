@@ -119,7 +119,7 @@ describe('Sidebar Terminais', () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
       if (init?.method === 'PUT' && String(url).includes('/api/sidebar-order')) {
         bodies.push(JSON.parse(String(init.body)))
-        return new Response(JSON.stringify({ projects: reordered, groups: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        return new Response(JSON.stringify({ projects: reordered, groups: [], sectors: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } })
     })
@@ -253,7 +253,7 @@ describe('grupos de terminais', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
       if (init?.method === 'PUT' && String(url).includes('/api/sidebar-order')) {
         bodies.push(JSON.parse(String(init.body)))
-        return Promise.resolve(jsonResponse({ projects: [], groups: [] }))
+        return Promise.resolve(jsonResponse({ projects: [], groups: [], sectors: [] }))
       }
       return Promise.resolve(jsonResponse([]))
     })
@@ -276,7 +276,7 @@ describe('grupos de terminais', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
       if (init?.method === 'PUT' && String(url).includes('/api/sidebar-order')) {
         bodies.push(JSON.parse(String(init.body)))
-        return Promise.resolve(jsonResponse({ projects: [], groups: [] }))
+        return Promise.resolve(jsonResponse({ projects: [], groups: [], sectors: [] }))
       }
       return Promise.resolve(jsonResponse([]))
     })

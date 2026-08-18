@@ -769,6 +769,34 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .sess-pop__newgroup button { flex: none; padding: 5px 10px; font-size: 12.5px; border-radius: 8px; }
 .sess-pop__hint { color: var(--text-dim); font-size: 11px; padding: 2px 10px 8px; }
 
+/* SETOR: um nível acima do grupo. Mesma anatomia visual, um degrau mais forte —
+   o cabeçalho é sólido e o trilho do corpo é colorido, para que a hierarquia se
+   leia de relance sem contar recuos. */
+.term-sector { border-radius: 12px; transition: background .15s, outline-color .15s; }
+.term-sector.drop-target { outline: 1.5px dashed var(--accent); background: rgba(88,196,220,.08); }
+.term-sector.dragging { opacity: .45; }
+.term-sector__header {
+  display: flex; align-items: center; gap: 7px; padding: 8px 9px;
+  border-radius: 10px; cursor: pointer; user-select: none;
+  color: var(--text); font-size: 12.5px; font-weight: 700;
+  letter-spacing: .02em; text-transform: uppercase;
+  background: color-mix(in srgb, var(--sector-color, transparent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sector-color, transparent) 34%, transparent);
+  transition: background .15s, border-color .15s;
+}
+.term-sector__header[draggable="true"] { cursor: grab; }
+.term-sector__header:hover {
+  background: color-mix(in srgb, var(--sector-color, var(--glass-border)) 26%, transparent);
+  border-color: color-mix(in srgb, var(--sector-color, var(--glass-border)) 55%, transparent);
+}
+.term-sector__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-sector__icon { flex: none; }
+.term-sector__body {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 4px 0 6px 8px; padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, var(--sector-color, var(--glass-border)) 45%, transparent);
+}
+
 /* Drag de GRUPO (reordenar entre os terminais) + zona de drop no fim da lista. */
 .term-group.dragging { opacity: .45; }
 .term-group__header[draggable="true"] { cursor: grab; }

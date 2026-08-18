@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { createGroup, deleteGroup, deleteProject, fetchGroups, fetchProjects, putSidebarOrder, setProjectGroup, updateGroup, type Group } from '../api'
+import { createGroup, createSector, deleteGroup, deleteProject, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setProjectGroup, setProjectSector, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
-import { entryKey, entryOrder, filterEntries, type Entry } from '../sidebarEntries'
+import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, type Entry } from '../sidebarEntries'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -27,6 +27,16 @@ const loadCollapsed = (): number[] => {
   } catch { return [] }
 }
 
+// Setores colapsados: chave própria porque ids de setor e de grupo são independentes
+// — compartilhar a lista faria um grupo #3 colapsar o setor #3 junto.
+const COLLAPSED_SECTORS_KEY = 'claudinei:collapsedSectors'
+const loadCollapsedSectors = (): number[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(COLLAPSED_SECTORS_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'number') : []
+  } catch { return [] }
+}
+
 // Filtro "somente ativos" (estado de VISÃO, como o de grupos colapsados): esconde
 // terminais e grupos sem agente de pé. Não toca em nada no servidor.
 const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
@@ -34,12 +44,14 @@ const loadActiveOnly = (): boolean => {
   try { return localStorage.getItem(ACTIVE_ONLY_KEY) === '1' } catch { return false }
 }
 
-// O que está sendo arrastado (card de terminal ou cabeçalho de grupo).
-type Drag = { kind: 'project'; id: number } | { kind: 'group'; id: number }
+// O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
+type Drag = { kind: 'project' | 'group' | 'sector'; id: number }
+const DRAG_PREFIX = { project: 'p', group: 'g', sector: 's' } as const
+const dragKeyOf = (d: Drag) => `${DRAG_PREFIX[d.kind]}-${d.id}`
 
 export function Sidebar() {
   const { t } = useTranslation()
-  const { projects, sessions, unread, activeLocalId, view, engines, groups, openSession, openDashboard, openBoard, openTasks, setProjects, setGroups } = useStore()
+  const { projects, sessions, unread, activeLocalId, view, engines, groups, sectors, openSession, openDashboard, openBoard, openTasks, setProjects, setGroups, setSectors } = useStore()
   // Ícone da engine da sessão (badge ao lado do status) — distingue 1 Claude + 1
   // Codex no mesmo projeto. Não é um hook: `engines` já veio do useStore() acima
   // (subscrito), então isto é só uma busca simples, segura dentro do .map de cards.
@@ -60,9 +72,14 @@ export function Sidebar() {
   const [showInfo, setShowInfo] = useState(false)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [overKey, setOverKey] = useState<string | null>(null) // entrada/card alvo (inserir ANTES)
-  const [dragOverGroup, setDragOverGroup] = useState<number | 'root' | null>(null)
+  // Contêiner realçado sob o cursor: 'root', 'g-N' ou 's-N'.
+  const [dragOverBox, setDragOverBox] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<number[]>(loadCollapsed)
-  const [groupMenuFor, setGroupMenuFor] = useState<{ id: number; name: string; x: number; y: number } | null>(null)
+  const [collapsedSectors, setCollapsedSectors] = useState<number[]>(loadCollapsedSectors)
+  // Editor de contêiner (grupo OU setor): mesma anatomia, um discriminador só.
+  const [groupMenuFor, setGroupMenuFor] = useState<{ kind: 'group' | 'sector'; id: number; name: string; x: number; y: number } | null>(null)
+  const [newSectorAt, setNewSectorAt] = useState<{ x: number; y: number } | null>(null)
+  const [newSectorName, setNewSectorName] = useState('')
   const [groupRename, setGroupRename] = useState('')
   const [groupIcon, setGroupIcon] = useState('🗂️')
   const [groupColor, setGroupColor] = useState('#7c5cff')
@@ -81,19 +98,8 @@ export function Sidebar() {
   // working > starting > in_terminal > idle > paradas); empate → mais recente.
   const sessionOf = (projectId: number): SessionInfo | undefined => primarySessionOf(projectId, sessions)
 
-  // Entradas na ordem visual: grupos e soltos intercalados pelo sortOrder unificado.
-  // Empate (dados de antes da ordenação unificada): grupos primeiro, depois por id.
-  const entries: Entry[] = [
-    ...groups.map((g): Entry => ({ kind: 'group', g, items: projects.filter((p) => p.groupId === g.id) })),
-    ...projects
-      .filter((p) => p.groupId == null || !groups.some((g) => g.id === p.groupId))
-      .map((p): Entry => ({ kind: 'project', p })),
-  ].sort((a, b) => {
-    const d = entryOrder(a) - entryOrder(b)
-    if (d !== 0) return d
-    if (a.kind !== b.kind) return a.kind === 'group' ? -1 : 1
-    return 0
-  })
+  // Árvore na ordem visual (setores, grupos e soltos pelo sortOrder unificado).
+  const entries: Entry[] = buildEntries(projects, groups, sectors)
 
   // Arrastar com a lista filtrada corromperia a ordem: applySidebarOrder (backend) só
   // atualiza as entradas RECEBIDAS, com sort_order recomeçando do zero — os escondidos
@@ -115,23 +121,37 @@ export function Sidebar() {
     })
   }
 
+  const toggleSector = (id: number) => {
+    setCollapsedSectors((cur) => {
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+      try { localStorage.setItem(COLLAPSED_SECTORS_KEY, JSON.stringify(next)) } catch { /* só não persiste */ }
+      return next
+    })
+  }
+
   const refetchAll = async () => {
     setProjects(await fetchProjects())
     setGroups(await fetchGroups())
+    setSectors(await fetchSectors())
   }
 
-  const clearDrag = () => { setDrag(null); setOverKey(null); setDragOverGroup(null) }
+  const clearDrag = () => { setDrag(null); setOverKey(null); setDragOverBox(null) }
 
   // Persiste a nova ordem/estrutura completa e sincroniza o store com a resposta.
+  // A estrutura enviada É o pertencimento: o backend deriva setor/grupo dela.
+  const toApi = (e: Entry): SidebarEntry =>
+    e.kind === 'sector'
+      ? { kind: 'sector', id: e.s.id, children: e.children.map(toApi) as Extract<SidebarEntry, { kind: 'sector' }>['children'] }
+      : e.kind === 'group'
+        ? { kind: 'group', id: e.g.id, children: e.items.map((p) => p.id) }
+        : { kind: 'project', id: e.p.id }
+
   const applyOrder = async (next: Entry[]) => {
     try {
-      const res = await putSidebarOrder(next.map((e) =>
-        e.kind === 'group'
-          ? { kind: 'group' as const, id: e.g.id, children: e.items.map((p) => p.id) }
-          : { kind: 'project' as const, id: e.p.id },
-      ))
+      const res = await putSidebarOrder(next.map(toApi))
       setProjects(res.projects)
       setGroups(res.groups)
+      setSectors(res.sectors)
     } catch {
       // fallback: ressincroniza do servidor; se ATÉ o refetch falhar (rede fora),
       // só loga — deixar estourar viraria unhandled rejection nos handlers `void`.
@@ -139,77 +159,28 @@ export function Sidebar() {
     }
   }
 
-  // Remove o item arrastado da estrutura (de onde estiver) e devolve [estrutura, item].
-  const detach = (d: Drag): { rest: Entry[]; grabbed: Entry | null; project?: Project } => {
-    if (d.kind === 'group') {
-      const grabbed = entries.find((e) => e.kind === 'group' && e.g.id === d.id) ?? null
-      return { rest: entries.filter((e) => e !== grabbed), grabbed }
-    }
-    const project = projects.find((p) => p.id === d.id)
-    if (!project) return { rest: entries, grabbed: null }
-    const rest = entries
-      .filter((e) => !(e.kind === 'project' && e.p.id === d.id))
-      .map((e) => (e.kind === 'group' ? { ...e, items: e.items.filter((p) => p.id !== d.id) } : e))
-    return { rest, grabbed: { kind: 'project', p: project }, project }
-  }
-
-  // Solta o arrastado na posição do alvo. Vindo de CIMA insere DEPOIS do alvo,
-  // vindo de baixo insere ANTES — é o que faz "soltar no vizinho" trocar de lugar
-  // (inserir sempre-antes tornaria o gesto mais comum um no-op). Se o alvo é um
-  // card DENTRO de um grupo e o arrastado é um terminal, ele entra no grupo ali.
-  const dropBefore = async (targetKey: string | null) => {
+  // Solta na POSIÇÃO do alvo (null = fim da lista). A árvore inteira é recalculada
+  // em sidebarEntries — aqui só resta persistir o resultado.
+  const dropAt = async (targetKey: string | null) => {
     const d = drag
     clearDrag()
     if (!d) return
-    const dKey = d.kind === 'group' ? `g-${d.id}` : `p-${d.id}`
-    if (dKey === targetKey) return
-    const { rest, grabbed, project } = detach(d)
-    if (!grabbed) return
-
-    // alvo dentro de um grupo? (card de terminal agrupado)
-    if (d.kind === 'project' && project && targetKey?.startsWith('p-')) {
-      const targetId = Number(targetKey.slice(2))
-      const holder = rest.find((e): e is Entry & { kind: 'group' } => e.kind === 'group' && e.items.some((p) => p.id === targetId))
-      if (holder) {
-        const origHolder = entries.find((e): e is Entry & { kind: 'group' } => e.kind === 'group' && e.g.id === holder.g.id)
-        const origFrom = origHolder?.items.findIndex((p) => p.id === d.id) ?? -1
-        const origTo = origHolder?.items.findIndex((p) => p.id === targetId) ?? -1
-        const idx = holder.items.findIndex((p) => p.id === targetId)
-        const at = origFrom !== -1 && origFrom < origTo ? idx + 1 : idx
-        const next = rest.map((e) => (e === holder ? { ...holder, items: [...holder.items.slice(0, at), project, ...holder.items.slice(at)] } : e))
-        await applyOrder(next)
-        return
-      }
-    }
-
-    if (targetKey === null) { await applyOrder([...rest, grabbed]); return }
-    const origFrom = entries.findIndex((e) => entryKey(e) === dKey)
-    const origTo = entries.findIndex((e) => entryKey(e) === targetKey)
-    const idx = rest.findIndex((e) => entryKey(e) === targetKey)
-    const at = idx === -1 ? rest.length : origFrom !== -1 && origFrom < origTo ? idx + 1 : idx
-    await applyOrder([...rest.slice(0, at), grabbed, ...rest.slice(at)])
+    const next = moveEntry(entries, dragKeyOf(d), targetKey)
+    if (next !== entries) await applyOrder(next)
   }
 
-  // Solta um TERMINAL dentro de um grupo (área/cabeçalho do grupo) → entra no fim dele.
-  // Um GRUPO solto sobre outro grupo → reposiciona ANTES dele.
-  const dropOnGroup = async (groupId: number) => {
+  // Solta DENTRO de um contêiner (grupo ou setor): entra no fim dele.
+  const dropInto = async (container: string) => {
     const d = drag
-    if (!d) { clearDrag(); return }
-    if (d.kind === 'group') {
-      if (d.id === groupId) { clearDrag(); return }
-      await dropBefore(`g-${groupId}`)
-      return
-    }
     clearDrag()
-    const { rest, project } = detach(d)
-    if (!project) return
-    const next = rest.map((e) => (e.kind === 'group' && e.g.id === groupId ? { ...e, items: [...e.items, project] } : e))
-    await applyOrder(next)
+    if (!d) return
+    const next = moveInto(entries, dragKeyOf(d), container)
+    if (next !== entries) await applyOrder(next)
   }
 
-  // Soltar no cabeçalho "Terminais": terminal sai do grupo / grupo vai pro topo.
+  // Soltar no cabeçalho "Terminais": tira de grupo/setor e manda para o topo da raiz.
   const dropOnRoot = async () => {
-    await dropBefore(entries.length ? entryKey(entries[0]) : null)
+    await dropAt(entries.length ? entryKey(entries[0]) : null)
   }
 
   const onDelete = async () => {
@@ -225,6 +196,17 @@ export function Sidebar() {
 
   const moveToGroup = async (p: Project, groupId: number | null) => {
     try { await setProjectGroup(p.id, groupId); await refetchAll() } catch { /* mantém como está */ }
+  }
+
+  const moveToSector = async (p: Project, sectorId: number | null) => {
+    try { await setProjectSector(p.id, sectorId); await refetchAll() } catch { /* mantém como está */ }
+  }
+
+  const createSectorNamed = async () => {
+    const name = newSectorName.trim()
+    if (!name) return
+    setNewSectorAt(null); setNewSectorName('')
+    try { await createSector(name); await refetchAll() } catch { /* mantém como está */ }
   }
 
   const createGroupAndMove = async (p: Project) => {
@@ -261,7 +243,7 @@ export function Sidebar() {
         onDragStart={() => setDrag({ kind: 'project', id: p.id })}
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setOverKey(key) }}
         onDragEnd={clearDrag}
-        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropBefore(key) }}
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropAt(key) }}
         onClick={() => {
           if (!s || !canOpen) return
           if (s.status === 'in_terminal') openTerminal(s.localId)
@@ -349,11 +331,11 @@ export function Sidebar() {
         className={[
           'term-group',
           drag?.kind === 'group' && drag.id === g.id ? 'dragging' : '',
-          (dragOverGroup === g.id || overKey === key) && drag !== null && !(drag.kind === 'group' && drag.id === g.id) ? 'drop-target' : '',
+          (dragOverBox === key || overKey === key) && drag !== null && !(drag.kind === 'group' && drag.id === g.id) ? 'drop-target' : '',
         ].filter(Boolean).join(' ')}
-        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); setDragOverGroup(g.id) } }}
-        onDragLeave={() => setDragOverGroup((cur) => (cur === g.id ? null : cur))}
-        onDrop={(e) => { e.preventDefault(); void dropOnGroup(g.id) }}
+        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); e.stopPropagation(); setDragOverBox(key) } }}
+        onDragLeave={() => setDragOverBox((cur) => (cur === key ? null : cur))}
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropInto(key) }}
       >
         <div
           className="term-group__header"
@@ -386,7 +368,7 @@ export function Sidebar() {
                       // clamp: o editor tem ~300px de altura e 235 de largura — não pode
                       // nascer estourando a borda de baixo/direita da janela
                       setGroupMenuFor({
-                        id: g.id, name: g.name,
+                        kind: 'group', id: g.id, name: g.name,
                         x: Math.max(8, Math.min(r.left, window.innerWidth - 250)),
                         y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 320)),
                       })
@@ -405,6 +387,85 @@ export function Sidebar() {
     )
   }
 
+  /**
+   * Setor: mesma anatomia do grupo, um nível acima — só que os filhos podem ser
+   * grupos OU terminais, então o corpo delega de volta para `renderEntry`.
+   */
+  const renderSector = (sec: Group, children: Array<Extract<Entry, { kind: 'group' | 'project' }>>) => {
+    if (children.length === 0 && !isAdmin) return null
+    const isCollapsed = collapsedSectors.includes(sec.id)
+    const key = `s-${sec.id}`
+    const shown = children.flatMap(projectsOf)
+    // O total conta TUDO que está no setor, inclusive dentro dos grupos dele — um
+    // setor marcando 0/9 com nove terminais em grupos confundiria mais que ajudaria.
+    const full = entries.find((e): e is Extract<Entry, { kind: 'sector' }> => e.kind === 'sector' && e.s.id === sec.id)
+    const total = full ? projectsOf(full).length : shown.length
+    const badgeSum = shown.reduce((acc, p) => acc + unreadOf(p.id, sessions, unread), 0)
+    return (
+      <div
+        key={key}
+        data-testid="term-sector"
+        style={{ ['--sector-color' as string]: sec.color ?? 'var(--glass-border)' }}
+        className={[
+          'term-sector',
+          drag?.kind === 'sector' && drag.id === sec.id ? 'dragging' : '',
+          (dragOverBox === key || overKey === key) && drag !== null && !(drag.kind === 'sector' && drag.id === sec.id) ? 'drop-target' : '',
+        ].filter(Boolean).join(' ')}
+        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); setDragOverBox(key) } }}
+        onDragLeave={() => setDragOverBox((cur) => (cur === key ? null : cur))}
+        onDrop={(e) => { e.preventDefault(); void dropInto(key) }}
+      >
+        <div
+          className="term-sector__header"
+          draggable={canDrag}
+          onDragStart={(e) => { e.stopPropagation(); setDrag({ kind: 'sector', id: sec.id }) }}
+          onDragEnd={clearDrag}
+          onClick={() => toggleSector(sec.id)}
+        >
+          <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
+          <span className="term-sector__icon">{sec.icon ?? '🏢'}</span>
+          <span className="term-sector__name">{sec.name}</span>
+          <span className="term-group__count">{activeOnly ? `${shown.length}/${total}` : total}</span>
+          {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
+          {isCollapsed && (
+            <span className="term-group__dots">
+              {shown.slice(0, 6).map((p) => {
+                const ps = sessionOf(p.id)
+                return <span key={p.id} className={ps ? dotClassOf(ps) : 'status-dot status-none'} title={p.name} />
+              })}
+            </span>
+          )}
+          {isAdmin && (
+            <button className="term-group__gear" title={t('sidebar.options')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                      setGroupRename(sec.name)
+                      setGroupIcon(sec.icon ?? '🏢')
+                      setGroupColor(sec.color ?? '#58c4dc')
+                      setGroupMenuFor({
+                        kind: 'sector', id: sec.id, name: sec.name,
+                        x: Math.max(8, Math.min(r.left, window.innerWidth - 250)),
+                        y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 320)),
+                      })
+                    }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+            </button>
+          )}
+        </div>
+        {!isCollapsed && (
+          <div className="term-sector__body">
+            {children.map(renderEntry)}
+            {children.length === 0 && <div className="term-group__empty">{t('sidebar.sectorEmpty')}</div>}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderEntry = (e: Entry) =>
+    e.kind === 'sector' ? renderSector(e.s, e.children) : e.kind === 'group' ? renderGroup(e.g, e.items) : renderCard(e.p)
+
   return (
     <div className="sidebar">
       <div className="sidebar__top">
@@ -420,9 +481,9 @@ export function Sidebar() {
       {/* O cabeçalho "Terminais" é a zona de drop do TOPO: terminal sai do grupo,
           grupo vai pra primeira posição. */}
       <div
-        className={`term-header ${dragOverGroup === 'root' && drag !== null ? 'drop-target' : ''}`}
-        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); setDragOverGroup('root') } }}
-        onDragLeave={() => setDragOverGroup((cur) => (cur === 'root' ? null : cur))}
+        className={`term-header ${dragOverBox === 'root' && drag !== null ? 'drop-target' : ''}`}
+        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); setDragOverBox('root') } }}
+        onDragLeave={() => setDragOverBox((cur) => (cur === 'root' ? null : cur))}
         onDrop={(e) => { e.preventDefault(); void dropOnRoot() }}
       >
         <span className="eyebrow">{t('sidebar.terminals')}</span>
@@ -431,11 +492,19 @@ export function Sidebar() {
           <span className="track" />
           <span className="thumb" />
         </label>
+        {isAdmin && (
+          <button className="ghost term-header__add" title={t('sidebar.newSector')}
+                  onClick={(e) => {
+                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                    setNewSectorName('')
+                    setNewSectorAt({ x: Math.max(8, Math.min(r.left - 60, window.innerWidth - 250)), y: r.bottom + 4 })
+                  }}>🏢+</button>
+        )}
         {isAdmin && <button className="ghost term-header__add" onClick={() => setShowNew(true)}>{t('sidebar.addTerminal')}</button>}
       </div>
 
       <div className="term-list">
-        {visibleEntries.map((e) => (e.kind === 'group' ? renderGroup(e.g, e.items) : renderCard(e.p)))}
+        {visibleEntries.map(renderEntry)}
         {projects.length === 0 && (
           <div className="term-list__empty">{t('sidebar.empty')}</div>
         )}
@@ -450,7 +519,7 @@ export function Sidebar() {
             className={`term-list__endzone ${overKey === 'end' ? 'drop-target' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setOverKey('end') }}
             onDragLeave={() => setOverKey((cur) => (cur === 'end' ? null : cur))}
-            onDrop={(e) => { e.preventDefault(); void dropBefore(null) }}
+            onDrop={(e) => { e.preventDefault(); void dropAt(null) }}
           />
         )}
       </div>
@@ -507,6 +576,22 @@ export function Sidebar() {
               />
               <button title={t('sidebar.newGroup')} disabled={!newGroupName.trim()} onClick={() => void createGroupAndMove(menuFor.p)}>＋</button>
             </div>
+            {sectors.length > 0 && (
+              <>
+                <div className="sess-pop__eyebrow">{t('sidebar.sector')}</div>
+                {sectors.map((sec) => (
+                  <div key={sec.id} className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void moveToSector(p, sec.id) }}>
+                    <span>{sec.icon ?? '🏢'}</span><span>{sec.name}</span>
+                    {menuFor.p.sectorId === sec.id && <span className="sess-pop__check">✓</span>}
+                  </div>
+                ))}
+                {menuFor.p.sectorId != null && (
+                  <div className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void moveToSector(p, null) }}>
+                    <span>▢</span><span>{t('sidebar.noSector')}</span>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>,
         document.body,
@@ -515,9 +600,9 @@ export function Sidebar() {
       {groupMenuFor && createPortal(
         <div className="sess-pop__overlay" onClick={() => setGroupMenuFor(null)}>
           <div className="sess-pop glass" style={{ left: groupMenuFor.x, top: groupMenuFor.y, minWidth: 235 }} onClick={(e) => e.stopPropagation()}>
-            <div className="sess-pop__eyebrow">{t('sidebar.editGroup')}</div>
+            <div className="sess-pop__eyebrow">{t(groupMenuFor.kind === 'sector' ? 'sidebar.editSector' : 'sidebar.editGroup')}</div>
             <div className="sess-pop__newgroup">
-              <button type="button" className="ghost group-edit__icon" title={t('sidebar.groupIcon')}
+              <button type="button" className="ghost group-edit__icon" title={t(groupMenuFor.kind === 'sector' ? 'sidebar.sectorIcon' : 'sidebar.groupIcon')}
                       onClick={() => setShowGroupEmoji(true)}>{groupIcon}</button>
               <input
                 value={groupRename}
@@ -529,19 +614,40 @@ export function Sidebar() {
             </div>
             <div className="sess-pop__newgroup">
               <button style={{ flex: 1 }} disabled={!groupRename.trim()} onClick={() => {
-                const { id } = groupMenuFor
+                const { kind, id } = groupMenuFor
                 setGroupMenuFor(null)
-                void updateGroup(id, { name: groupRename.trim(), icon: groupIcon, color: groupColor }).then(refetchAll).catch(() => {})
+                const patch = { name: groupRename.trim(), icon: groupIcon, color: groupColor }
+                const save = kind === 'sector' ? updateSector(id, patch) : updateGroup(id, patch)
+                void save.then(refetchAll).catch(() => {})
               }}>{t('common.save')}</button>
             </div>
             <div className="sess-pop__item" onClick={() => {
-              const { id } = groupMenuFor
+              const { kind, id } = groupMenuFor
               setGroupMenuFor(null)
-              void deleteGroup(id).then(refetchAll).catch(() => {})
+              void (kind === 'sector' ? deleteSector(id) : deleteGroup(id)).then(refetchAll).catch(() => {})
             }}>
-              <span>🗑</span><span>{t('sidebar.deleteGroup')}</span>
+              <span>🗑</span><span>{t(groupMenuFor.kind === 'sector' ? 'sidebar.deleteSector' : 'sidebar.deleteGroup')}</span>
             </div>
-            <div className="sess-pop__hint">{t('sidebar.deleteGroupHint')}</div>
+            <div className="sess-pop__hint">{t(groupMenuFor.kind === 'sector' ? 'sidebar.deleteSectorHint' : 'sidebar.deleteGroupHint')}</div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {newSectorAt && createPortal(
+        <div className="sess-pop__overlay" onClick={() => setNewSectorAt(null)}>
+          <div className="sess-pop glass" style={{ left: newSectorAt.x, top: newSectorAt.y, minWidth: 230 }} onClick={(e) => e.stopPropagation()}>
+            <div className="sess-pop__eyebrow">{t('sidebar.newSector')}</div>
+            <div className="sess-pop__newgroup">
+              <input
+                autoFocus
+                value={newSectorName}
+                placeholder={t('sidebar.newSectorPlaceholder')}
+                onChange={(e) => setNewSectorName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void createSectorNamed() }}
+              />
+              <button title={t('sidebar.newSector')} disabled={!newSectorName.trim()} onClick={() => void createSectorNamed()}>＋</button>
+            </div>
           </div>
         </div>,
         document.body,

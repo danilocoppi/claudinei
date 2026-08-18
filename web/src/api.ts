@@ -38,11 +38,16 @@ export const deleteProject = (id: number) =>
   req<void>(`/api/projects/${id}`, { method: 'DELETE' })
 export const updateProject = (id: number, patch: { name?: string; color?: string; icon?: string }) =>
   req<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
-export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number }
+export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number; sectorId?: number | null }
+/** Setor: um nível acima do grupo, com a mesma anatomia (aceita grupos E terminais). */
+export type Sector = Group
 /** Uma entrada da sidebar na ordem visual (grupo com filhos, ou terminal solto). */
-export type SidebarEntry = { kind: 'group'; id: number; children: number[] } | { kind: 'project'; id: number }
+export type SidebarEntry =
+  | { kind: 'sector'; id: number; children: Array<{ kind: 'group'; id: number; children: number[] } | { kind: 'project'; id: number }> }
+  | { kind: 'group'; id: number; children: number[] }
+  | { kind: 'project'; id: number }
 export const putSidebarOrder = (entries: SidebarEntry[]) =>
-  req<{ projects: Project[]; groups: Group[] }>('/api/sidebar-order', { method: 'PUT', body: JSON.stringify({ entries }) })
+  req<{ projects: Project[]; groups: Group[]; sectors: Sector[] }>('/api/sidebar-order', { method: 'PUT', body: JSON.stringify({ entries }) })
 export const fetchGroups = () => req<Group[]>('/api/groups')
 export const createGroup = (name: string) =>
   req<Group>('/api/groups', { method: 'POST', body: JSON.stringify({ name }) })
@@ -184,3 +189,16 @@ export const startSessionAuth = (localId: string) =>
 /** Fecha o fluxo com o código (ou URL de callback) trazido do navegador. */
 export const completeSessionAuth = (localId: string, code: string) =>
   req<void>(`/api/sessions/${localId}/auth/complete`, { method: 'POST', body: JSON.stringify({ code }) })
+
+// ---- Setores (mesmo padrão dos grupos) ----
+export const fetchSectors = () => req<Sector[]>('/api/sectors')
+export const createSector = (name: string) =>
+  req<Sector>('/api/sectors', { method: 'POST', body: JSON.stringify({ name }) })
+export const updateSector = (id: number, patch: { name?: string; icon?: string; color?: string }) =>
+  req<Sector>(`/api/sectors/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+export const deleteSector = (id: number) => req<void>(`/api/sectors/${id}`, { method: 'DELETE' })
+/** Move um terminal para um setor (null = raiz). Limpa o grupo dele no servidor. */
+export const setProjectSector = (projectId: number, sectorId: number | null) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/sector`, { method: 'PATCH', body: JSON.stringify({ sectorId }) })
+export const setGroupSector = (groupId: number, sectorId: number | null) =>
+  req<{ ok: true }>(`/api/groups/${groupId}/sector`, { method: 'PATCH', body: JSON.stringify({ sectorId }) })

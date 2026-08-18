@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
 import { createGroup, createSector, deleteGroup, deleteProject, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setProjectGroup, setProjectSector, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
-import { displayStatusKey, dotClassOf, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
+import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, type Entry } from '../sidebarEntries'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
@@ -227,6 +227,9 @@ export function Sidebar() {
     const canOpen = !!s && s.status !== 'stopped' && s.status !== 'dead'
     const revivable = !!s && (s.status === 'stopped' || s.status === 'dead')
     const badge = unreadOf(p.id, sessions, unread)
+    // Qualquer engine viva esperando acende o chamado: olhar só a sessão principal
+    // perderia o caso, porque in_terminal+waiting perde de working na prioridade.
+    const waiting = live.some(isWaitingForYou)
     const key = `p-${p.id}`
     return (
       <div
@@ -234,6 +237,7 @@ export function Sidebar() {
         data-testid="term-card"
         className={[
           'term-card',
+          waiting ? 'waiting' : '',
           active ? 'active' : '',
           drag?.kind === 'project' && drag.id === p.id ? 'dragging' : '',
           overKey === key && drag !== null && !(drag.kind === 'project' && drag.id === p.id) ? 'drop-target' : '',
@@ -314,6 +318,10 @@ export function Sidebar() {
     )
   }
 
+  /** Algum destes terminais espera por você? (usado pelos cabeçalhos fechados) */
+  const anyWaiting = (list: Project[]) =>
+    list.some((p) => liveSessionsOf(p.id, sessions).some(isWaitingForYou))
+
   const renderGroup = (g: Group, items: Project[]) => {
     // Grupo vazio só aparece pra admin (é quem pode arrastar algo pra dentro).
     if (items.length === 0 && !isAdmin) return null
@@ -338,7 +346,9 @@ export function Sidebar() {
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropInto(key) }}
       >
         <div
-          className="term-group__header"
+          // Fechado, o cabeçalho herda o chamado dos filhos escondidos — aberto não,
+          // que aí o próprio cartão já grita e dobrar o sinal só faria ruído.
+          className={`term-group__header ${isCollapsed && anyWaiting(items) ? 'waiting' : ''}`}
           draggable={canDrag}
           onDragStart={(e) => { e.stopPropagation(); setDrag({ kind: 'group', id: g.id }) }}
           onDragEnd={clearDrag}
@@ -416,7 +426,7 @@ export function Sidebar() {
         onDrop={(e) => { e.preventDefault(); void dropInto(key) }}
       >
         <div
-          className="term-sector__header"
+          className={`term-sector__header ${isCollapsed && anyWaiting(shown) ? 'waiting' : ''}`}
           draggable={canDrag}
           onDragStart={(e) => { e.stopPropagation(); setDrag({ kind: 'sector', id: sec.id }) }}
           onDragEnd={clearDrag}

@@ -108,6 +108,16 @@ export function displayStatusKey(s: SessionInfo): string {
   return s.status
 }
 
+/**
+ * A sessão está esperando uma ação SUA? É o único estado em que o gargalo é o
+ * operador — os outros são problema da máquina —, e por isso é o único que a UI
+ * deixa chamar. Vale por dois caminhos: needs_attention (chat) e a heurística do
+ * TUI parado (in_terminal + waiting).
+ */
+export function isWaitingForYou(s: SessionInfo): boolean {
+  return s.status === 'needs_attention' || (s.status === 'in_terminal' && s.terminalActivity === 'waiting')
+}
+
 /** Classe do status-dot: terminal esperando = âmbar (como needs_attention); processando = pulso. */
 export function dotClassOf(s: SessionInfo): string {
   if (s.status === 'in_terminal' && s.terminalActivity === 'waiting') return 'status-dot status-needs_attention'

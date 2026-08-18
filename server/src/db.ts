@@ -92,6 +92,20 @@ export function openDb(path: string): Db {
   try { db.exec(`ALTER TABLE project_groups ADD COLUMN icon TEXT NOT NULL DEFAULT '🗂️'`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE project_groups ADD COLUMN color TEXT NOT NULL DEFAULT '#7c5cff'`) } catch { /* já migrado */ }
 
+  // SETOR: um nível acima do grupo, aceitando grupos E terminais. Migração
+  // aditiva de propósito — as colunas nascem nulas e todo o conteúdo existente
+  // continua na raiz, exatamente onde está hoje (setor é opcional).
+  db.exec(`CREATE TABLE IF NOT EXISTS sectors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    icon TEXT NOT NULL DEFAULT '🏢',
+    color TEXT NOT NULL DEFAULT '#58c4dc',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  try { db.exec(`ALTER TABLE project_groups ADD COLUMN sector_id INTEGER REFERENCES sectors(id)`) } catch { /* já migrado */ }
+  try { db.exec(`ALTER TABLE projects ADD COLUMN sector_id INTEGER REFERENCES sectors(id)`) } catch { /* já migrado */ }
+
   // Engine de quem despachou/executou a task (colaboração entre engines do MESMO
   // projeto: "Vaexa → Vaexa" não dizia quem mandou pra quem).
   try { db.exec(`ALTER TABLE tasks ADD COLUMN from_engine TEXT`) } catch { /* já migrado */ }

@@ -9,6 +9,8 @@ export interface Project {
   icon: string
   /** Grupo visual na sidebar (null = solto na raiz). */
   groupId: number | null
+  /** Setor do terminal quando ele está SOLTO num setor (fora de grupo). */
+  sectorId: number | null
   /** Posição no espaço unificado da sidebar (compartilhado com project_groups.sort_order). */
   sortOrder: number
 }
@@ -17,7 +19,7 @@ export type ProjectsService = ReturnType<typeof createProjectsService>
 
 export function createProjectsService(db: Db) {
   const rowToProject = (r: any): Project => ({
-    id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, groupId: r.group_id ?? null, sortOrder: r.sort_order ?? 0,
+    id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, groupId: r.group_id ?? null, sectorId: r.sector_id ?? null, sortOrder: r.sort_order ?? 0,
   })
 
   return {

@@ -32,22 +32,30 @@ O botão `⏱ Agendas` entra na `chat-header`, vizinho do `🖥 Abrir no termina
 │ ⏱ Preços do produto X                       ⏸   ✎   🗑 │
 │   todo dia 12:00 · próxima hoje 12:00                    │
 │  ┌ hoje 12:00 ─────────────────────────── ✓ 42 s ──────┐ │
-│  │ 1. Loja A — R$ 189,90                               │ │
-│  │ 2. Loja B — R$ 194,00                               │ │
-│  │ 3. Loja C — R$ 199,90                  → ver no chat│ │
+│  │ ## Três lojas mais baratas — 18/08                  │ │
+│  │ 1. **Loja A** — R$ 189,90                           │ │
+│  │ 2. **Loja B** — R$ 194,00                           │ │
+│  │ 3. **Loja C** — R$ 199,90              → ver no chat│ │
 │  ├─────────────────────────────────────────────────────┤ │
-│  │ ontem 12:00   ✓ 38 s   1. Loja B — R$ 191,50      ⌄ │ │
-│  │ 2 dias 12:00  ⚠ falhou — sessão não subiu         ⌄ │ │
+│  │ ontem 12:00   ✓  Três lojas mais baratas — 17/08  ⌄ │ │
+│  │ 2 dias 12:00  ⚠  falhou — sessão não subiu        ⌄ │ │
 │  └───────────────────────────── mostrando 10 de 10 ────┘ │
 └──────────────────────────────────────────────────────────┘
 ```
 
-**O último resultado vem aberto; os anteriores, uma linha cada.** Quem abre esta
-tela quer saber "o que ele achou hoje?" — essa resposta não pode custar um clique.
-O histórico serve para comparar, e comparação se lê bem em uma linha por dia.
+**O último resultado vem aberto; os anteriores, só o título.** Quem abre esta tela
+quer saber "o que ele achou hoje?" — essa resposta não pode custar um clique. O
+histórico serve para comparar, e comparação se lê bem em uma linha por dia. Clicar
+numa linha antiga carrega o conteúdo dela sob demanda (ver "Resultados em arquivo").
 
-O `→ ver no chat` mantém o feed enxuto: guarda-se a **resposta final** do turno, não
-a conversa, e o link leva ao ponto exato no chat para quem quiser o caminho inteiro.
+O conteúdo é renderizado **com formatação** — markdown, e com realce de sintaxe nos
+blocos de código — pelo mesmo caminho que o visualizador de arquivos já usa
+(`react-markdown` + `rehype-highlight` + `MarkdownPre`). Um resultado que é código
+tem de ser lido como código.
+
+O `→ ver no chat` guarda o caminho de volta: o feed tem a **resposta final** do
+turno, e o link leva ao ponto exato da conversa para quem quiser as ferramentas que
+ele rodou até chegar lá.
 
 ### O editor
 
@@ -125,7 +133,8 @@ CREATE TABLE schedule_runs (
   started_at TEXT NOT NULL,
   finished_at TEXT,
   status TEXT NOT NULL,             -- running | ok | error | timeout | skipped
-  result TEXT,                      -- resposta final, truncada
+  title TEXT,                       -- 1ª linha útil do resultado; é o que o feed lista
+  content_size INTEGER,             -- bytes do arquivo; null quando não há conteúdo
   error TEXT,
   local_id TEXT,                    -- sessão que executou (para o "ver no chat")
   late INTEGER NOT NULL DEFAULT 0   -- recuperada após o servidor ficar fora
@@ -141,10 +150,31 @@ acordar devendo execuções.
 `seq` é por agendamento e nunca é reusado — o `#14` do selo tem de bater com o feed
 mesmo depois de a poda apagar as execuções antigas.
 
+### Resultados em arquivo
+
+O banco guarda o **título**; o conteúdo vive em disco, em
+`~/.claudinei/schedules/<schedule_id>/<seq>.md` (configurável por env, como
+`uploads` e `speech` já são). São até **128 KB por resultado**, cortando o fim com
+marca explícita de corte.
+
+Fora do banco por dois motivos: 50 execuções × 128 KB por agendamento incharia o
+SQLite que carrega a aplicação inteira, e o feed quase nunca precisa do conteúdo —
+lê-se o título de dez execuções e o corpo de uma.
+
+O título é a **primeira linha não vazia** do resultado, sem as marcas de cabeçalho
+do markdown, cortada em 100 caracteres. Sem texto útil, o título é o próprio estado
+(`falhou — sessão não subiu`), que é o que a linha precisa dizer de qualquer forma.
+
+Para não pagar uma ida ao servidor por resultado logo ao abrir a tela, a listagem
+traz um **preview de 4 KB** do último resultado de cada agendamento junto do título
+e do tamanho. Passando disso, a UI mostra "ver tudo", que busca o arquivo inteiro.
+
 ### Poda
 
 Depois de cada execução, apaga-se o que passar de `keep_results` naquele
-agendamento. `só disparar` guarda os carimbos com `result` nulo, sob o mesmo limite.
+agendamento — **linha e arquivo juntos**. `só disparar` guarda os carimbos sem
+título nem arquivo, sob o mesmo limite. Apagar um agendamento (ou o projeto) leva a
+pasta inteira junto.
 
 ## Cadência
 
@@ -216,8 +246,9 @@ valor esteja nulo ou no passado — é o que trata as execuções perdidas.
 4. **Retorno**: com `expects_result`, escuta o `result` da sessão com timeout de
    30 min, exatamente como o `askAgent` já faz. Sem ele, a execução fecha como `ok`
    assim que o envio sai.
-5. **Gravação**: `status`, `result` truncado em 8 KB (com marca de corte), duração,
-   `local_id`. Sucesso zera `consecutive_failures`; falha incrementa.
+5. **Gravação**: `status`, duração,
+   `local_id`, `title` e o arquivo do conteúdo. Sucesso zera
+   `consecutive_failures`; falha incrementa.
 
 ### As três decisões
 
@@ -232,8 +263,9 @@ atrasada**, e depois salta para a próxima ocorrência futura. Perder o relatór
 diário porque a máquina reiniciou é pior que recebê-lo tarde; receber catorze de
 uma vez é pior que os dois.
 
-**Tamanho do resultado**: 8 KB, cortando o fim. O feed é resumo; o texto inteiro
-está no chat, a um clique pelo `→ ver no chat`.
+**Tamanho do resultado**: **128 KB**, cortando o fim com marca de corte, gravado em
+arquivo e lido sob demanda. O feed lista títulos; o corpo só é carregado do que se
+abre.
 
 ### Corrida conhecida
 
@@ -251,7 +283,8 @@ POST   /api/projects/:id/schedules        cria
 PATCH  /api/schedules/:id                 edita (inclui enabled: pausar/retomar)
 DELETE /api/schedules/:id
 POST   /api/schedules/:id/run             executa agora (não mexe no next_run_at)
-GET    /api/schedules/:id/runs?limit=     feed
+GET    /api/schedules/:id/runs?limit=     feed (títulos, sem conteúdo)
+GET    /api/schedules/:id/runs/:seq/content   conteúdo completo de uma execução
 POST   /api/schedules/preview             { cadence } → { next: string[], describe: string }
 ```
 
@@ -286,7 +319,13 @@ aberta e o `⏱` da sidebar acender sem refresh.
   falhar a tarefa inteira porque o effort não trocou seria pior que executá-la com
   o effort anterior.
 - Timeout de 30 min: `timeout`, que conta como falha.
-- Projeto apagado: `ON DELETE CASCADE` leva agendamentos e execuções junto.
+- Projeto apagado: `ON DELETE CASCADE` leva agendamentos e execuções junto, e a
+  pasta de resultados é removida.
+- Arquivo de resultado ausente (apagado à mão, disco cheio no momento da gravação):
+  a linha continua no feed com o título e o corpo diz "conteúdo indisponível". Uma
+  execução que aconteceu não pode sumir do histórico porque o arquivo se perdeu.
+- Falha ao gravar o conteúdo não derruba a execução: `status` continua `ok` e o
+  erro de escrita fica em `error`.
 - Cadência sem próxima execução: 400 na gravação, nunca um agendamento morto-vivo.
 
 ## Testes
@@ -306,9 +345,14 @@ respeita `keep_results` sem reusar `seq`.
 
 **Rotas**: RBAC por projeto; validações; preview bate com o que o agendador faria.
 
+**Resultados**: título sai da primeira linha útil, sem marca de cabeçalho e cortado
+em 100; conteúdo grava e lê do arquivo; corte em 128 KB é marcado; poda apaga linha
+E arquivo; arquivo ausente não derruba o feed.
+
 **Frontend**: `⏱` aparece só com agendamento ativo e conta certo; bolha teal com o
-selo; último resultado aberto e anteriores fechados; pausar/retomar; `só disparar`
-mostra carimbos em vez de feed.
+selo; último resultado aberto (com markdown e realce de código) e anteriores só com
+título, carregando sob demanda; pausar/retomar; `só disparar` mostra carimbos em vez
+de feed.
 
 ## Fora de escopo
 

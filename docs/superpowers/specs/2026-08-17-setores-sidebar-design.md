@@ -36,6 +36,11 @@ conteúdo, e a adoção é gradual — sem um setor "Geral" artificial.
 para a raiz, espelhando o `remove()` de grupo, que hoje devolve os terminais para
 a lista raiz.
 
+Apagar um **grupo que está dentro de um setor** deixa os terminais dele NO SETOR —
+não na raiz. Hoje o `remove()` limpa só o `group_id`, o que mandaria o terminal
+para a raiz e faria o operador perder o contexto que ele mesmo montou; com setores,
+o grupo apagado precisa repassar seu `sector_id` aos filhos.
+
 **Arrastar é completo.** Terminal entre grupo/setor/raiz, grupo para dentro e fora
 de setor, setor reordenado na raiz.
 
@@ -117,8 +122,12 @@ concentram.
 
 `filterEntries` precisa entender setor: **setor sem nenhum terminal ativo some
 inteiro**, como já acontece com grupo. Sem isso, ligar o filtro passaria a mostrar
-setores vazios — o oposto do que ele existe para fazer. O contador do setor segue
-o padrão `ativos/total` já usado no grupo.
+setores vazios — o oposto do que ele existe para fazer.
+
+O contador do setor segue o padrão `ativos/total` já usado no grupo, contando
+TODOS os terminais do setor — inclusive os que estão dentro de grupos dele, não só
+os soltos. Um setor que mostra `0/9` quando tem nove terminais em grupos seria
+mais confuso que útil.
 
 ## Tratamento de erros
 
@@ -136,6 +145,7 @@ Serviço:
 - Ordem preservada dentro de cada nível após a travessia.
 - Pertencimento único: mover para grupo limpa `sector_id` e vice-versa.
 - Apagar setor promove grupos e terminais à raiz, sem apagar nada.
+- Apagar grupo DENTRO de setor deixa os terminais no setor (não os manda à raiz).
 - Mover para setor inexistente falha.
 
 Frontend:

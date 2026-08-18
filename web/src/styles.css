@@ -753,7 +753,11 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   background: transparent; border: none; color: var(--text-dim);
   padding: 3px; line-height: 0; cursor: pointer; border-radius: 6px;
 }
-.term-group__header:hover .term-group__gear { visibility: visible; }
+/* Vale para os DOIS cabeçalhos: o ⋮ nasce escondido, e uma regra presa só ao
+   grupo deixaria o botão do setor invisível para sempre — presente no DOM,
+   inalcançável na tela. */
+.term-group__header:hover .term-group__gear,
+.term-sector__header:hover .term-group__gear { visibility: visible; }
 .term-group__gear:hover { background: var(--glass-bg-strong); color: var(--text); filter: none; }
 .term-group__body {
   display: flex; flex-direction: column; gap: 6px;

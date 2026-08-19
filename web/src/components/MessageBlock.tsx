@@ -168,6 +168,49 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
  * asteriscos e as cercas de código literais na tela.
  * Sem o lápis de editar: reenviar a task como se fosse sua não faz sentido.
  */
+/**
+ * Mensagem despachada por um agendamento. Mesma família da bolha de task (é
+ * conteúdo injetado, não digitado), com hue próprio: âmbar já quer dizer "task de
+ * outro terminal" e violeta, "subagente" — repetir uma delas confundiria origens
+ * diferentes. O selo liga a mensagem de volta à REGRA que a produziu, e o `#n`
+ * casa com o feed da tela de Agendas.
+ */
+function ScheduledMessageBubble({
+  item, currentLocalId,
+}: {
+  item: Extract<ChatItem, { kind: 'scheduled_message' }>
+  currentLocalId?: string
+}) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+
+  const lines = item.text.split('\n')
+  const overflow = lines.length - COLLAPSE_LINES
+  const collapsed = overflow > 0 && !expanded
+  const shown = collapsed ? lines.slice(0, COLLAPSE_LINES).join('\n') + '\n…' : item.text
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 6, margin: '8px 0' }}>
+      <ForwardButton text={item.text} currentLocalId={currentLocalId} />
+      <div style={{ maxWidth: '70%' }}>
+        <div className="msg-bubble msg-bubble--scheduled">
+          <div className="msg-scheduled__from">
+            <span aria-hidden="true">⏱</span> {t('chat.scheduledFrom', { name: item.name, run: item.run })}
+          </div>
+          <div className="markdown" style={{ lineHeight: 1.6 }}>
+            <AssistantMarkdown text={shown} currentLocalId={currentLocalId} />
+          </div>
+          {overflow > 0 && (
+            <button type="button" className="msg-expand" onClick={() => setExpanded(!expanded)}>
+              {collapsed ? `▾ ${t('chat.showAll', { n: overflow })}` : `▴ ${t('chat.collapse')}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TaskMessageBubble({
   item, currentLocalId,
 }: {
@@ -285,6 +328,8 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
       )
     case 'task_message':
       return <TaskMessageBubble item={item} currentLocalId={currentLocalId} />
+    case 'scheduled_message':
+      return <ScheduledMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'tool_call':
       return <ToolCallCard item={item} />
   }

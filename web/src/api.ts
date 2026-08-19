@@ -202,3 +202,46 @@ export const setProjectSector = (projectId: number, sectorId: number | null) =>
   req<{ ok: true }>(`/api/projects/${projectId}/sector`, { method: 'PATCH', body: JSON.stringify({ sectorId }) })
 export const setGroupSector = (groupId: number, sectorId: number | null) =>
   req<{ ok: true }>(`/api/groups/${groupId}/sector`, { method: 'PATCH', body: JSON.stringify({ sectorId }) })
+
+// ---- Agendamentos por terminal ----
+export type Cadence =
+  | { kind: 'every'; n: number; unit: 'minutes' | 'hours'; weekdays?: number[]; from?: string; to?: string }
+  | { kind: 'daily'; at: string; weekdays?: number[] }
+  | { kind: 'weekly'; weekdays: number[]; at: string }
+  | { kind: 'monthly'; day: number; at: string }
+  | { kind: 'cron'; expr: string }
+
+export interface ScheduleRun {
+  id: number; scheduleId: number; seq: number
+  startedAt: string; finishedAt: string | null
+  status: 'running' | 'ok' | 'error' | 'timeout' | 'skipped'
+  title: string | null; contentSize: number | null
+  error: string | null; localId: string | null; late: boolean
+  /** Começo do conteúdo, só no último resultado da listagem (o resto vem sob demanda). */
+  preview?: string | null
+}
+
+export interface Schedule {
+  id: number; projectId: number; name: string; task: string; cadence: Cadence
+  engine: string | null; model: string | null; effort: string | null
+  expectsResult: boolean; keepResults: number; enabled: boolean
+  nextRunAt: string | null; consecutiveFailures: number; runCount: number
+  lastRun?: ScheduleRun | null
+}
+
+export type ScheduleInput = Omit<Schedule, 'id' | 'projectId' | 'nextRunAt' | 'consecutiveFailures' | 'runCount' | 'enabled' | 'lastRun'>
+
+export const fetchSchedules = () => req<Schedule[]>('/api/schedules')
+export const fetchProjectSchedules = (projectId: number) => req<Schedule[]>(`/api/projects/${projectId}/schedules`)
+export const createSchedule = (projectId: number, input: Partial<ScheduleInput>) =>
+  req<Schedule>(`/api/projects/${projectId}/schedules`, { method: 'POST', body: JSON.stringify(input) })
+export const updateSchedule = (id: number, patch: Partial<ScheduleInput> & { enabled?: boolean }) =>
+  req<Schedule>(`/api/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+export const deleteSchedule = (id: number) => req<void>(`/api/schedules/${id}`, { method: 'DELETE' })
+export const runScheduleNow = (id: number) => req<{ ok: true }>(`/api/schedules/${id}/run`, { method: 'POST' })
+export const fetchScheduleRuns = (id: number, limit = 20) => req<ScheduleRun[]>(`/api/schedules/${id}/runs?limit=${limit}`)
+export const fetchRunContent = (id: number, seq: number) =>
+  req<{ content: string | null }>(`/api/schedules/${id}/runs/${seq}/content`)
+/** Preview vem do SERVIDOR: um cálculo próprio no front acabaria discordando do agendador. */
+export const previewCadence = (cadence: Cadence) =>
+  req<{ next: string[] }>('/api/schedules/preview', { method: 'POST', body: JSON.stringify({ cadence }) })

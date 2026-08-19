@@ -147,6 +147,11 @@ export function ChatView() {
           <span style={{ color: 'var(--err)' }}>{session.detail.slice(0, 140)}</span>
         )}
         <button className="ghost" style={{ marginLeft: 'auto' }}
+                title={t('schedules.openTitle')}
+                onClick={() => useStore.getState().openSchedules()}>
+          ⏱ {t('schedules.open')}
+        </button>
+        <button className="ghost"
                 disabled={!canOpenTerminal}
                 title={!canOpenTerminal ? t('chat.handoffUnavailable') : undefined}
                 onClick={handleOpenTerminal}>

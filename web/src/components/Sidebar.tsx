@@ -51,7 +51,7 @@ const dragKeyOf = (d: Drag) => `${DRAG_PREFIX[d.kind]}-${d.id}`
 
 export function Sidebar() {
   const { t } = useTranslation()
-  const { projects, sessions, unread, activeLocalId, view, engines, groups, sectors, openSession, openDashboard, openBoard, openTasks, setProjects, setGroups, setSectors } = useStore()
+  const { projects, sessions, unread, activeLocalId, view, engines, groups, sectors, schedules, openSession, openDashboard, openBoard, openTasks, setProjects, setGroups, setSectors } = useStore()
   // Ícone da engine da sessão (badge ao lado do status) — distingue 1 Claude + 1
   // Codex no mesmo projeto. Não é um hook: `engines` já veio do useStore() acima
   // (subscrito), então isto é só uma busca simples, segura dentro do .map de cards.
@@ -220,6 +220,22 @@ export function Sidebar() {
     } catch { /* mantém como está */ }
   }
 
+  /**
+   * O que o ⏱ do cartão precisa dizer: quantos agendamentos ATIVOS o terminal tem
+   * (pausado não age, então não conta), quando é o próximo e se algum vem falhando
+   * seguido — cron quebrado que ninguém percebe é o modo clássico de falhar aqui.
+   */
+  const schedulesOf = (projectId: number) => {
+    const active = schedules.filter((s) => s.projectId === projectId && s.enabled)
+    if (active.length === 0) return null
+    const next = active
+      .map((s) => s.nextRunAt)
+      .filter((d): d is string => !!d)
+      .sort()[0]
+    // Uma falha isolada pode ser um tropeço da vez; duas seguidas é o agendamento quebrado.
+    return { count: active.length, next, failing: active.some((s) => s.consecutiveFailures >= 2) }
+  }
+
   const renderCard = (p: Project) => {
     const s = sessionOf(p.id)
     const live = liveSessionsOf(p.id, sessions)
@@ -257,6 +273,23 @@ export function Sidebar() {
         <div className="term-card__title">
           <span className="term-card__icon">{p.icon}</span>
           <span className="term-card__name">{p.name}</span>
+          {(() => {
+            const sch = schedulesOf(p.id)
+            if (!sch) return null
+            return (
+              <span
+                data-testid="schedule-badge"
+                className={`term-card__sched ${sch.failing ? 'failing' : ''}`}
+                title={[
+                  t('sidebar.scheduleCount', { count: sch.count }),
+                  sch.next ? t('sidebar.scheduleNext', { when: new Date(sch.next).toLocaleString() }) : '',
+                  sch.failing ? t('sidebar.scheduleFailing') : '',
+                ].filter(Boolean).join(' · ')}
+              >
+                ⏱{sch.count > 1 ? sch.count : ''}
+              </span>
+            )
+          })()}
           {badge > 0 && <span className="badge">{badge}</span>}
           {isAdmin && (
             <button className="term-card__action term-card__action--reveal" title={t('sidebar.options')}

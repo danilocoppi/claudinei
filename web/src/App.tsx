@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from './store'
-import { fetchEngines, fetchGroups, fetchMe, fetchProjects, fetchSectors, fetchSlashCommands } from './api'
+import { fetchEngines, fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
 import { Sidebar } from './components/Sidebar'
 import { SidebarResizer } from './components/SidebarResizer'
 import { Dashboard } from './components/Dashboard'
 import { ChatView } from './components/ChatView'
+import { SchedulesView } from './components/SchedulesView'
 import { BoardPanel } from './components/BoardPanel'
 import { TasksPanel } from './components/TasksPanel'
 import { TerminalView } from './components/TerminalView'
@@ -62,6 +63,8 @@ export default function App() {
     fetchProjects().then(setProjects).catch(() => {})
     fetchGroups().then((groups) => useStore.getState().setGroups(groups)).catch(() => {})
     fetchSectors().then((sectors) => useStore.getState().setSectors(sectors)).catch(() => {})
+    // Lista enxuta de agendamentos: é ela que acende o ⏱ nos cartões da sidebar.
+    fetchSchedules().then((s) => useStore.getState().setSchedules(s)).catch(() => {})
     // Pré-carrega a lista de slash commands (persistida no backend) para o
     // autocomplete do chat mostrar tudo já no primeiro `/`, sem esperar a 1ª msg.
     fetchSlashCommands().then((cmds) => useStore.getState().setSlashCommands(cmds)).catch(() => {})
@@ -118,6 +121,7 @@ export default function App() {
           {view === 'chat' && <ChatView />}
           {view === 'board' && <BoardPanel />}
           {view === 'tasks' && <TasksPanel />}
+          {view === 'schedules' && <SchedulesView />}
           {view === 'terminal' && <TerminalView />}
         </div>
         <FileViewerModal />

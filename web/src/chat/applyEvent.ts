@@ -42,6 +42,14 @@ function classifyUserText(text: string): ChatItem[] {
   const task = cleaned.match(/^\[Task from ([^\]]+)\]:\s*([\s\S]*)$/)
   if (task) return [{ kind: 'task_message', from: task[1].trim(), text: task[2].trim() }]
 
+  const scheduled = cleaned.match(/^\[Agendamento: (.+) #(\d+)\]:\s*([\s\S]*)$/)
+  if (scheduled) {
+    return [{
+      kind: 'scheduled_message',
+      name: scheduled[1].trim(), run: Number(scheduled[2]), text: scheduled[3].trim(),
+    }]
+  }
+
   // injeções misturáveis ao texto real: extrai notas e limpa o resto
   const items: ChatItem[] = []
   let rest = text

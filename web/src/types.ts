@@ -94,3 +94,10 @@ export type ChatItem =
    * operador que escreveu. `from` é o terminal de origem; `text` é o corpo (markdown).
    */
   | { kind: 'task_message'; from: string; text: string; fromSubagent?: boolean; parentId?: string }
+  /**
+   * Mensagem que um AGENDAMENTO despachou. Chega pelo mesmo canal de uma digitada
+   * (o backend escreve no stdin da CLI), então o selo `[Agendamento: <nome> #<n>]`
+   * é o único sinal que sobra no transcript de que não foi o operador que escreveu.
+   * `run` é o número da execução, que casa com o feed da tela de Agendas.
+   */
+  | { kind: 'scheduled_message'; name: string; run: number; text: string; fromSubagent?: boolean; parentId?: string }

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
-import type { BoardPost, Group, Sector, Task } from './api'
+import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import type { FileKind, ScopeResult } from './files'
 import { applyEvent } from './chat/applyEvent'
 import { notifySessionChange } from './notifications'
@@ -70,7 +70,9 @@ interface State {
   groups: Group[]
   /** Setores: um nível acima do grupo, contendo grupos e terminais. */
   sectors: Sector[]
-  view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal'
+  /** Agendamentos de TODOS os terminais (enxutos): é o que acende o ⏱ na sidebar. */
+  schedules: Schedule[]
+  view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal' | 'schedules'
   board: BoardPost[]
   tasks: Task[]
   /** Arquivo aberto no FileViewerModal (path detectado/resolvido no chat), ou null se fechado. */
@@ -89,6 +91,8 @@ interface State {
   setProjects(projects: Project[]): void
   setGroups(groups: Group[]): void
   setSectors(sectors: Sector[]): void
+  setSchedules(schedules: Schedule[]): void
+  openSchedules(): void
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
   setHistory(localId: string, events: ClaudeEvent[]): void
@@ -138,6 +142,7 @@ export const useStore = create<State>((set, get) => ({
   sessionEffort: {},
   groups: [],
   sectors: [],
+  schedules: [],
   view: 'dashboard',
   board: [],
   tasks: [],
@@ -153,6 +158,12 @@ export const useStore = create<State>((set, get) => ({
   setGroups: (groups) => set({ groups }),
 
   setSectors: (sectors) => set({ sectors }),
+
+  setSchedules: (schedules) => set({ schedules }),
+
+  // Mantém o activeLocalId: a tela de Agendas é do terminal aberto, e voltar ao
+  // chat não pode custar reabrir a sessão.
+  openSchedules: () => set({ view: 'schedules' }),
 
   setSlashCommands: (cmds) => set((s) => (cmds.length ? { slashCommands: cmds } : s)),
 
@@ -292,6 +303,11 @@ export const useStore = create<State>((set, get) => ({
         createdAt: msg.createdAt ?? new Date().toISOString(),
       }
       set((s) => ({ board: [post, ...s.board].slice(0, BOARD_MAX) }))
+    } else if (msg.type === 'schedules_changed' || msg.type === 'schedule_run') {
+      // O servidor só avisa QUE mudou (não manda a lista): a tela de Agendas e o ⏱
+      // da sidebar se atualizam rebuscando, que é barato e não duplica o formato.
+      void import('./api').then(({ fetchSchedules }) =>
+        fetchSchedules().then((list) => set({ schedules: list })).catch(() => {}))
     } else if (msg.type === 'task_update') {
       const task = msg.task as Task | undefined
       if (!task) return

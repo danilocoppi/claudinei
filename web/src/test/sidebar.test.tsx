@@ -454,18 +454,24 @@ describe('uma bolinha por engine viva no card', () => {
       },
     })
     render(<Sidebar />)
-    expect(screen.getByTestId('term-card').querySelectorAll('.term-card__dots .status-dot').length).toBe(1)
+    // uma viva só: quem fala é o rosto, e as bolinhas não aparecem
+    expect(screen.getByTestId('term-card').querySelectorAll('.term-card__dots .status-dot').length).toBe(0)
+    expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('working')
   })
 
-  it('uma engine só → segue exatamente uma bolinha (comportamento de sempre)', () => {
+  /** As bolinhas deram lugar ao rosto quando há uma engine só — o sinal mudou de
+   *  forma, não sumiu. Duas ou mais continuam com uma bolinha cada. */
+  it('uma engine só → o rosto assume, sem bolinha repetindo', () => {
     useStore.setState({ projects: projeto, sessions: { s1: sess('s1', 1, 'idle', 'claude') } })
     render(<Sidebar />)
-    expect(screen.getByTestId('term-card').querySelectorAll('.term-card__dots .status-dot').length).toBe(1)
+    const card = screen.getByTestId('term-card')
+    expect(card.querySelectorAll('.status-dot').length).toBe(0)
+    expect(card.querySelector('[data-face]')!.getAttribute('data-face')).toBe('idle')
   })
 
-  it('projeto sem sessão viva ainda mostra a bolinha da parada (não some nada)', () => {
+  it('projeto sem sessão viva não perde o sinal: o rosto dorme', () => {
     useStore.setState({ projects: projeto, sessions: { s1: sess('s1', 1, 'stopped', 'claude') } })
     render(<Sidebar />)
-    expect(screen.getByTestId('term-card').querySelectorAll('.status-dot').length).toBe(1)
+    expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('asleep')
   })
 })

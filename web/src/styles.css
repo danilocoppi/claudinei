@@ -1255,7 +1255,8 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
-  .status-working, .status-dot--pulse, .status-needs_attention::after { animation: none; }
+  .status-working, .status-dot--pulse, .status-needs_attention::after,
+  [data-face="working"] .agent-face__eyes { animation: none; }
   /* Parado, o anel fica aberto e mais grosso: o chamado não pode depender do
      movimento — quem desliga animação continua precisando ver quem espera. */
   .status-needs_attention::after { transform: scale(1.9); opacity: .6; border-width: 2px; }
@@ -1598,7 +1599,8 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 [data-motion="reduced"] .sidebar { transition: none; }
 [data-motion="reduced"] .status-working,
 [data-motion="reduced"] .status-dot--pulse,
-[data-motion="reduced"] .status-needs_attention::after { animation: none; }
+[data-motion="reduced"] .status-needs_attention::after,
+[data-motion="reduced"] [data-face="working"] .agent-face__eyes { animation: none; }
 [data-motion="reduced"] .status-needs_attention::after { transform: scale(1.9); opacity: .6; border-width: 2px; }
 
 /* ---- Painel de Aparência ---- */
@@ -1768,3 +1770,38 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   color: var(--text-dim); font-size: 11.5px;
 }
+
+/* ---- Rosto do agente ----
+   Substitui a bolinha no cartão: um ponto diz que algo acontece, um rosto diz que
+   tem alguém ali. O estado entra por `data-face` e é o CSS que desenha a expressão
+   — uma expressão nova não mexe no componente. */
+.agent-face { display: inline-flex; flex: none; color: var(--term-color, var(--accent)); }
+.agent-face svg { display: block; overflow: visible; }
+.agent-face__head { transition: opacity .3s; }
+/* Os olhos são vazados na cor do FUNDO da coluna, não pretos: é o recorte que faz
+   o rosto se ler a 17px sem virar um borrão. */
+.agent-face__eye { fill: var(--bg); transition: rx .25s, ry .25s, cy .25s, opacity .25s; }
+
+/* ociosa: rosto neutro (o padrão acima) */
+
+/* trabalhando: os olhos varrem de um lado ao outro — o jeito mais econômico de
+   dizer "está pensando" sem piscar nada. */
+[data-face="working"] .agent-face__eyes { animation: face-scan 2.2s ease-in-out infinite; }
+@keyframes face-scan {
+  0%, 100% { transform: translateX(-1.1px); }
+  50%      { transform: translateX(1.1px); }
+}
+
+/* esperando você: olhos arregalados. O ping âmbar continua vindo da bolinha de
+   status quando ela existe; aqui o rosto reforça com a expressão. */
+[data-face="waiting"] .agent-face__eye { rx: 2.7px; ry: 2.7px; }
+[data-face="waiting"] .agent-face__head { color: var(--warn); }
+
+/* subindo: olhos pequenos, ainda acordando */
+[data-face="starting"] .agent-face__eye { rx: 1.2px; ry: 1.2px; opacity: .8; }
+
+/* dormindo: olhos fechados (fatias finas) e rosto apagado */
+[data-face="asleep"] { opacity: .45; }
+/* Pálpebra fechada: o olho achata e desce um fio — lê-se "dormindo" de relance. */
+[data-face="asleep"] .agent-face__eye { rx: 2.4px; ry: .38px; cy: 12.6px; }
+

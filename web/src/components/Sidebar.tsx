@@ -20,6 +20,7 @@ import { ColorField } from './ColorField'
 import { copyText } from '../clipboard'
 import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
+import { AgentFace, faceStateOf } from './AgentFace'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -347,13 +348,15 @@ export function Sidebar() {
         }}
       >
         <div className="term-card__title">
+          <AgentFace state={faceStateOf(s)} size={17}
+                     title={s ? t(`status.${displayStatusKey(s)}` as 'status.in_terminal') : t('sidebar.noSession')} />
           <Icon className="term-card__icon" value={p.icon} size={15} />
           <span className="term-card__name">{p.name}</span>
           {/* Colapsado, a bolinha sobe para a linha do nome: o modo compacto não
               pode virar um jeito de perder o aviso de "esperando você". */}
-          {isCollapsed && s && (
+          {isCollapsed && live.length > 1 && (
             <span className="term-card__dots">
-              {(live.length > 1 ? live : [s]).map((ls) => (
+              {live.map((ls) => (
                 <span key={ls.localId} className={dotClassOf(ls)}
                       title={`${engineOf(ls)?.label ?? ls.engine} · ${t(`status.${displayStatusKey(ls)}` as 'status.in_terminal')}`} />
               ))}
@@ -405,15 +408,19 @@ export function Sidebar() {
               {/* Uma bolinha por engine VIVA (Claude + Codex + Kimi juntos aparecem
                   todas); com uma só, é exatamente a bolinha de sempre. O texto e o
                   ícone ao lado seguem descrevendo a sessão principal. */}
-              <span className="term-card__dots">
-                {(live.length > 1 ? live : [s]).map((ls) => (
-                  <span
-                    key={ls.localId}
-                    className={dotClassOf(ls)}
-                    title={`${engineOf(ls)?.label ?? ls.engine} · ${t(`status.${displayStatusKey(ls)}` as 'status.in_terminal')}`}
-                  />
-                ))}
-              </span>
+              {/* Duas engines vivas são dois estados, e um rosto só não dá conta:
+                  aí as bolinhas voltam. Com uma só, elas repetiriam o rosto. */}
+              {live.length > 1 && (
+                <span className="term-card__dots">
+                  {live.map((ls) => (
+                    <span
+                      key={ls.localId}
+                      className={dotClassOf(ls)}
+                      title={`${engineOf(ls)?.label ?? ls.engine} · ${t(`status.${displayStatusKey(ls)}` as 'status.in_terminal')}`}
+                    />
+                  ))}
+                </span>
+              )}
               {engineOf(s) && (
                 <EngineIcon className="engine-badge" title={engineOf(s)!.label} icon={engineOf(s)!.icon} />
               )}

@@ -89,13 +89,14 @@ describe('terminal colapsável', () => {
    * O modo compacto não pode virar um jeito de perder o aviso: a bolinha de status
    * e o badge de não lidas continuam na linha, é o TEXTO do status que sai.
    */
-  it('colapsado esconde o texto do status, mas mantém bolinha e badge', () => {
+  it('colapsado esconde o texto do status, mas mantém o rosto e o badge', () => {
     render(<Sidebar />)
     const beta = cardOf('Beta')
     fireEvent.click(within(beta).getByTitle(/recolher/i))
     const collapsed = cardOf('Beta')
     expect(within(collapsed).queryByText(/aguardando você/i)).toBeNull()
-    expect(collapsed.querySelector('.status-dot')).toBeTruthy()
+    // o sinal continua: o rosto está na linha, com a expressão de quem espera
+    expect(collapsed.querySelector('[data-face]')!.getAttribute('data-face')).toBe('waiting')
     expect(within(collapsed).getByText('4')).toBeTruthy()
   })
 

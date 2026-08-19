@@ -147,6 +147,14 @@ export function openDb(path: string): Db {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_runs_schedule ON schedule_runs(schedule_id, seq DESC)`)
 
+  // Aparência por usuário. `user_id = 0` é a instalação sem auth — por isso não há
+  // FK para users: a linha 0 não corresponde a usuário nenhum.
+  db.exec(`CREATE TABLE IF NOT EXISTS user_prefs (
+    user_id INTEGER PRIMARY KEY,
+    appearance TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
   db.exec(`UPDATE tasks SET status = CASE status WHEN 'em_andamento' THEN 'in_progress' WHEN 'concluida' THEN 'completed' WHEN 'falhou' THEN 'failed' ELSE status END`)
   return db
 }

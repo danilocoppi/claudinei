@@ -25,6 +25,8 @@ import { registerUploadRoutes } from './routes/uploads.js'
 import { registerTranscribeRoutes } from './routes/transcribe.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerScheduleRoutes } from './routes/schedules.js'
+import { registerPrefsRoutes } from './routes/prefs.js'
+import { createPrefsService } from './prefs.js'
 import { createSchedulesStore } from './schedules/store.js'
 import { createScheduler, type Scheduler } from './schedules/scheduler.js'
 import { registerStatic } from './static.js'
@@ -81,6 +83,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   deps.onOrchestratorReady?.(drain)
   registerFsRoutes(app)
   registerGroupRoutes(app, { db: deps.db })
+  registerPrefsRoutes(app, { prefs: createPrefsService(deps.db) })
   // O agendador nasce aqui porque precisa do manager E do broadcast, que só existem
   // montados. index.ts recebe a referência para parar o laço no shutdown.
   const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })

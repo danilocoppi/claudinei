@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { posix, win32 } from 'node:path'
 import { binAvailableCached } from './engine/available.js'
 
 /**
@@ -11,7 +12,12 @@ import { binAvailableCached } from './engine/available.js'
 export type LocalApp = 'folder' | 'vscode' | 'terminal'
 export const LOCAL_APPS: LocalApp[] = ['folder', 'vscode', 'terminal']
 
-export interface Launcher { cmd: string; args: string[] }
+export interface Launcher {
+  cmd: string
+  args: string[]
+  /** Pasta como diretório de trabalho, quando ela NÃO pode ir em argumento. */
+  cwd?: string
+}
 
 /**
  * Candidatos por app, em ordem de preferência — vence o primeiro que existir no
@@ -36,7 +42,10 @@ function candidatesFor(app: LocalApp, dir: string, platform: NodeJS.Platform): L
   }
 
   if (mac) return [{ cmd: 'open', args: ['-a', 'Terminal', dir] }]
-  if (win) return [{ cmd: 'wt', args: ['-d', dir] }, { cmd: 'cmd', args: ['/c', 'start', 'cmd', '/k', `cd /d ${dir}`] }]
+  // O `cmd.exe` RE-INTERPRETA a linha de comando que recebe: um nome de pasta com
+  // "&" (que o Windows permite) emendaria um segundo comando. Por isso a pasta vai
+  // como `cwd`, que não passa por interpretação nenhuma, em vez de ser interpolada.
+  if (win) return [{ cmd: 'wt', args: ['-d', dir] }, { cmd: 'cmd', args: ['/c', 'start', '', 'cmd'], cwd: dir }]
   return [
     { cmd: 'x-terminal-emulator', args: ['--working-directory', dir] },
     { cmd: 'gnome-terminal', args: ['--working-directory', dir] },
@@ -74,8 +83,20 @@ export function availableApps(deps: LocalAppsDeps = {}): Record<LocalApp, boolea
  * interpretação de aspas.
  */
 export function launchApp(app: LocalApp, dir: string, deps: LocalAppsDeps = {}): void {
+  // A regra de "absoluto" é da PLATAFORMA, não do processo: `path.isAbsolute` no
+  // Linux recusa `C:\\...`, e usá-lo direto tornaria a checagem errada em Windows.
+  const platform = deps.platform ?? process.platform
+  const isAbsolute = (platform === 'win32' ? win32 : posix).isAbsolute
+  // Caminho ABSOLUTO, sempre. Não é formalidade: um valor começando com "-" seria
+  // lido como FLAG pelo programa, não como pasta — inofensivo no xdg-open, nada
+  // inofensivo no `code`, que tem flags para instalar extensão e trocar o
+  // diretório de dados. Exigir absoluto mata a classe inteira de uma vez, porque
+  // caminho absoluto nunca começa com hífen.
+  if (!dir || !isAbsolute(dir)) throw new Error(`caminho do terminal precisa ser absoluto: "${dir}"`)
   const launcher = resolveLauncher(app, dir, deps)
   if (!launcher) throw new Error(`nada instalado para abrir "${app}" nesta máquina`)
-  const child = (deps.spawnFn ?? spawn)(launcher.cmd, launcher.args, { detached: true, stdio: 'ignore' })
+  const child = (deps.spawnFn ?? spawn)(launcher.cmd, launcher.args, {
+    detached: true, stdio: 'ignore', ...(launcher.cwd ? { cwd: launcher.cwd } : {}),
+  })
   child.unref?.()
 }

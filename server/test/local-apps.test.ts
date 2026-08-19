@@ -138,3 +138,50 @@ describe('rotas', () => {
       .toEqual({ folder: true, vscode: true, terminal: true })
   })
 })
+
+/**
+ * O caminho vem de `project.path`, que um admin digita ao criar o terminal. Não é
+ * entrada anônima, mas também não é constante do código — e as duas brechas abaixo
+ * transformam "caminho estranho" em "programa diferente do que eu pedi".
+ */
+describe('o caminho não pode virar comando', () => {
+  const spawnFn = () => vi.fn(() => ({ unref: vi.fn() })) as never
+
+  /**
+   * Caminho começando com "-" é lido como FLAG pelo programa, não como pasta.
+   * Em `xdg-open` seria inofensivo; em `code` não — o VS Code tem flags que
+   * instalam extensão e trocam diretório de dados. Exigir caminho absoluto mata
+   * a classe inteira: absoluto nunca começa com hífen.
+   */
+  it('recusa caminho que o programa leria como flag', () => {
+    for (const evil of ['--install-extension', '-a', 'relativo/sem/barra', '']) {
+      expect(() => launchApp('vscode', evil, { platform: 'linux', available: () => true, spawnFn: spawnFn() }), evil)
+        .toThrow(/absoluto/i)
+    }
+  })
+
+  it('aceita caminho absoluto normal', () => {
+    const spawn = spawnFn()
+    launchApp('vscode', '/home/u/projeto', { platform: 'linux', available: has('code'), spawnFn: spawn })
+    expect(spawn).toHaveBeenCalled()
+  })
+
+  it('aceita caminho absoluto do Windows', () => {
+    const spawn = spawnFn()
+    launchApp('folder', 'C:\\Users\\u\\projeto', { platform: 'win32', available: has('explorer'), spawnFn: spawn })
+    expect(spawn).toHaveBeenCalled()
+  })
+
+  /**
+   * O `cmd.exe` RE-INTERPRETA a linha de comando: uma pasta com "&" no nome (que o
+   * Windows permite) emendaria um segundo comando. O diretório vai como `cwd`, que
+   * não passa por interpretação nenhuma.
+   */
+  it('no Windows, a pasta nunca é interpolada numa linha de comando', () => {
+    const spawn = spawnFn()
+    launchApp('terminal', 'C:\\tmp\\a & calc', { platform: 'win32', available: has('cmd'), spawnFn: spawn })
+    const [, args, opts] = (spawn as unknown as { mock: { calls: any[][] } }).mock.calls[0]
+    expect(args.join(' '), 'a pasta não pode aparecer dentro dos argumentos').not.toContain('calc')
+    expect(opts.cwd).toBe('C:\\tmp\\a & calc')
+  })
+})

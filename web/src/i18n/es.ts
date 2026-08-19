@@ -29,6 +29,8 @@ export const es: typeof en = {
     open: 'Abrir enlace',
   },
   appearance: {
+    fromTheme: 'Del tema', glassOn: 'Con vidrio', glassOff: 'Sin vidrio',
+    themeHighContrast: 'Alto Contraste',
     title: 'Apariencia', theme: 'Tema', accent: 'Color de acento',
     chatWidth: 'Ancho del chat', widthFull: 'Completo',
     chatWidthHint: 'Una columna estrecha se lee mejor; el completo aprovecha toda la pantalla.',

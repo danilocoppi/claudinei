@@ -32,6 +32,13 @@
   --ink: #000; --ink-k: 1;
   --sheen: #fff; --sheen-k: 1;
   --scheme: dark;
+  /* Postura: o pacote também decide forma e tipografia. O painel só escreve estes
+     quando o usuário discorda — é o que permite um tema nascer compacto ou chapado. */
+  --glass-blur: 14px;
+  --radius: 16px;
+  --density: 1;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* Fora do tema: forma e tipografia são escolhas independentes do pacote de cores. */
@@ -75,7 +82,214 @@
   /* No claro, realcar e ESCURECER de leve: um veu branco sobre fundo claro nao se ve. */
   --sheen: #141628; --sheen-k: .45;
   --scheme: light;
+  --glass-blur: 14px; --radius: 16px; --density: 1;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
+/* ---------------------------------------------------------------------------
+   Slate Pro — sóbrio e compacto. Fundo chapado (as manchas somem no próprio
+   fundo), azul de trabalho no lugar do violeta, vidro desligado e menos ar. É o
+   visual em que nada chama atenção sozinho.
+   --------------------------------------------------------------------------- */
+[data-theme="slate-pro"] {
+  --bg: #14161c;
+  --bg-blob-1: #1a1d25; --bg-blob-2: #171b22; --bg-blob-3: #16191f;
+  --text: #e2e5ec; --text-dim: #8a90a0;
+  --accent: #4d7cfe; --accent-2: #6b93ff; --on-accent: #fff;
+  --ok: #3fb37f; --warn: #d8a13a; --err: #e05c72;
+  --engine-teal: #4aa3bd; --task-amber: #c08a3e; --subagent-violet: #8f8ad6;
+  --surface: rgba(255,255,255,.05);
+  --surface-strong: rgba(255,255,255,.09);
+  --surface-solid: #171a21;
+  --border: rgba(255,255,255,.12);
+  --scrim: rgba(4,5,8,.66);
+  --shadow: rgba(0,0,0,.4);
+  --status-off: #5c6273;
+  --ink: #000; --ink-k: 1;
+  --sheen: #fff; --sheen-k: .85;
+  --scheme: dark;
+  --glass-blur: 0px; --radius: 8px; --density: .82;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ---------------------------------------------------------------------------
+   Paper Zen — minimalista. Fundo totalmente chapado, fios de cabelo no lugar de
+   bordas, cantos quase retos, e o acento é a PRÓPRIA TINTA do texto: botões
+   pretos sobre papel. As cores de estado ficam dessaturadas e só aparecem onde
+   carregam significado.
+   --------------------------------------------------------------------------- */
+[data-theme="paper-zen"] {
+  --bg: #fafaf9;
+  --bg-blob-1: transparent; --bg-blob-2: transparent; --bg-blob-3: transparent;
+  --text: #1c1c1a; --text-dim: #6b6b66;
+  --accent: #26262b; --accent-2: #3a3a42; --on-accent: #fafaf9;
+  --ok: #2f7d54; --warn: #8a6a13; --err: #a33a4e;
+  --engine-teal: #3a6b76; --task-amber: #8a6a13; --subagent-violet: #4f4b6b;
+  --surface: rgba(255,255,255,.86);
+  --surface-strong: #ffffff;
+  --surface-solid: #ffffff;
+  --border: rgba(28,28,26,.12);
+  --scrim: rgba(28,28,26,.28);
+  --shadow: rgba(28,28,26,.08);
+  --status-off: #b3b3ad;
+  --ink: #1c1c1a; --ink-k: .12;
+  --sheen: #1c1c1a; --sheen-k: .35;
+  --scheme: light;
+  --glass-blur: 0px; --radius: 4px; --density: .95;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Nord — a paleta fria conhecida de quem programa. */
+[data-theme="nord"] {
+  --bg: #2e3440;
+  --bg-blob-1: #3b4252; --bg-blob-2: #34495a; --bg-blob-3: #353c4a;
+  --text: #eceff4; --text-dim: #a3adbe;
+  --accent: #88c0d0; --accent-2: #8fbcbb; --on-accent: #2e3440;
+  --ok: #a3be8c; --warn: #ebcb8b; --err: #bf616a;
+  --engine-teal: #88c0d0; --task-amber: #d08770; --subagent-violet: #b48ead;
+  --surface: rgba(236,239,244,.06);
+  --surface-strong: rgba(236,239,244,.11);
+  --surface-solid: #3b4252;
+  --border: rgba(236,239,244,.15);
+  --scrim: rgba(26,31,40,.62);
+  --shadow: rgba(0,0,0,.35);
+  --status-off: #6b7488;
+  --ink: #1a1f28; --ink-k: 1;
+  --sheen: #eceff4; --sheen-k: 1;
+  --scheme: dark;
+  --glass-blur: 10px; --radius: 10px; --density: .92;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Solarized Dark — o clássico quente de baixo contraste. */
+[data-theme="solarized-dark"] {
+  --bg: #002b36;
+  --bg-blob-1: #073642; --bg-blob-2: #0a4a52; --bg-blob-3: #05303a;
+  --text: #d3d8d3; --text-dim: #93a1a1;
+  --accent: #268bd2; --accent-2: #2aa198; --on-accent: #002b36;
+  --ok: #859900; --warn: #b58900; --err: #dc322f;
+  --engine-teal: #2aa198; --task-amber: #cb4b16; --subagent-violet: #6c71c4;
+  --surface: rgba(147,161,161,.09);
+  --surface-strong: rgba(147,161,161,.16);
+  --surface-solid: #073642;
+  --border: rgba(147,161,161,.2);
+  --scrim: rgba(0,20,26,.66);
+  --shadow: rgba(0,0,0,.4);
+  --status-off: #586e75;
+  --ink: #001d25; --ink-k: 1;
+  --sheen: #93a1a1; --sheen-k: 1;
+  --scheme: dark;
+  --glass-blur: 10px; --radius: 8px; --density: .92;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ---------------------------------------------------------------------------
+   Phosphor — preto e verde de fósforo, interface INTEIRA em monoespaçada. É o
+   pacote que prova o alcance da arquitetura: a fonte da interface sai do tema,
+   não de uma escolha à parte.
+   --------------------------------------------------------------------------- */
+[data-theme="phosphor"] {
+  --bg: #050805;
+  --bg-blob-1: #0a1a0d; --bg-blob-2: #08160f; --bg-blob-3: #061109;
+  --text: #33ff66; --text-dim: #1f9940;
+  --accent: #33ff66; --accent-2: #8cff9e; --on-accent: #050805;
+  --ok: #33ff66; --warn: #ffcc33; --err: #ff5f5f;
+  --engine-teal: #33ffd0; --task-amber: #ffcc33; --subagent-violet: #9dff8c;
+  --surface: rgba(51,255,102,.06);
+  --surface-strong: rgba(51,255,102,.12);
+  --surface-solid: #071007;
+  --border: rgba(51,255,102,.26);
+  --scrim: rgba(0,8,0,.75);
+  --shadow: rgba(51,255,102,.12);
+  --status-off: #1a5c2e;
+  --ink: #000; --ink-k: 1;
+  --sheen: #33ff66; --sheen-k: 1;
+  --scheme: dark;
+  --glass-blur: 0px; --radius: 2px; --density: .85;
+  --font-ui: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Sépia — papel envelhecido, pouco azul: para ler muito tempo à noite. */
+[data-theme="sepia"] {
+  --bg: #f2e8d5;
+  --bg-blob-1: #e8d9bd; --bg-blob-2: #ecdfc6; --bg-blob-3: #e5d3b3;
+  --text: #3b3228; --text-dim: #7a6a55;
+  --accent: #8a5a2b; --accent-2: #a8703a; --on-accent: #fdf7ea;
+  --ok: #5c7a3f; --warn: #a8770f; --err: #a33b2a;
+  --engine-teal: #3f6f70; --task-amber: #a8770f; --subagent-violet: #6b5480;
+  --surface: rgba(255,250,240,.72);
+  --surface-strong: rgba(255,252,246,.92);
+  --surface-solid: #fdf7ea;
+  --border: rgba(59,50,40,.16);
+  --scrim: rgba(59,50,40,.32);
+  --shadow: rgba(59,50,40,.12);
+  --status-off: #b3a68d;
+  --ink: #3b3228; --ink-k: .16;
+  --sheen: #3b3228; --sheen-k: .3;
+  --scheme: light;
+  --glass-blur: 6px; --radius: 12px; --density: 1;
+  --font-ui: Georgia, "Times New Roman", serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ---------------------------------------------------------------------------
+   Alto Contraste — o único pacote que atende NECESSIDADE e não gosto: preto e
+   branco puros, bordas opacas, zero transparência e zero desfoque. Nada de
+   superfície translúcida, porque é justamente ela que apaga limites para quem
+   enxerga mal.
+   --------------------------------------------------------------------------- */
+[data-theme="high-contrast"] {
+  --bg: #000000;
+  --bg-blob-1: transparent; --bg-blob-2: transparent; --bg-blob-3: transparent;
+  --text: #ffffff; --text-dim: #d8d8d8;
+  --accent: #00e5ff; --accent-2: #7df9ff; --on-accent: #000000;
+  --ok: #00ff85; --warn: #ffe000; --err: #ff5c7a;
+  --engine-teal: #00e5ff; --task-amber: #ffe000; --subagent-violet: #c6a6ff;
+  --surface: #0d0d0d;
+  --surface-strong: #1a1a1a;
+  --surface-solid: #0d0d0d;
+  --border: #ffffff;
+  --scrim: rgba(0,0,0,.85);
+  --shadow: rgba(0,0,0,.9);
+  --status-off: #9a9a9a;
+  --ink: #000; --ink-k: 1;
+  --sheen: #fff; --sheen-k: 1;
+  --scheme: dark;
+  --glass-blur: 0px; --radius: 4px; --density: 1;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Midnight Ocean — a pegada "Fun" sem o roxo: azul profundo e turquesa. */
+[data-theme="midnight-ocean"] {
+  --bg: #071620;
+  --bg-blob-1: #0d3b4f; --bg-blob-2: #12566b; --bg-blob-3: #0a2a3d;
+  --text: #e3f1f5; --text-dim: #8fb0bd;
+  --accent: #2bb3c9; --accent-2: #4fd3e6; --on-accent: #04141c;
+  --ok: #4fd6a0; --warn: #f0b429; --err: #f2607a;
+  --engine-teal: #4fd3e6; --task-amber: #f0b429; --subagent-violet: #8aa9ff;
+  --surface: rgba(227,241,245,.06);
+  --surface-strong: rgba(227,241,245,.11);
+  --surface-solid: #0b1f2b;
+  --border: rgba(227,241,245,.15);
+  --scrim: rgba(3,12,18,.66);
+  --shadow: rgba(0,0,0,.38);
+  --status-off: #5b7684;
+  --ink: #03101a; --ink-k: 1;
+  --sheen: #e3f1f5; --sheen-k: 1;
+  --scheme: dark;
+  --glass-blur: 14px; --radius: 16px; --density: 1;
+  --font-ui: system-ui, -apple-system, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ===== FIM DOS PACOTES DE TEMA ===== */
 
 /* Reforço para navegadores que ignoram color-scheme nas opções (Chrome/Linux). */
 option, optgroup { background: var(--surface-solid); color: var(--text); }

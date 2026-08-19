@@ -77,8 +77,8 @@ describe('preview ao vivo', () => {
     fireEvent.click(screen.getByTestId('width-800'))
     expect(html().style.getPropertyValue('--chat-max')).toBe('800px')
 
-    fireEvent.click(screen.getByTestId('ap-glass'))
-    expect(html().dataset.glass).toBe('off')
+    fireEvent.click(screen.getByTestId('glass-off'))
+    expect(html().style.getPropertyValue('--glass-blur')).toBe('0px')
   })
 
   /** Preview ao vivo sem volta atrás vira armadilha. */
@@ -128,10 +128,10 @@ describe('guardar', () => {
     stubFetch()
     render(<AppearancePanel onClose={() => {}} />)
     fireEvent.click(screen.getByTestId('theme-light-fun'))
-    fireEvent.click(screen.getByTestId('ap-glass'))
+    fireEvent.click(screen.getByTestId('glass-off'))
     fireEvent.click(screen.getByText(/restaurar/i))
     expect(html().dataset.theme).toBe('dark-fun')
-    expect(html().dataset.glass).toBe('on')
+    expect(html().style.getPropertyValue('--glass-blur')).toBe('')
   })
 })
 

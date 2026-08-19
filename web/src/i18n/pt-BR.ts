@@ -29,6 +29,8 @@ export const ptBR: typeof en = {
     open: 'Abrir link',
   },
   appearance: {
+    fromTheme: 'Do tema', glassOn: 'Com vidro', glassOff: 'Sem vidro',
+    themeHighContrast: 'Alto Contraste',
     title: 'Aparência', theme: 'Tema', accent: 'Cor de destaque',
     chatWidth: 'Largura do chat', widthFull: 'Cheia',
     chatWidthHint: 'Uma coluna estreita é mais fácil de ler; a cheia aproveita a tela toda.',

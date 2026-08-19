@@ -27,6 +27,8 @@ export const en = {
     open: 'Open link',
   },
   appearance: {
+    fromTheme: 'From theme', glassOn: 'Glass on', glassOff: 'Glass off',
+    themeHighContrast: 'High Contrast',
     title: 'Appearance', theme: 'Theme', accent: 'Accent color',
     chatWidth: 'Chat width', widthFull: 'Full',
     chatWidthHint: 'A narrow column is easier to read; full uses the whole screen.',

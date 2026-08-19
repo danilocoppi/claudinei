@@ -36,9 +36,16 @@ describe('saneamento da aparência', () => {
     }
   })
 
-  it('booleanos só aceitam booleano', () => {
-    expect(sanitizeAppearance({ glass: false }).glass).toBe(false)
-    expect(sanitizeAppearance({ glass: 'false' }).glass).toBe(true)   // string não vale
+  it('reducedMotion só aceita booleano', () => {
+    expect(sanitizeAppearance({ reducedMotion: true }).reducedMotion).toBe(true)
+    expect(sanitizeAppearance({ reducedMotion: 'true' }).reducedMotion).toBe(false)
+  })
+
+  /** O vidro já foi booleano: um "desligado" explícito não pode virar "do tema". */
+  it('aceita o formato antigo do vidro', () => {
+    expect(sanitizeAppearance({ glass: false }).glass).toBe('off')
+    expect(sanitizeAppearance({ glass: true }).glass).toBe('theme')
+    expect(sanitizeAppearance({ glass: 'off' }).glass).toBe('off')
   })
 
   it('descarta campo desconhecido em vez de guardá-lo', () => {
@@ -56,7 +63,7 @@ describe('serviço', () => {
     prefs.set(1, { theme: 'light-fun' })
     prefs.set(2, { theme: 'dark-fun', density: 'compact' })
     expect(prefs.get(1).theme).toBe('light-fun')
-    expect(prefs.get(1).density).toBe('comfortable')
+    expect(prefs.get(1).density).toBe('theme')   // não escolheu: manda o pacote
     expect(prefs.get(2).density).toBe('compact')
   })
 

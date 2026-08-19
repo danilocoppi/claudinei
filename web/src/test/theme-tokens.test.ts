@@ -7,8 +7,10 @@ import { dirname, join } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(join(here, '..', 'styles.css'), 'utf8')
 
-/** Onde os temas acabam e o resto da folha começa. */
-const THEMES_END = '--scheme: light;\n}\n'
+/** Onde os pacotes acabam e o resto da folha começa. A marca é explícita porque a
+ *  lista de pacotes cresce, e uma fronteira deduzida do último tema quebraria a
+ *  cada pacote novo. */
+const THEMES_END = '/* ===== FIM DOS PACOTES DE TEMA ===== */'
 const afterThemes = css.slice(css.indexOf(THEMES_END) + THEMES_END.length)
 
 /** Um bloco `seletor { ... }` do CSS, pelo seletor. */
@@ -41,17 +43,35 @@ describe('nenhuma cor cravada fora dos temas', () => {
  * pacotes a declará-lo.
  */
 describe('todo tema declara o conjunto completo', () => {
-  const tokensOf = (block: string) => new Set((block.match(/^\s*--[a-z0-9-]+(?=:)/gm) ?? []).map((t) => t.trim()))
-  // do :root, só os do TEMA: forma e tipografia não pertencem ao pacote
-  const NOT_THEME = new Set([
-    '--glass-blur', '--radius', '--density', '--font-ui', '--font-code', '--chat-max', '--emoji',
-  ])
+  // Sem a âncora de início de linha: várias declarações cabem numa linha só, e o
+  // regex anterior enxergava apenas a primeira delas.
+  const tokensOf = (block: string) => new Set(block.match(/--[a-z0-9-]+(?=:)/g) ?? [])
+  const PACKS = [
+    'light-fun', 'slate-pro', 'paper-zen', 'nord', 'solarized-dark',
+    'phosphor', 'sepia', 'high-contrast', 'midnight-ocean',
+  ]
 
-  it('light-fun declara tudo que o padrão declara', () => {
-    const base = [...tokensOf(blockOf(':root, [data-theme="dark-fun"]'))].filter((t) => !NOT_THEME.has(t))
-    const light = tokensOf(blockOf('[data-theme="light-fun"]'))
-    expect(base.length).toBeGreaterThan(15)
-    expect(base.filter((t) => !light.has(t))).toEqual([])
+  it('todo pacote declara tudo que o padrão declara', () => {
+    const base = [...tokensOf(blockOf(':root, [data-theme="dark-fun"]'))]
+    expect(base.length).toBeGreaterThan(20)
+    for (const pack of PACKS) {
+      const tokens = tokensOf(blockOf(`[data-theme="${pack}"]`))
+      expect(base.filter((t) => !tokens.has(t)), pack).toEqual([])
+    }
+  })
+
+  /**
+   * A POSTURA também é do pacote: sem ela um tema não consegue nascer compacto,
+   * chapado ou monoespaçado — o painel escreveria por cima e o pacote viraria só
+   * um punhado de cores.
+   */
+  it('a postura (forma e tipografia) faz parte do pacote', () => {
+    for (const pack of ['dark-fun', ...PACKS]) {
+      const block = pack === 'dark-fun' ? blockOf(':root, [data-theme="dark-fun"]') : blockOf(`[data-theme="${pack}"]`)
+      for (const token of ['--glass-blur', '--radius', '--density', '--font-ui', '--font-code']) {
+        expect(block, `${pack} não declara ${token}`).toContain(token + ':')
+      }
+    }
   })
 
   it('nenhum token do tema fica sem uso (token morto engana quem cria o próximo pacote)', () => {

@@ -16,7 +16,7 @@ export interface Appearance {
   density: string
   accent: string
   radius: string
-  glass: boolean
+  glass: string
   reducedMotion: boolean
 }
 
@@ -24,20 +24,34 @@ export interface Appearance {
 export const DEFAULT_APPEARANCE: Appearance = {
   theme: 'dark-fun',
   chatWidth: 'full',
-  fontUi: 'system',
-  fontCode: 'mono',
-  density: 'comfortable',
+  // Tudo começa em "do tema": é o PACOTE que decide fonte, densidade, cantos e
+  // vidro, e a escolha do painel só existe para discordar dele. Sem esse sentinela
+  // o painel escreveria sempre, e nenhum tema conseguiria nascer compacto ou chapado.
+  fontUi: 'theme',
+  fontCode: 'theme',
+  density: 'theme',
   accent: 'theme',
-  radius: 'default',
-  glass: true,
+  radius: 'theme',
+  glass: 'theme',
   reducedMotion: false,
 }
+
+/** Primeira opção de toda lista: quem manda é o pacote. */
+const FROM_THEME: Option = { id: 'theme', label: 'appearance.fromTheme' }
 
 export interface Option { id: string; label: string; css?: string; css2?: string }
 
 export const THEMES: Option[] = [
   { id: 'dark-fun', label: 'Dark Fun' },
   { id: 'light-fun', label: 'Light Fun' },
+  { id: 'slate-pro', label: 'Slate Pro' },
+  { id: 'paper-zen', label: 'Paper Zen' },
+  { id: 'nord', label: 'Nord' },
+  { id: 'solarized-dark', label: 'Solarized Dark' },
+  { id: 'phosphor', label: 'Phosphor' },
+  { id: 'sepia', label: 'Sépia' },
+  { id: 'high-contrast', label: 'appearance.themeHighContrast' },
+  { id: 'midnight-ocean', label: 'Midnight Ocean' },
 ]
 
 export const CHAT_WIDTHS: Option[] = [
@@ -54,6 +68,7 @@ export const CHAT_WIDTHS: Option[] = [
  * genérico, então a escolha degrada para algo são em qualquer máquina.
  */
 export const UI_FONTS: Option[] = [
+  FROM_THEME,
   { id: 'system', label: 'Sistema', css: 'system-ui, -apple-system, sans-serif' },
   { id: 'inter', label: 'Inter', css: 'Inter, system-ui, sans-serif' },
   { id: 'segoe', label: 'Segoe UI', css: '"Segoe UI", system-ui, sans-serif' },
@@ -67,6 +82,7 @@ export const UI_FONTS: Option[] = [
 ]
 
 export const CODE_FONTS: Option[] = [
+  FROM_THEME,
   { id: 'mono', label: 'Padrão', css: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
   { id: 'jetbrains', label: 'JetBrains Mono', css: '"JetBrains Mono", ui-monospace, monospace' },
   { id: 'fira', label: 'Fira Code', css: '"Fira Code", ui-monospace, monospace' },
@@ -76,6 +92,7 @@ export const CODE_FONTS: Option[] = [
 ]
 
 export const DENSITIES: Option[] = [
+  FROM_THEME,
   { id: 'comfortable', label: 'appearance.densityComfortable', css: '1' },
   { id: 'compact', label: 'appearance.densityCompact', css: '.8' },
 ]
@@ -85,7 +102,7 @@ export const DENSITIES: Option[] = [
  * do seu fundo, e sobrescrevê-lo por padrão jogaria essa afinação fora.
  */
 export const ACCENTS: Option[] = [
-  { id: 'theme', label: 'appearance.accentTheme' },
+  { id: 'theme', label: 'appearance.fromTheme' },
   { id: 'blue', label: 'appearance.accentBlue', css: '#3b82f6', css2: '#60a5fa' },
   { id: 'teal', label: 'appearance.accentTeal', css: '#0e9aa7', css2: '#22c3d0' },
   { id: 'green', label: 'appearance.accentGreen', css: '#16a34a', css2: '#34d07a' },
@@ -94,9 +111,17 @@ export const ACCENTS: Option[] = [
 ]
 
 export const RADII: Option[] = [
+  FROM_THEME,
   { id: 'square', label: 'appearance.radiusSquare', css: '4px' },
   { id: 'default', label: 'appearance.radiusDefault', css: '16px' },
   { id: 'round', label: 'appearance.radiusRound', css: '22px' },
+]
+
+/** Vidro em três estados pelo mesmo motivo: há pacotes que nascem chapados. */
+export const GLASS: Option[] = [
+  FROM_THEME,
+  { id: 'on', label: 'appearance.glassOn', css: '14px' },
+  { id: 'off', label: 'appearance.glassOff', css: '0px' },
 ]
 
 const find = (list: Option[], id: string, fallback: string): Option =>
@@ -108,12 +133,14 @@ export function normalize(input?: Partial<Appearance> | null): Appearance {
   return {
     theme: THEMES.some((t) => t.id === a.theme) ? a.theme : DEFAULT_APPEARANCE.theme,
     chatWidth: find(CHAT_WIDTHS, a.chatWidth, 'full').id,
-    fontUi: find(UI_FONTS, a.fontUi, 'system').id,
-    fontCode: find(CODE_FONTS, a.fontCode, 'mono').id,
-    density: find(DENSITIES, a.density, 'comfortable').id,
+    fontUi: find(UI_FONTS, a.fontUi, 'theme').id,
+    fontCode: find(CODE_FONTS, a.fontCode, 'theme').id,
+    density: find(DENSITIES, a.density, 'theme').id,
     accent: find(ACCENTS, a.accent, 'theme').id,
-    radius: find(RADII, a.radius, 'default').id,
-    glass: typeof a.glass === 'boolean' ? a.glass : true,
+    radius: find(RADII, a.radius, 'theme').id,
+    // Compatibilidade: antes o vidro era booleano. `false` era um "desligado"
+    // explícito e precisa continuar valendo; `true` vira "o que o pacote quiser".
+    glass: typeof a.glass === 'boolean' ? (a.glass ? 'theme' : 'off') : find(GLASS, a.glass, 'theme').id,
     reducedMotion: typeof a.reducedMotion === 'boolean' ? a.reducedMotion : false,
   }
 }
@@ -130,25 +157,28 @@ export function applyAppearance(input?: Partial<Appearance> | null, root: HTMLEl
   // A largura vira atributo além da variável: o acabamento de "folha" só faz
   // sentido quando a coluna é limitada, e CSS não sabe perguntar "isto é none?".
   root.dataset.chatWidth = a.chatWidth
-  root.dataset.glass = a.glass ? 'on' : 'off'
   root.dataset.motion = a.reducedMotion ? 'reduced' : 'full'
-
   style.setProperty('--chat-max', find(CHAT_WIDTHS, a.chatWidth, 'full').css!)
-  style.setProperty('--font-ui', find(UI_FONTS, a.fontUi, 'system').css!)
-  style.setProperty('--font-code', find(CODE_FONTS, a.fontCode, 'mono').css!)
-  style.setProperty('--density', find(DENSITIES, a.density, 'comfortable').css!)
-  style.setProperty('--radius', find(RADII, a.radius, 'default').css!)
 
-  // 'theme' não escreve nada: deixa valer o roxo que o pacote afinou para o próprio
-  // fundo. Por isso a limpeza explícita — trocar de volta precisa devolver o token.
-  const accent = find(ACCENTS, a.accent, 'theme')
-  if (accent.css) {
-    style.setProperty('--accent', accent.css)
-    style.setProperty('--accent-2', accent.css2 ?? accent.css)
-  } else {
-    style.removeProperty('--accent')
-    style.removeProperty('--accent-2')
+  /**
+   * Escreve só quando o usuário DISCORDOU do pacote — e limpa quando ele volta a
+   * concordar. Sem a limpeza, a escolha antiga ficaria grudada no estilo inline e
+   * o tema nunca mais conseguiria mandar naquele token.
+   */
+  const override = (token: string, opt: Option) => {
+    if (opt.css) style.setProperty(token, opt.css)
+    else style.removeProperty(token)
   }
+  override('--font-ui', find(UI_FONTS, a.fontUi, 'theme'))
+  override('--font-code', find(CODE_FONTS, a.fontCode, 'theme'))
+  override('--density', find(DENSITIES, a.density, 'theme'))
+  override('--radius', find(RADII, a.radius, 'theme'))
+  override('--glass-blur', find(GLASS, a.glass, 'theme'))
+
+  const accent = find(ACCENTS, a.accent, 'theme')
+  override('--accent', accent)
+  if (accent.css) style.setProperty('--accent-2', accent.css2 ?? accent.css)
+  else style.removeProperty('--accent-2')
   return a
 }
 

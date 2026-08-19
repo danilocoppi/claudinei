@@ -15,7 +15,8 @@ export interface Appearance {
   density: string
   accent: string
   radius: string
-  glass: boolean
+  /** 'theme' | 'on' | 'off' — antes era booleano (ver o saneamento). */
+  glass: string
   reducedMotion: boolean
 }
 
@@ -23,12 +24,14 @@ export interface Appearance {
 export const DEFAULT_APPEARANCE: Appearance = {
   theme: 'dark-fun',
   chatWidth: 'full',
-  fontUi: 'system',
-  fontCode: 'mono',
-  density: 'comfortable',
-  accent: 'violet',
-  radius: 'default',
-  glass: true,
+  // "do tema" em tudo que o pacote pode decidir: fonte, densidade, cantos e vidro
+  // nascem do tema, e a escolha do painel só existe para discordar dele.
+  fontUi: 'theme',
+  fontCode: 'theme',
+  density: 'theme',
+  accent: 'theme',
+  radius: 'theme',
+  glass: 'theme',
   reducedMotion: false,
 }
 
@@ -47,9 +50,12 @@ export function sanitizeAppearance(input: unknown): Appearance {
   for (const key of ['theme', 'chatWidth', 'fontUi', 'fontCode', 'density', 'accent', 'radius'] as const) {
     out[key] = validKey(raw[key]) ?? DEFAULT_APPEARANCE[key]
   }
-  for (const key of ['glass', 'reducedMotion'] as const) {
-    out[key] = typeof raw[key] === 'boolean' ? (raw[key] as boolean) : DEFAULT_APPEARANCE[key]
-  }
+  // Compatibilidade: o vidro já foi booleano. `false` era um desligamento
+  // explícito e precisa continuar valendo; `true` vira "o que o pacote quiser".
+  out.glass = typeof raw.glass === 'boolean'
+    ? (raw.glass ? 'theme' : 'off')
+    : validKey(raw.glass) ?? DEFAULT_APPEARANCE.glass
+  out.reducedMotion = typeof raw.reducedMotion === 'boolean' ? raw.reducedMotion : DEFAULT_APPEARANCE.reducedMotion
   return out
 }
 

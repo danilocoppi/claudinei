@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { saveAppearance } from '../api'
 import { useStore } from '../store'
 import {
-  ACCENTS, CHAT_WIDTHS, CODE_FONTS, DEFAULT_APPEARANCE, DENSITIES, RADII, THEMES, UI_FONTS,
+  ACCENTS, CHAT_WIDTHS, CODE_FONTS, DEFAULT_APPEARANCE, DENSITIES, GLASS, RADII, THEMES, UI_FONTS,
   type Appearance, type Option,
 } from '../appearance'
 
@@ -15,6 +15,9 @@ import {
  * ninguém precisar repetir a paleta aqui.
  */
 function ThemeSwatch({ theme, on, onPick }: { theme: Option; on: boolean; onPick: () => void }) {
+  const { t } = useTranslation()
+  // Nome próprio (Nord, Sépia) passa direto; só o que é descrição vira chave.
+  const label = theme.label.startsWith('appearance.') ? t(theme.label as 'appearance.fromTheme') : theme.label
   return (
     <button type="button" data-testid={`theme-${theme.id}`} data-theme={theme.id}
             className={`ap-swatch ${on ? 'on' : ''}`} onClick={onPick}>
@@ -23,7 +26,7 @@ function ThemeSwatch({ theme, on, onPick }: { theme: Option; on: boolean; onPick
         <span className="ap-swatch__dot ap-swatch__dot--accent" />
         <span className="ap-swatch__dot ap-swatch__dot--text" />
       </span>
-      <span className="ap-swatch__name">{theme.label}</span>
+      <span className="ap-swatch__name">{label}</span>
     </button>
   )
 }
@@ -81,6 +84,7 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
   }
 
   const accentOf = (a: Option) => a.css ?? 'var(--accent)'
+  const labelOf = (o: Option) => (o.label.startsWith('appearance.') ? t(o.label as 'appearance.fromTheme') : o.label)
 
   // Portal para o body: a sidebar tem `backdrop-filter`, e isso cria bloco de
   // contenção — um `position: fixed` lá dentro para de se ancorar na janela e fica
@@ -125,13 +129,13 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
             <label className="ap-field">
               <span>{t('appearance.fontUi')}</span>
               <select data-testid="ap-font-ui" value={draft.fontUi} onChange={(e) => change({ fontUi: e.target.value })}>
-                {UI_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{f.label}</option>)}
+                {UI_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{labelOf(f)}</option>)}
               </select>
             </label>
             <label className="ap-field">
               <span>{t('appearance.fontCode')}</span>
               <select data-testid="ap-font-code" value={draft.fontCode} onChange={(e) => change({ fontCode: e.target.value })}>
-                {CODE_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{f.label}</option>)}
+                {CODE_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{labelOf(f)}</option>)}
               </select>
             </label>
           </div>
@@ -147,13 +151,11 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <label className="ap-toggle">
-            <input data-testid="ap-glass" type="checkbox" checked={draft.glass} onChange={(e) => change({ glass: e.target.checked })} />
-            <span>
-              <strong>{t('appearance.glass')}</strong>
-              <em>{t('appearance.glassHint')}</em>
-            </span>
-          </label>
+          <div className="ap-field">
+            <span>{t('appearance.glass')}</span>
+            <Pills options={GLASS} value={draft.glass} testPrefix="glass" onPick={(glass) => change({ glass })} />
+            <p className="ap-hint">{t('appearance.glassHint')}</p>
+          </div>
 
           <label className="ap-toggle">
             <input data-testid="ap-motion" type="checkbox" checked={draft.reducedMotion}

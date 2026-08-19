@@ -51,6 +51,7 @@ export const THEMES: Option[] = [
   { id: 'phosphor', label: 'Phosphor' },
   { id: 'sepia', label: 'Sépia' },
   { id: 'high-contrast', label: 'appearance.themeHighContrast' },
+  { id: 'console', label: 'Console' },
   { id: 'midnight-ocean', label: 'Midnight Ocean' },
 ]
 

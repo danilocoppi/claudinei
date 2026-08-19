@@ -48,7 +48,7 @@ describe('todo tema declara o conjunto completo', () => {
   const tokensOf = (block: string) => new Set(block.match(/--[a-z0-9-]+(?=:)/g) ?? [])
   const PACKS = [
     'light-fun', 'slate-pro', 'paper-zen', 'nord', 'solarized-dark',
-    'phosphor', 'sepia', 'high-contrast', 'midnight-ocean',
+    'phosphor', 'sepia', 'high-contrast', 'console', 'midnight-ocean',
   ]
 
   it('todo pacote declara tudo que o padrão declara', () => {

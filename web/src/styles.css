@@ -266,6 +266,34 @@
   --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* ---------------------------------------------------------------------------
+   Console — preto chapado, tipografia monoespaçada e o verde RESERVADO ao sinal.
+   É o que o separa do Phosphor: lá tudo é verde; aqui o texto é cinza neutro e o
+   verde só aparece onde há estado (vivo, ok, acento). Bordas de fio de cabelo,
+   cantos baixos e densidade alta — painel de operação, não vitrine.
+   --------------------------------------------------------------------------- */
+[data-theme="console"] {
+  --bg: #0b0b0d;
+  --bg-blob-1: transparent; --bg-blob-2: transparent; --bg-blob-3: transparent;
+  --text: #e6e6e8; --text-dim: #85858f;
+  --accent: #5ee66a; --accent-2: #8dff8a; --on-accent: #08120a;
+  --ok: #5ee66a; --warn: #e6b45e; --err: #ff6b6b;
+  --engine-teal: #5ecfe6; --task-amber: #e6b45e; --subagent-violet: #b08aff;
+  --surface: rgba(255,255,255,.045);
+  --surface-strong: rgba(255,255,255,.085);
+  --surface-solid: #141416;
+  --border: rgba(255,255,255,.10);
+  --scrim: rgba(0,0,0,.72);
+  --shadow: rgba(0,0,0,.5);
+  --status-off: #4f4f58;
+  --ink: #000; --ink-k: 1;
+  --sheen: #fff; --sheen-k: .9;
+  --scheme: dark;
+  --glass-blur: 0px; --radius: 8px; --density: .85;
+  --font-ui: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 /* Midnight Ocean — a pegada "Fun" sem o roxo: azul profundo e turquesa. */
 [data-theme="midnight-ocean"] {
   --bg: #071620;

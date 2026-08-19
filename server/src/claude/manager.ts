@@ -69,6 +69,43 @@ interface Deps {
 
 const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_attention'])
 
+/**
+ * Espera o `result` do turno em curso da sessão. É a primitiva por trás de tudo que
+ * "manda e espera a resposta" (askAgent, dispatchTask, agendamentos): a resposta de
+ * um turno só existe como evento, e quem espera precisa desistir por três motivos —
+ * a resposta chegou, a sessão morreu/parou, ou o tempo acabou.
+ */
+function waitForResult(session: EngineSession, timeoutMs: number): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let settled = false
+    const cleanup = () => {
+      session.removeListener('event', onEvent)
+      session.removeListener('status', onStatus)
+      clearTimeout(timer)
+    }
+    const onEvent = (evt: ClaudeEvent) => {
+      if (settled || evt.kind !== 'result') return
+      settled = true; cleanup(); resolve(evt.resultText)
+    }
+    const onStatus = (status: SessionStatus) => {
+      // 'stopped' cobre também openInTerminal (que passa por session.stop()):
+      // sem isso o waiter ficaria pendurado até o timeout com o agente já fora.
+      if (settled || (status !== 'dead' && status !== 'stopped')) return
+      settled = true; cleanup()
+      reject(new Error(status === 'dead'
+        ? 'target agent exited unexpectedly before responding'
+        : 'target agent was stopped before responding'))
+    }
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true; cleanup()
+      reject(new Error('timed out waiting for the agent response'))
+    }, timeoutMs)
+    session.on('event', onEvent)
+    session.on('status', onStatus)
+  })
+}
+
 export function createSessionManager(deps: Deps) {
   const live = new Map<string, { session: EngineSession; projectId: number; engine: EngineId }>()
   // Resolve a sessão pela engine (registry) — ou, em teste, pelo override sessionFactory.
@@ -184,7 +221,7 @@ export function createSessionManager(deps: Deps) {
   ).run(keep)
 
   return {
-    start(project: Project, opts?: { continueLatest?: boolean; permissionMode?: PermissionMode; model?: string; engine?: string }): SessionInfo {
+    start(project: Project, opts?: { continueLatest?: boolean; permissionMode?: PermissionMode; model?: string; engine?: string; effort?: string }): SessionInfo {
       const engine = (opts?.engine ?? DEFAULT_ENGINE_ID) as EngineId
       for (const [id, entry] of live) {
         if (entry.projectId === project.id && entry.engine === engine && ACTIVE.has(entry.session.status)) {
@@ -206,11 +243,12 @@ export function createSessionManager(deps: Deps) {
         continueLatest: opts?.continueLatest,
         permissionMode,
         model,
+        effort: opts?.effort,
         hermes: deps.hermes ? { ...deps.hermes, projectId: project.id, engine } : undefined,
       })
       deps.db.prepare(
-        `INSERT INTO sessions (local_id, project_id, engine, status, permission_mode, model, continue_latest) VALUES (?, ?, ?, 'starting', ?, ?, ?)`,
-      ).run(localId, project.id, engine, permissionMode, model ?? null, opts?.continueLatest ? 1 : 0)
+        `INSERT INTO sessions (local_id, project_id, engine, status, permission_mode, model, continue_latest, effort) VALUES (?, ?, ?, 'starting', ?, ?, ?, ?)`,
+      ).run(localId, project.id, engine, permissionMode, model ?? null, opts?.continueLatest ? 1 : 0, opts?.effort ?? null)
       wire(localId, project.id, engine, session)
       return infoOf(localId)!
     },
@@ -488,47 +526,31 @@ export function createSessionManager(deps: Deps) {
       }
       const session = target.session
 
-      return new Promise<string>((resolve, reject) => {
-        let settled = false
-        const cleanup = () => {
-          session.removeListener('event', onEvent)
-          session.removeListener('status', onStatus)
-          clearTimeout(timer)
-        }
-        const onEvent = (evt: ClaudeEvent) => {
-          if (settled || evt.kind !== 'result') return
-          settled = true
-          cleanup()
-          resolve(evt.resultText)
-        }
-        const onStatus = (status: SessionStatus) => {
-          // 'stopped' cobre também openInTerminal (que passa por session.stop()):
-          // sem isso o waiter ficaria pendurado até o timeout com o agente já fora.
-          if (settled || (status !== 'dead' && status !== 'stopped')) return
-          settled = true
-          cleanup()
-          reject(new Error(status === 'dead'
-            ? 'target agent exited unexpectedly before responding'
-            : 'target agent was stopped before responding'))
-        }
-        const timer = setTimeout(() => {
-          if (settled) return
-          settled = true
-          cleanup()
-          reject(new Error('timed out waiting for the agent response'))
-        }, timeoutMs)
+      const waited = waitForResult(session, timeoutMs)
+      try {
+        session.send(`[Question from agent of ${fromLabel}]: ${question}`)
+      } catch (err) {
+        return Promise.reject(err as Error)
+      }
+      return waited
+    },
 
-        session.on('event', onEvent)
-        session.on('status', onStatus)
-
-        try {
-          session.send(`[Question from agent of ${fromLabel}]: ${question}`)
-        } catch (err) {
-          settled = true
-          cleanup()
-          reject(err as Error)
-        }
-      })
+    /**
+     * Manda um texto para UMA sessão específica e, opcionalmente, espera a resposta
+     * final do turno. É o que o agendador usa: ele sabe exatamente em qual sessão
+     * quer falar (a engine está no agendamento), então não serve a escolha
+     * automática de alvo que o askAgent faz.
+     */
+    sendAndWait(localId: string, text: string, opts?: { timeoutMs?: number; wait?: boolean }): Promise<string | null> {
+      const entry = live.get(localId)
+      if (!entry) return Promise.reject(new Error(`sessão ${localId} não está ativa`))
+      const waited = opts?.wait === false ? null : waitForResult(entry.session, opts?.timeoutMs ?? 1_800_000)
+      try {
+        entry.session.send(text, { echoToClients: true })
+      } catch (err) {
+        return Promise.reject(err as Error)
+      }
+      return waited ?? Promise.resolve(null)
     },
 
     /** Devolve a engine da sessão que recebeu a task (ou null se a entrega falhou na hora). */

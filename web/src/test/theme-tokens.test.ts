@@ -61,3 +61,29 @@ describe('todo tema declara o conjunto completo', () => {
     }
   })
 })
+
+/**
+ * Os controles de forma só funcionam se a folha REALMENTE os usar. O raio nasceu
+ * com 5 usos contra 86 valores cravados — o controle existia e não movia nada.
+ */
+describe('os controles de forma alcançam a folha', () => {
+  it('o raio é derivado do token, não cravado', () => {
+    // Qualquer px DENTRO da declaração, não só o primeiro: um raio assimétrico
+    // (`var(--radius-lg) 12px 2px 12px`) escapava da checagem anterior.
+    const hardcoded = afterThemes.match(/border-radius:[^;]*\d+px[^;]*/g) ?? []
+    // 999px (pílula), 50% (círculo) e o 2px do bico da bolha de fala não são
+    // "cantos": são a FORMA da coisa, e arredondá-los descaracterizaria o objeto.
+    const real = hardcoded.filter((r) => !/999px/.test(r) && !/\b[12]px\b/.test(r))
+    expect(real, `ainda cravados: ${real.slice(0, 6).join(', ')}`).toEqual([])
+    expect((afterThemes.match(/var\(--radius/g) ?? []).length).toBeGreaterThan(50)
+  })
+
+  it('a densidade alcança a lista lateral, os cartões e o chat', () => {
+    for (const selector of ['.sidebar', '.term-card', '.chat-scroll__inner', '.msg-bubble']) {
+      // O seletor pode ter mais de um bloco na folha; basta um deles escalar.
+      const blocks = [...afterThemes.matchAll(new RegExp(`\\${selector} \\{[^}]*`, 'g'))].map((m) => m[0])
+      expect(blocks.length, selector).toBeGreaterThan(0)
+      expect(blocks.some((b) => b.includes('var(--density)')), selector).toBe(true)
+    }
+  })
+})

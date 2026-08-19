@@ -38,6 +38,21 @@ describe('acesso ao painel', () => {
     render(<Sidebar />)
     expect(screen.getByTitle(/aparência/i)).toBeTruthy()
   })
+
+  /**
+   * O painel PRECISA sair da sidebar. Ela tem `backdrop-filter`, e isso cria bloco
+   * de contenção: um `position: fixed` lá dentro deixa de se ancorar na janela e
+   * fica preso na coluna — foi exatamente o que aconteceu. Os outros modais do app
+   * escapam pelo mesmo caminho (portal para o body).
+   */
+  it('o painel nasce fora da sidebar, no body', () => {
+    stubFetch()
+    const { container } = render(<Sidebar />)
+    fireEvent.click(screen.getByTitle(/aparência/i))
+    const panel = screen.getByTestId('appearance-panel')
+    expect(container.querySelector('.sidebar')?.contains(panel)).toBe(false)
+    expect(panel.closest('.modal-overlay')?.parentElement).toBe(document.body)
+  })
 })
 
 describe('preview ao vivo', () => {
@@ -117,6 +132,18 @@ describe('guardar', () => {
     fireEvent.click(screen.getByText(/restaurar/i))
     expect(html().dataset.theme).toBe('dark-fun')
     expect(html().dataset.glass).toBe('on')
+  })
+})
+
+describe('largura do chat', () => {
+  /** A coluna estreita precisa parecer uma folha, não um texto solto no vazio. */
+  it('largura limitada marca o modo folha; cheia não', () => {
+    stubFetch()
+    render(<AppearancePanel onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('width-800'))
+    expect(html().dataset.chatWidth).toBe('800')
+    fireEvent.click(screen.getByTestId('width-full'))
+    expect(html().dataset.chatWidth).toBe('full')
   })
 })
 

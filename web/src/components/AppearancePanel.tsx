@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { saveAppearance } from '../api'
 import { useStore } from '../store'
@@ -81,7 +82,10 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
 
   const accentOf = (a: Option) => a.css ?? 'var(--accent)'
 
-  return (
+  // Portal para o body: a sidebar tem `backdrop-filter`, e isso cria bloco de
+  // contenção — um `position: fixed` lá dentro para de se ancorar na janela e fica
+  // preso na coluna. É o mesmo caminho que os outros modais do app já usam.
+  return createPortal(
     <div className="modal-overlay" onClick={cancel}>
       <div className="glass ap-panel" data-testid="appearance-panel" onClick={(e) => e.stopPropagation()}>
         <header className="ap-panel__head">
@@ -173,6 +177,7 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
           </div>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

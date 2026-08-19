@@ -127,6 +127,9 @@ export function applyAppearance(input?: Partial<Appearance> | null, root: HTMLEl
   const style = root.style
 
   root.dataset.theme = a.theme
+  // A largura vira atributo além da variável: o acabamento de "folha" só faz
+  // sentido quando a coluna é limitada, e CSS não sabe perguntar "isto é none?".
+  root.dataset.chatWidth = a.chatWidth
   root.dataset.glass = a.glass ? 'on' : 'off'
   root.dataset.motion = a.reducedMotion ? 'reduced' : 'full'
 

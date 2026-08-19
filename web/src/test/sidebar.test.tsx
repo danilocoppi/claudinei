@@ -472,6 +472,6 @@ describe('uma bolinha por engine viva no card', () => {
   it('projeto sem sessão viva não perde o sinal: o rosto dorme', () => {
     useStore.setState({ projects: projeto, sessions: { s1: sess('s1', 1, 'stopped', 'claude') } })
     render(<Sidebar />)
-    expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('asleep')
+    expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('sleeping')
   })
 })

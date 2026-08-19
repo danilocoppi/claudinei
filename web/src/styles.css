@@ -317,6 +317,23 @@
   --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* Paleta do MASCOTE. Fica ao lado dos pacotes, mas não pertence a nenhum: são
+   cores de ESTADO (o mesmo verde de "ocioso" em todos os temas), e obrigar cada
+   pacote a redeclarar seis cores só faria o próximo pacote custar mais. */
+:root {
+  --face-idle: #4fc3a1;      --face-idle-eye: #0d2a24;
+  --face-working: #e8992f;   --face-working-eye: #3a2207;
+  --face-waiting: #6c5ce7;   --face-waiting-eye: #150f3d;
+  --face-uploading: #2f8fed; --face-uploading-eye: #062340;
+  --face-sleeping: #8b5cf6;  --face-sleeping-eye: #1e0b3a;
+  --face-terminal: #ef6a2a;  --face-terminal-eye: #3a1405;
+  /* Sombreado e setas do próprio boneco: não escalam com o tema, porque o corpo
+     dele é sempre uma bola colorida — clarear isso no tema claro o achataria. */
+  --face-shade: rgba(0,0,0,.18);
+  --face-arrow: rgba(255,255,255,.9);
+  --face-arrow-dim: rgba(255,255,255,.5);
+}
+
 /* ===== FIM DOS PACOTES DE TEMA ===== */
 
 /* Reforço para navegadores que ignoram color-scheme nas opções (Chrome/Linux). */
@@ -1256,7 +1273,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
   .status-working, .status-dot--pulse, .status-needs_attention::after,
-  [data-face="working"] .agent-face__eyes { animation: none; }
+  .agent-face__body, .agent-face__eyes, .agent-face__eye, .agent-face__arrows i { animation: none; }
   /* Parado, o anel fica aberto e mais grosso: o chamado não pode depender do
      movimento — quem desliga animação continua precisando ver quem espera. */
   .status-needs_attention::after { transform: scale(1.9); opacity: .6; border-width: 2px; }
@@ -1600,7 +1617,10 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 [data-motion="reduced"] .status-working,
 [data-motion="reduced"] .status-dot--pulse,
 [data-motion="reduced"] .status-needs_attention::after,
-[data-motion="reduced"] [data-face="working"] .agent-face__eyes { animation: none; }
+[data-motion="reduced"] .agent-face__body,
+[data-motion="reduced"] .agent-face__eyes,
+[data-motion="reduced"] .agent-face__eye,
+[data-motion="reduced"] .agent-face__arrows i { animation: none; }
 [data-motion="reduced"] .status-needs_attention::after { transform: scale(1.9); opacity: .6; border-width: 2px; }
 
 /* ---- Painel de Aparência ---- */
@@ -1771,37 +1791,97 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   color: var(--text-dim); font-size: 11.5px;
 }
 
-/* ---- Rosto do agente ----
-   Substitui a bolinha no cartão: um ponto diz que algo acontece, um rosto diz que
-   tem alguém ali. O estado entra por `data-face` e é o CSS que desenha a expressão
-   — uma expressão nova não mexe no componente. */
-.agent-face { display: inline-flex; flex: none; color: var(--term-color, var(--accent)); }
-.agent-face svg { display: block; overflow: visible; }
-.agent-face__head { transition: opacity .3s; }
-/* Os olhos são vazados na cor do FUNDO da coluna, não pretos: é o recorte que faz
-   o rosto se ler a 17px sem virar um borrão. */
-.agent-face__eye { fill: var(--bg); transition: rx .25s, ry .25s, cy .25s, opacity .25s; }
 
-/* ociosa: rosto neutro (o padrão acima) */
+/* ---- Rosto do agente ------------------------------------------------------
+   Anatomia do design "Rostos de Agente": corpo redondo, olhos sempre no mesmo
+   lugar (muda a FORMA, não a posição) e UM gesto por estado — nunca dois
+   competindo. Tudo escala a partir de `--face`, então o mesmo componente serve
+   ao cartão e a qualquer lugar maior.
 
-/* trabalhando: os olhos varrem de um lado ao outro — o jeito mais econômico de
-   dizer "está pensando" sem piscar nada. */
-[data-face="working"] .agent-face__eyes { animation: face-scan 2.2s ease-in-out infinite; }
-@keyframes face-scan {
-  0%, 100% { transform: translateX(-1.1px); }
-  50%      { transform: translateX(1.1px); }
+   Nesta escala o rosto larga os adereços do design (faíscas, anel, zzz, janela
+   de terminal): a 20px eles viram sujeira. Fica cor, olhos e gesto — e o texto
+   do status ao lado completa a leitura, para ninguém ter de decifrar a animação.
+   --------------------------------------------------------------------------- */
+.agent-face {
+  --eye-w: calc(var(--face) * .135);
+  --eye-h: calc(var(--face) * .17);
+  --eye-gap: calc(var(--face) * .17);
+  display: inline-flex; flex: none;
+  width: var(--face); height: var(--face);
+}
+.agent-face__body {
+  position: relative; width: 100%; height: 100%; border-radius: 50%;
+  background: var(--face-color);
+  box-shadow: inset 0 calc(var(--face) * -.1) calc(var(--face) * .17) var(--face-shade);
+}
+.agent-face__eyes {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center; gap: var(--eye-gap);
+}
+.agent-face__eye {
+  width: var(--eye-w); height: var(--eye-h);
+  border-radius: calc(var(--face) * .07);
+  background: var(--face-eye);
+  animation: face-blink 5.4s infinite;
 }
 
-/* esperando você: olhos arregalados. O ping âmbar continua vindo da bolinha de
-   status quando ela existe; aqui o rosto reforça com a expressão. */
-[data-face="waiting"] .agent-face__eye { rx: 2.7px; ry: 2.7px; }
-[data-face="waiting"] .agent-face__head { color: var(--warn); }
+/* ocioso: respira devagar, pisca, e o olhar passeia */
+[data-face="idle"] { --face-color: var(--face-idle); --face-eye: var(--face-idle-eye); }
+[data-face="idle"] .agent-face__body { animation: face-bob 3.6s ease-in-out infinite; }
+[data-face="idle"] .agent-face__eyes { animation: face-drift 7.5s ease-in-out infinite; }
 
-/* subindo: olhos pequenos, ainda acordando */
-[data-face="starting"] .agent-face__eye { rx: 1.2px; ry: 1.2px; opacity: .8; }
+/* trabalhando: ganha VELOCIDADE, e os olhos apertam */
+[data-face="working"] { --face-color: var(--face-working); --face-eye: var(--face-working-eye); }
+[data-face="working"] .agent-face__body { animation: face-work .62s ease-in-out infinite; }
+[data-face="working"] .agent-face__eye {
+  height: calc(var(--face) * .085); border-radius: calc(var(--face) * .07); animation: none;
+}
 
-/* dormindo: olhos fechados (fatias finas) e rosto apagado */
-[data-face="asleep"] { opacity: .45; }
-/* Pálpebra fechada: o olho achata e desce um fio — lê-se "dormindo" de relance. */
-[data-face="asleep"] .agent-face__eye { rx: 2.4px; ry: .38px; cy: 12.6px; }
+/* esperando você: olha para cima, aguardando resposta */
+[data-face="waiting"] { --face-color: var(--face-waiting); --face-eye: var(--face-waiting-eye); }
+[data-face="waiting"] .agent-face__body { animation: face-bob 3.2s ease-in-out infinite; }
+[data-face="waiting"] .agent-face__eyes { animation: face-lookup 4.4s ease-in-out infinite; }
 
+/* subindo: as setas atravessam o corpo — sem elas, seria igual ao ocioso */
+[data-face="uploading"] { --face-color: var(--face-uploading); --face-eye: var(--face-uploading-eye); }
+[data-face="uploading"] .agent-face__body { animation: face-bob 1.5s ease-in-out infinite; overflow: hidden; }
+.agent-face__arrows { position: absolute; inset: 0; }
+.agent-face__arrows i {
+  position: absolute; left: 50%; bottom: 0;
+  /* A razão do design muda com o tamanho (8px num rosto de 30, 13px num de 104):
+     a proporção pequena aplicada ao grande vira um chevron cobrindo os olhos. */
+  width: min(calc(var(--face) * .27), 14px); height: min(calc(var(--face) * .27), 14px);
+  margin-left: min(calc(var(--face) * -.135), -7px);
+  border-top: 2px solid var(--face-arrow); border-right: 2px solid var(--face-arrow);
+  transform: rotate(-45deg);
+  animation: face-rise 1.5s linear infinite;
+}
+.agent-face__arrows i:last-child { animation-delay: .75s; border-color: var(--face-arrow-dim); }
+
+/* dormindo: perde saturação, tomba, e os olhos viram pálpebras */
+[data-face="sleeping"] { --face-color: var(--face-sleeping); --face-eye: var(--face-sleeping-eye); opacity: .72; }
+[data-face="sleeping"] .agent-face__body { animation: face-sleep 5.2s ease-in-out infinite; }
+[data-face="sleeping"] .agent-face__eye {
+  height: calc(var(--face) * .1); width: calc(var(--face) * .2);
+  background: transparent; border-top: 2px solid var(--face-eye);
+  border-radius: calc(var(--face) * .2) calc(var(--face) * .2) 0 0;
+  animation: none;
+}
+
+/* no terminal: varre a tela linha a linha */
+[data-face="terminal"] { --face-color: var(--face-terminal); --face-eye: var(--face-terminal-eye); }
+[data-face="terminal"] .agent-face__body { animation: face-bob 2.6s ease-in-out infinite; }
+[data-face="terminal"] .agent-face__eyes { animation: face-scan 2.6s ease-in-out infinite; }
+
+@keyframes face-blink { 0%, 91%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
+@keyframes face-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7%); } }
+@keyframes face-work { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+@keyframes face-sleep { 0%, 100% { transform: rotate(-9deg) scale(1); } 50% { transform: rotate(-9deg) scale(1.05); } }
+@keyframes face-drift { 0%, 100% { transform: translateX(-8%); } 45%, 58% { transform: translateX(10%); } }
+@keyframes face-lookup { 0%, 18% { transform: translate(-14%, -14%); } 42%, 62% { transform: translate(14%, -14%); } 88%, 100% { transform: translate(-14%, -14%); } }
+@keyframes face-scan { 0%, 100% { transform: translateX(-14%); } 30% { transform: translateX(14%); } 55% { transform: translateX(-3%); } 80% { transform: translateX(8%); } }
+@keyframes face-rise {
+  0% { transform: translateY(60%) rotate(-45deg); opacity: 0; }
+  22% { opacity: 1; }
+  100% { transform: translateY(-160%) rotate(-45deg); opacity: 0; }
+}

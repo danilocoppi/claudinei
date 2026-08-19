@@ -34,27 +34,28 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 /**
- * O rosto É o estado. A bolinha dizia a mesma coisa com menos expressão — e um
- * agente que olha comunica "há alguém aqui" de um jeito que um ponto não comunica.
+ * Os seis estados do design "Rostos de Agente". O rosto É o estado: uma bolinha
+ * dizia a mesma coisa com menos expressão.
  */
 describe('o estado vira expressão', () => {
-  it('traduz cada status numa expressão', () => {
+  it('traduz cada status num dos seis estados do design', () => {
     expect(faceStateOf(sess({ status: 'idle' }))).toBe('idle')
     expect(faceStateOf(sess({ status: 'working' }))).toBe('working')
     expect(faceStateOf(sess({ status: 'needs_attention' }))).toBe('waiting')
-    expect(faceStateOf(sess({ status: 'starting' }))).toBe('starting')
-    expect(faceStateOf(sess({ status: 'stopped' }))).toBe('asleep')
-    expect(faceStateOf(sess({ status: 'dead' }))).toBe('asleep')
+    expect(faceStateOf(sess({ status: 'starting' }))).toBe('uploading')
+    expect(faceStateOf(sess({ status: 'stopped' }))).toBe('sleeping')
+    expect(faceStateOf(sess({ status: 'dead' }))).toBe('sleeping')
   })
 
-  /** O TUI parado esperando é "esperando você" tanto quanto o needs_attention. */
-  it('o terminal parado esperando também acorda o rosto', () => {
+  /** O sexto estado: a sessão aberta no TUI, que o desenho antigo não tinha. */
+  it('sessão no terminal tem estado próprio', () => {
+    expect(faceStateOf(sess({ status: 'in_terminal' }))).toBe('terminal')
     expect(faceStateOf(sess({ status: 'in_terminal', terminalActivity: 'waiting' }))).toBe('waiting')
     expect(faceStateOf(sess({ status: 'in_terminal', terminalActivity: 'working' }))).toBe('working')
   })
 
-  it('sem sessão, o rosto dorme', () => {
-    expect(faceStateOf(undefined)).toBe('asleep')
+  it('sem sessão, o agente dorme', () => {
+    expect(faceStateOf(undefined)).toBe('sleeping')
   })
 
   it('o estado vai no atributo, como o tema — quem desenha é o CSS', () => {
@@ -62,9 +63,17 @@ describe('o estado vira expressão', () => {
     expect(container.querySelector('[data-face]')!.getAttribute('data-face')).toBe('working')
   })
 
-  it('herda a cor de quem o contém, para pegar a cor do terminal', () => {
-    const { container } = render(<AgentFace state="idle" />)
-    expect(container.querySelector('.agent-face__head')!.getAttribute('fill')).toBe('currentColor')
+  /** Um gesto por estado, e a escala inteira sai de `--face`. */
+  it('tudo escala a partir de um número só', () => {
+    const { container } = render(<AgentFace state="idle" size={44} />)
+    expect((container.firstChild as HTMLElement).style.getPropertyValue('--face')).toBe('44px')
+  })
+
+  /** "Subindo" sem as setas seria idêntico a "ocioso" — o adereço É o estado. */
+  it('só o subindo carrega adereço nesta escala', () => {
+    expect(render(<AgentFace state="uploading" />).container.querySelector('.agent-face__arrows')).toBeTruthy()
+    cleanup()
+    expect(render(<AgentFace state="idle" />).container.querySelector('.agent-face__arrows')).toBeNull()
   })
 })
 
@@ -85,6 +94,13 @@ describe('no cartão do terminal', () => {
     useStore.setState({ sessions: { s1: sess({ status: 'needs_attention' }) } })
     render(<Sidebar />)
     expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('waiting')
+  })
+
+  /** O ícone que o operador escolheu continua sendo dele: o rosto não o substitui. */
+  it('o rosto não engole o ícone', () => {
+    useStore.setState({ sessions: { s1: sess() } })
+    render(<Sidebar />)
+    expect(screen.getByTestId('term-card').querySelector('.term-card__icon')).toBeTruthy()
   })
 
   /** Uma bolinha ao lado do rosto diria a mesma coisa duas vezes. */
@@ -116,14 +132,19 @@ describe('no cartão do terminal', () => {
 })
 
 describe('movimento', () => {
-  it('só o rosto trabalhando se mexe', () => {
-    expect(css).toMatch(/\[data-face="working"\][^{]*\{[^}]*animation/)
+  /** Um gesto por estado — cada um tem o seu, e nenhum fica parado. */
+  it('cada estado tem o seu gesto', () => {
+    for (const state of ['idle', 'working', 'waiting', 'uploading', 'sleeping', 'terminal']) {
+      const bloco = css.slice(css.indexOf(`[data-face="${state}"]`))
+      expect(bloco.slice(0, 500), state).toMatch(/animation: *face-/)
+    }
   })
 
-  it('o "reduzir movimento" para o rosto também', () => {
+  it('o "reduzir movimento" alcança o corpo, os olhos e os adereços', () => {
     const block = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
-    expect(block).toMatch(/agent-face|data-face/)
-    const forced = css.match(/\[data-motion="reduced"\][\s\S]{0,600}/)?.[0] ?? ''
-    expect(forced).toMatch(/agent-face|data-face/)
+    expect(block).toMatch(/agent-face__body/)
+    expect(block).toMatch(/agent-face__arrows/)
+    const forced = css.slice(css.indexOf('[data-motion="reduced"]'))
+    expect(forced.slice(0, 900)).toMatch(/agent-face__body/)
   })
 })

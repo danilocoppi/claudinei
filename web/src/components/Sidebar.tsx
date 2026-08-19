@@ -348,7 +348,7 @@ export function Sidebar() {
         }}
       >
         <div className="term-card__title">
-          <AgentFace state={faceStateOf(s)} size={17}
+          <AgentFace state={faceStateOf(s)} size={20}
                      title={s ? t(`status.${displayStatusKey(s)}` as 'status.in_terminal') : t('sidebar.noSession')} />
           <Icon className="term-card__icon" value={p.icon} size={15} />
           <span className="term-card__name">{p.name}</span>

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
 import { SchedulesView } from '../components/SchedulesView'
-import { describeCadence } from '../cadenceText'
+import { describeCadence, formatRunTimes, formatShort } from '../cadenceText'
 import { useStore } from '../store'
 import type { Cadence, Schedule, ScheduleRun } from '../api'
 import type { EngineMeta, SessionInfo } from '../types'
@@ -162,6 +162,21 @@ describe('estados do agendamento', () => {
 })
 
 describe('editor', () => {
+  /**
+   * O editor tem de nascer dentro do primitivo de modal do app (`.modal-overlay`,
+   * que é quem centraliza e escurece o fundo). Já nasceu com um nome de classe
+   * inventado uma vez, e o resultado foi um formulário jogado no canto da página
+   * com o botão Salvar fora da tela — invisível para os testes de comportamento.
+   */
+  it('renderiza dentro do overlay de modal do app', async () => {
+    stubFetch()
+    const { container } = render(<SchedulesView />)
+    fireEvent.click(await screen.findByText(/novo|new/i))
+    const editor = await screen.findByTestId('sched-editor')
+    expect(container.querySelector('.modal-overlay')).toBeTruthy()
+    expect(editor.closest('.modal-overlay')).toBeTruthy()
+  })
+
   it('o preview das próximas execuções vem do SERVIDOR', async () => {
     const spy = stubFetch({ '/api/schedules/preview': { next: ['2026-08-19T12:00:00.000Z', '2026-08-20T12:00:00.000Z'] } })
     render(<SchedulesView />)
@@ -209,5 +224,23 @@ describe('editor', () => {
       expect(body.name).toBe('Novo')
       expect(body.cadence).toMatchObject({ kind: 'every', n: 15, unit: 'minutes' })
     })
+  })
+})
+
+describe('datas do log', () => {
+  it('a data aparece uma vez por dia no preview, e o resto vira só hora', () => {
+    const day = new Date('2026-08-19T09:00:00').toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' })
+    const out = formatRunTimes([
+      '2026-08-19T09:00:00', '2026-08-19T09:15:00', '2026-08-19T09:30:00', '2026-08-20T09:00:00',
+    ])
+    // dois dias distintos → a data daquele dia aparece uma vez, não quatro
+    expect(out.split(day).length - 1).toBe(1)
+    expect(out.split(' · ')).toHaveLength(4)
+  })
+
+  it('a data do log não carrega ano nem segundos', () => {
+    const out = formatShort('2026-08-14T12:00:42')
+    expect(out).not.toMatch(/2026/)
+    expect(out).not.toMatch(/:42/)
   })
 })

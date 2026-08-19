@@ -30,6 +30,7 @@ export const en = {
     open: 'Schedules', openTitle: 'Schedules for this terminal',
     titleFor: 'Schedules · {{name}}', new: 'New', newTitle: 'New schedule', editTitle: 'Edit schedule',
     empty: 'No schedules for this terminal yet.', selectTerminal: 'Select a terminal.',
+    emptyHint: 'A schedule sends a task to this terminal at the time you set — and keeps the result here.',
     backToChat: 'Back to chat', name: 'Name', namePlaceholder: 'e.g. Product X prices',
     task: 'Task', taskPlaceholder: 'What the agent should do on each run',
     repeat: 'Repeat', onlyOn: 'only on', betweenLabel: 'between', nextRuns: 'Next',

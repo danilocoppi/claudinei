@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { previewCadence, type Cadence, type Schedule } from '../api'
 import { useStore } from '../store'
-import { defaultCadence } from '../cadenceText'
+import { defaultCadence, formatRunTimes } from '../cadenceText'
 
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -74,9 +74,15 @@ export function ScheduleEditor({
   const canSave = !!name.trim() && !!task.trim() && next.length > 0 && !saving
 
   return (
-    <div className="modal__overlay" onClick={onClose}>
-      <div className="modal glass sched-editor" data-testid="sched-editor" onClick={(e) => e.stopPropagation()}>
-        <h3>{editing ? t('schedules.editTitle') : t('schedules.newTitle')}</h3>
+    <div className="modal-overlay" onClick={onClose}>
+      {/* Cabeçalho e rodapé fixos, corpo rolando: um formulário desta altura sem
+          isso empurra o Salvar para fora da tela em janela baixa. */}
+      <div className="glass sched-editor" data-testid="sched-editor" onClick={(e) => e.stopPropagation()}>
+        <header className="sched-editor__head">
+          <span className="sched-editor__icon" aria-hidden="true">⏱</span>
+          <h3>{editing ? t('schedules.editTitle') : t('schedules.newTitle')}</h3>
+        </header>
+        <div className="sched-editor__body">
 
         <label className="sched-field">
           <span>{t('schedules.name')}</span>
@@ -90,7 +96,7 @@ export function ScheduleEditor({
                     placeholder={t('schedules.taskPlaceholder')} />
         </label>
 
-        <div className="sched-field">
+        <div className="sched-field sched-when">
           <span>{t('schedules.repeat')}</span>
           <div className="sched-sentence">
             <select data-testid="sched-kind" value={cadence.kind}
@@ -150,7 +156,7 @@ export function ScheduleEditor({
 
           <div className="sched-preview" data-testid="sched-preview">
             {next.length > 0
-              ? <>▸ {t('schedules.nextRuns')}: {next.map((d) => new Date(d).toLocaleString()).join(' · ')}</>
+              ? <>▸ {t('schedules.nextRuns')}: {formatRunTimes(next)}</>
               : <span className="sched-preview--bad">{error || t('schedules.noNextRun')}</span>}
           </div>
         </div>
@@ -203,11 +209,12 @@ export function ScheduleEditor({
         </div>
 
         {error && next.length > 0 && <div className="sched-error">{error}</div>}
+        </div>
 
-        <div className="modal__actions">
+        <footer className="sched-editor__foot">
           <button className="ghost" onClick={onClose}>{t('common.cancel')}</button>
           <button disabled={!canSave} onClick={() => void save()}>{t('common.save')}</button>
-        </div>
+        </footer>
       </div>
     </div>
   )

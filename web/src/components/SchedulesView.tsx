@@ -8,7 +8,7 @@ import {
   runScheduleNow, updateSchedule, type Schedule, type ScheduleRun,
 } from '../api'
 import { useStore } from '../store'
-import { describeCadence } from '../cadenceText'
+import { describeCadence, formatShort } from '../cadenceText'
 import { MarkdownPre } from './MarkdownPre'
 import { ScheduleEditor } from './ScheduleEditor'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -25,7 +25,7 @@ function ResultBody({ text }: { text: string }) {
   )
 }
 
-const fmtTime = (iso: string) => new Date(iso).toLocaleString()
+const fmtTime = formatShort
 const durationOf = (r: ScheduleRun) =>
   r.finishedAt ? Math.max(1, Math.round((new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()) / 1000)) : null
 
@@ -217,19 +217,29 @@ export function SchedulesView() {
 
   return (
     <div className="sched-view">
-      <div className="chat-header sched-view__head">
-        <span style={{ fontSize: 20 }}>{project.icon}</span>
-        <strong>{t('schedules.titleFor', { name: project.name })}</strong>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+      <header className="sched-view__head">
+        <span className="sched-view__icon">{project.icon}</span>
+        <strong className="sched-view__title">{t('schedules.titleFor', { name: project.name })}</strong>
+        {items.length > 0 && <span className="sched-view__count">{items.length}</span>}
+        <div className="sched-view__actions">
           <button onClick={() => setCreating(true)}>＋ {t('schedules.new')}</button>
           {activeLocalId && (
             <button className="ghost" onClick={() => openSession(activeLocalId)}>{t('schedules.backToChat')}</button>
           )}
         </div>
-      </div>
+      </header>
 
       <div className="sched-view__body">
-        {items.length === 0 && <div className="sched-view__empty">{t('schedules.empty')}</div>}
+        {/* Vazio é convite, não encolher de ombros: diz o que um agendamento faz e
+            oferece a ação ali mesmo. */}
+        {items.length === 0 && (
+          <div className="sched-view__empty">
+            <span className="sched-view__empty-icon" aria-hidden="true">⏱</span>
+            <p className="sched-view__empty-title">{t('schedules.empty')}</p>
+            <p className="sched-view__empty-hint">{t('schedules.emptyHint')}</p>
+            <button onClick={() => setCreating(true)}>＋ {t('schedules.new')}</button>
+          </div>
+        )}
         {items.map((s) => <ScheduleCard key={s.id} schedule={s} onChanged={reload} />)}
       </div>
 

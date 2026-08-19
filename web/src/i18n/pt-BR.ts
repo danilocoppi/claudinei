@@ -32,6 +32,7 @@ export const ptBR: typeof en = {
     open: 'Agendas', openTitle: 'Agendamentos deste terminal',
     titleFor: 'Agendas · {{name}}', new: 'Novo', newTitle: 'Novo agendamento', editTitle: 'Editar agendamento',
     empty: 'Nenhum agendamento neste terminal ainda.', selectTerminal: 'Selecione um terminal.',
+    emptyHint: 'Um agendamento manda uma tarefa para este terminal no horário que você definir — e guarda o resultado aqui.',
     backToChat: 'Voltar ao chat', name: 'Nome', namePlaceholder: 'Ex.: Preços do produto X',
     task: 'Tarefa', taskPlaceholder: 'O que o agente deve fazer a cada execução',
     repeat: 'Repetir', onlyOn: 'só em', betweenLabel: 'entre', nextRuns: 'Próximas',

@@ -32,6 +32,7 @@ export const es: typeof en = {
     open: 'Agendas', openTitle: 'Programaciones de esta terminal',
     titleFor: 'Agendas · {{name}}', new: 'Nueva', newTitle: 'Nueva programación', editTitle: 'Editar programación',
     empty: 'Aún no hay programaciones en esta terminal.', selectTerminal: 'Selecciona una terminal.',
+    emptyHint: 'Una programación envía una tarea a esta terminal a la hora que definas — y guarda el resultado aquí.',
     backToChat: 'Volver al chat', name: 'Nombre', namePlaceholder: 'Ej.: Precios del producto X',
     task: 'Tarea', taskPlaceholder: 'Qué debe hacer el agente en cada ejecución',
     repeat: 'Repetir', onlyOn: 'solo en', betweenLabel: 'entre', nextRuns: 'Próximas',

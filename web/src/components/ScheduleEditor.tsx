@@ -54,7 +54,27 @@ export function ScheduleEditor({
   const weekdaysOf = () => ('weekdays' in cadence ? cadence.weekdays : undefined) ?? []
   const atOf = () => ('at' in cadence ? cadence.at : '09:00')
 
-  const engineMeta = engines.find((e) => e.id === (engine || 'claude'))
+  // Com a engine fixada, as opções são só dela. Sem fixar ("manter o atual"), não dá
+  // para saber qual CLI vai executar — então mostram-se as de TODAS, agrupadas por
+  // engine, em vez de fingir que as do Claude servem para um terminal que roda Codex.
+  const chosen = engine ? engines.filter((e) => e.id === engine) : engines
+  const modelGroups = chosen
+    .map((e) => ({ label: e.label, items: (e.models ?? []).filter(Boolean) }))
+    .filter((g) => g.items.length > 0)
+  const effortGroups = chosen
+    .map((e) => ({ label: e.label, items: (e.efforts ?? []).filter(Boolean) }))
+    .filter((g) => g.items.length > 0)
+  const grouped = !engine && chosen.length > 1
+
+  /** Opções agrupadas por engine só quando há mais de uma em jogo. */
+  const options = (groups: { label: string; items: string[] }[]) =>
+    grouped
+      ? groups.map((g) => (
+        <optgroup key={g.label} label={g.label}>
+          {g.items.map((v) => <option key={`${g.label}-${v}`} value={v}>{v}</option>)}
+        </optgroup>
+      ))
+      : groups.flatMap((g) => g.items.map((v) => <option key={v} value={v}>{v}</option>))
 
   const save = async () => {
     setSaving(true)
@@ -187,7 +207,8 @@ export function ScheduleEditor({
         <div className="sched-field sched-runtime">
           <label>
             <span>{t('schedules.engine')}</span>
-            <select data-testid="sched-engine" value={engine} onChange={(e) => { setEngine(e.target.value); setModel('') }}>
+            <select data-testid="sched-engine" value={engine}
+                    onChange={(e) => { setEngine(e.target.value); setModel(''); setEffort('') }}>
               <option value="">{t('schedules.keepCurrent')}</option>
               {engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
             </select>
@@ -196,14 +217,14 @@ export function ScheduleEditor({
             <span>{t('schedules.model')}</span>
             <select data-testid="sched-model" value={model} onChange={(e) => setModel(e.target.value)}>
               <option value="">{t('schedules.keepCurrent')}</option>
-              {(engineMeta?.models ?? []).filter(Boolean).map((m) => <option key={m} value={m}>{m}</option>)}
+              {options(modelGroups)}
             </select>
           </label>
           <label>
             <span>{t('schedules.effort')}</span>
             <select data-testid="sched-effort" value={effort} onChange={(e) => setEffort(e.target.value)}>
               <option value="">{t('schedules.keepCurrent')}</option>
-              {(engineMeta?.efforts ?? []).map((e) => <option key={e} value={e}>{e}</option>)}
+              {options(effortGroups)}
             </select>
           </label>
         </div>

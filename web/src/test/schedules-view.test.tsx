@@ -196,6 +196,44 @@ describe('editor', () => {
     }
   })
 
+  /**
+   * Com a engine em "manter o atual" não dá para saber qual CLI vai executar — então
+   * oferecer só os modelos do Claude seria mentira para um terminal que roda Codex.
+   * Nesse estado a lista mostra os modelos de TODAS as engines, agrupados por engine.
+   */
+  it('com a engine em "manter atual", os modelos vêm de todas as engines, agrupados', async () => {
+    useStore.setState({
+      engines: [
+        CLAUDE,
+        { ...CLAUDE, id: 'codex', label: 'Codex', models: ['', 'gpt-5.6-sol'], efforts: ['xhigh'] },
+      ],
+    })
+    stubFetch()
+    render(<SchedulesView />)
+    fireEvent.click(await screen.findByText(/novo|new/i))
+    const model = await screen.findByTestId('sched-model')
+    expect(within(model).getByText('gpt-5.6-sol')).toBeTruthy()
+    expect(within(model).getByText('opus')).toBeTruthy()
+    expect(model.querySelectorAll('optgroup').length).toBe(2)
+  })
+
+  it('escolhida a engine, só os modelos dela aparecem', async () => {
+    useStore.setState({
+      engines: [
+        CLAUDE,
+        { ...CLAUDE, id: 'codex', label: 'Codex', models: ['', 'gpt-5.6-sol'], efforts: ['xhigh'] },
+      ],
+    })
+    stubFetch()
+    render(<SchedulesView />)
+    fireEvent.click(await screen.findByText(/novo|new/i))
+    fireEvent.change(await screen.findByTestId('sched-engine'), { target: { value: 'codex' } })
+    const model = screen.getByTestId('sched-model')
+    expect(within(model).getByText('gpt-5.6-sol')).toBeTruthy()
+    expect(within(model).queryByText('opus')).toBeNull()
+    expect(model.querySelectorAll('optgroup').length).toBe(0)
+  })
+
   it('a quantidade de resultados desaparece quando não se espera retorno', async () => {
     stubFetch()
     render(<SchedulesView />)

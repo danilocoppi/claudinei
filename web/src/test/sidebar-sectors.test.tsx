@@ -153,10 +153,9 @@ describe('Sidebar com setores', () => {
     render(<Sidebar />)
     const delta = screen.getAllByTestId('term-card').find((c) => within(c).queryByText('Delta'))!
     fireEvent.click(within(delta).getByTitle('Opções'))
-    // 'Produto' aparece no cabeçalho do setor E no menu — o escopo evita o empate
+    // Setor virou dropdown: escolher é mudar o select, não clicar num item
     const pop = within(document.querySelector('.sess-pop') as HTMLElement)
-    expect(pop.getByText('Setor')).toBeTruthy()
-    fireEvent.click(pop.getByText('Produto'))
+    fireEvent.change(pop.getByTestId('menu-sector'), { target: { value: '100' } })
     await vi.waitFor(() =>
       expect(spy).toHaveBeenCalledWith('/api/projects/4/sector', expect.objectContaining({ method: 'PATCH' })))
   })

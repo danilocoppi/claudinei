@@ -89,6 +89,8 @@ export const es: typeof en = {
     overview: 'Vista general',
     scheduleCount_one: '{{count}} programación activa', scheduleCount_other: '{{count}} programaciones activas',
     scheduleNext: 'próxima {{when}}', scheduleFailing: '⚠ está fallando',
+    openFolder: 'Abrir carpeta', openVscode: 'Abrir en VS Code', openTerminal: 'Abrir terminal',
+    copyPath: 'Copiar ruta',
     collapseAll: 'Contraer todo', expandAll: 'Expandir todo',
     collapseCard: 'Contraer', expandCard: 'Expandir',
     revive: 'Reanudar', startSession: 'Iniciar sesión', editTerminal: 'Editar', deleteTerminal: 'Eliminar', options: 'Opciones',

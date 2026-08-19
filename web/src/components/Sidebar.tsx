@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { createGroup, createSector, deleteGroup, deleteProject, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setProjectGroup, setProjectSector, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
+import { createGroup, createSector, deleteGroup, deleteProject, deleteSector, fetchGroups, fetchLocalApps, fetchProjects, fetchSectors, openLocalApp, putSidebarOrder, setProjectGroup, setProjectSector, updateGroup, updateSector, type Group, type LocalApp, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, type Entry } from '../sidebarEntries'
@@ -17,6 +17,7 @@ import { InteractionInfo } from './InteractionInfo'
 import { UserMenu } from './UserMenu'
 import { EmojiPicker } from './EmojiPicker'
 import { ColorField } from './ColorField'
+import { copyText } from '../clipboard'
 import { AppearancePanel } from './AppearancePanel'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
@@ -55,6 +56,13 @@ const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
 const loadActiveOnly = (): boolean => {
   try { return localStorage.getItem(ACTIVE_ONLY_KEY) === '1' } catch { return false }
 }
+
+/** Abrir no desktop, na ordem em que aparecem no menu. */
+const LOCAL_ACTIONS: { id: LocalApp; icon: string; label: string }[] = [
+  { id: 'folder', icon: '📁', label: 'sidebar.openFolder' },
+  { id: 'vscode', icon: '⌨️', label: 'sidebar.openVscode' },
+  { id: 'terminal', icon: '▮', label: 'sidebar.openTerminal' },
+]
 
 // O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
 type Drag = { kind: 'project' | 'group' | 'sector'; id: number }
@@ -100,6 +108,13 @@ export function Sidebar() {
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
+  // O que a MÁQUINA DO SERVIDOR oferece. Vazio até responder: é melhor o item
+  // aparecer um instante depois do que aparecer e não funcionar.
+  const [localApps, setLocalApps] = useState<Partial<Record<LocalApp, boolean>>>({})
+
+  useEffect(() => {
+    void fetchLocalApps().then(setLocalApps).catch(() => setLocalApps({}))
+  }, [])
 
   const toggleActiveOnly = () => {
     setActiveOnly((cur) => {
@@ -669,18 +684,32 @@ export function Sidebar() {
             <div className="sess-pop__item" onClick={() => { setDeleteError(''); setDeleteFor(menuFor.p); setMenuFor(null) }}>
               <span>🗑</span><span>{t('sidebar.deleteTerminal')}</span>
             </div>
-            <div className="sess-pop__eyebrow">{t('sidebar.group')}</div>
-            {groups.map((g) => (
-              <div key={g.id} className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void moveToGroup(p, g.id) }}>
-                <span>▣</span><span>{g.name}</span>
-                {menuFor.p.groupId === g.id && <span className="sess-pop__check">✓</span>}
+            {/* Abrir no desktop: só aparece o que o SERVIDOR disse que funciona
+                nesta máquina. Item morto seria pior que item nenhum — e sem ele
+                não há erro a explicar depois do clique. */}
+            {LOCAL_ACTIONS.filter((a) => localApps[a.id]).map((a) => (
+              <div key={a.id} className="sess-pop__item"
+                   onClick={() => { const p = menuFor.p; setMenuFor(null); void openLocalApp(p.id, a.id).catch(() => {}) }}>
+                <span>{a.icon}</span><span>{t(a.label as 'sidebar.openFolder')}</span>
               </div>
             ))}
-            {menuFor.p.groupId != null && (
-              <div className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void moveToGroup(p, null) }}>
-                <span>▢</span><span>{t('sidebar.noGroup')}</span>
-              </div>
-            )}
+            <div className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void copyText(p.path) }}>
+              <span>🏷</span><span>{t('sidebar.copyPath')}</span>
+            </div>
+
+            {/* Grupo e setor em dropdown: com uma dúzia de cada, a lista de itens
+                transformava o popover numa página rolante. */}
+            <label className="sess-pop__field">
+              <span>{t('sidebar.group')}</span>
+              <select data-testid="menu-group" value={menuFor.p.groupId ?? ''}
+                      onChange={(e) => {
+                        const p = menuFor.p; setMenuFor(null)
+                        void moveToGroup(p, e.target.value ? Number(e.target.value) : null)
+                      }}>
+                <option value="">{t('sidebar.noGroup')}</option>
+                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </label>
             <div className="sess-pop__newgroup">
               <input
                 value={newGroupName}
@@ -691,20 +720,17 @@ export function Sidebar() {
               <button title={t('sidebar.newGroup')} disabled={!newGroupName.trim()} onClick={() => void createGroupAndMove(menuFor.p)}>＋</button>
             </div>
             {sectors.length > 0 && (
-              <>
-                <div className="sess-pop__eyebrow">{t('sidebar.sector')}</div>
-                {sectors.map((sec) => (
-                  <div key={sec.id} className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void moveToSector(p, sec.id) }}>
-                    <span>{sec.icon ?? '🏢'}</span><span>{sec.name}</span>
-                    {menuFor.p.sectorId === sec.id && <span className="sess-pop__check">✓</span>}
-                  </div>
-                ))}
-                {menuFor.p.sectorId != null && (
-                  <div className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void moveToSector(p, null) }}>
-                    <span>▢</span><span>{t('sidebar.noSector')}</span>
-                  </div>
-                )}
-              </>
+              <label className="sess-pop__field">
+                <span>{t('sidebar.sector')}</span>
+                <select data-testid="menu-sector" value={menuFor.p.sectorId ?? ''}
+                        onChange={(e) => {
+                          const p = menuFor.p; setMenuFor(null)
+                          void moveToSector(p, e.target.value ? Number(e.target.value) : null)
+                        }}>
+                  <option value="">{t('sidebar.noSector')}</option>
+                  {sectors.map((sec) => <option key={sec.id} value={sec.id}>{sec.name}</option>)}
+                </select>
+              </label>
             )}
           </div>
         </div>,

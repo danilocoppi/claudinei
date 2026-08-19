@@ -26,6 +26,7 @@ import { registerTranscribeRoutes } from './routes/transcribe.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerPrefsRoutes } from './routes/prefs.js'
+import { registerLocalAppRoutes, type LocalAppsRouteDeps } from './routes/local-apps.js'
 import { createPrefsService } from './prefs.js'
 import { createSchedulesStore } from './schedules/store.js'
 import { createScheduler, type Scheduler } from './schedules/scheduler.js'
@@ -62,6 +63,8 @@ export interface AppDeps {
   onRevokeAll?: () => void
   /** Tokens/permissões de um usuário mudaram: derruba os WS dele. */
   onUserInvalidated?: (userId: number) => void
+  /** Abrir pasta/editor/terminal do host. Injetável para o teste não abrir janelas. */
+  localApps?: Omit<LocalAppsRouteDeps, 'projects'>
   /** Recebe o agendador assim que ele nasce, para index.ts pará-lo no shutdown. */
   onSchedulerReady?: (scheduler: Scheduler) => void
 }
@@ -84,6 +87,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerFsRoutes(app)
   registerGroupRoutes(app, { db: deps.db })
   registerPrefsRoutes(app, { prefs: createPrefsService(deps.db) })
+  registerLocalAppRoutes(app, { projects: createProjectsService(deps.db), ...deps.localApps })
   // O agendador nasce aqui porque precisa do manager E do broadcast, que só existem
   // montados. index.ts recebe a referência para parar o laço no shutdown.
   const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })

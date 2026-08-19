@@ -251,3 +251,11 @@ import type { Appearance } from './appearance'
 export const fetchAppearance = () => req<{ appearance: Appearance }>('/api/prefs')
 export const saveAppearance = (appearance: Appearance) =>
   req<{ appearance: Appearance }>('/api/prefs', { method: 'PUT', body: JSON.stringify({ appearance }) })
+
+// ---- Apps do desktop (só quando o servidor é a própria máquina) ----
+export type LocalApp = 'folder' | 'vscode' | 'terminal'
+/** O que dá para abrir aqui. Quem decide é o SERVIDOR: ele sabe se a requisição é
+ *  local e se o binário existe — o hostname do navegador erraria os dois casos. */
+export const fetchLocalApps = () => req<Record<LocalApp, boolean>>('/api/local-apps')
+export const openLocalApp = (projectId: number, action: LocalApp) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/open`, { method: 'POST', body: JSON.stringify({ action }) })

@@ -1732,3 +1732,11 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .term-card.collapsed { padding-top: calc(4px * var(--density)); padding-bottom: calc(4px * var(--density)); }
 .term-card.collapsed .term-card__dots { margin-left: 2px; }
 .term-card__caret { font-size: 11px; opacity: .75; }
+
+/* Campo com rótulo dentro do popover (grupo/setor viraram dropdown). */
+.sess-pop__field { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 2px; }
+.sess-pop__field > span {
+  color: var(--text-dim); font-size: 10px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.sess-pop__field select { padding: 5px 8px; font-size: 12.5px; border-radius: var(--radius-sm); }

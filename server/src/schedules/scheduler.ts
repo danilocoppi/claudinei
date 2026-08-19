@@ -19,7 +19,7 @@ export interface SchedulerDeps {
   db: Db
   store: SchedulesStore
   manager: SchedulerManager
-  broadcast?: (msg: unknown) => void
+  broadcast?: (msg: object) => void
   /** Teto de espera pela resposta de uma execução. */
   timeoutMs?: number
   /** Intervalo do laço. */

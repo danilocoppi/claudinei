@@ -24,6 +24,9 @@ import { registerTerminalRoutes } from './routes/terminal.js'
 import { registerUploadRoutes } from './routes/uploads.js'
 import { registerTranscribeRoutes } from './routes/transcribe.js'
 import { registerUsageRoutes } from './routes/usage.js'
+import { registerScheduleRoutes } from './routes/schedules.js'
+import { createSchedulesStore } from './schedules/store.js'
+import { createScheduler, type Scheduler } from './schedules/scheduler.js'
 import { registerStatic } from './static.js'
 
 export interface AppDeps {
@@ -57,6 +60,8 @@ export interface AppDeps {
   onRevokeAll?: () => void
   /** Tokens/permissões de um usuário mudaram: derruba os WS dele. */
   onUserInvalidated?: (userId: number) => void
+  /** Recebe o agendador assim que ele nasce, para index.ts pará-lo no shutdown. */
+  onSchedulerReady?: (scheduler: Scheduler) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -76,6 +81,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   deps.onOrchestratorReady?.(drain)
   registerFsRoutes(app)
   registerGroupRoutes(app, { db: deps.db })
+  // O agendador nasce aqui porque precisa do manager E do broadcast, que só existem
+  // montados. index.ts recebe a referência para parar o laço no shutdown.
+  const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })
+  const scheduler = createScheduler({
+    db: deps.db, store: schedulesStore, manager: deps.manager, broadcast: deps.wsHub?.broadcast,
+  })
+  registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
+  deps.onSchedulerReady?.(scheduler)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })

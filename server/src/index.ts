@@ -185,11 +185,15 @@ if (process.argv.includes('--hermes')) {
   // (cwd=repo raiz): __dirname vem do caminho real do arquivo (fileURLToPath),
   // não do cwd do processo.
   const webDist = process.env.CLAUDINEI_PKG_WEB ?? join(__dirname, '..', '..', 'web', 'dist')
+  // O agendador nasce dentro do buildApp (precisa do manager já montado); guardamos
+  // a referência para ligar o laço depois do listen e desligá-lo no shutdown.
+  let scheduler: import('./schedules/scheduler.js').Scheduler | undefined
   const app = await buildApp({
     config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage], engineUsage, auth,
     insecure: !!cli.insecure,
     webDist: existsSync(webDist) ? webDist : undefined,
     onOrchestratorReady: (d) => { drain = d },
+    onSchedulerReady: (s) => { scheduler = s },
     onRevokeAll: () => {
       wsHub.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
@@ -199,6 +203,9 @@ if (process.argv.includes('--hermes')) {
     onUserInvalidated: (id) => wsHub.closeUser(id),
   })
   await app.listen({ port, host })
+  // Depois do listen: o primeiro tick pode subir sessões, e isso não deve atrasar
+  // o momento em que a porta começa a aceitar conexões.
+  scheduler?.start()
   console.log(
     `Termaster server em http://${host}:${port}` +
     (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : ''),
@@ -207,6 +214,7 @@ if (process.argv.includes('--hermes')) {
   for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     process.on(sig, async () => {
       console.log('encerrando sessões...')
+      scheduler?.stop()
       await manager.stopAll()
       await speech.stop()
       await app.close()

@@ -12,6 +12,7 @@ import { describeCadence, formatShort } from '../cadenceText'
 import { MarkdownPre } from './MarkdownPre'
 import { ScheduleEditor } from './ScheduleEditor'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Icon } from './Icon'
 
 /** O mesmo caminho de renderização do visualizador de arquivos: markdown com realce
  *  de sintaxe nos blocos de código. Um resultado que é código é lido como código. */
@@ -218,7 +219,7 @@ export function SchedulesView() {
   return (
     <div className="sched-view">
       <header className="sched-view__head">
-        <span className="sched-view__icon">{project.icon}</span>
+        <Icon className="sched-view__icon" value={project.icon} size={20} />
         <strong className="sched-view__title">{t('schedules.titleFor', { name: project.name })}</strong>
         {items.length > 0 && <span className="sched-view__count">{items.length}</span>}
         <div className="sched-view__actions">

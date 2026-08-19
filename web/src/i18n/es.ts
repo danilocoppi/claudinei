@@ -28,6 +28,11 @@ export const es: typeof en = {
     message: 'Este enlace sale de Claudinei y abre un sitio externo:\n{{url}}',
     open: 'Abrir enlace',
   },
+  icons: {
+    search: 'Buscar icono…', none: 'No se encontró nada.', more: 'Mostrar más',
+    showing: 'mostrando {{n}} de {{total}}',
+    tab: { emoji: 'Emoji', brand: 'Marcas', lucide: 'Iconos' },
+  },
   appearance: {
     fromTheme: 'Del tema', glassOn: 'Con vidrio', glassOff: 'Sin vidrio',
     themeHighContrast: 'Alto Contraste',

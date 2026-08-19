@@ -20,3 +20,19 @@ if (typeof Blob !== 'undefined' && !Blob.prototype.arrayBuffer) {
     })
   }
 }
+
+// O seletor de emoji observa a rolagem das categorias com IntersectionObserver,
+// que o jsdom não implementa — sem isto, montar o seletor de ícone derruba a
+// árvore inteira e o componente fica sem cobertura nenhuma.
+if (typeof IntersectionObserver === 'undefined') {
+  class Stub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return [] }
+    root = null
+    rootMargin = ''
+    thresholds: number[] = []
+  }
+  ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver = Stub
+}

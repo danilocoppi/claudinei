@@ -1740,3 +1740,31 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   letter-spacing: .06em; text-transform: uppercase;
 }
 .sess-pop__field select { padding: 5px 8px; font-size: 12.5px; border-radius: var(--radius-sm); }
+
+/* ---- Seletor de ícone (emoji + marcas + linha) ---- */
+.icon { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.icon-picker {
+  display: flex; flex-direction: column; gap: 10px; cursor: default;
+  width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 640px);
+  padding: 14px; border-radius: var(--radius);
+}
+.icon-picker__tabs { display: flex; gap: 6px; flex: none; }
+.icon-picker__search { flex: none; font-size: 13px; }
+/* Grade fixa em vez de auto-fill: com milhares de células, um layout que remede a
+   cada rolagem engasga. */
+.icon-picker__grid {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, 38px); gap: 4px;
+  align-content: start;
+}
+.icon-picker__cell {
+  width: 38px; height: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--text); cursor: pointer;
+}
+.icon-picker__cell:hover { background: var(--surface-strong); filter: none; }
+.icon-picker__cell.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.icon-picker__foot {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  color: var(--text-dim); font-size: 11.5px;
+}

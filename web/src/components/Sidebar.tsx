@@ -15,10 +15,11 @@ import { LanguageSwitcher } from './LanguageSwitcher'
 import { UsageCard } from './UsageCard'
 import { InteractionInfo } from './InteractionInfo'
 import { UserMenu } from './UserMenu'
-import { EmojiPicker } from './EmojiPicker'
+import { IconPicker } from './IconPicker'
 import { ColorField } from './ColorField'
 import { copyText } from '../clipboard'
 import { AppearancePanel } from './AppearancePanel'
+import { Icon } from './Icon'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -346,7 +347,7 @@ export function Sidebar() {
         }}
       >
         <div className="term-card__title">
-          <span className="term-card__icon">{p.icon}</span>
+          <Icon className="term-card__icon" value={p.icon} size={15} />
           <span className="term-card__name">{p.name}</span>
           {/* Colapsado, a bolinha sobe para a linha do nome: o modo compacto não
               pode virar um jeito de perder o aviso de "esperando você". */}
@@ -464,7 +465,7 @@ export function Sidebar() {
           onClick={() => toggleGroup(g.id)}
         >
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
-          <span className="term-group__icon">{g.icon ?? '🗂️'}</span>
+          <Icon className="term-group__icon" value={g.icon ?? '🗂️'} size={14} />
           <span className="term-group__name">{g.name}</span>
           <span className="term-group__count">{activeOnly ? `${items.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
@@ -542,7 +543,7 @@ export function Sidebar() {
           onClick={() => toggleSector(sec.id)}
         >
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
-          <span className="term-sector__icon">{sec.icon ?? '🏢'}</span>
+          <Icon className="term-sector__icon" value={sec.icon ?? '🏢'} size={14} />
           <span className="term-sector__name">{sec.name}</span>
           <span className="term-group__count">{activeOnly ? `${shown.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
@@ -743,7 +744,7 @@ export function Sidebar() {
             <div className="sess-pop__eyebrow">{t(groupMenuFor.kind === 'sector' ? 'sidebar.editSector' : 'sidebar.editGroup')}</div>
             <div className="sess-pop__newgroup">
               <button type="button" className="ghost group-edit__icon" title={t(groupMenuFor.kind === 'sector' ? 'sidebar.sectorIcon' : 'sidebar.groupIcon')}
-                      onClick={() => setShowGroupEmoji(true)}>{groupIcon}</button>
+                      onClick={() => setShowGroupEmoji(true)}><Icon value={groupIcon} size={16} /></button>
               <input
                 value={groupRename}
                 onChange={(e) => setGroupRename(e.target.value)}
@@ -814,7 +815,7 @@ export function Sidebar() {
         // sem elevar o picker (z-50) acima dele, o backdrop invisível do popover
         // intercepta todo clique no emoji e fecha o editor.
         <div className="overlay-above-popover">
-          <EmojiPicker onSelect={(e) => { setGroupIcon(e); setShowGroupEmoji(false) }} onClose={() => setShowGroupEmoji(false)} />
+          <IconPicker value={groupIcon} onSelect={(e) => { setGroupIcon(e); setShowGroupEmoji(false) }} onClose={() => setShowGroupEmoji(false)} />
         </div>,
         document.body,
       )}

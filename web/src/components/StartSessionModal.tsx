@@ -6,6 +6,7 @@ import { startSession, type PermissionMode } from '../api'
 import { useStore } from '../store'
 import { MODE_KEY } from '../permissionLabels'
 import { EngineIcon } from './EngineIcon'
+import { Icon } from './Icon'
 
 /** Chaves i18n dos rótulos de modelo conhecidos (hoje só os do Claude). Modelos
  * sem entrada aqui (ex.: Codex) usam o próprio id como label. */
@@ -83,7 +84,7 @@ export function StartSessionModal({ project, onClose }: { project: Project; onCl
               borderRadius: 12, background: 'rgba(0,0,0,.25)', border: `1px solid ${project.color}`, flex: 'none',
             }}
           >
-            {project.icon}
+            <Icon value={project.icon} size={20} />
           </span>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>{t('session.title')}</h3>

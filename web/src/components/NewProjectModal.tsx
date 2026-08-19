@@ -5,9 +5,10 @@ import type { Project } from '../types'
 import { createProject, updateProject, fetchProjects } from '../api'
 import { useStore } from '../store'
 import { FolderPicker } from './FolderPicker'
-import { EmojiPicker } from './EmojiPicker'
+import { IconPicker } from './IconPicker'
 import { ColorField } from './ColorField'
 import { ProjectPreviewCard } from './ProjectPreviewCard'
+import { Icon } from './Icon'
 
 export function NewProjectModal({ onClose, editProject }: { onClose: () => void; editProject?: Project }) {
   const { t } = useTranslation()
@@ -49,7 +50,7 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
           )}
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <button className="ghost" onClick={() => setShowEmoji(true)} style={{ fontSize: 20, width: 48 }}>{icon}</button>
+            <button className="ghost" onClick={() => setShowEmoji(true)} style={{ width: 48 }}><Icon value={icon} size={20} /></button>
             <ColorField value={color} onChange={setColor} />
           </div>
 
@@ -73,7 +74,7 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
         />
       )}
       {showEmoji && (
-        <EmojiPicker onSelect={(e) => setIcon(e)} onClose={() => setShowEmoji(false)} />
+        <IconPicker value={icon} onSelect={setIcon} onClose={() => setShowEmoji(false)} />
       )}
     </div>,
     document.body,

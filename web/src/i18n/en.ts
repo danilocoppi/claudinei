@@ -26,6 +26,11 @@ export const en = {
     message: 'This link leaves Claudinei and opens an external site:\n{{url}}',
     open: 'Open link',
   },
+  icons: {
+    search: 'Search icon…', none: 'Nothing found.', more: 'Show more',
+    showing: 'showing {{n}} of {{total}}',
+    tab: { emoji: 'Emoji', brand: 'Brands', lucide: 'Icons' },
+  },
   appearance: {
     fromTheme: 'From theme', glassOn: 'Glass on', glassOff: 'Glass off',
     themeHighContrast: 'High Contrast',

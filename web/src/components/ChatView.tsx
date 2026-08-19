@@ -15,6 +15,7 @@ import { ReauthBanner } from './ReauthBanner'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
+import { Icon } from './Icon'
 
 export function ChatView() {
   const { t } = useTranslation()
@@ -140,7 +141,7 @@ export function ChatView() {
   return (
     <>
       <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
-        <span style={{ fontSize: 20 }}>{project.icon}</span>
+        <Icon value={project.icon} size={20} />
         <strong>{project.name}</strong>
         <EngineTabs projectId={session.projectId} activeLocalId={session.localId} />
         {session.status === 'dead' && session.detail && (

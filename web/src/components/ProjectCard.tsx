@@ -7,6 +7,7 @@ import { startOrReviveEngine } from '../engineSession'
 import { StartSessionModal } from './StartSessionModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { EnginePickerMenu } from './EnginePickerMenu'
+import { Icon } from './Icon'
 
 export function ProjectCard({ project, session, unread }: {
   project: Project
@@ -38,7 +39,7 @@ export function ProjectCard({ project, session, unread }: {
     <div className="card" style={{ borderLeft: `4px solid ${project.color}` }}
          onClick={() => canOpen && openSession(session.localId)}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 22 }}>{project.icon}</span>
+        <Icon value={project.icon} size={22} />
         <strong style={{ flex: 1 }}>{project.name}</strong>
         {unread > 0 && <span className="badge">{unread}</span>}
         <button

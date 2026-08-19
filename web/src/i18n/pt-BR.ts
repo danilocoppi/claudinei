@@ -28,6 +28,11 @@ export const ptBR: typeof en = {
     message: 'Este link sai do Claudinei e abre um site externo:\n{{url}}',
     open: 'Abrir link',
   },
+  icons: {
+    search: 'Buscar ícone…', none: 'Nada encontrado.', more: 'Mostrar mais',
+    showing: 'mostrando {{n}} de {{total}}',
+    tab: { emoji: 'Emoji', brand: 'Marcas', lucide: 'Ícones' },
+  },
   appearance: {
     fromTheme: 'Do tema', glassOn: 'Com vidro', glassOff: 'Sem vidro',
     themeHighContrast: 'Alto Contraste',

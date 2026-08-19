@@ -38,6 +38,17 @@ const loadCollapsedSectors = (): number[] => {
   } catch { return [] }
 }
 
+// Cartões de terminal colapsados: um cartão colapsado vira uma linha só. Chave
+// própria pelo mesmo motivo das outras — ids de projeto, grupo e setor são
+// independentes entre si.
+const COLLAPSED_CARDS_KEY = 'claudinei:collapsedCards'
+const loadCollapsedCards = (): number[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(COLLAPSED_CARDS_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'number') : []
+  } catch { return [] }
+}
+
 // Filtro "somente ativos" (estado de VISÃO, como o de grupos colapsados): esconde
 // terminais e grupos sem agente de pé. Não toca em nada no servidor.
 const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
@@ -78,6 +89,7 @@ export function Sidebar() {
   const [dragOverBox, setDragOverBox] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<number[]>(loadCollapsed)
   const [collapsedSectors, setCollapsedSectors] = useState<number[]>(loadCollapsedSectors)
+  const [collapsedCards, setCollapsedCards] = useState<number[]>(loadCollapsedCards)
   // Editor de contêiner (grupo OU setor): mesma anatomia, um discriminador só.
   const [groupMenuFor, setGroupMenuFor] = useState<{ kind: 'group' | 'sector'; id: number; name: string; x: number; y: number } | null>(null)
   const [newSectorAt, setNewSectorAt] = useState<{ x: number; y: number } | null>(null)
@@ -129,6 +141,29 @@ export function Sidebar() {
       try { localStorage.setItem(COLLAPSED_SECTORS_KEY, JSON.stringify(next)) } catch { /* só não persiste */ }
       return next
     })
+  }
+
+  const toggleCard = (id: number) => {
+    setCollapsedCards((cur) => {
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+      try { localStorage.setItem(COLLAPSED_CARDS_KEY, JSON.stringify(next)) } catch { /* só não persiste */ }
+      return next
+    })
+  }
+
+  /**
+   * Recolher/expandir age nos TRÊS níveis de uma vez — setores, grupos e cartões.
+   * Meio-termo (recolher só os grupos) deixaria a tela num estado que o operador
+   * não pediu e teria de desfazer à mão.
+   */
+  const collapseAll = (collapse: boolean) => {
+    const persist = (key: string, value: number[]) => {
+      try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* só não persiste */ }
+      return value
+    }
+    setCollapsed(persist(COLLAPSED_KEY, collapse ? groups.map((g) => g.id) : []))
+    setCollapsedSectors(persist(COLLAPSED_SECTORS_KEY, collapse ? sectors.map((x) => x.id) : []))
+    setCollapsedCards(persist(COLLAPSED_CARDS_KEY, collapse ? projects.map((p) => p.id) : []))
   }
 
   const refetchAll = async () => {
@@ -248,6 +283,7 @@ export function Sidebar() {
     // Qualquer engine viva esperando acende o chamado: olhar só a sessão principal
     // perderia o caso, porque in_terminal+waiting perde de working na prioridade.
     const waiting = live.some(isWaitingForYou)
+    const isCollapsed = collapsedCards.includes(p.id)
     const key = `p-${p.id}`
     return (
       <div
@@ -255,6 +291,7 @@ export function Sidebar() {
         data-testid="term-card"
         className={[
           'term-card',
+          isCollapsed ? 'collapsed' : '',
           waiting ? 'waiting' : '',
           active ? 'active' : '',
           drag?.kind === 'project' && drag.id === p.id ? 'dragging' : '',
@@ -275,6 +312,16 @@ export function Sidebar() {
         <div className="term-card__title">
           <span className="term-card__icon">{p.icon}</span>
           <span className="term-card__name">{p.name}</span>
+          {/* Colapsado, a bolinha sobe para a linha do nome: o modo compacto não
+              pode virar um jeito de perder o aviso de "esperando você". */}
+          {isCollapsed && s && (
+            <span className="term-card__dots">
+              {(live.length > 1 ? live : [s]).map((ls) => (
+                <span key={ls.localId} className={dotClassOf(ls)}
+                      title={`${engineOf(ls)?.label ?? ls.engine} · ${t(`status.${displayStatusKey(ls)}` as 'status.in_terminal')}`} />
+              ))}
+            </span>
+          )}
           {(() => {
             const sch = schedulesOf(p.id)
             if (!sch) return null
@@ -293,8 +340,13 @@ export function Sidebar() {
             )
           })()}
           {badge > 0 && <span className="badge">{badge}</span>}
+          <button className="term-card__action term-card__action--reveal term-card__caret"
+                  title={isCollapsed ? t('sidebar.expandCard') : t('sidebar.collapseCard')}
+                  onClick={(e) => { e.stopPropagation(); toggleCard(p.id) }}>
+            {isCollapsed ? '⌄' : '⌃'}
+          </button>
           {isAdmin && (
-            <button className="term-card__action term-card__action--reveal" title={t('sidebar.options')}
+            <button className="term-card__action term-card__action--reveal term-card__gear" title={t('sidebar.options')}
                     onClick={(e) => {
                       e.stopPropagation()
                       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -309,7 +361,7 @@ export function Sidebar() {
             </button>
           )}
         </div>
-        <div className="term-card__status">
+        {!isCollapsed && <div className="term-card__status">
           {s ? (
             <>
               {/* Uma bolinha por engine VIVA (Claude + Codex + Kimi juntos aparecem
@@ -348,7 +400,7 @@ export function Sidebar() {
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L7.52 3.64A1 1 0 0 0 6 4.5Z" /></svg>
             </button>
           )}
-        </div>
+        </div>}
       </div>
     )
   }
@@ -539,15 +591,23 @@ export function Sidebar() {
           <span className="track" />
           <span className="thumb" />
         </label>
+        <button className="ghost term-header__icon" title={t('sidebar.collapseAll')}
+                onClick={() => collapseAll(true)}>⌃</button>
+        <button className="ghost term-header__icon" title={t('sidebar.expandAll')}
+                onClick={() => collapseAll(false)}>⌄</button>
         {isAdmin && (
-          <button className="ghost term-header__add" title={t('sidebar.newSector')}
+          <button className="ghost term-header__icon" title={t('sidebar.newSector')}
                   onClick={(e) => {
                     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                     setNewSectorName('')
                     setNewSectorAt({ x: Math.max(8, Math.min(r.left - 60, window.innerWidth - 250)), y: r.bottom + 4 })
-                  }}>🏢+</button>
+                  }}>🏢<span className="term-header__plus">+</span></button>
         )}
-        {isAdmin && <button className="ghost term-header__add" onClick={() => setShowNew(true)}>{t('sidebar.addTerminal')}</button>}
+        {isAdmin && (
+          <button className="ghost term-header__add" title={t('sidebar.addTerminal')} onClick={() => setShowNew(true)}>
+            +<span className="term-header__label"> Terminal</span>
+          </button>
+        )}
       </div>
 
       <div className="term-list">

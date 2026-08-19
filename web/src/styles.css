@@ -525,8 +525,17 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .sidebar__logo { font-size: 15px; font-weight: 600; letter-spacing: .02em; cursor: pointer; margin: 0; }
 .sidebar__logo-star { color: var(--accent); }
 .eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-dim); }
-.term-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 2px 6px; }
-.term-header__add { font-size: 12px; padding: 3px 10px; }
+.term-header { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 0 2px 6px; }
+/* `nowrap` é o conserto do defeito relatado: sem ele "+ Terminal" quebrava DENTRO
+   do botão quando a sidebar apertava. Faltando espaço, agora a LINHA desce e os
+   botões continuam inteiros. */
+.term-header__add, .term-header__icon {
+  white-space: nowrap; flex: none;
+  font-size: 12px; padding: 4px 9px; line-height: 1.4; border-radius: var(--radius-sm);
+}
+.term-header__icon { padding: 4px 6px; font-family: var(--emoji), inherit; }
+/* O filtro empurra as ações para a direita e sobrevive à quebra de linha. */
+.term-header__filter { margin-right: auto; }
 /* O toggle "somente ativos" encosta no botão de adicionar, à direita — sem o auto,
    o space-between o jogaria solto no meio do cabeçalho. */
 .term-header__filter { margin-left: auto; }
@@ -1668,3 +1677,30 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   padding: calc(18px * var(--density)) calc(22px * var(--density));
   margin-block: 2px 10px;
 }
+
+/* ---- Barra de ferramentas do cabeçalho da lista ----
+   O defeito que isto conserta: com a sidebar estreita, "+ Terminal" quebrava
+   DENTRO do botão. Quem manda no espaço aqui é a largura da sidebar (que é
+   redimensionável), não a da janela — por isso container query e não media. */
+.sidebar { container-type: inline-size; container-name: sidebar; }
+/* A ordem em que as coisas saem, medida e não chutada: a linha precisa de 277px
+   para caber inteira, e só a palavra "TERMINAIS" come 73 deles. Ela é o elemento
+   menos informativo (a lista embaixo já diz o que é), então sai primeiro — o rótulo
+   da AÇÃO sobrevive mais que o título decorativo.
+
+   Os números são de CONTEÚDO, não de largura total: `container-type: inline-size`
+   mede a caixa de conteúdo, e a sidebar tem 14px de padding de cada lado. */
+@container sidebar (max-width: 276px) {
+  .term-header .eyebrow { display: none; }
+}
+@container sidebar (max-width: 215px) {
+  /* Sem espaço nem para o rótulo, sobra o sinal: a ação continua ali, com o title. */
+  .term-header__label, .term-header__plus { display: none; }
+}
+
+/* ---- Cartão de terminal colapsado ----
+   Uma linha só: nome, bolinha e badge. O TEXTO do status é que sai — a bolinha
+   continua, senão o modo compacto viraria um jeito de perder o aviso. */
+.term-card.collapsed { padding-top: calc(4px * var(--density)); padding-bottom: calc(4px * var(--density)); }
+.term-card.collapsed .term-card__dots { margin-left: 2px; }
+.term-card__caret { font-size: 11px; opacity: .75; }

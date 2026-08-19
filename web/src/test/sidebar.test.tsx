@@ -31,6 +31,7 @@ beforeEach(() => {
     groups: [],
   })
   localStorage.removeItem('claudinei:collapsedGroups')
+  localStorage.removeItem('claudinei:collapsedCards')
 })
 afterEach(() => cleanup())
 
@@ -106,7 +107,7 @@ describe('Sidebar Terminais', () => {
 
   it('"+ Terminal" abre o modal de criação', () => {
     render(<Sidebar />)
-    fireEvent.click(screen.getByText('+ Terminal'))
+    fireEvent.click(screen.getByTitle('+ Terminal'))
     expect(screen.getByText('Novo projeto')).toBeTruthy()
   })
 
@@ -183,9 +184,9 @@ describe('Sidebar Terminais', () => {
       const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => usageResponse())
       useStore.setState({ me: { setupRequired: false, id: 1, username: 'u', isAdmin: false } })
       const { container } = render(<Sidebar />)
-      expect(screen.queryByText('+ Terminal')).toBeNull()
+      expect(screen.queryByTitle('+ Terminal')).toBeNull()
       expect(container.querySelector('.usage-card')).toBeNull()
-      expect(container.querySelectorAll('.term-card__action--reveal').length).toBe(0)
+      expect(container.querySelectorAll('.term-card__gear').length).toBe(0)
       // dá tempo pro efeito do UsageCard rodar (não deveria nem montar) sem deixar a asserção falsa-positiva
       await new Promise((r) => setTimeout(r, 0))
       expect(container.querySelector('.usage-card')).toBeNull()
@@ -196,9 +197,9 @@ describe('Sidebar Terminais', () => {
       const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => usageResponse())
       useStore.setState({ me: { setupRequired: false, id: 1, username: 'u', isAdmin: true } })
       const { container } = render(<Sidebar />)
-      expect(screen.getByText('+ Terminal')).toBeTruthy()
+      expect(screen.getByTitle('+ Terminal')).toBeTruthy()
       await vi.waitFor(() => expect(container.querySelector('.usage-card')).toBeTruthy())
-      expect(container.querySelectorAll('.term-card__action--reveal').length).toBeGreaterThan(0)
+      expect(container.querySelectorAll('.term-card__gear').length).toBeGreaterThan(0)
       spy.mockRestore()
     })
   })
@@ -317,7 +318,7 @@ describe('grupos de terminais', () => {
     render(<Sidebar />)
     const cards = screen.getAllByTestId('term-card')
     const front = cards.find((c) => c.textContent?.includes('X Front'))!
-    fireEvent.click(front.querySelector('.term-card__action--reveal')!)
+    fireEvent.click(front.querySelector('.term-card__gear')!)
     expect(screen.getByText('Grupo')).toBeTruthy()
     expect(screen.getAllByText('Projeto X').length).toBeGreaterThan(0) // opção no menu
     expect(screen.getByText('Sem grupo')).toBeTruthy() // X Front está num grupo → pode sair

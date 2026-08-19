@@ -89,6 +89,8 @@ export const ptBR: typeof en = {
     overview: 'Visão geral',
     scheduleCount_one: '{{count}} agendamento ativo', scheduleCount_other: '{{count}} agendamentos ativos',
     scheduleNext: 'próximo {{when}}', scheduleFailing: '⚠ vem falhando',
+    collapseAll: 'Recolher tudo', expandAll: 'Expandir tudo',
+    collapseCard: 'Recolher', expandCard: 'Expandir',
     revive: 'Reviver', startSession: 'Iniciar sessão', editTerminal: 'Editar', deleteTerminal: 'Excluir', options: 'Opções',
   },
   status: {

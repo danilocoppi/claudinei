@@ -87,6 +87,8 @@ export const en = {
     overview: 'Overview',
     scheduleCount_one: '{{count}} active schedule', scheduleCount_other: '{{count}} active schedules',
     scheduleNext: 'next {{when}}', scheduleFailing: '⚠ failing',
+    collapseAll: 'Collapse all', expandAll: 'Expand all',
+    collapseCard: 'Collapse', expandCard: 'Expand',
     revive: 'Revive', startSession: 'Start session', editTerminal: 'Edit', deleteTerminal: 'Delete', options: 'Options',
   },
   status: {

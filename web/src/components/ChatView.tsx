@@ -159,6 +159,7 @@ export function ChatView() {
         </button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+        <div className="chat-scroll__inner">
         {/* Sequências de ações (tool_call/thinking) viram um grupo colapsável;
             key pelo índice INICIAL do grupo, estável enquanto a cauda cresce
             no streaming (não perde o estado aberto/fechado do operador). */}
@@ -197,6 +198,7 @@ export function ChatView() {
           </div>
         )}
         <div ref={bottomRef} />
+        </div>
       </div>
       {/* Arquivo aberto INLINE: dockado aqui (fora da rolagem do chat) para
           continuar visível enquanto o operador digita e a conversa anda. */}

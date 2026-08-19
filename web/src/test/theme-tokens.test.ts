@@ -48,7 +48,7 @@ describe('todo tema declara o conjunto completo', () => {
   ])
 
   it('light-fun declara tudo que o padrão declara', () => {
-    const base = [...tokensOf(blockOf(':root'))].filter((t) => !NOT_THEME.has(t))
+    const base = [...tokensOf(blockOf(':root, [data-theme="dark-fun"]'))].filter((t) => !NOT_THEME.has(t))
     const light = tokensOf(blockOf('[data-theme="light-fun"]'))
     expect(base.length).toBeGreaterThan(15)
     expect(base.filter((t) => !light.has(t))).toEqual([])

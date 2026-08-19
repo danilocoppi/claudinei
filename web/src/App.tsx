@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from './store'
-import { fetchEngines, fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
+import { fetchAppearance, fetchEngines, fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
 import { Sidebar } from './components/Sidebar'
@@ -65,6 +65,8 @@ export default function App() {
     fetchSectors().then((sectors) => useStore.getState().setSectors(sectors)).catch(() => {})
     // Lista enxuta de agendamentos: é ela que acende o ⏱ nos cartões da sidebar.
     fetchSchedules().then((s) => useStore.getState().setSchedules(s)).catch(() => {})
+    // Reconcilia com o servidor: se ele discordar do cache de pintura, ele vence.
+    fetchAppearance().then((r) => useStore.getState().applyAppearance(r.appearance)).catch(() => {})
     // Pré-carrega a lista de slash commands (persistida no backend) para o
     // autocomplete do chat mostrar tudo já no primeiro `/`, sem esperar a 1ª msg.
     fetchSlashCommands().then((cmds) => useStore.getState().setSlashCommands(cmds)).catch(() => {})

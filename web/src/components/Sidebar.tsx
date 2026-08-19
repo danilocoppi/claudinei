@@ -17,6 +17,7 @@ import { InteractionInfo } from './InteractionInfo'
 import { UserMenu } from './UserMenu'
 import { EmojiPicker } from './EmojiPicker'
 import { ColorField } from './ColorField'
+import { AppearancePanel } from './AppearancePanel'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -70,6 +71,7 @@ export function Sidebar() {
   const [menuFor, setMenuFor] = useState<{ p: Project; x: number; y: number } | null>(null)
   const [reviveFor, setReviveFor] = useState<{ s: SessionInfo; x: number; y: number } | null>(null)
   const [showInfo, setShowInfo] = useState(false)
+  const [showAppearance, setShowAppearance] = useState(false)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [overKey, setOverKey] = useState<string | null>(null) // entrada/card alvo (inserir ANTES)
   // Contêiner realçado sob o cursor: 'root', 'g-N' ou 's-N'.
@@ -516,6 +518,8 @@ export function Sidebar() {
           <span className="sidebar__logo-star">✳</span> Claudinei
         </div>
         <div className="sidebar__top-actions">
+          <button className="sidebar__icon-btn" title={t('appearance.title')}
+                  aria-label={t('appearance.title')} onClick={() => setShowAppearance(true)}>🎨</button>
           <UserMenu />
           <LanguageSwitcher />
         </div>
@@ -721,6 +725,7 @@ export function Sidebar() {
         </div>,
         document.body,
       )}
+      {showAppearance && <AppearancePanel onClose={() => setShowAppearance(false)} />}
       {showInfo && <InteractionInfo onClose={() => setShowInfo(false)} />}
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} />}
       {startFor && <StartSessionModal project={startFor} onClose={() => setStartFor(null)} />}

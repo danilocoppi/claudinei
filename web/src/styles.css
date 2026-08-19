@@ -10,8 +10,11 @@
    clarear sobre fundo claro nao se ve. Os fatores `-k` escalam a intensidade por
    tema, preservando no escuro exatamente os valores originais.
    =========================================================================== */
-:root {
-  /* --- Dark Fun (padrao) --- */
+:root, [data-theme="dark-fun"] {
+  /* --- Dark Fun (padrao) ---
+     O seletor duplo não é redundância: `:root` faz deste o padrão da aplicação, e
+     o `[data-theme]` faz o pacote valer também DENTRO de outro tema — que é o que
+     permite a amostra do painel se pintar sozinha. */
   --bg: #0b0d16;
   --bg-blob-1: #3b2b6b; --bg-blob-2: #1e5f74; --bg-blob-3: #2a1c4d;
   --text: #eef0f8; --text-dim: #9aa0bd;
@@ -29,8 +32,10 @@
   --ink: #000; --ink-k: 1;
   --sheen: #fff; --sheen-k: 1;
   --scheme: dark;
+}
 
-  /* --- fora do tema: forma, tipografia e movimento --- */
+/* Fora do tema: forma e tipografia são escolhas independentes do pacote de cores. */
+:root {
   --glass-blur: 14px;
   --radius: 16px;
   --density: 1;
@@ -70,7 +75,7 @@
 option, optgroup { background: var(--surface-solid); color: var(--text); }
 * { box-sizing: border-box; }
 body {
-  margin: 0; color: var(--text); font-family: system-ui, -apple-system, sans-serif, var(--emoji);
+  margin: 0; color: var(--text); font-family: var(--font-ui), var(--emoji);
   background:
     radial-gradient(1200px 600px at 8% -8%, var(--bg-blob-1) 0%, transparent 58%),
     radial-gradient(1000px 620px at 108% 6%, var(--bg-blob-2) 0%, transparent 55%),
@@ -149,8 +154,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
-.markdown code { background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); padding: 1px 5px; border-radius: 5px; }
-.markdown pre { background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); padding: 12px; border-radius: 10px; overflow-x: auto; }
+.markdown code { font-family: var(--font-code); background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); padding: 1px 5px; border-radius: 5px; }
+.markdown pre { font-family: var(--font-code); background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); padding: 12px; border-radius: 10px; overflow-x: auto; }
 
 /* Path de arquivo confirmado (existe + no escopo do projeto) dentro do markdown do chat — clicável, abre o FileViewerModal. */
 .file-link { color: var(--accent); text-decoration: underline dotted; cursor: pointer; }
@@ -469,7 +474,7 @@ button.term-card__action--play:hover { color: var(--ok); }
   font-size: 10.5px; letter-spacing: .55px; text-transform: uppercase;
   font-weight: 700; color: var(--err); margin-bottom: 6px;
 }
-.api-error__msg { font-family: monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+.api-error__msg { font-family: var(--font-code); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
 .api-error__hint { color: var(--text-dim); font-size: 11.5px; margin-top: 6px; }
 
 /* Bolha do lado do usuário: tinta glass + borda (mesma estrutura nas duas
@@ -665,7 +670,7 @@ button.subagent__stop:hover { opacity: 1; color: var(--err); background: color-m
 }
 .slash-item { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
 .slash-item:hover, .slash-item.active { background: var(--surface-strong); }
-.slash-item__name { font-family: monospace; font-size: 13px; color: var(--text); }
+.slash-item__name { font-family: var(--font-code); font-size: 13px; color: var(--text); }
 .slash-item__desc { font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .mic-btn--rec {
@@ -1240,7 +1245,7 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .sched-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .sched-sentence select, .sched-sentence input { padding: 6px 9px; }
 .sched-num { width: 72px; }
-.sched-cron { flex: 1; min-width: 170px; font-family: ui-monospace, monospace; }
+.sched-cron { flex: 1; min-width: 170px; font-family: var(--font-code); }
 .sched-days, .sched-window { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .sched-days__label {
   color: var(--text-dim); font-size: 11px; margin-right: 2px; min-width: 44px;
@@ -1299,4 +1304,137 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   .sched-view__actions { width: 100%; margin-left: 0; }
   .sched-run__line { grid-template-columns: 96px 16px 1fr auto; }
   .sched-run__late { display: none; }
+}
+
+
+/* ===========================================================================
+   CONTROLES DE APARÊNCIA
+   O que o painel liga e desliga. Tudo entra por atributo ou variável no <html>,
+   nunca por classe em componente — é o que permite um pacote de tema novo não
+   exigir tocar em componente nenhum.
+   =========================================================================== */
+
+/* Largura do chat: `none` mantém o comportamento de hoje (ocupa tudo). Centraliza
+   a coluna sem mexer no fundo, então o gradiente continua atravessando a tela. */
+.chat-scroll__inner { max-width: var(--chat-max); margin: 0 auto; width: 100%; }
+
+/* Densidade: aplicada onde o espaço realmente se sente numa tela cheia de
+   terminais — a lista lateral e os cartões —, não em cada padding da folha. */
+.sidebar { padding: calc(14px * var(--density)); gap: calc(6px * var(--density)); }
+.term-card { padding: calc(6px * var(--density)) calc(8px * var(--density)) calc(6px * var(--density)) 12px; }
+.term-group__body { gap: calc(6px * var(--density)); margin: calc(2px * var(--density)) 0 calc(4px * var(--density)) 10px; }
+.term-sector__body { gap: calc(6px * var(--density)); margin: calc(4px * var(--density)) 0 calc(6px * var(--density)) 8px; }
+.sched-view__body { gap: calc(14px * var(--density)); padding: calc(18px * var(--density)) 20px calc(28px * var(--density)); }
+.sched-card { padding: calc(14px * var(--density)) 16px calc(14px * var(--density)) 20px; }
+
+/* Vidro desligado: o `backdrop-filter` é o maior custo de GPU do app, e em máquina
+   fraca a sidebar inteira fica pesada por causa dele. Sem o desfoque, as
+   superfícies precisam de mais corpo para continuarem legíveis sobre o gradiente. */
+[data-glass="off"] .glass,
+[data-glass="off"] .sidebar,
+[data-glass="off"] .modal-overlay > .glass {
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+[data-glass="off"] {
+  --surface: color-mix(in srgb, var(--bg) 82%, var(--sheen));
+  --surface-strong: color-mix(in srgb, var(--bg) 72%, var(--sheen));
+}
+
+/* Movimento reduzido pedido no painel: mesmas regras do media query, para quem se
+   incomoda com o ping do "esperando você" sem querer mexer no sistema todo. */
+[data-motion="reduced"] .sidebar { transition: none; }
+[data-motion="reduced"] .status-working,
+[data-motion="reduced"] .status-dot--pulse,
+[data-motion="reduced"] .status-needs_attention::after { animation: none; }
+[data-motion="reduced"] .status-needs_attention::after { transform: scale(1.9); opacity: .6; border-width: 2px; }
+
+/* ---- Painel de Aparência ---- */
+.sidebar__icon-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 9px; padding: 3px 7px; font-size: 13px; line-height: 1.3; cursor: pointer;
+  font-family: var(--emoji), inherit;
+}
+.sidebar__icon-btn:hover { background: var(--surface-strong); color: var(--text); filter: none; }
+
+.ap-panel {
+  display: flex; flex-direction: column; cursor: default;
+  width: min(560px, calc(100vw - 32px)); max-height: min(86vh, 780px); border-radius: var(--radius);
+}
+.ap-panel__head {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 16px 20px 12px; border-bottom: 1px solid var(--border);
+}
+.ap-panel__head h3 { margin: 0; font-size: 15px; }
+.ap-panel__body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+.ap-panel__foot {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 20px 16px; border-top: 1px solid var(--border);
+}
+.ap-panel__foot-right { display: flex; gap: 8px; }
+
+.ap-field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+.ap-field > span {
+  color: var(--text-dim); font-size: 10.5px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.ap-row { display: flex; flex-wrap: wrap; gap: 14px; }
+.ap-row > .ap-field { flex: 1 1 200px; }
+.ap-hint { color: var(--text-dim); font-size: 11.5px; line-height: 1.5; margin: 0; }
+
+/* Amostra do tema: as cores saem do PRÓPRIO pacote (o botão carrega o data-theme),
+   então um tema novo ganha amostra sem ninguém repetir a paleta aqui. */
+.ap-swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.ap-swatch {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  padding: 10px; border-radius: 12px; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  min-width: 128px; transition: border-color .15s, transform .15s;
+}
+.ap-swatch:hover { transform: translateY(-1px); filter: none; }
+.ap-swatch.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ap-swatch__preview { display: flex; gap: 5px; }
+.ap-swatch__dot { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); }
+.ap-swatch__dot--surface { background: var(--surface-strong); }
+.ap-swatch__dot--accent { background: var(--accent); border-color: transparent; }
+.ap-swatch__dot--text { background: var(--text); border-color: transparent; }
+.ap-swatch__name { font-size: 12.5px; font-weight: 600; }
+
+.ap-accents { display: flex; flex-wrap: wrap; gap: 8px; }
+.ap-accent {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: var(--chip); border: 1px solid var(--border);
+  transition: transform .15s, box-shadow .15s;
+}
+.ap-accent:hover { transform: scale(1.08); filter: none; }
+.ap-accent.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--chip); }
+/* "Do tema" não é uma cor fixa: a listra diz que quem manda é o pacote. */
+.ap-accent--theme { background: linear-gradient(135deg, var(--accent) 50%, var(--surface-strong) 50%); }
+
+.ap-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.ap-pill {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 9px; padding: 5px 11px; font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.ap-pill:hover { color: var(--text); filter: none; }
+.ap-pill.on {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text); border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.ap-toggle {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 11px; margin-bottom: 10px;
+}
+.ap-toggle:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.ap-toggle input { margin: 2px 0 0; width: 15px; height: 15px; flex: none; }
+.ap-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.ap-toggle strong { font-size: 13px; font-weight: 600; }
+.ap-toggle em { font-style: normal; font-size: 11.5px; color: var(--text-dim); line-height: 1.45; }
+
+.ap-error {
+  color: var(--warn); font-size: 12px; line-height: 1.5;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: 9px; padding: 8px 10px;
 }

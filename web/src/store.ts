@@ -6,6 +6,7 @@ import { applyEvent } from './chat/applyEvent'
 import { notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
+import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 
 /**
  * Fallback embutido para `store.engines`, usado até `GET /api/engines` resolver (ou se falhar).
@@ -72,6 +73,8 @@ interface State {
   sectors: Sector[]
   /** Agendamentos de TODOS os terminais (enxutos): é o que acende o ⏱ na sidebar. */
   schedules: Schedule[]
+  /** Aparência do usuário. O servidor é a verdade; aqui fica o que está aplicado. */
+  appearance: Appearance
   view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal' | 'schedules'
   board: BoardPost[]
   tasks: Task[]
@@ -92,6 +95,8 @@ interface State {
   setGroups(groups: Group[]): void
   setSectors(sectors: Sector[]): void
   setSchedules(schedules: Schedule[]): void
+  /** Aplica no <html>, guarda no cache de pintura e reflete no estado. */
+  applyAppearance(appearance: Appearance): void
   openSchedules(): void
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
@@ -143,6 +148,7 @@ export const useStore = create<State>((set, get) => ({
   groups: [],
   sectors: [],
   schedules: [],
+  appearance: DEFAULT_APPEARANCE,
   view: 'dashboard',
   board: [],
   tasks: [],
@@ -160,6 +166,12 @@ export const useStore = create<State>((set, get) => ({
   setSectors: (sectors) => set({ sectors }),
 
   setSchedules: (schedules) => set({ schedules }),
+
+  applyAppearance: (appearance) => {
+    const applied = applyAppearance(appearance)
+    cacheAppearance(applied)
+    set({ appearance: applied })
+  },
 
   // Mantém o activeLocalId: a tela de Agendas é do terminal aberto, e voltar ao
   // chat não pode custar reabrir a sessão.

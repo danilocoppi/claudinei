@@ -245,3 +245,9 @@ export const fetchRunContent = (id: number, seq: number) =>
 /** Preview vem do SERVIDOR: um cálculo próprio no front acabaria discordando do agendador. */
 export const previewCadence = (cadence: Cadence) =>
   req<{ next: string[] }>('/api/schedules/preview', { method: 'POST', body: JSON.stringify({ cadence }) })
+
+// ---- Aparência (por usuário, no servidor) ----
+import type { Appearance } from './appearance'
+export const fetchAppearance = () => req<{ appearance: Appearance }>('/api/prefs')
+export const saveAppearance = (appearance: Appearance) =>
+  req<{ appearance: Appearance }>('/api/prefs', { method: 'PUT', body: JSON.stringify({ appearance }) })

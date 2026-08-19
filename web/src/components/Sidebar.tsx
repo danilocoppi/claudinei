@@ -285,6 +285,27 @@ export function Sidebar() {
     const waiting = live.some(isWaitingForYou)
     const isCollapsed = collapsedCards.includes(p.id)
     const key = `p-${p.id}`
+
+    /**
+     * Iniciar/reviver é a ÚNICA ação de um cartão sem sessão viva. Ela morava na
+     * linha de status, que o modo compacto esconde — então precisa acompanhar o
+     * cartão quando ele encolhe, e não ser recriada em dois lugares.
+     */
+    const playButton = revivable ? (
+      <button className="term-card__action term-card__action--play" title={t('sidebar.revive')}
+              onClick={(e) => {
+                e.stopPropagation()
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                setReviveFor({ s: s!, x: r.left, y: r.bottom + 4 })
+              }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L7.52 3.64A1 1 0 0 0 6 4.5Z" /></svg>
+      </button>
+    ) : !s ? (
+      <button className="term-card__action term-card__action--play" title={t('sidebar.startSession')}
+              onClick={(e) => { e.stopPropagation(); setStartFor(p) }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L7.52 3.64A1 1 0 0 0 6 4.5Z" /></svg>
+      </button>
+    ) : null
     return (
       <div
         key={p.id}
@@ -322,6 +343,7 @@ export function Sidebar() {
               ))}
             </span>
           )}
+          {isCollapsed && playButton}
           {(() => {
             const sch = schedulesOf(p.id)
             if (!sch) return null
@@ -384,22 +406,7 @@ export function Sidebar() {
           ) : (
             <><span className="status-dot status-none" /><span>{t('sidebar.noSession')}</span></>
           )}
-          {revivable && (
-            <button className="term-card__action term-card__action--play" title={t('sidebar.revive')}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                      setReviveFor({ s: s!, x: r.left, y: r.bottom + 4 })
-                    }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L7.52 3.64A1 1 0 0 0 6 4.5Z" /></svg>
-            </button>
-          )}
-          {!s && (
-            <button className="term-card__action term-card__action--play" title={t('sidebar.startSession')}
-                    onClick={(e) => { e.stopPropagation(); setStartFor(p) }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L7.52 3.64A1 1 0 0 0 6 4.5Z" /></svg>
-            </button>
-          )}
+          {playButton}
         </div>}
       </div>
     )

@@ -99,6 +99,31 @@ describe('terminal colapsável', () => {
     expect(within(collapsed).getByText('4')).toBeTruthy()
   })
 
+  /**
+   * O ▶ de iniciar/reviver morava DENTRO da linha de status, que o modo compacto
+   * esconde inteira — e o terminal colapsado ficava sem como subir. Colapsar é
+   * economizar espaço, não perder a única ação que aquele cartão oferece.
+   */
+  it('terminal SEM sessão continua tendo como iniciar quando colapsado', () => {
+    render(<Sidebar />)
+    // Gama não tem sessão: o cartão dele só oferece "iniciar"
+    fireEvent.click(within(cardOf('Gama')).getByTitle(/recolher/i))
+    expect(within(cardOf('Gama')).getByTitle(/iniciar sessão/i)).toBeTruthy()
+  })
+
+  it('terminal PARADO continua tendo como reviver quando colapsado', () => {
+    useStore.setState({ sessions: { s3: sess('s3', 3, 'stopped') } })
+    render(<Sidebar />)
+    fireEvent.click(within(cardOf('Gama')).getByTitle(/recolher/i))
+    expect(within(cardOf('Gama')).getByTitle(/reviver/i)).toBeTruthy()
+  })
+
+  it('terminal vivo não ganha botão de iniciar (não há o que subir)', () => {
+    render(<Sidebar />)
+    fireEvent.click(within(cardOf('Alpha')).getByTitle(/recolher/i))
+    expect(within(cardOf('Alpha')).queryByTitle(/iniciar sessão|reviver/i)).toBeNull()
+  })
+
   it('expandir de volta traz o texto do status', () => {
     render(<Sidebar />)
     fireEvent.click(within(cardOf('Beta')).getByTitle(/recolher/i))

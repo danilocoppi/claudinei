@@ -112,6 +112,41 @@ export function openDb(path: string): Db {
   try { db.exec(`ALTER TABLE tasks ADD COLUMN to_engine TEXT`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN titulo TO title`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN conteudo TO content`) } catch { /* já migrado */ }
+  // Agendamentos por terminal. O resultado NÃO mora aqui: o banco guarda o título e
+  // o tamanho, e o conteúdo vai para arquivo (ver schedules/store.ts) — 50 execuções
+  // de 128 KB por agendamento incharia o banco que carrega a aplicação inteira.
+  db.exec(`CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    task TEXT NOT NULL,
+    cadence TEXT NOT NULL,
+    engine TEXT,
+    model TEXT,
+    effort TEXT,
+    expects_result INTEGER NOT NULL DEFAULT 1,
+    keep_results INTEGER NOT NULL DEFAULT 10,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    run_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec(`CREATE TABLE IF NOT EXISTS schedule_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    title TEXT,
+    content_size INTEGER,
+    error TEXT,
+    local_id TEXT,
+    late INTEGER NOT NULL DEFAULT 0
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_runs_schedule ON schedule_runs(schedule_id, seq DESC)`)
+
   db.exec(`UPDATE tasks SET status = CASE status WHEN 'em_andamento' THEN 'in_progress' WHEN 'concluida' THEN 'completed' WHEN 'falhou' THEN 'failed' ELSE status END`)
   return db
 }

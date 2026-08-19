@@ -27,6 +27,8 @@ export interface Config {
   uploadsDir: string
   /** Pasta do modelo de fala (Parakeet/sherpa) e do libstdc++ portátil. */
   speechDir: string
+  /** Conteúdo dos resultados de agendamento (um arquivo por execução). */
+  schedulesDir: string
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -59,6 +61,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     keepSessionsPerProject: env.CLAUDINEI_KEEP_SESSIONS ? Number(env.CLAUDINEI_KEEP_SESSIONS) : 5,
     uploadsDir: env.CLAUDINEI_UPLOADS ?? join(homedir(), '.claudinei', 'uploads'),
     speechDir: env.CLAUDINEI_SPEECH ?? join(homedir(), '.claudinei', 'speech'),
+    schedulesDir: env.CLAUDINEI_SCHEDULES ?? join(homedir(), '.claudinei', 'schedules'),
   }
 }
 

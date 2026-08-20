@@ -29,9 +29,10 @@ export const ptBR: typeof en = {
     open: 'Abrir link',
   },
   icons: {
-    search: 'Buscar ícone…', none: 'Nada encontrado.', more: 'Mostrar mais',
-    showing: 'mostrando {{n}} de {{total}}',
-    tab: { emoji: 'Emoji', brand: 'Marcas', lucide: 'Ícones' },
+    search: 'Buscar em ~250 mil ícones…', none: 'Nada encontrado — tente outra palavra.',
+    showing: '{{n}} resultados', total: 'Sugestões — digite para buscar em todos os acervos',
+    hint: 'Busca em português ou inglês: servidor, financeiro, deploy, loja…',
+    tab: { emoji: 'Emoji', icons: 'Ícones' },
   },
   appearance: {
     fromTheme: 'Do tema', glassOn: 'Com vidro', glassOff: 'Sem vidro',

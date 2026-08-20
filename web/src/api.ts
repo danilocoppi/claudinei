@@ -1,4 +1,5 @@
 import type { ClaudeEvent, EngineMeta, PermissionMode, Project, SessionInfo } from './types'
+import type { IconBody } from './icons'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = init?.body ? { 'Content-Type': 'application/json' } : undefined
@@ -19,6 +20,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const fetchProjects = () => req<Project[]>('/api/projects')
+/** Busca no acervo de ícones. Já devolve o desenho: a grade pinta sem segunda ida. */
+export const searchIcons = (q: string) =>
+  req<{ icons: IconBody[] }>(`/api/icons/search?q=${encodeURIComponent(q)}`).then((r) => r.icons)
 export const fetchSlashCommands = () => req<string[]>('/api/slash-commands')
 export const fetchEngines = () => req<EngineMeta[]>('/api/engines')
 export const createProject = (input: { name: string; path: string; color?: string; icon?: string }) =>

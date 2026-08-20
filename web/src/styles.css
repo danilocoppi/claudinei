@@ -1796,15 +1796,41 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   display: flex; flex-direction: column; gap: 10px; cursor: default;
   width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 640px);
   padding: 14px; border-radius: var(--radius);
+  /* Segundo nível de modal: o seletor abre POR CIMA do formulário do terminal, e
+     o `--surface` translúcido do vidro deixava o formulário de trás vazar no meio
+     dos ícones. A base opaca vai por baixo, o vidro por cima. */
+  background: linear-gradient(var(--surface), var(--surface)), var(--bg);
 }
 .icon-picker__tabs { display: flex; gap: 6px; flex: none; }
 .icon-picker__search { flex: none; font-size: 13px; }
-/* Grade fixa em vez de auto-fill: com milhares de células, um layout que remede a
+/* Grade fixa em vez de auto-fill: com centenas de células, um layout que remede a
    cada rolagem engasga. */
 .icon-picker__grid {
-  flex: 1; min-height: 0; overflow-y: auto;
   display: grid; grid-template-columns: repeat(auto-fill, 38px); gap: 4px;
   align-content: start;
+}
+/* A rolagem é da LISTA de acervos, não de cada grade: com uma barra por acervo,
+   procurar viraria uma caça a barrinhas. */
+.icon-picker__sets {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.icon-picker__set-name {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 5px;
+  font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+.icon-picker__set-name span {
+  padding: 0 5px; border-radius: 999px; background: var(--surface-strong);
+  font-size: 10px; letter-spacing: 0;
+}
+/* Sem termo, a grade das sugestões também precisa poder rolar. */
+.icon-picker__sets ~ .icon-picker__grid,
+.icon-picker__hint + .icon-picker__grid { flex: 1; min-height: 0; overflow-y: auto; }
+.icon-picker__hint { flex: none; color: var(--text-dim); font-size: 11.5px; }
+.icon-picker__empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 13px;
 }
 .icon-picker__cell {
   width: 38px; height: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center;

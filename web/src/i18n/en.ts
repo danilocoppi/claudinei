@@ -27,9 +27,10 @@ export const en = {
     open: 'Open link',
   },
   icons: {
-    search: 'Search icon…', none: 'Nothing found.', more: 'Show more',
-    showing: 'showing {{n}} of {{total}}',
-    tab: { emoji: 'Emoji', brand: 'Brands', lucide: 'Icons' },
+    search: 'Search ~250k icons…', none: 'Nothing found — try another word.',
+    showing: '{{n}} results', total: 'Suggestions — type to search every set',
+    hint: 'Search in English or Portuguese: server, payment, deploy, store…',
+    tab: { emoji: 'Emoji', icons: 'Icons' },
   },
   appearance: {
     fromTheme: 'From theme', glassOn: 'Glass on', glassOff: 'Glass off',

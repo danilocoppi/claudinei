@@ -147,6 +147,18 @@ export function openDb(path: string): Db {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_runs_schedule ON schedule_runs(schedule_id, seq DESC)`)
 
+  // Desenhos de ícone baixados do Iconify. É CACHE, não dado do usuário: pode ser
+  // apagado a qualquer momento que o servidor rebaixa tudo — mas enquanto existe,
+  // a sidebar pinta sem tocar na rede, e o serviço gratuito deles recebe um pedido
+  // por desenho na vida da instalação, não um por tela aberta.
+  db.exec(`CREATE TABLE IF NOT EXISTS icon_cache (
+    token TEXT PRIMARY KEY,
+    body TEXT NOT NULL,
+    width INTEGER NOT NULL DEFAULT 24,
+    height INTEGER NOT NULL DEFAULT 24,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+
   // Aparência por usuário. `user_id = 0` é a instalação sem auth — por isso não há
   // FK para users: a linha 0 não corresponde a usuário nenhum.
   db.exec(`CREATE TABLE IF NOT EXISTS user_prefs (

@@ -1,100 +1,187 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { render, cleanup, screen } from '@testing-library/react'
-import { parseIcon, iconToken, loadIconSet, brandPath, lucideNodes, allBrands } from '../icons'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, cleanup, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { Icon } from '../components/Icon'
+import { IconPicker } from '../components/IconPicker'
+import { parseIcon, iconCacheForTest } from '../icons'
 
-afterEach(() => cleanup())
+/** A Iconify de mentira que o servidor expõe: /api/icons/search e /bodies. */
+function fakeApi(bodies: Record<string, string> = {}, search: Record<string, string[]> = {}) {
+  const calls: string[] = []
+  const fn = vi.fn(async (url: string | URL) => {
+    const u = String(url)
+    calls.push(u)
+    if (u.startsWith('/api/icons/search')) {
+      const q = decodeURIComponent(new URL(u, 'http://x').searchParams.get('q') ?? '')
+      const icons = (search[q] ?? []).map((t) => ({ token: t, body: bodies[t] ?? `<path d="${t}"/>`, width: 24, height: 24 }))
+      return new Response(JSON.stringify({ icons }), { status: 200 })
+    }
+    if (u.startsWith('/api/icons/bodies')) {
+      const tokens = (new URL(u, 'http://x').searchParams.get('tokens') ?? '').split(',').filter(Boolean)
+      const icons = tokens.filter((t) => t in bodies || !t.startsWith('sumiu'))
+        .map((t) => ({ token: t, body: bodies[t] ?? `<path d="${t}"/>`, width: 24, height: 24 }))
+      return new Response(JSON.stringify({ icons }), { status: 200 })
+    }
+    return new Response('{}', { status: 200 })
+  })
+  return { fn: fn as unknown as typeof globalThis.fetch, calls, batches: () => calls.filter((c) => c.includes('/bodies')) }
+}
 
-/**
- * O campo `icon` já existe e está cheio de emoji. O prefixo é o que deixa os três
- * formatos conviverem ali sem migrar dado nenhum e sem uma coluna nova.
- */
-describe('o token do ícone', () => {
-  it('emoji continua sendo emoji', () => {
+let api: ReturnType<typeof fakeApi>
+beforeEach(() => {
+  localStorage.clear()
+  iconCacheForTest.clear()
+  api = fakeApi()
+  vi.spyOn(globalThis, 'fetch').mockImplementation(api.fn)
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+describe('o que uma string de ícone quer dizer', () => {
+  it('emoji continua sendo emoji (nada foi migrado)', () => {
     expect(parseIcon('📁')).toEqual({ kind: 'emoji', char: '📁' })
-    expect(parseIcon('🅰️')).toEqual({ kind: 'emoji', char: '🅰️' })
+    expect(parseIcon('')).toEqual({ kind: 'emoji', char: '' })
   })
 
-  it('reconhece marca e ícone de linha pelo prefixo', () => {
-    expect(parseIcon('si:react')).toEqual({ kind: 'brand', id: 'react' })
-    expect(parseIcon('lu:terminal')).toEqual({ kind: 'lucide', id: 'terminal' })
-  })
-
-  it('o que não casa o formato é tratado como emoji, não como erro', () => {
-    expect(parseIcon('si:').kind).toBe('emoji')
-    expect(parseIcon('xx:react').kind).toBe('emoji')
-    expect(parseIcon('').kind).toBe('emoji')
-    expect(parseIcon(undefined).kind).toBe('emoji')
-  })
-
-  it('monta o token de volta', () => {
-    expect(iconToken('brand', 'docker')).toBe('si:docker')
-    expect(iconToken('lucide', 'rocket')).toBe('lu:rocket')
-  })
-})
-
-describe('os conjuntos chegam sob demanda', () => {
-  it('marcas: milhares de logos, com o desenho de cada uma', async () => {
-    await loadIconSet('brand')
-    expect(allBrands().length).toBeGreaterThan(3000)
-    expect(brandPath('react')).toMatch(/^[Mm]/)     // um path de SVG
-    expect(brandPath('docker')).toBeTruthy()
-  })
-
-  it('lucide: árvore de elementos, não um único path', async () => {
-    await loadIconSet('lucide')
-    const nodes = lucideNodes('terminal')
-    expect(nodes!.length).toBeGreaterThan(0)
-    expect(nodes![0][0]).toMatch(/path|line|circle|rect|polyline/)
-  })
-
-  it('pedir duas vezes não reprocessa o conjunto', async () => {
-    await loadIconSet('brand')
-    const primeiro = allBrands()
-    await loadIconSet('brand')
-    // mesma referência = não reimportou nem remontou o índice
-    expect(allBrands()).toBe(primeiro)
-  })
-})
-
-describe('desenho', () => {
-  it('emoji sai como texto', () => {
-    const { container } = render(<Icon value="📁" />)
-    expect(container.textContent).toBe('📁')
-    expect(container.querySelector('svg')).toBeNull()
-  })
-
-  it('marca vira um svg de um path só', async () => {
-    await loadIconSet('brand')
-    const { container } = render(<Icon value="si:react" />)
-    const svg = container.querySelector('svg')!
-    expect(svg.getAttribute('fill')).toBe('currentColor')
-    expect(svg.querySelectorAll('path')).toHaveLength(1)
-  })
-
-  it('ícone de linha vira svg traçado, com os elementos do desenho', async () => {
-    await loadIconSet('lucide')
-    const { container } = render(<Icon value="lu:terminal" />)
-    const svg = container.querySelector('svg')!
-    expect(svg.getAttribute('stroke')).toBe('currentColor')
-    expect(svg.children.length).toBeGreaterThan(0)
+  it('prefixo:nome é um token do acervo', () => {
+    expect(parseIcon('mdi:server')).toEqual({ kind: 'iconify', token: 'mdi:server' })
+    expect(parseIcon('material-symbols:rocket-launch')).toEqual({ kind: 'iconify', token: 'material-symbols:rocket-launch' })
   })
 
   /**
-   * A cor vem do contexto (`currentColor`), não da marca: o azul do Docker é mais
-   * reconhecível, mas some no tema cujo fundo por acaso é azul — e o cartão já
-   * carrega a cor do terminal no trilho da esquerda.
+   * O que já está gravado no banco não pode virar quadrado vazio. `si:` e `lu:`
+   * eram os prefixos dos dois acervos embutidos; no Iconify os mesmos desenhos
+   * atendem por `simple-icons:` e `lucide:`, com os MESMOS nomes — então a
+   * migração é uma tradução de prefixo, e o banco não é tocado.
    */
-  it('o desenho herda a cor de quem o contém', async () => {
-    await loadIconSet('brand')
-    const { container } = render(<Icon value="si:docker" />)
-    expect(container.querySelector('svg')!.getAttribute('fill')).toBe('currentColor')
+  it('os prefixos antigos continuam valendo, traduzidos', () => {
+    expect(parseIcon('si:react')).toEqual({ kind: 'iconify', token: 'simple-icons:react' })
+    expect(parseIcon('lu:terminal')).toEqual({ kind: 'iconify', token: 'lucide:terminal' })
   })
 
-  it('slug inexistente não quebra a linha: reserva o espaço', async () => {
-    await loadIconSet('brand')
-    const { container } = render(<Icon value="si:nao-existe" size={20} />)
-    expect(container.querySelector('svg')).toBeNull()
+  it('coisa que não é token nem emoji não vira requisição', () => {
+    expect(parseIcon('não:válido!').kind).toBe('emoji')
+  })
+})
+
+describe('desenhar o ícone', () => {
+  it('emoji não vai à rede', async () => {
+    render(<Icon value="📁" />)
+    expect(screen.getByText('📁')).toBeTruthy()
+    expect(api.batches()).toHaveLength(0)
+  })
+
+  it('token busca o desenho e pinta', async () => {
+    render(<Icon value="mdi:server" />)
+    await waitFor(() => expect(document.querySelector('svg.icon')).toBeTruthy())
+    expect(document.querySelector('svg.icon')!.innerHTML).toContain('mdi:server')
+  })
+
+  /**
+   * A sidebar tem um ícone por terminal. Sem juntar, abrir o app dispararia uma
+   * requisição por cartão — o motivo de existir um lote.
+   */
+  it('vários ícones na tela viram UMA requisição', async () => {
+    render(<><Icon value="mdi:server" /><Icon value="lucide:box" /><Icon value="ph:cloud" /></>)
+    await waitFor(() => expect(api.batches().length).toBeGreaterThan(0))
+    expect(api.batches()).toHaveLength(1)
+    expect(api.batches()[0]).toContain('mdi:server')
+    expect(api.batches()[0]).toContain('ph:cloud')
+  })
+
+  it('o mesmo ícone duas vezes não é pedido duas vezes', async () => {
+    render(<><Icon value="mdi:server" /><Icon value="mdi:server" /></>)
+    await waitFor(() => expect(api.batches().length).toBe(1))
+    expect(api.batches()[0].match(/mdi:server/g)).toHaveLength(1)
+  })
+
+  /** Recarregar a página não pode reacender a rede para o que já se viu. */
+  it('o desenho sobrevive ao reload sem nova requisição', async () => {
+    render(<Icon value="mdi:server" />)
+    await waitFor(() => expect(document.querySelector('svg.icon')).toBeTruthy())
+    cleanup()
+    iconCacheForTest.reloadFromDisk()
+    api.calls.length = 0
+    render(<Icon value="mdi:server" />)
+    expect(document.querySelector('svg.icon')!.innerHTML).toContain('mdi:server')
+    expect(api.batches()).toHaveLength(0)
+  })
+
+  /** Enquanto não chega, o espaço fica reservado: a linha não pode pular depois. */
+  it('sem o desenho ainda, ocupa o mesmo espaço', () => {
+    const { container } = render(<Icon value="mdi:server" size={20} />)
     expect((container.firstChild as HTMLElement).style.width).toBe('20px')
+  })
+
+  /** Token que não existe mais não pode virar laço de pedidos. */
+  it('ícone que sumiu do acervo é pedido uma vez só', async () => {
+    render(<Icon value="sumiu:mesmo" />)
+    await waitFor(() => expect(api.batches().length).toBe(1))
+    cleanup()
+    render(<Icon value="sumiu:mesmo" />)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(api.batches()).toHaveLength(1)
+  })
+})
+
+describe('o seletor', () => {
+  const abrir = (search: Record<string, string[]>) => {
+    api = fakeApi({}, search)
+    vi.spyOn(globalThis, 'fetch').mockImplementation(api.fn)
+    const onSelect = vi.fn()
+    render(<IconPicker onSelect={onSelect} onClose={() => {}} />)
+    return onSelect
+  }
+
+  /**
+   * O defeito relatado: "o Search tem que ser global e não ficar trocando de aba
+   * buscando e buscando". Uma caixa, todos os acervos.
+   */
+  it('uma busca só varre o acervo inteiro', async () => {
+    abrir({ financeiro: ['lucide:wallet', 'mdi:cash', 'ph:bank'] })
+    fireEvent.change(screen.getByTestId('icon-search'), { target: { value: 'financeiro' } })
+    await waitFor(() => expect(screen.getAllByTestId('icon-cell').length).toBe(3))
+  })
+
+  /** Saber de onde veio o desenho é o que permite escolher um traço coerente. */
+  it('os resultados vêm agrupados por acervo', async () => {
+    abrir({ caixa: ['lucide:box', 'lucide:package', 'mdi:box'] })
+    fireEvent.change(screen.getByTestId('icon-search'), { target: { value: 'caixa' } })
+    await waitFor(() => expect(screen.getAllByTestId('icon-group').length).toBe(2))
+    const [primeiro] = screen.getAllByTestId('icon-group')
+    expect(within(primeiro).getAllByTestId('icon-cell')).toHaveLength(2)
+  })
+
+  it('escolher devolve o token', async () => {
+    const onSelect = abrir({ box: ['lucide:box'] })
+    fireEvent.change(screen.getByTestId('icon-search'), { target: { value: 'box' } })
+    await waitFor(() => expect(screen.getAllByTestId('icon-cell').length).toBe(1))
+    fireEvent.click(screen.getAllByTestId('icon-cell')[0])
+    expect(onSelect).toHaveBeenCalledWith('lucide:box')
+  })
+
+  it('sem resultado, diz que não achou em vez de ficar em branco', async () => {
+    abrir({ xyzzy: [] })
+    fireEvent.change(screen.getByTestId('icon-search'), { target: { value: 'xyzzy' } })
+    await waitFor(() => expect(screen.getByTestId('icon-empty')).toBeTruthy())
+  })
+
+  /** O emoji continua ali, e é o único acervo que não depende de rede. */
+  it('o emoji continua sendo uma opção', () => {
+    abrir({})
+    expect(screen.getByTestId('icon-tab-emoji')).toBeTruthy()
+  })
+
+  /** Quem já usa emoji abre no emoji; quem usa desenho abre na busca. */
+  it('abre onde está o ícone que já foi escolhido', () => {
+    render(<IconPicker value="📁" onSelect={() => {}} onClose={() => {}} />)
+    expect(screen.getByTestId('icon-tab-emoji').className).toMatch(/\bon\b/)
+    cleanup()
+    render(<IconPicker value="mdi:server" onSelect={() => {}} onClose={() => {}} />)
+    expect(screen.getByTestId('icon-tab-search').className).toMatch(/\bon\b/)
+  })
+
+  /** Grade vazia não ensina nada: antes de digitar, há de onde partir. */
+  it('antes de digitar já mostra sugestões', () => {
+    abrir({})
+    expect(screen.getAllByTestId('icon-cell').length).toBeGreaterThan(10)
   })
 })

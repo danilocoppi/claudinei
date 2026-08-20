@@ -27,6 +27,9 @@ import { registerUsageRoutes } from './routes/usage.js'
 import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerPrefsRoutes } from './routes/prefs.js'
 import { registerLocalAppRoutes, type LocalAppsRouteDeps } from './routes/local-apps.js'
+import { registerIconRoutes } from './routes/icons.js'
+import { createIconService } from './icons/service.js'
+import type { IconifyDeps } from './icons/iconify.js'
 import { createPrefsService } from './prefs.js'
 import { createSchedulesStore } from './schedules/store.js'
 import { createScheduler, type Scheduler } from './schedules/scheduler.js'
@@ -67,6 +70,8 @@ export interface AppDeps {
   localApps?: Omit<LocalAppsRouteDeps, 'projects'>
   /** Recebe o agendador assim que ele nasce, para index.ts pará-lo no shutdown. */
   onSchedulerReady?: (scheduler: Scheduler) => void
+  /** Acervo de ícones (Iconify). Injetável para o teste não falar com a internet. */
+  iconify?: IconifyDeps
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -88,6 +93,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerGroupRoutes(app, { db: deps.db })
   registerPrefsRoutes(app, { prefs: createPrefsService(deps.db) })
   registerLocalAppRoutes(app, { projects: createProjectsService(deps.db), ...deps.localApps })
+  registerIconRoutes(app, { icons: createIconService(deps.db, deps.iconify) })
   // O agendador nasce aqui porque precisa do manager E do broadcast, que só existem
   // montados. index.ts recebe a referência para parar o laço no shutdown.
   const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })

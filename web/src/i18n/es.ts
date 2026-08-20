@@ -29,9 +29,10 @@ export const es: typeof en = {
     open: 'Abrir enlace',
   },
   icons: {
-    search: 'Buscar icono…', none: 'No se encontró nada.', more: 'Mostrar más',
-    showing: 'mostrando {{n}} de {{total}}',
-    tab: { emoji: 'Emoji', brand: 'Marcas', lucide: 'Iconos' },
+    search: 'Buscar en ~250 mil iconos…', none: 'Nada encontrado — prueba otra palabra.',
+    showing: '{{n}} resultados', total: 'Sugerencias — escribe para buscar en todos los conjuntos',
+    hint: 'Busca en español o inglés: servidor, financiero, deploy, tienda…',
+    tab: { emoji: 'Emoji', icons: 'Iconos' },
   },
   appearance: {
     fromTheme: 'Del tema', glassOn: 'Con vidrio', glassOff: 'Sin vidrio',

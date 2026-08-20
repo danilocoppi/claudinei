@@ -105,6 +105,7 @@ export const ptBR: typeof en = {
     needs_attention: 'aguardando você', stopped: 'finalizada', dead: 'morta',
     in_terminal: 'no terminal',
     in_terminal_working: 'no terminal — processando…', in_terminal_waiting: 'no terminal — esperando você',
+    yourTurn: 'SUA VEZ',
   },
   dashboard: {
     projects: 'Projetos',

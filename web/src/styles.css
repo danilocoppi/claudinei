@@ -327,11 +327,20 @@
   --face-uploading: #2f8fed; --face-uploading-eye: #062340;
   --face-sleeping: #8b5cf6;  --face-sleeping-eye: #1e0b3a;
   --face-terminal: #ef6a2a;  --face-terminal-eye: #3a1405;
+  /* O amarelo é RESERVADO: nenhum outro estado usa essa cor, e é por isso que
+     "sua vez" se acha na lista sem precisar ler nada. */
+  --face-attention: #ffd24a; --face-attention-eye: #4a3405;
+  --face-attention-ink: #2a1e02;
   /* Sombreado e setas do próprio boneco: não escalam com o tema, porque o corpo
      dele é sempre uma bola colorida — clarear isso no tema claro o achataria. */
-  --face-shade: rgba(0,0,0,.18);
+  --face-shade: rgba(0,0,0,.16);
+  --face-ground: #000;
   --face-arrow: rgba(255,255,255,.9);
-  --face-arrow-dim: rgba(255,255,255,.5);
+  --face-arrow-mid: rgba(255,255,255,.55);
+  --face-arrow-dim: rgba(255,255,255,.3);
+  --face-spark: #f3b45f;
+  --face-waiting-dot: #8b83f5;
+  --face-zzz: #b9aef8;
 }
 
 /* ===== FIM DOS PACOTES DE TEMA ===== */
@@ -1273,7 +1282,14 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
   .status-working, .status-dot--pulse, .status-needs_attention::after,
-  .agent-face__body, .agent-face__eyes, .agent-face__eye, .agent-face__arrows i { animation: none; }
+  .agent-face__body, .agent-face__eyes, .agent-face__eye, .agent-face__shadow,
+  .agent-face__arrows i, .agent-face__ring, .agent-face__sparks i,
+  .agent-face__dots i, .agent-face__zzz i, .agent-face__halo,
+  .agent-face__glow, .agent-face__pill { animation: none; }
+  /* Parados, o halo e o brilho ficam ACESOS: o convite não pode depender do movimento. */
+  .agent-face__halo { opacity: .55; transform: scale(1.18); }
+  .agent-face__glow { opacity: .34; }
+  .agent-face__pill { transform: translateX(-50%); }
   /* Parado, o anel fica aberto e mais grosso: o chamado não pode depender do
      movimento — quem desliga animação continua precisando ver quem espera. */
   .status-needs_attention::after { transform: scale(1.9); opacity: .6; border-width: 2px; }
@@ -1620,7 +1636,18 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 [data-motion="reduced"] .agent-face__body,
 [data-motion="reduced"] .agent-face__eyes,
 [data-motion="reduced"] .agent-face__eye,
-[data-motion="reduced"] .agent-face__arrows i { animation: none; }
+[data-motion="reduced"] .agent-face__shadow,
+[data-motion="reduced"] .agent-face__arrows i,
+[data-motion="reduced"] .agent-face__ring,
+[data-motion="reduced"] .agent-face__sparks i,
+[data-motion="reduced"] .agent-face__dots i,
+[data-motion="reduced"] .agent-face__zzz i,
+[data-motion="reduced"] .agent-face__halo,
+[data-motion="reduced"] .agent-face__glow,
+[data-motion="reduced"] .agent-face__pill { animation: none; }
+[data-motion="reduced"] .agent-face__halo { opacity: .55; transform: scale(1.18); }
+[data-motion="reduced"] .agent-face__glow { opacity: .34; }
+[data-motion="reduced"] .agent-face__pill { transform: translateX(-50%); }
 [data-motion="reduced"] .status-needs_attention::after { transform: scale(1.9); opacity: .6; border-width: 2px; }
 
 /* ---- Painel de Aparência ---- */
@@ -1792,96 +1819,238 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 }
 
 
-/* ---- Rosto do agente ------------------------------------------------------
-   Anatomia do design "Rostos de Agente": corpo redondo, olhos sempre no mesmo
-   lugar (muda a FORMA, não a posição) e UM gesto por estado — nunca dois
-   competindo. Tudo escala a partir de `--face`, então o mesmo componente serve
-   ao cartão e a qualquer lugar maior.
 
-   Nesta escala o rosto larga os adereços do design (faíscas, anel, zzz, janela
-   de terminal): a 20px eles viram sujeira. Fica cor, olhos e gesto — e o texto
-   do status ao lado completa a leitura, para ninguém ter de decifrar a animação.
+/* ---- Rosto do agente ------------------------------------------------------
+   Anatomia do design "Rostos de Agente": uma anatomia só — corpo, olhos, sombra —
+   e o que muda é o COMPORTAMENTO (ritmo, direção do olhar, adereços em cena).
+
+   Todas as medidas são proporção de `--face`, tiradas do desenho de 104px do
+   design: assim a lista de 30px e o cartão grande saem do mesmo componente, sem
+   duas versões para manter em sincronia.
    --------------------------------------------------------------------------- */
 .agent-face {
-  --eye-w: calc(var(--face) * .135);
-  --eye-h: calc(var(--face) * .17);
-  --eye-gap: calc(var(--face) * .17);
-  display: inline-flex; flex: none;
+  --eye-w: calc(var(--face) * .115);
+  --eye-h: calc(var(--face) * .144);
+  --eye-r: calc(var(--face) * .067);
+  --eye-gap: calc(var(--face) * .173);
+  --ring: calc(var(--face) * .019);
+  position: relative; display: inline-flex; flex: none;
   width: var(--face); height: var(--face);
 }
+
+/* A sombra no chão ancora o boneco: sem ela, "respirar" vira "flutuar sem chão". */
+.agent-face__shadow {
+  position: absolute; left: 50%; bottom: calc(var(--face) * -.135);
+  width: calc(var(--face) * .635); height: calc(var(--face) * .096);
+  margin-left: calc(var(--face) * -.317);
+  border-radius: 50%; background: var(--face-ground); opacity: .5;
+  filter: blur(calc(var(--face) * .067));
+}
+
 .agent-face__body {
   position: relative; width: 100%; height: 100%; border-radius: 50%;
   background: var(--face-color);
-  box-shadow: inset 0 calc(var(--face) * -.1) calc(var(--face) * .17) var(--face-shade);
+  /* Duas sombras: o vinco interno que dá volume à bola, e o halo externo na cor
+     do próprio corpo, que é o que faz o boneco parecer aceso. */
+  box-shadow:
+    inset 0 calc(var(--face) * -.115) calc(var(--face) * .192) var(--face-shade),
+    0 calc(var(--face) * .135) calc(var(--face) * .327) color-mix(in srgb, var(--face-color) 17%, transparent);
 }
 .agent-face__eyes {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center; gap: var(--eye-gap);
 }
 .agent-face__eye {
-  width: var(--eye-w); height: var(--eye-h);
-  border-radius: calc(var(--face) * .07);
+  width: var(--eye-w); height: var(--eye-h); border-radius: var(--eye-r);
   background: var(--face-eye);
   animation: face-blink 5.4s infinite;
 }
 
-/* ocioso: respira devagar, pisca, e o olhar passeia */
+/* --- ocioso: respira devagar, pisca, e o olhar passeia --- */
 [data-face="idle"] { --face-color: var(--face-idle); --face-eye: var(--face-idle-eye); }
-[data-face="idle"] .agent-face__body { animation: face-bob 3.6s ease-in-out infinite; }
+[data-face="idle"] .agent-face__body { animation: face-breathe 3.6s ease-in-out infinite; }
+[data-face="idle"] .agent-face__shadow { animation: face-shadow 3.6s ease-in-out infinite; }
 [data-face="idle"] .agent-face__eyes { animation: face-drift 7.5s ease-in-out infinite; }
 
-/* trabalhando: ganha VELOCIDADE, e os olhos apertam */
+/* --- trabalhando: balança no ritmo, aperta os olhos, solta faíscas --- */
 [data-face="working"] { --face-color: var(--face-working); --face-eye: var(--face-working-eye); }
 [data-face="working"] .agent-face__body { animation: face-work .62s ease-in-out infinite; }
 [data-face="working"] .agent-face__eye {
-  height: calc(var(--face) * .085); border-radius: calc(var(--face) * .07); animation: none;
+  width: calc(var(--face) * .125); height: calc(var(--face) * .048);
+  border-radius: calc(var(--face) * .029); animation: none;
 }
+[data-face="working"] .agent-face__eyes { animation: face-dart .9s ease-in-out infinite; }
+.agent-face__ring {
+  position: absolute; left: 50%; top: 50%;
+  width: calc(var(--face) * 1.25); height: calc(var(--face) * 1.25);
+  margin: calc(var(--face) * -.625) 0 0 calc(var(--face) * -.625);
+  border-radius: 50%;
+  border: var(--ring) solid color-mix(in srgb, var(--face-working) 40%, transparent);
+  border-top-color: transparent; border-left-color: transparent;
+  animation: face-spin 1.5s linear infinite;
+}
+/* As faíscas nascem ACIMA da cabeça: dentro do corpo elas ficariam atrás dele,
+   porque o corpo é pintado depois (e é opaco). */
+.agent-face__sparks i {
+  position: absolute; bottom: 96%; border-radius: 50%; background: var(--face-spark);
+  animation: face-spark 1.6s ease-out infinite;
+}
+.agent-face__sparks i:nth-child(1) { left: 17%; width: calc(var(--face) * .067); height: calc(var(--face) * .067); }
+.agent-face__sparks i:nth-child(2) { left: 47%; width: calc(var(--face) * .048); height: calc(var(--face) * .048); animation-delay: .55s; }
+.agent-face__sparks i:nth-child(3) { left: 72%; width: calc(var(--face) * .058); height: calc(var(--face) * .058); animation-delay: 1.1s; }
 
-/* esperando você: olha para cima, aguardando resposta */
+/* --- esperando: olha pra cima, bate o pé, três pontinhos no ar --- */
 [data-face="waiting"] { --face-color: var(--face-waiting); --face-eye: var(--face-waiting-eye); }
-[data-face="waiting"] .agent-face__body { animation: face-bob 3.2s ease-in-out infinite; }
+[data-face="waiting"] .agent-face__body { animation: face-tap 3.2s ease-in-out infinite; }
 [data-face="waiting"] .agent-face__eyes { animation: face-lookup 4.4s ease-in-out infinite; }
+[data-face="waiting"] .agent-face__eye { animation: face-blink 4.2s infinite; }
+.agent-face__dots {
+  position: absolute; left: 50%; bottom: 102%;
+  display: flex; gap: calc(var(--face) * .058);
+  transform: translateX(-50%);
+}
+.agent-face__dots i {
+  width: calc(var(--face) * .058); height: calc(var(--face) * .058);
+  border-radius: 50%; background: var(--face-waiting-dot);
+  animation: face-dot 1.5s ease-in-out infinite;
+}
+.agent-face__dots i:nth-child(2) { animation-delay: .2s; }
+.agent-face__dots i:nth-child(3) { animation-delay: .4s; }
 
-/* subindo: as setas atravessam o corpo — sem elas, seria igual ao ocioso */
+/* --- subindo: estica pra cima enquanto as setas atravessam o corpo --- */
 [data-face="uploading"] { --face-color: var(--face-uploading); --face-eye: var(--face-uploading-eye); }
-[data-face="uploading"] .agent-face__body { animation: face-bob 1.5s ease-in-out infinite; overflow: hidden; }
+[data-face="uploading"] .agent-face__body { animation: face-stretch 1.5s ease-in-out infinite; overflow: hidden; }
+[data-face="uploading"] .agent-face__eyes { transform: translateY(calc(var(--face) * -.048)); }
+[data-face="uploading"] .agent-face__eye { animation: face-blink 3.6s infinite; }
 .agent-face__arrows { position: absolute; inset: 0; }
 .agent-face__arrows i {
   position: absolute; left: 50%; bottom: 0;
-  /* A razão do design muda com o tamanho (8px num rosto de 30, 13px num de 104):
-     a proporção pequena aplicada ao grande vira um chevron cobrindo os olhos. */
-  width: min(calc(var(--face) * .27), 14px); height: min(calc(var(--face) * .27), 14px);
-  margin-left: min(calc(var(--face) * -.135), -7px);
-  border-top: 2px solid var(--face-arrow); border-right: 2px solid var(--face-arrow);
-  transform: rotate(-45deg);
+  width: calc(var(--face) * .125); height: calc(var(--face) * .125);
+  margin-left: calc(var(--face) * -.067);
+  border-top: max(1.5px, calc(var(--face) * .029)) solid var(--face-arrow);
+  border-right: max(1.5px, calc(var(--face) * .029)) solid var(--face-arrow);
   animation: face-rise 1.5s linear infinite;
 }
-.agent-face__arrows i:last-child { animation-delay: .75s; border-color: var(--face-arrow-dim); }
+.agent-face__arrows i:nth-child(2) { animation-delay: .5s; border-color: var(--face-arrow-mid); }
+.agent-face__arrows i:nth-child(3) { animation-delay: 1s; border-color: var(--face-arrow-dim); }
 
-/* dormindo: perde saturação, tomba, e os olhos viram pálpebras */
-[data-face="sleeping"] { --face-color: var(--face-sleeping); --face-eye: var(--face-sleeping-eye); opacity: .72; }
-[data-face="sleeping"] .agent-face__body { animation: face-sleep 5.2s ease-in-out infinite; }
+/* --- dormindo: tomba de lado, olhos fechados, respiração longa --- */
+[data-face="sleeping"] { --face-color: var(--face-sleeping); --face-eye: var(--face-sleeping-eye); }
+[data-face="sleeping"] .agent-face__body { opacity: .82; animation: face-sleep 5.2s ease-in-out infinite; }
+[data-face="sleeping"] .agent-face__shadow { animation: face-shadow 5.2s ease-in-out infinite; }
 [data-face="sleeping"] .agent-face__eye {
-  height: calc(var(--face) * .1); width: calc(var(--face) * .2);
-  background: transparent; border-top: 2px solid var(--face-eye);
-  border-radius: calc(var(--face) * .2) calc(var(--face) * .2) 0 0;
+  width: calc(var(--face) * .144); height: calc(var(--face) * .077);
+  background: transparent;
+  border-top: max(1.5px, calc(var(--face) * .029)) solid var(--face-eye);
+  border-radius: calc(var(--face) * .144) calc(var(--face) * .144) 0 0;
   animation: none;
 }
+.agent-face__zzz i {
+  position: absolute; left: 62%; bottom: 62%;
+  font-family: var(--font-code); color: var(--face-zzz); line-height: 1;
+  animation: face-zzz 3.9s ease-out infinite;
+}
+.agent-face__zzz i:nth-child(1) { font-size: calc(var(--face) * .106); }
+.agent-face__zzz i:nth-child(2) { font-size: calc(var(--face) * .135); animation-delay: 1.3s; }
+.agent-face__zzz i:nth-child(3) { font-size: calc(var(--face) * .163); animation-delay: 2.6s; }
 
-/* no terminal: varre a tela linha a linha */
+/* --- sua vez: inclina a cabeça, encara você, e o halo pulsa devagar ---
+   Nada deu errado — o agente terminou a parte dele e parou pra te ouvir. Por isso
+   o halo é convite, não alarme: expande e some, sem piscar. */
+[data-face="attention"] { --face-color: var(--face-attention); --face-eye: var(--face-attention-eye); }
+[data-face="attention"] .agent-face__body { animation: face-attn 3.4s ease-in-out infinite; }
+/* Olhos maiores e PARADOS: é o único estado que encara, em vez de passear. */
+[data-face="attention"] .agent-face__eyes { gap: calc(var(--face) * .163); }
+[data-face="attention"] .agent-face__eye {
+  width: calc(var(--face) * .125); height: calc(var(--face) * .163);
+  animation: face-blink 3.8s infinite;
+}
+.agent-face__glow {
+  position: absolute; left: 50%; top: 50%;
+  width: calc(var(--face) * 1.44); height: calc(var(--face) * 1.44);
+  margin: calc(var(--face) * -.72) 0 0 calc(var(--face) * -.72);
+  border-radius: 50%; background: var(--face-attention);
+  filter: blur(calc(var(--face) * .346));
+  animation: face-attn-glow 2.6s ease-in-out infinite;
+}
+.agent-face__halo {
+  position: absolute; left: 50%; top: 50%;
+  width: calc(var(--face) * 1.096); height: calc(var(--face) * 1.096);
+  margin: calc(var(--face) * -.548) 0 0 calc(var(--face) * -.548);
+  border-radius: 50%; border: var(--ring) solid var(--face-attention);
+  animation: face-halo 2.6s ease-out infinite;
+}
+/* O segundo halo sai na metade do ciclo do primeiro: a onda nunca cessa. */
+.agent-face__halo + .agent-face__halo { animation-delay: 1.3s; }
+/* A tarja só entra em tamanho de cartaz — a 20px ela seria um borrão, e na lista
+   quem diz "aguardando você" é o texto do status, ao lado. */
+.agent-face__pill {
+  position: absolute; left: 50%; bottom: 104%;
+  padding: calc(var(--face) * .038) calc(var(--face) * .096);
+  border-radius: 999px; background: var(--face-attention); color: var(--face-attention-ink);
+  font-family: var(--font-code); font-size: calc(var(--face) * .101);
+  letter-spacing: .06em; line-height: 1.5; white-space: nowrap;
+  box-shadow: 0 calc(var(--face) * .077) calc(var(--face) * .192) color-mix(in srgb, var(--face-attention) 35%, transparent);
+  animation: face-nudge 2s ease-in-out infinite;
+}
+
+/* --- no terminal: espia a tela e acompanha cada linha --- */
 [data-face="terminal"] { --face-color: var(--face-terminal); --face-eye: var(--face-terminal-eye); }
-[data-face="terminal"] .agent-face__body { animation: face-bob 2.6s ease-in-out infinite; }
+[data-face="terminal"] .agent-face__body { animation: face-peek 3s ease-in-out infinite; }
 [data-face="terminal"] .agent-face__eyes { animation: face-scan 2.6s ease-in-out infinite; }
 
 @keyframes face-blink { 0%, 91%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
-@keyframes face-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7%); } }
-@keyframes face-work { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
-@keyframes face-sleep { 0%, 100% { transform: rotate(-9deg) scale(1); } 50% { transform: rotate(-9deg) scale(1.05); } }
-@keyframes face-drift { 0%, 100% { transform: translateX(-8%); } 45%, 58% { transform: translateX(10%); } }
-@keyframes face-lookup { 0%, 18% { transform: translate(-14%, -14%); } 42%, 62% { transform: translate(14%, -14%); } 88%, 100% { transform: translate(-14%, -14%); } }
-@keyframes face-scan { 0%, 100% { transform: translateX(-14%); } 30% { transform: translateX(14%); } 55% { transform: translateX(-3%); } 80% { transform: translateX(8%); } }
+@keyframes face-breathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5.8%) scale(1.03); } }
+@keyframes face-shadow { 0%, 100% { transform: scaleX(1); opacity: .5; } 50% { transform: scaleX(.84); opacity: .32; } }
+@keyframes face-work { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-3.8%) rotate(4deg); } }
+@keyframes face-dart { 0%, 100% { transform: translateX(-1.9%); } 50% { transform: translateX(2.9%); } }
+@keyframes face-spin { to { transform: rotate(360deg); } }
+@keyframes face-spark {
+  0% { transform: translateY(var(--face)) scale(.3); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: translateY(calc(var(--face) * -.42)) scale(.9); opacity: 0; }
+}
+@keyframes face-tap {
+  0%, 66%, 100% { transform: rotate(0deg); }
+  78% { transform: rotate(5deg) translateY(1.9%); }
+  88% { transform: rotate(-2deg); }
+}
+@keyframes face-dot { 0%, 100% { opacity: .2; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-70%); } }
+@keyframes face-lookup {
+  0%, 18% { transform: translate(-4.8%, -4.8%); }
+  42%, 62% { transform: translate(4.8%, -4.8%); }
+  88%, 100% { transform: translate(-4.8%, -4.8%); }
+}
+@keyframes face-stretch {
+  0%, 100% { transform: scale(1, 1) translateY(0); }
+  45% { transform: scale(.93, 1.09) translateY(-7.7%); }
+  72% { transform: scale(1.05, .95) translateY(0); }
+}
 @keyframes face-rise {
-  0% { transform: translateY(60%) rotate(-45deg); opacity: 0; }
+  0% { transform: translateY(0) rotate(-45deg); opacity: 0; }
   22% { opacity: 1; }
-  100% { transform: translateY(-160%) rotate(-45deg); opacity: 0; }
+  100% { transform: translateY(-360%) rotate(-45deg); opacity: 0; }
+}
+@keyframes face-sleep {
+  0%, 100% { transform: rotate(-8deg) translateY(0) scale(1); }
+  50% { transform: rotate(-8deg) translateY(-2.9%) scale(1.035); }
+}
+@keyframes face-zzz {
+  0% { transform: translate(0, 0) scale(.5); opacity: 0; }
+  22% { opacity: .95; }
+  100% { transform: translate(150%, -260%) scale(1.15); opacity: 0; }
+}
+@keyframes face-attn {
+  0%, 40%, 100% { transform: rotate(0deg) translateY(0); }
+  50%, 74% { transform: rotate(-7deg) translateY(-3.8%); }
+  86% { transform: rotate(2deg) translateY(0); }
+}
+@keyframes face-halo { 0% { transform: scale(.84); opacity: .5; } 100% { transform: scale(1.4); opacity: 0; } }
+@keyframes face-attn-glow { 0%, 100% { opacity: .2; } 50% { opacity: .5; } }
+/* A tarja carrega o translateX que a centraliza: sem ele aqui, a animação o apaga. */
+@keyframes face-nudge { 0%, 100% { transform: translate(-50%, 0); } 45% { transform: translate(-50%, -22%); } }
+@keyframes face-peek { 0%, 100% { transform: translateY(3%); } 50% { transform: translateY(-3%); } }
+@keyframes face-scan {
+  0%, 100% { transform: translateX(-14%); } 30% { transform: translateX(14%); }
+  55% { transform: translateX(-3%); } 80% { transform: translateX(8%); }
 }

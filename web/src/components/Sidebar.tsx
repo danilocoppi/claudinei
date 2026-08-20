@@ -66,6 +66,15 @@ const LOCAL_ACTIONS: { id: LocalApp; icon: string; label: string }[] = [
   { id: 'terminal', icon: '▮', label: 'sidebar.openTerminal' },
 ]
 
+/** As três bolinhas de "mais opções". Um desenho só para os três lugares que abrem
+ *  esse menu — cartão, grupo e setor —, senão eles voltam a divergir. */
+const MoreIcon = ({ size = 12 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
+  </svg>
+)
+
 // O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
 type Drag = { kind: 'project' | 'group' | 'sector'; id: number }
 const DRAG_PREFIX = { project: 'p', group: 'g', sector: 's' } as const
@@ -398,7 +407,7 @@ export function Sidebar() {
                         y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 360)),
                       })
                     }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /></svg>
+              <MoreIcon size={13} />
             </button>
           )}
         </div>
@@ -500,7 +509,7 @@ export function Sidebar() {
                         y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 320)),
                       })
                     }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+              <MoreIcon />
             </button>
           )}
         </div>
@@ -576,7 +585,7 @@ export function Sidebar() {
                         y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 320)),
                       })
                     }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+              <MoreIcon />
             </button>
           )}
         </div>

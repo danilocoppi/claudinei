@@ -34,20 +34,45 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 /**
- * Os seis estados do design "Rostos de Agente". O rosto É o estado: uma bolinha
+ * Os sete estados do design "Rostos de Agente". O rosto É o estado: uma bolinha
  * dizia a mesma coisa com menos expressão.
  */
 describe('o estado vira expressão', () => {
-  it('traduz cada status num dos seis estados do design', () => {
+  it('traduz cada status num dos sete estados do design', () => {
     expect(faceStateOf(sess({ status: 'idle' }))).toBe('idle')
     expect(faceStateOf(sess({ status: 'working' }))).toBe('working')
-    expect(faceStateOf(sess({ status: 'needs_attention' }))).toBe('waiting')
+    expect(faceStateOf(sess({ status: 'needs_attention' }))).toBe('attention')
     expect(faceStateOf(sess({ status: 'starting' }))).toBe('uploading')
     expect(faceStateOf(sess({ status: 'stopped' }))).toBe('sleeping')
     expect(faceStateOf(sess({ status: 'dead' }))).toBe('sleeping')
   })
 
-  /** O sexto estado: a sessão aberta no TUI, que o desenho antigo não tinha. */
+  /**
+   * O amarelo é reservado a quem PERGUNTOU. O terminal parado no prompt também é
+   * "sua vez", mas ele não perguntou nada — só chegou ao fim da linha, e por isso
+   * herda o roxo de "esperando", que bate o pé sem exigir decisão.
+   */
+  it('só quem perguntou ganha o amarelo', () => {
+    expect(faceStateOf(sess({ status: 'needs_attention' }))).toBe('attention')
+    expect(faceStateOf(sess({ status: 'in_terminal', terminalActivity: 'waiting' }))).toBe('waiting')
+  })
+
+  /** O rosto que encara: halo que expande, brilho que pulsa, olhos parados. */
+  it('sua vez traz halo e brilho', () => {
+    const { container } = render(<AgentFace state="attention" />)
+    expect(container.querySelectorAll('.agent-face__halo')).toHaveLength(2)
+    expect(container.querySelector('.agent-face__glow')).toBeTruthy()
+  })
+
+  /** A tarja é adereço de cartaz: a 20px viraria borrão, e na lista quem diz
+   *  "aguardando você" é o texto do status ao lado. */
+  it('a tarja "sua vez" só aparece em tamanho de cartaz', () => {
+    expect(render(<AgentFace state="attention" size={20} />).container.querySelector('.agent-face__pill')).toBeNull()
+    cleanup()
+    expect(render(<AgentFace state="attention" size={104} />).container.querySelector('.agent-face__pill')).toBeTruthy()
+  })
+
+  /** O sétimo estado: a sessão aberta no TUI, que o desenho antigo não tinha. */
   it('sessão no terminal tem estado próprio', () => {
     expect(faceStateOf(sess({ status: 'in_terminal' }))).toBe('terminal')
     expect(faceStateOf(sess({ status: 'in_terminal', terminalActivity: 'waiting' }))).toBe('waiting')
@@ -93,7 +118,7 @@ describe('no cartão do terminal', () => {
   it('o rosto mostra o estado da sessão principal', () => {
     useStore.setState({ sessions: { s1: sess({ status: 'needs_attention' }) } })
     render(<Sidebar />)
-    expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('waiting')
+    expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('attention')
   })
 
   /** O ícone que o operador escolheu continua sendo dele: o rosto não o substitui. */
@@ -134,7 +159,7 @@ describe('no cartão do terminal', () => {
 describe('movimento', () => {
   /** Um gesto por estado — cada um tem o seu, e nenhum fica parado. */
   it('cada estado tem o seu gesto', () => {
-    for (const state of ['idle', 'working', 'waiting', 'uploading', 'sleeping', 'terminal']) {
+    for (const state of ['idle', 'working', 'attention', 'waiting', 'uploading', 'sleeping', 'terminal']) {
       const bloco = css.slice(css.indexOf(`[data-face="${state}"]`))
       expect(bloco.slice(0, 500), state).toMatch(/animation: *face-/)
     }
@@ -144,6 +169,7 @@ describe('movimento', () => {
     const block = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
     expect(block).toMatch(/agent-face__body/)
     expect(block).toMatch(/agent-face__arrows/)
+    expect(block).toMatch(/agent-face__halo/)
     const forced = css.slice(css.indexOf('[data-motion="reduced"]'))
     expect(forced.slice(0, 900)).toMatch(/agent-face__body/)
   })

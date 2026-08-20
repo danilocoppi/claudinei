@@ -96,7 +96,7 @@ describe('terminal colapsável', () => {
     const collapsed = cardOf('Beta')
     expect(within(collapsed).queryByText(/aguardando você/i)).toBeNull()
     // o sinal continua: o rosto está na linha, com a expressão de quem espera
-    expect(collapsed.querySelector('[data-face]')!.getAttribute('data-face')).toBe('waiting')
+    expect(collapsed.querySelector('[data-face]')!.getAttribute('data-face')).toBe('attention')
     expect(within(collapsed).getByText('4')).toBeTruthy()
   })
 

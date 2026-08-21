@@ -59,18 +59,63 @@ describe('o que a máquina oferece', () => {
   })
 })
 
+/** Um filho de mentira que nunca morre: o `launchApp` espera pelo arranque. */
+const fakeChild = (over: Partial<Record<string, unknown>> = {}) => ({
+  unref: vi.fn(), once: vi.fn(), stderr: { on: vi.fn(), destroy: vi.fn() }, ...over,
+})
+
 describe('disparo', () => {
-  it('solta o processo para o Claudinei não ficar preso a ele', () => {
-    const child = { unref: vi.fn() }
+  it('solta o processo para o Claudinei não ficar preso a ele', async () => {
+    const child = fakeChild()
     const spawnFn = vi.fn(() => child) as never
-    launchApp('folder', '/tmp/x', { platform: 'linux', available: has('xdg-open'), spawnFn })
-    expect(spawnFn).toHaveBeenCalledWith('xdg-open', ['/tmp/x'], { detached: true, stdio: 'ignore' })
+    await launchApp('folder', '/tmp/x', { platform: 'linux', available: has('xdg-open'), spawnFn, env: {} })
+    expect(spawnFn).toHaveBeenCalledWith('xdg-open', ['/tmp/x'],
+      expect.objectContaining({ detached: true, stdio: ['ignore', 'ignore', 'pipe'] }))
     expect(child.unref).toHaveBeenCalled()
   })
 
-  it('sem candidato instalado, falha dizendo o porquê', () => {
-    expect(() => launchApp('vscode', '/p', { platform: 'linux', available: () => false, spawnFn: vi.fn() as never }))
-      .toThrow(/nada instalado/)
+  it('sem candidato instalado, falha dizendo o porquê', async () => {
+    await expect(launchApp('vscode', '/p', { platform: 'linux', available: () => false, spawnFn: vi.fn() as never }))
+      .rejects.toThrow(/nada instalado/)
+  })
+
+  /**
+   * O defeito relatado: o botão não fazia nada. O app morria no arranque, a saída
+   * de erro ia para o lixo e a rota respondia 200 — não havia o que ler.
+   */
+  it('app que morre no arranque vira mensagem, não silêncio', async () => {
+    const child = fakeChild({
+      once: vi.fn((evento: string, fn: (c: number) => void) => { if (evento === 'exit') fn(1) }),
+      stderr: {
+        on: vi.fn((_e: string, fn: (b: Buffer) => void) => fn(Buffer.from('libstdc++.so.6: version GLIBCXX_3.4.31 not found'))),
+        destroy: vi.fn(),
+      },
+    })
+    await expect(launchApp('terminal', '/p', {
+      platform: 'linux', available: has('gnome-terminal'), spawnFn: vi.fn(() => child) as never, env: {},
+    })).rejects.toThrow(/gnome-terminal: .*GLIBCXX_3.4.31/)
+  })
+
+  /** Sair com 0 no ato é NORMAL: muitos terminais entregam a janela a um serviço. */
+  it('sair cedo com sucesso não é falha', async () => {
+    const child = fakeChild({ once: vi.fn((e: string, fn: (c: number) => void) => { if (e === 'exit') fn(0) }) })
+    await expect(launchApp('terminal', '/p', {
+      platform: 'linux', available: has('gnome-terminal'), spawnFn: vi.fn(() => child) as never, env: {},
+    })).resolves.toBeUndefined()
+  })
+
+  /**
+   * O Claudinei roda com um libstdc++ portátil no LD_LIBRARY_PATH, e todo filho
+   * herda. Um app do sistema tem que nascer no ambiente do sistema.
+   */
+  it('o app do desktop não herda o LD_LIBRARY_PATH do Claudinei', async () => {
+    const spawnFn = vi.fn(() => fakeChild()) as never
+    await launchApp('folder', '/tmp/x', {
+      platform: 'linux', available: has('xdg-open'), spawnFn,
+      env: { LD_LIBRARY_PATH: '/cache/claudinei/stdcxx:/opt/dele', CLAUDINEI_ORIG_LD_LIBRARY_PATH: '/opt/dele' },
+    })
+    expect((spawnFn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][2])
+      .toMatchObject({ env: { LD_LIBRARY_PATH: '/opt/dele' } })
   })
 })
 
@@ -145,7 +190,7 @@ describe('rotas', () => {
  * transformam "caminho estranho" em "programa diferente do que eu pedi".
  */
 describe('o caminho não pode virar comando', () => {
-  const spawnFn = () => vi.fn(() => ({ unref: vi.fn() })) as never
+  const spawnFn = () => vi.fn(() => fakeChild()) as never
 
   /**
    * Caminho começando com "-" é lido como FLAG pelo programa, não como pasta.
@@ -153,22 +198,22 @@ describe('o caminho não pode virar comando', () => {
    * instalam extensão e trocam diretório de dados. Exigir caminho absoluto mata
    * a classe inteira: absoluto nunca começa com hífen.
    */
-  it('recusa caminho que o programa leria como flag', () => {
+  it('recusa caminho que o programa leria como flag', async () => {
     for (const evil of ['--install-extension', '-a', 'relativo/sem/barra', '']) {
-      expect(() => launchApp('vscode', evil, { platform: 'linux', available: () => true, spawnFn: spawnFn() }), evil)
-        .toThrow(/absoluto/i)
+      await expect(launchApp('vscode', evil, { platform: 'linux', available: () => true, spawnFn: spawnFn() }), evil)
+        .rejects.toThrow(/absoluto/i)
     }
   })
 
-  it('aceita caminho absoluto normal', () => {
+  it('aceita caminho absoluto normal', async () => {
     const spawn = spawnFn()
-    launchApp('vscode', '/home/u/projeto', { platform: 'linux', available: has('code'), spawnFn: spawn })
+    await launchApp('vscode', '/home/u/projeto', { platform: 'linux', available: has('code'), spawnFn: spawn, env: {} })
     expect(spawn).toHaveBeenCalled()
   })
 
-  it('aceita caminho absoluto do Windows', () => {
+  it('aceita caminho absoluto do Windows', async () => {
     const spawn = spawnFn()
-    launchApp('folder', 'C:\\Users\\u\\projeto', { platform: 'win32', available: has('explorer'), spawnFn: spawn })
+    await launchApp('folder', 'C:\\Users\\u\\projeto', { platform: 'win32', available: has('explorer'), spawnFn: spawn, env: {} })
     expect(spawn).toHaveBeenCalled()
   })
 

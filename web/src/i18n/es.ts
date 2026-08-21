@@ -39,6 +39,7 @@ export const es: typeof en = {
     themeHighContrast: 'Alto Contraste',
     title: 'Apariencia', theme: 'Tema', accent: 'Color de acento',
     chatWidth: 'Ancho del chat', widthFull: 'Completo',
+    terminalHint: 'Qué terminal se abre al hacer clic en “Abrir terminal”. Vale para todos: la ventana se abre en la máquina que aloja Claudinei.',
     chatWidthHint: 'Una columna estrecha se lee mejor; el completo aprovecha toda la pantalla.',
     fontUi: 'Fuente de la interfaz', fontCode: 'Fuente de código',
     density: 'Densidad', densityComfortable: 'Cómoda', densityCompact: 'Compacta',
@@ -99,6 +100,7 @@ export const es: typeof en = {
     copyPath: 'Copiar ruta',
     collapseAll: 'Contraer todo', expandAll: 'Expandir todo',
     collapseCard: 'Contraer', expandCard: 'Expandir',
+    onThisMachine: 'En esta máquina', terminalApp: 'Terminal', terminalAppSystem: 'Predeterminado del sistema',
     revive: 'Reanudar', startSession: 'Iniciar sesión', editTerminal: 'Editar', deleteTerminal: 'Eliminar', options: 'Opciones',
   },
   status: {

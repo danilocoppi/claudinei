@@ -865,7 +865,14 @@ button.term-card__action--play:hover { color: var(--ok); }
   margin-top: 4px; padding-left: 10px;
   border-left: 2px solid var(--border);
 }
-.sess-pop { position:fixed; min-width:220px; border-radius: var(--radius-lg); padding:6px; z-index:61; }
+.sess-pop {
+  position:fixed; min-width:220px; border-radius: var(--radius-lg); padding:6px; z-index:61;
+  /* Base opaca sob o vidro. O `--surface` do `.glass` é quase transparente — bonito
+     sobre o fundo do app, ilegível sobre um cartão colorido, que é exatamente onde
+     este menu abre. O desfoque continua; o que sai é a leitura do que está atrás. */
+  background: linear-gradient(var(--surface), var(--surface)), var(--bg);
+  box-shadow: 0 18px 44px var(--shadow);
+}
 .sess-pop__eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-dim); padding:8px 8px 4px; }
 .sess-pop__item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius: var(--radius-sm); cursor:pointer; font-size:13px; }
 .sess-pop__item:hover { background:var(--surface-strong); }
@@ -875,6 +882,15 @@ button.term-card__action--play:hover { color: var(--ok); }
 .sess-pop__item--off:hover { background:transparent; }
 .sess-pop__hint { text-transform:none; letter-spacing:0; color:var(--warn); }
 .sess-pop__item.active { background:var(--surface-strong); }
+/* Fio entre seções. Fino e sem margem lateral: o menu tem 6px de respiro, e um
+   divisor com recuo viraria um traço flutuando. */
+.sess-pop__sep { height:1px; margin:6px 0; background:var(--border); }
+/* Fronteira entre o que é preferência de quem entrou e o que é da máquina. */
+.ap-sep { height:1px; margin:4px 0 2px; background:var(--border); }
+.ap-field--sub { gap:5px; }
+/* O irreversível se apresenta como tal — e só ACENDE no hover, para o menu não
+   ficar com um item vermelho puxando o olho o tempo todo. */
+.sess-pop__item--danger:hover { background:color-mix(in srgb, var(--err) 14%, transparent); color:var(--err); }
 .sess-pop__check { color:var(--accent); font-weight:600; }
 .sess-pop__warn { font-size:11px; color:var(--warn); padding:6px 8px; }
 .sess-pop__error { font-size:12px; color:var(--err); padding:6px 8px; }

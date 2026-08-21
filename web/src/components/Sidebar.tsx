@@ -21,6 +21,7 @@ import { copyText } from '../clipboard'
 import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
+import { CodeIcon, CopyIcon, EditIcon, FolderIcon, MoreIcon, TerminalIcon, TrashIcon } from './MenuIcons'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -60,20 +61,12 @@ const loadActiveOnly = (): boolean => {
 }
 
 /** Abrir no desktop, na ordem em que aparecem no menu. */
-const LOCAL_ACTIONS: { id: LocalApp; icon: string; label: string }[] = [
-  { id: 'folder', icon: '📁', label: 'sidebar.openFolder' },
-  { id: 'vscode', icon: '⌨️', label: 'sidebar.openVscode' },
-  { id: 'terminal', icon: '▮', label: 'sidebar.openTerminal' },
+const LOCAL_ACTIONS: { id: LocalApp; Icon: typeof FolderIcon; label: string }[] = [
+  { id: 'folder', Icon: FolderIcon, label: 'sidebar.openFolder' },
+  { id: 'vscode', Icon: CodeIcon, label: 'sidebar.openVscode' },
+  { id: 'terminal', Icon: TerminalIcon, label: 'sidebar.openTerminal' },
 ]
 
-/** As três bolinhas de "mais opções". Um desenho só para os três lugares que abrem
- *  esse menu — cartão, grupo e setor —, senão eles voltam a divergir. */
-const MoreIcon = ({ size = 12 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-    <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
-  </svg>
-)
 
 // O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
 type Drag = { kind: 'project' | 'group' | 'sector'; id: number }
@@ -696,23 +689,25 @@ export function Sidebar() {
         <div className="sess-pop__overlay" onClick={() => setMenuFor(null)}>
           <div className="sess-pop glass" style={{ left: menuFor.x, top: menuFor.y, minWidth: 190 }} onClick={(e) => e.stopPropagation()}>
             <div className="sess-pop__item" onClick={() => { setEditFor(menuFor.p); setMenuFor(null) }}>
-              <span>✏️</span><span>{t('sidebar.editTerminal')}</span>
+              <EditIcon /><span>{t('sidebar.editTerminal')}</span>
             </div>
-            <div className="sess-pop__item" onClick={() => { setDeleteError(''); setDeleteFor(menuFor.p); setMenuFor(null) }}>
-              <span>🗑</span><span>{t('sidebar.deleteTerminal')}</span>
-            </div>
-            {/* Abrir no desktop: só aparece o que o SERVIDOR disse que funciona
-                nesta máquina. Item morto seria pior que item nenhum — e sem ele
-                não há erro a explicar depois do clique. */}
+
+            {/* NESTA MÁQUINA — o rótulo não é enfeite: estas ações somem quando se
+                acessa de outro computador (quem decide é o servidor, que sabe se a
+                requisição é local E se o binário existe). Sem o rótulo, o menu só
+                encolheria, sem dizer por quê. */}
+            <div className="sess-pop__sep" />
+            <div className="sess-pop__eyebrow">{t('sidebar.onThisMachine')}</div>
             {LOCAL_ACTIONS.filter((a) => localApps[a.id]).map((a) => (
               <div key={a.id} className="sess-pop__item"
                    onClick={() => { const p = menuFor.p; setMenuFor(null); void openLocalApp(p.id, a.id).catch(() => {}) }}>
-                <span>{a.icon}</span><span>{t(a.label as 'sidebar.openFolder')}</span>
+                <a.Icon /><span>{t(a.label as 'sidebar.openFolder')}</span>
               </div>
             ))}
             <div className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void copyText(p.path) }}>
-              <span>🏷</span><span>{t('sidebar.copyPath')}</span>
+              <CopyIcon /><span>{t('sidebar.copyPath')}</span>
             </div>
+            <div className="sess-pop__sep" />
 
             {/* Grupo e setor em dropdown: com uma dúzia de cada, a lista de itens
                 transformava o popover numa página rolante. */}
@@ -749,6 +744,15 @@ export function Sidebar() {
                 </select>
               </label>
             )}
+
+            {/* O irreversível por último, separado e tingido. Antes era o SEGUNDO
+                item do menu, encostado em Editar — no ponto de maior tráfego do
+                ponteiro, que é o pior lugar possível para "excluir". */}
+            <div className="sess-pop__sep" />
+            <div className="sess-pop__item sess-pop__item--danger"
+                 onClick={() => { setDeleteError(''); setDeleteFor(menuFor.p); setMenuFor(null) }}>
+              <TrashIcon /><span>{t('sidebar.deleteTerminal')}</span>
+            </div>
           </div>
         </div>,
         document.body,

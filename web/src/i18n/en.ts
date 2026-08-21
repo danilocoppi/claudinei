@@ -37,6 +37,7 @@ export const en = {
     themeHighContrast: 'High Contrast',
     title: 'Appearance', theme: 'Theme', accent: 'Accent color',
     chatWidth: 'Chat width', widthFull: 'Full',
+    terminalHint: 'Which terminal opens when you click “Open terminal”. It applies to everyone: the window opens on the machine hosting Claudinei.',
     chatWidthHint: 'A narrow column is easier to read; full uses the whole screen.',
     fontUi: 'Interface font', fontCode: 'Code font',
     density: 'Density', densityComfortable: 'Comfortable', densityCompact: 'Compact',
@@ -97,6 +98,7 @@ export const en = {
     copyPath: 'Copy path',
     collapseAll: 'Collapse all', expandAll: 'Expand all',
     collapseCard: 'Collapse', expandCard: 'Expand',
+    onThisMachine: 'On this machine', terminalApp: 'Terminal', terminalAppSystem: 'System default',
     revive: 'Revive', startSession: 'Start session', editTerminal: 'Edit', deleteTerminal: 'Delete', options: 'Options',
   },
   status: {

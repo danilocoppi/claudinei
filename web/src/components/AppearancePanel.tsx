@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { saveAppearance } from '../api'
+import { chooseTerminal, fetchTerminals, saveAppearance } from '../api'
 import { useStore } from '../store'
 import {
   ACCENTS, CHAT_WIDTHS, CODE_FONTS, DEFAULT_APPEARANCE, DENSITIES, GLASS, RADII, THEMES, UI_FONTS,
@@ -49,6 +49,15 @@ function Pills({ options, value, onPick, testPrefix }: {
 }
 
 export function AppearancePanel({ onClose }: { onClose: () => void }) {
+  // A lista vem do servidor porque é ele que sabe o que está instalado NA MÁQUINA
+  // DELE — e ela vem vazia quando o pedido não é local, caso em que a seção some.
+  const [terminals, setTerminals] = useState<{ id: string; label: string }[]>([])
+  const [terminal, setTerminal] = useState<string | null>(null)
+  useEffect(() => {
+    void fetchTerminals()
+      .then((r) => { setTerminals(r.options); setTerminal(r.chosen ?? r.options[0]?.id ?? null) })
+      .catch(() => setTerminals([]))
+  }, [])
   const { t } = useTranslation()
   const current = useStore((s) => s.appearance)
   const apply = useStore((s) => s.applyAppearance)
@@ -165,6 +174,31 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
               <em>{t('appearance.reducedMotionHint')}</em>
             </span>
           </label>
+
+          {/* NESTA MÁQUINA — o resto do painel é preferência de QUEM entrou; isto é da
+              máquina que hospeda, porque é nela que a janela abre. Daí a seção
+              própria, o rótulo explícito, e o gravar na hora em vez de entrar no
+              rascunho que o Salvar confirma. */}
+          {terminals.length > 0 && (
+            <>
+              <div className="ap-sep" />
+              <div className="ap-field">
+                <span>{t('sidebar.onThisMachine')}</span>
+                <label className="ap-field ap-field--sub">
+                  <span>{t('sidebar.terminalApp')}</span>
+                  <select data-testid="ap-terminal" value={terminal ?? ''}
+                          onChange={(e) => {
+                            const escolhido = e.target.value || null
+                            setTerminal(escolhido)
+                            void chooseTerminal(escolhido).catch(() => {})
+                          }}>
+                    {terminals.map((tm) => <option key={tm.id} value={tm.id}>{tm.label}</option>)}
+                  </select>
+                </label>
+                <p className="ap-hint">{t('appearance.terminalHint')}</p>
+              </div>
+            </>
+          )}
 
           {error && <div className="ap-error" role="alert">{t('appearance.saveFailed', { error })}</div>}
         </div>

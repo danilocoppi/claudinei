@@ -39,6 +39,7 @@ export const ptBR: typeof en = {
     themeHighContrast: 'Alto Contraste',
     title: 'Aparência', theme: 'Tema', accent: 'Cor de destaque',
     chatWidth: 'Largura do chat', widthFull: 'Cheia',
+    terminalHint: 'Qual terminal abre ao clicar em “Abrir terminal”. Vale para todo mundo: a janela abre na máquina que hospeda o Claudinei.',
     chatWidthHint: 'Uma coluna estreita é mais fácil de ler; a cheia aproveita a tela toda.',
     fontUi: 'Fonte da interface', fontCode: 'Fonte de código',
     density: 'Densidade', densityComfortable: 'Confortável', densityCompact: 'Compacta',
@@ -99,6 +100,7 @@ export const ptBR: typeof en = {
     copyPath: 'Copiar caminho',
     collapseAll: 'Recolher tudo', expandAll: 'Expandir tudo',
     collapseCard: 'Recolher', expandCard: 'Expandir',
+    onThisMachine: 'Nesta máquina', terminalApp: 'Terminal', terminalAppSystem: 'Padrão do sistema',
     revive: 'Reviver', startSession: 'Iniciar sessão', editTerminal: 'Editar', deleteTerminal: 'Excluir', options: 'Opções',
   },
   status: {

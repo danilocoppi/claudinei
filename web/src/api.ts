@@ -20,6 +20,11 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const fetchProjects = () => req<Project[]>('/api/projects')
+/** Terminais instalados na máquina do SERVIDOR, e qual está escolhido. */
+export const fetchTerminals = () =>
+  req<{ options: { id: string; label: string }[]; chosen: string | null }>('/api/local-apps/terminals')
+export const chooseTerminal = (terminal: string | null) =>
+  req<{ chosen: string | null }>('/api/local-apps/terminals', { method: 'PUT', body: JSON.stringify({ terminal }) })
 /** Busca no acervo de ícones. Já devolve o desenho: a grade pinta sem segunda ida. */
 export const searchIcons = (q: string) =>
   req<{ icons: IconBody[] }>(`/api/icons/search?q=${encodeURIComponent(q)}`).then((r) => r.icons)

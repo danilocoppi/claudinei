@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { ORIG_LD } from './localApps.js'
 
 /** Rodando de dentro de um binário @yao-pkg/pkg? */
 export function isPackaged(): boolean {
@@ -91,6 +92,11 @@ export function reexecIfNeeded(ldPath: string): void {
   const current = (process.env.LD_LIBRARY_PATH || '').split(':').filter(Boolean)
   const wanted = ldPath.split(':').filter(Boolean)
   if (wanted.every((dir) => current.includes(dir))) return
+  // Guarda o valor de ANTES. Quem abre um app do desktop (localApps.ts) precisa
+  // devolver a ele o ambiente do SISTEMA: o libstdc++ portátil que carregamos aqui
+  // é mais velho que o do sistema, e um app gráfico que herde este caminho morre
+  // no arranque — foi assim que "Abrir terminal" virou um botão que não fazia nada.
+  process.env[ORIG_LD] = process.env.LD_LIBRARY_PATH ?? ''
   process.env.LD_LIBRARY_PATH = `${ldPath}:${process.env.LD_LIBRARY_PATH || ''}`
   execFileSync(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: process.env })
   process.exit(0)

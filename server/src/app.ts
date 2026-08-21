@@ -31,6 +31,7 @@ import { registerIconRoutes } from './routes/icons.js'
 import { createIconService } from './icons/service.js'
 import type { IconifyDeps } from './icons/iconify.js'
 import { createPrefsService } from './prefs.js'
+import { createSettingsService } from './settings.js'
 import { createSchedulesStore } from './schedules/store.js'
 import { createScheduler, type Scheduler } from './schedules/scheduler.js'
 import { registerStatic } from './static.js'
@@ -67,7 +68,7 @@ export interface AppDeps {
   /** Tokens/permissões de um usuário mudaram: derruba os WS dele. */
   onUserInvalidated?: (userId: number) => void
   /** Abrir pasta/editor/terminal do host. Injetável para o teste não abrir janelas. */
-  localApps?: Omit<LocalAppsRouteDeps, 'projects'>
+  localApps?: Omit<LocalAppsRouteDeps, 'projects' | 'settings'>
   /** Recebe o agendador assim que ele nasce, para index.ts pará-lo no shutdown. */
   onSchedulerReady?: (scheduler: Scheduler) => void
   /** Acervo de ícones (Iconify). Injetável para o teste não falar com a internet. */
@@ -92,7 +93,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerFsRoutes(app)
   registerGroupRoutes(app, { db: deps.db })
   registerPrefsRoutes(app, { prefs: createPrefsService(deps.db) })
-  registerLocalAppRoutes(app, { projects: createProjectsService(deps.db), ...deps.localApps })
+  registerLocalAppRoutes(app, {
+    projects: createProjectsService(deps.db), settings: createSettingsService(deps.db), ...deps.localApps,
+  })
   registerIconRoutes(app, { icons: createIconService(deps.db, deps.iconify) })
   // O agendador nasce aqui porque precisa do manager E do broadcast, que só existem
   // montados. index.ts recebe a referência para parar o laço no shutdown.

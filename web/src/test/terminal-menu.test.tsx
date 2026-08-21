@@ -131,3 +131,62 @@ describe('grupo e setor viram dropdown', () => {
     expect(pop.getByPlaceholderText(/novo grupo/i)).toBeTruthy()
   })
 })
+
+/**
+ * O menu tinha seis ações numa lista corrida, e Excluir era a SEGUNDA — encostada
+ * em Editar, no ponto de maior tráfego do menu. Agora ele diz do que é feito:
+ * a ação do terminal em cima, o que abre nesta máquina no meio, a arrumação
+ * depois, e o irreversível sozinho no fim.
+ */
+describe('o menu diz do que é feito', () => {
+  it('separa as seções em vez de empilhar tudo', async () => {
+    stubFetch()
+    const pop = await openMenu()
+    await vi.waitFor(() => expect(pop.getByText(/abrir pasta/i)).toBeTruthy())
+    expect(document.querySelectorAll('.sess-pop__sep').length).toBeGreaterThanOrEqual(2)
+  })
+
+  /**
+   * As quatro ações somem quando se acessa de outra máquina — o rótulo é o que
+   * explica por quê, em vez de o menu simplesmente encolher sem dizer nada.
+   */
+  it('as ações da máquina vêm sob um rótulo que explica o sumiço', async () => {
+    stubFetch()
+    const pop = await openMenu()
+    await vi.waitFor(() => expect(pop.getByText(/nesta máquina/i)).toBeTruthy())
+  })
+
+  it('sem nada instalado, o rótulo não fica sozinho anunciando uma seção vazia', async () => {
+    stubFetch({ folder: false, vscode: false, terminal: false })
+    const pop = await openMenu()
+    await vi.waitFor(() => expect(pop.getByText(/copiar caminho/i)).toBeTruthy())
+    expect(pop.getByText(/nesta máquina/i)).toBeTruthy() // copiar caminho é dela também
+  })
+
+  /** Irreversível no fim, longe do caminho do ponteiro, e marcado como perigo. */
+  it('excluir é o último item, e se apresenta como perigo', async () => {
+    stubFetch()
+    const pop = await openMenu()
+    await vi.waitFor(() => expect(pop.getByText(/abrir pasta/i)).toBeTruthy())
+    const itens = [...document.querySelectorAll('.sess-pop__item')]
+    const excluir = itens.at(-1)!
+    expect(excluir.textContent).toMatch(/excluir/i)
+    expect(excluir.className).toMatch(/danger/)
+  })
+
+  /**
+   * Os ícones eram emoji improvisados: um TECLADO para o VS Code, um bloco cheio
+   * (▮) para o terminal e uma ETIQUETA para copiar caminho. Nenhum dizia o que a
+   * ação faz, e nenhum pegava a cor do tema.
+   */
+  it('cada ação tem desenho, não emoji', async () => {
+    stubFetch()
+    const pop = await openMenu()
+    await vi.waitFor(() => expect(pop.getByText(/abrir pasta/i)).toBeTruthy())
+    for (const rotulo of [/editar/i, /abrir pasta/i, /vs code/i, /abrir terminal/i, /copiar caminho/i, /excluir/i]) {
+      const item = [...document.querySelectorAll('.sess-pop__item')].find((el) => rotulo.test(el.textContent ?? ''))!
+      expect(item.querySelector('svg'), String(rotulo)).toBeTruthy()
+      expect(item.textContent, String(rotulo)).not.toMatch(/[⌨▮🏷✏🗑📁]/)
+    }
+  })
+})

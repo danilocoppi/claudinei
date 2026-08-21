@@ -54,6 +54,19 @@ const loadCollapsedCards = (): number[] => {
 
 // Filtro "somente ativos" (estado de VISÃO, como o de grupos colapsados): esconde
 // terminais e grupos sem agente de pé. Não toca em nada no servidor.
+/**
+ * O pulso de sonar de quem espera por você.
+ *
+ * O véu âmbar sozinho era discreto demais: com meia dúzia de terminais na lista,
+ * um contorno fino não chama ninguém. São DOIS anéis defasados — com um só, o
+ * pulso teria um intervalo morto no meio de cada ciclo.
+ *
+ * Vive no cartão, e sobe para o grupo (e do grupo para o setor) quando o que
+ * espera está escondido dentro de um contêiner fechado: o chamado tem que aparecer
+ * onde alguém está olhando.
+ */
+const Sonar = () => <span className="sonar" aria-hidden="true"><i /><i /></span>
+
 const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
 const loadActiveOnly = (): boolean => {
   try { return localStorage.getItem(ACTIVE_ONLY_KEY) === '1' } catch { return false }
@@ -300,6 +313,7 @@ export function Sidebar() {
           else openSession(s.localId)
         }}
       >
+        {waiting && <Sonar />}
         <div className="term-card__title">
           <AgentFace state={faceStateOf(s)} size={20}
                      title={s ? t(`status.${displayStatusKey(s)}` as 'status.in_terminal') : t('sidebar.noSession')} />
@@ -423,6 +437,7 @@ export function Sidebar() {
           onDragEnd={clearDrag}
           onClick={() => toggleGroup(g.id)}
         >
+          {isCollapsed && anyWaiting(items) && <Sonar />}
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-group__icon" value={g.icon ?? '🗂️'} size={14} />
           <span className="term-group__name">{g.name}</span>
@@ -502,6 +517,7 @@ export function Sidebar() {
           onDragEnd={clearDrag}
           onClick={() => toggleSector(sec.id)}
         >
+          {isCollapsed && anyWaiting(shown) && <Sonar />}
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-sector__icon" value={sec.icon ?? '🏢'} size={14} />
           <span className="term-sector__name">{sec.name}</span>

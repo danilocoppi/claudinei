@@ -3,6 +3,7 @@ import { createProjectsService } from '../projects.js'
 import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
 import { canAccessProject, requireAdmin } from '../auth/guards.js'
+import { iconValueOf } from '../icons/value.js'
 
 export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db; manager: SessionManager }) {
   const svc = createProjectsService(deps.db)
@@ -40,7 +41,14 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db; mana
     const patch: { name?: string; color?: string; icon?: string } = {}
     if (typeof body.name === 'string' && body.name) patch.name = body.name
     if (typeof body.color === 'string') patch.color = body.color
-    if (typeof body.icon === 'string') patch.icon = body.icon
+    // Mesma régua do grupo e do setor. Aqui não havia validação nenhuma: por isso
+    // o terminal nunca quebrou com o acervo novo, e por isso qualquer texto virava
+    // "ícone" e ia parar na lista como palavra solta.
+    if (body.icon !== undefined) {
+      const icon = iconValueOf(body.icon)
+      if (!icon) return reply.code(400).send({ error: 'ícone inválido' })
+      patch.icon = icon
+    }
     try {
       return svc.update(id, patch)
     } catch (err) {

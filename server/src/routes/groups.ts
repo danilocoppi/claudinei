@@ -3,6 +3,7 @@ import type { Db } from '../db.js'
 import { createGroupsService, type SidebarEntry } from '../groups.js'
 import { createProjectsService } from '../projects.js'
 import { canAccessProject, requireAdmin } from '../auth/guards.js'
+import { iconValueOf } from '../icons/value.js'
 
 /** Grupos visuais de terminais na sidebar. Mutações admin-only (como projetos);
  *  GET para qualquer autenticado — não-admin só vê grupos com ≥1 terminal acessível. */
@@ -15,8 +16,10 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
     const name = v.trim()
     return name.length >= 1 && name.length <= 60 ? name : null
   }
-  const validIcon = (v: unknown): string | null =>
-    typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 16 ? v.trim() : null
+  // A régua do ícone é uma só, e mora em icons/value.ts: emoji OU token do acervo.
+  // Aqui havia um teto de 16 caracteres, de quando ícone era só emoji — com o
+  // acervo novo isso virou loteria pelo comprimento do nome do desenho.
+  const validIcon = iconValueOf
   const validColor = (v: unknown): string | null =>
     typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v : null
 

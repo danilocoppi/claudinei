@@ -97,6 +97,7 @@ export function Sidebar() {
   const [newSectorName, setNewSectorName] = useState('')
   const [groupRename, setGroupRename] = useState('')
   const [groupIcon, setGroupIcon] = useState('🗂️')
+  const [groupError, setGroupError] = useState('')
   const [groupColor, setGroupColor] = useState('#7c5cff')
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
@@ -442,6 +443,7 @@ export function Sidebar() {
                       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                       setGroupRename(g.name)
                       setGroupIcon(g.icon ?? '🗂️')
+                      setGroupError('')
                       setGroupColor(g.color ?? '#7c5cff')
                       // clamp: o editor tem ~300px de altura e 235 de largura — não pode
                       // nascer estourando a borda de baixo/direita da janela
@@ -520,6 +522,7 @@ export function Sidebar() {
                       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                       setGroupRename(sec.name)
                       setGroupIcon(sec.icon ?? '🏢')
+                      setGroupError('')
                       setGroupColor(sec.color ?? '#58c4dc')
                       setGroupMenuFor({
                         kind: 'sector', id: sec.id, name: sec.name,
@@ -656,12 +659,18 @@ export function Sidebar() {
             <div className="sess-pop__newgroup">
               <button style={{ flex: 1 }} disabled={!groupRename.trim()} onClick={() => {
                 const { kind, id } = groupMenuFor
-                setGroupMenuFor(null)
                 const patch = { name: groupRename.trim(), icon: groupIcon, color: groupColor }
                 const save = kind === 'sector' ? updateSector(id, patch) : updateGroup(id, patch)
-                void save.then(refetchAll).catch(() => {})
+                // Fechar ANTES de saber o resultado era o que sumia com o motivo: o
+                // servidor recusava o ícone e a tela não tinha o que dizer.
+                setGroupError('')
+                void save
+                  .then(refetchAll)
+                  .then(() => setGroupMenuFor(null))
+                  .catch((err: Error) => setGroupError(err.message))
               }}>{t('common.save')}</button>
             </div>
+            {groupError && <div className="sess-pop__error" role="alert">{groupError}</div>}
             <div className="sess-pop__item" onClick={() => {
               const { kind, id } = groupMenuFor
               setGroupMenuFor(null)

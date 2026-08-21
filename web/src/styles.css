@@ -885,6 +885,10 @@ button.term-card__action--play:hover { color: var(--ok); }
 /* Fio entre seções. Fino e sem margem lateral: o menu tem 6px de respiro, e um
    divisor com recuo viraria um traço flutuando. */
 .sess-pop__sep { height:1px; margin:6px 0; background:var(--border); }
+/* As três bolinhas no título do terminal aberto: mesmo alvo de clique do cartão,
+   mas discretas — quem abriu a conversa veio ler, não mexer na configuração. */
+.chat-header__more { padding:5px; line-height:0; color:var(--text-dim); }
+.chat-header__more:hover { color:var(--text); }
 /* Fronteira entre o que é preferência de quem entrou e o que é da máquina. */
 .ap-sep { height:1px; margin:4px 0 2px; background:var(--border); }
 .ap-field--sub { gap:5px; }

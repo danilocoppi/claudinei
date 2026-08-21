@@ -1,14 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { createGroup, createSector, deleteGroup, deleteProject, deleteSector, fetchGroups, fetchLocalApps, fetchProjects, fetchSectors, openLocalApp, putSidebarOrder, setProjectGroup, setProjectSector, updateGroup, updateSector, type Group, type LocalApp, type SidebarEntry } from '../api'
+import { createSector, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, type Entry } from '../sidebarEntries'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
-import { ConfirmDialog } from './ConfirmDialog'
 import { EngineIcon } from './EngineIcon'
 import { EnginePickerMenu } from './EnginePickerMenu'
 import { LanguageSwitcher } from './LanguageSwitcher'
@@ -17,11 +16,11 @@ import { InteractionInfo } from './InteractionInfo'
 import { UserMenu } from './UserMenu'
 import { IconPicker } from './IconPicker'
 import { ColorField } from './ColorField'
-import { copyText } from '../clipboard'
 import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
-import { CodeIcon, CopyIcon, EditIcon, FolderIcon, MoreIcon, TerminalIcon, TrashIcon } from './MenuIcons'
+import { MoreIcon } from './MenuIcons'
+import { TerminalMenu } from './TerminalMenu'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -60,13 +59,6 @@ const loadActiveOnly = (): boolean => {
   try { return localStorage.getItem(ACTIVE_ONLY_KEY) === '1' } catch { return false }
 }
 
-/** Abrir no desktop, na ordem em que aparecem no menu. */
-const LOCAL_ACTIONS: { id: LocalApp; Icon: typeof FolderIcon; label: string }[] = [
-  { id: 'folder', Icon: FolderIcon, label: 'sidebar.openFolder' },
-  { id: 'vscode', Icon: CodeIcon, label: 'sidebar.openVscode' },
-  { id: 'terminal', Icon: TerminalIcon, label: 'sidebar.openTerminal' },
-]
-
 
 // O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
 type Drag = { kind: 'project' | 'group' | 'sector'; id: number }
@@ -88,9 +80,6 @@ export function Sidebar() {
   const isAdmin = !me || me.isAdmin !== false
   const [showNew, setShowNew] = useState(false)
   const [startFor, setStartFor] = useState<Project | null>(null)
-  const [editFor, setEditFor] = useState<Project | null>(null)
-  const [deleteFor, setDeleteFor] = useState<Project | null>(null)
-  const [deleteError, setDeleteError] = useState('')
   const [menuFor, setMenuFor] = useState<{ p: Project; x: number; y: number } | null>(null)
   const [reviveFor, setReviveFor] = useState<{ s: SessionInfo; x: number; y: number } | null>(null)
   const [showInfo, setShowInfo] = useState(false)
@@ -110,16 +99,7 @@ export function Sidebar() {
   const [groupIcon, setGroupIcon] = useState('🗂️')
   const [groupColor, setGroupColor] = useState('#7c5cff')
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
-  const [newGroupName, setNewGroupName] = useState('')
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
-  // O que a MÁQUINA DO SERVIDOR oferece. Vazio até responder: é melhor o item
-  // aparecer um instante depois do que aparecer e não funcionar.
-  const [localApps, setLocalApps] = useState<Partial<Record<LocalApp, boolean>>>({})
-
-  useEffect(() => {
-    void fetchLocalApps().then(setLocalApps).catch(() => setLocalApps({}))
-  }, [])
-
   const toggleActiveOnly = () => {
     setActiveOnly((cur) => {
       try { localStorage.setItem(ACTIVE_ONLY_KEY, cur ? '0' : '1') } catch { /* só não persiste */ }
@@ -239,41 +219,11 @@ export function Sidebar() {
     await dropAt(entries.length ? entryKey(entries[0]) : null)
   }
 
-  const onDelete = async () => {
-    if (!deleteFor) return
-    try {
-      await deleteProject(deleteFor.id)
-      setProjects(await fetchProjects())
-      setDeleteFor(null)
-    } catch (err) {
-      setDeleteError((err as Error).message)
-    }
-  }
-
-  const moveToGroup = async (p: Project, groupId: number | null) => {
-    try { await setProjectGroup(p.id, groupId); await refetchAll() } catch { /* mantém como está */ }
-  }
-
-  const moveToSector = async (p: Project, sectorId: number | null) => {
-    try { await setProjectSector(p.id, sectorId); await refetchAll() } catch { /* mantém como está */ }
-  }
-
   const createSectorNamed = async () => {
     const name = newSectorName.trim()
     if (!name) return
     setNewSectorAt(null); setNewSectorName('')
     try { await createSector(name); await refetchAll() } catch { /* mantém como está */ }
-  }
-
-  const createGroupAndMove = async (p: Project) => {
-    const name = newGroupName.trim()
-    if (!name) return
-    setMenuFor(null); setNewGroupName('')
-    try {
-      const g = await createGroup(name)
-      await setProjectGroup(p.id, g.id)
-      await refetchAll()
-    } catch { /* mantém como está */ }
   }
 
   /**
@@ -393,7 +343,6 @@ export function Sidebar() {
                     onClick={(e) => {
                       e.stopPropagation()
                       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                      setNewGroupName('')
                       setMenuFor({
                         p,
                         x: Math.max(8, Math.min(r.left, window.innerWidth - 210)),
@@ -685,77 +634,8 @@ export function Sidebar() {
         </div>
       </div>
 
-      {menuFor && createPortal(
-        <div className="sess-pop__overlay" onClick={() => setMenuFor(null)}>
-          <div className="sess-pop glass" style={{ left: menuFor.x, top: menuFor.y, minWidth: 190 }} onClick={(e) => e.stopPropagation()}>
-            <div className="sess-pop__item" onClick={() => { setEditFor(menuFor.p); setMenuFor(null) }}>
-              <EditIcon /><span>{t('sidebar.editTerminal')}</span>
-            </div>
-
-            {/* NESTA MÁQUINA — o rótulo não é enfeite: estas ações somem quando se
-                acessa de outro computador (quem decide é o servidor, que sabe se a
-                requisição é local E se o binário existe). Sem o rótulo, o menu só
-                encolheria, sem dizer por quê. */}
-            <div className="sess-pop__sep" />
-            <div className="sess-pop__eyebrow">{t('sidebar.onThisMachine')}</div>
-            {LOCAL_ACTIONS.filter((a) => localApps[a.id]).map((a) => (
-              <div key={a.id} className="sess-pop__item"
-                   onClick={() => { const p = menuFor.p; setMenuFor(null); void openLocalApp(p.id, a.id).catch(() => {}) }}>
-                <a.Icon /><span>{t(a.label as 'sidebar.openFolder')}</span>
-              </div>
-            ))}
-            <div className="sess-pop__item" onClick={() => { const p = menuFor.p; setMenuFor(null); void copyText(p.path) }}>
-              <CopyIcon /><span>{t('sidebar.copyPath')}</span>
-            </div>
-            <div className="sess-pop__sep" />
-
-            {/* Grupo e setor em dropdown: com uma dúzia de cada, a lista de itens
-                transformava o popover numa página rolante. */}
-            <label className="sess-pop__field">
-              <span>{t('sidebar.group')}</span>
-              <select data-testid="menu-group" value={menuFor.p.groupId ?? ''}
-                      onChange={(e) => {
-                        const p = menuFor.p; setMenuFor(null)
-                        void moveToGroup(p, e.target.value ? Number(e.target.value) : null)
-                      }}>
-                <option value="">{t('sidebar.noGroup')}</option>
-                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </label>
-            <div className="sess-pop__newgroup">
-              <input
-                value={newGroupName}
-                placeholder={t('sidebar.newGroupPlaceholder')}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void createGroupAndMove(menuFor.p) }}
-              />
-              <button title={t('sidebar.newGroup')} disabled={!newGroupName.trim()} onClick={() => void createGroupAndMove(menuFor.p)}>＋</button>
-            </div>
-            {sectors.length > 0 && (
-              <label className="sess-pop__field">
-                <span>{t('sidebar.sector')}</span>
-                <select data-testid="menu-sector" value={menuFor.p.sectorId ?? ''}
-                        onChange={(e) => {
-                          const p = menuFor.p; setMenuFor(null)
-                          void moveToSector(p, e.target.value ? Number(e.target.value) : null)
-                        }}>
-                  <option value="">{t('sidebar.noSector')}</option>
-                  {sectors.map((sec) => <option key={sec.id} value={sec.id}>{sec.name}</option>)}
-                </select>
-              </label>
-            )}
-
-            {/* O irreversível por último, separado e tingido. Antes era o SEGUNDO
-                item do menu, encostado em Editar — no ponto de maior tráfego do
-                ponteiro, que é o pior lugar possível para "excluir". */}
-            <div className="sess-pop__sep" />
-            <div className="sess-pop__item sess-pop__item--danger"
-                 onClick={() => { setDeleteError(''); setDeleteFor(menuFor.p); setMenuFor(null) }}>
-              <TrashIcon /><span>{t('sidebar.deleteTerminal')}</span>
-            </div>
-          </div>
-        </div>,
-        document.body,
+      {menuFor && (
+        <TerminalMenu project={menuFor.p} x={menuFor.x} y={menuFor.y} onDone={() => setMenuFor(null)} />
       )}
 
       {groupMenuFor && createPortal(
@@ -843,17 +723,6 @@ export function Sidebar() {
       {showInfo && <InteractionInfo onClose={() => setShowInfo(false)} />}
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} />}
       {startFor && <StartSessionModal project={startFor} onClose={() => setStartFor(null)} />}
-      {editFor && <NewProjectModal editProject={editFor} onClose={() => setEditFor(null)} />}
-      {deleteFor && (
-        <ConfirmDialog
-          title={t('confirm.deleteTitle', { name: deleteFor.name })}
-          message={t('confirm.deleteMsg')}
-          confirmLabel={t('common.delete')}
-          error={deleteError}
-          onConfirm={onDelete}
-          onClose={() => setDeleteFor(null)}
-        />
-      )}
     </div>
   )
 }

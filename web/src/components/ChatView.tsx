@@ -16,6 +16,8 @@ import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
 import { Icon } from './Icon'
+import { MoreIcon } from './MenuIcons'
+import { TerminalMenu } from './TerminalMenu'
 
 export function ChatView() {
   const { t } = useTranslation()
@@ -26,6 +28,7 @@ export function ChatView() {
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
   const [editConfirm, setEditConfirm] = useState<string | null>(null)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
 
   const session = activeLocalId ? sessions[activeLocalId] : undefined
   const project = session ? projects.find((p) => p.id === session.projectId) : undefined
@@ -141,6 +144,16 @@ export function ChatView() {
   return (
     <>
       <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
+        {/* O mesmo menu do cartão da lista, aqui no título: quem está lendo a
+            conversa não devia ter que voltar à barra lateral para renomear o
+            terminal ou abrir a pasta dele. */}
+        <button className="ghost chat-header__more" title={t('sidebar.options')}
+                onClick={(e) => {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                  setMenuAt({ x: r.left, y: r.bottom + 6 })
+                }}>
+          <MoreIcon size={14} />
+        </button>
         <Icon value={project.icon} size={20} />
         <strong>{project.name}</strong>
         <EngineTabs projectId={session.projectId} activeLocalId={session.localId} />
@@ -159,6 +172,7 @@ export function ChatView() {
           🖥 {t('chat.openInTerminal')}
         </button>
       </div>
+      {menuAt && <TerminalMenu project={project} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
         <div className="chat-scroll__inner">
         {/* Sequências de ações (tool_call/thinking) viram um grupo colapsável;

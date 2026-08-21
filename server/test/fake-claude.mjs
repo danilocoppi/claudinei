@@ -5,6 +5,8 @@
 //   contém "crash"     -> encerra com exit 1 sem result (simula morte)
 //   contém "devagar"   -> espera 300ms antes de responder (testa timeout)
 //   contém "demorada"  -> responde assistant mas NUNCA emite result (turno só fecha com interrupt)
+//   contém "com-bg"    -> como "demorada", mas antes anuncia uma task de background
+//                         em aberto (reproduz o turno interrompido com shell rodando)
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -63,6 +65,11 @@ rl.on('line', (line) => {
   }
   const text = msg?.message?.content?.[0]?.text ?? ''
   if (text.includes('crash')) process.exit(1)
+  if (text.includes('com-bg')) {
+    out({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'bg-1', description: 'servidor de preview' }] })
+    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'trabalhando…' }] } })
+    return
+  }
   if (text.includes('demorada')) {
     // turno fica aberto: responde assistant mas NUNCA emite result (até um interrupt)
     out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'trabalhando…' }] } })

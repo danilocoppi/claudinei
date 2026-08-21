@@ -70,3 +70,50 @@ describe('ClaudeSession control_request', () => {
     expect(errs.some((e) => e.includes('bypassPermissions'))).toBe(true)
   })
 })
+
+/**
+ * O defeito relatado: interromper o turno e a UI continuar com as três bolinhas
+ * de "processando" para sempre.
+ *
+ * A saída de `working` acontece num lugar só — o `result` do CLI —, e ele é
+ * ignorado quando ainda há task de background em aberto (isso existe de
+ * propósito: o turno que despachou o subagente acabou, mas o subagente não).
+ * Só que na INTERRUPÇÃO isso vira uma armadilha: o `interrupt` é enviado ANTES de
+ * as tasks serem paradas, então o `result` chega com a lista ainda cheia, o
+ * status não muda — e não vem outro `result` depois. A sessão fica "trabalhando"
+ * até o próximo turno.
+ *
+ * As outras três engines já caem em `idle` ao interromper; o Claude é a única com
+ * processo longo, e a única que não mexia no status.
+ */
+describe('interromper encerra o turno', () => {
+  it('sai de working mesmo com task de background em aberto', async () => {
+    const s = start()
+    await waitUntil(() => s.status === 'idle')
+    s.send('com-bg')
+    await waitUntil(() => s.status === 'working')
+    await waitUntil(() => s.backgroundTasks.length > 0)
+
+    await s.interrupt()
+    await waitUntil(() => s.status !== 'working')
+    // O mesmo destino do caso sem task pendente: o turno acabou e a vez é sua.
+    expect(s.status).toBe('needs_attention')
+  })
+
+  it('sai de working no caso simples também', async () => {
+    const s = start()
+    await waitUntil(() => s.status === 'idle')
+    s.send('demorada')
+    await waitUntil(() => s.status === 'working')
+    await s.interrupt()
+    await waitUntil(() => s.status !== 'working')
+  })
+
+  /** Interromper quem não está trabalhando não pode mexer no estado de ninguém. */
+  it('interromper fora de working não muda nada', async () => {
+    const s = start()
+    await waitUntil(() => s.status === 'idle')
+    await s.interrupt()
+    expect(s.status).toBe('idle')
+  })
+})

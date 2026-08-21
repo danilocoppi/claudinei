@@ -232,6 +232,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     // que manda no status dela).
     if ((evt.kind === 'assistant' || evt.kind === 'stream') &&
         (this.status === 'idle' || this.status === 'needs_attention')) {
+      this.turnSeq++
       this.setStatus('working')
     }
     // Um result com task de background ativa NÃO encerra o trabalho: só o turno
@@ -255,6 +256,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     const msg = { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }
     this.proc.stdin.write(JSON.stringify(msg) + '\n')
     if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
+    this.turnSeq++
     this.setStatus('working')
   }
 
@@ -331,6 +333,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    * deixava os subagentes de background trabalhando.
    */
   async interrupt(): Promise<void> {
+    const turno = this.turnSeq
     const pending = [...this.bgTasks.keys()]
     // O guard antigo (`status !== 'working'` → no-op) deixava o Stop sem efeito e
     // sem aviso; com task pendente ainda há o que parar mesmo fora de working.
@@ -339,6 +342,23 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     }
     // Uma falha ao parar uma task não pode impedir as outras: são independentes.
     await Promise.allSettled(pending.map((id) => this.stopTask(id)))
+    // O turno acabou porque MANDARAM parar — e é aqui que isso vira estado.
+    //
+    // A saída de `working` acontece num lugar só: o `result` do CLI, que é
+    // ignorado enquanto há task de background em aberto (de propósito — o turno
+    // que despachou o subagente acabou, o subagente não). Na interrupção isso
+    // virava armadilha: o `result` chegava com a lista ainda cheia, o status não
+    // mudava, e não vinha outro depois. A sessão ficava "trabalhando" para sempre,
+    // com as três bolinhas girando na tela de quem acabou de mandar parar.
+    //
+    // O destino é `needs_attention`, o MESMO em que o `result` de interrupção já
+    // deixava a sessão quando não havia task pendente: aqui só se garante que ela
+    // chegue lá em todo caso, em vez de ficar pendurada em `working`.
+    //
+    // E só se o turno ainda for o que se mandou parar: esperar as tasks abre uma
+    // janela em que a fila entrega a próxima tarefa, e derrubar o `working` DELA
+    // seria interromper um trabalho que acabou de começar.
+    if (this.status === 'working' && this.turnSeq === turno) this.setStatus('needs_attention')
   }
 
   async stop(): Promise<void> {
@@ -421,6 +441,14 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     this.bgMeta.delete(id)
     this.emit('status', this.status)
   }
+
+  /**
+   * Conta os turnos. Só serve para a interrupção saber se o turno que ela abortou
+   * ainda é o turno da vez: enquanto ela espera as tasks pararem, a fila pode
+   * entregar a PRÓXIMA tarefa — e derrubar o `working` daquela seria parar um
+   * trabalho que acabou de começar.
+   */
+  private turnSeq = 0
 
   private setStatus(s: SessionStatus): void {
     if (this.status === 'dead' || this.status === 'stopped') return

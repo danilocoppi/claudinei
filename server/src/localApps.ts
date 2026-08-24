@@ -91,9 +91,26 @@ function candidatesFor(app: LocalApp, dir: string, platform: NodeJS.Platform): L
   const win = platform === 'win32'
 
   if (app === 'folder') {
+    // No mac e no Windows o comando já SIGNIFICA o gerenciador de arquivos.
     if (mac) return [{ cmd: 'open', args: [dir] }]
     if (win) return [{ cmd: 'explorer', args: [dir] }]
-    return [{ cmd: 'xdg-open', args: [dir] }]
+    // No Linux, não. `xdg-open` abre o diretório com quem estiver registrado para
+    // `inode/directory` — e IDEs reivindicam essa associação na instalação: numa
+    // máquina real, "Abrir pasta" abria o Android Studio, porque era ele que
+    // respondia por diretório. O item promete o navegador de ARQUIVOS (ele fica ao
+    // lado de "Abrir no VS Code"), então é ele que se procura primeiro. O
+    // `xdg-open` fica como último recurso: abrir a coisa errada ainda é melhor que
+    // não abrir nada.
+    return [
+      { cmd: 'nautilus', args: [dir] },
+      { cmd: 'dolphin', args: [dir] },
+      { cmd: 'nemo', args: [dir] },
+      { cmd: 'thunar', args: [dir] },
+      { cmd: 'caja', args: [dir] },
+      { cmd: 'pcmanfm', args: [dir] },
+      { cmd: 'pcmanfm-qt', args: [dir] },
+      { cmd: 'xdg-open', args: [dir] },
+    ]
   }
 
   if (app === 'vscode') {

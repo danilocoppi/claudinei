@@ -98,6 +98,45 @@ describe('o terminal escolhido', () => {
 
   it('a escolha não vaza para as outras ações', () => {
     const deps = { platform: 'linux' as const, available: () => true, terminal: 'kitty' }
-    expect(resolveLauncher('folder', '/p', deps)?.cmd).toBe('xdg-open')
+    expect(resolveLauncher('folder', '/p', deps)?.cmd).toBe('nautilus')
+  })
+})
+
+/**
+ * O defeito relatado: "Abrir pasta" abria o Android Studio.
+ *
+ * Não era o comando errado — era o comando CERTO obedecendo o sistema. O item
+ * rodava `xdg-open`, que abre o diretório com quem estiver registrado para
+ * `inode/directory`; e o Android Studio se registra ali na instalação (a máquina
+ * do relato respondia `com.google.AndroidStudio.desktop`).
+ *
+ * Mas o item se chama "Abrir pasta" e fica ao lado de "Abrir no VS Code": ele
+ * promete o navegador de ARQUIVOS. Delegar essa escolha transformava o rótulo em
+ * mentira quando qualquer IDE reivindicasse a associação.
+ */
+describe('abrir pasta abre o gerenciador de arquivos', () => {
+  const has = (...bins: string[]) => (bin: string) => bins.includes(bin)
+  const cmd = (available: (b: string) => boolean) =>
+    resolveLauncher('folder', '/p', { platform: 'linux', available })?.cmd
+
+  it('prefere um gerenciador de arquivos de verdade ao xdg-open', () => {
+    expect(cmd(has('xdg-open', 'nautilus'))).toBe('nautilus')
+    expect(cmd(has('xdg-open', 'dolphin'))).toBe('dolphin')
+    expect(cmd(has('xdg-open', 'thunar'))).toBe('thunar')
+  })
+
+  /** Sem nenhum instalado, o xdg-open ainda é melhor que não abrir nada. */
+  it('sem gerenciador, cai no xdg-open', () => {
+    expect(cmd(has('xdg-open'))).toBe('xdg-open')
+  })
+
+  it('nada instalado é nada aberto', () => {
+    expect(cmd(() => false)).toBeUndefined()
+  })
+
+  /** No mac e no Windows o comando já SIGNIFICA o gerenciador — não há o que trocar. */
+  it('mac e Windows seguem como estavam', () => {
+    expect(resolveLauncher('folder', '/p', { platform: 'darwin', available: () => true })?.cmd).toBe('open')
+    expect(resolveLauncher('folder', 'C:\\p', { platform: 'win32', available: () => true })?.cmd).toBe('explorer')
   })
 })

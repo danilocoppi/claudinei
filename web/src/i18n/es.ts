@@ -98,6 +98,7 @@ export const es: typeof en = {
     scheduleNext: 'próxima {{when}}', scheduleFailing: '⚠ está fallando',
     openFolder: 'Abrir carpeta', openVscode: 'Abrir en VS Code', openTerminal: 'Abrir terminal',
     copyPath: 'Copiar ruta',
+    collapseSidebar: 'Contraer barra', expandSidebar: 'Expandir barra',
     collapseAll: 'Contraer todo', expandAll: 'Expandir todo',
     collapseCard: 'Contraer', expandCard: 'Expandir',
     onThisMachine: 'En esta máquina', terminalApp: 'Terminal', terminalAppSystem: 'Predeterminado del sistema',

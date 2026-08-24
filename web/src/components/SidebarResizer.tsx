@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useStore } from '../store'
 
 const KEY = 'claudinei:sidebarWidth'
 export const SIDEBAR_MIN = 180
@@ -23,6 +24,9 @@ function initialWidth(): number {
  */
 export function SidebarResizer() {
   const { t } = useTranslation()
+  // Régua tem largura fixa: arrastar a borda dela só produziria uma barra estreita
+  // quebrada, sem lista para caber.
+  const railMode = useStore((s) => s.railMode)
   const [width, setWidth] = useState(initialWidth)
   const drag = useRef<{ startX: number; startW: number } | null>(null)
 
@@ -59,6 +63,8 @@ export function SidebarResizer() {
   }
 
   const reset = () => { setWidth(SIDEBAR_DEFAULT); persist(SIDEBAR_DEFAULT) }
+
+  if (railMode) return null
 
   return (
     <div

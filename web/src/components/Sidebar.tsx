@@ -5,7 +5,7 @@ import type { Project, SessionInfo } from '../types'
 import { createSector, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
-import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, type Entry } from '../sidebarEntries'
+import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, railRows, type Entry, type RailGuide } from '../sidebarEntries'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { EngineIcon } from './EngineIcon'
@@ -65,6 +65,20 @@ const loadCollapsedCards = (): number[] => {
  * espera está escondido dentro de um contêiner fechado: o chamado tem que aparecer
  * onde alguém está olhando.
  */
+/**
+ * Os traços de profundidade. As pontas do trecho ficam arredondadas — é o que faz
+ * o traço ler como um colchete que abre e fecha, em vez de um corte de linha
+ * infinita.
+ */
+const RailGuides = ({ guides }: { guides: RailGuide[] }) => (
+  <span className="rail-guide" aria-hidden="true">
+    {guides.map((g, i) => (
+      <i key={i} className={`${g.start ? 'is-start' : ''} ${g.end ? 'is-end' : ''}`}
+         style={{ ['--c' as string]: g.color }} />
+    ))}
+  </span>
+)
+
 const Sonar = () => <span className="sonar" aria-hidden="true"><i /><i /></span>
 
 const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
@@ -114,6 +128,8 @@ export function Sidebar() {
   const [groupColor, setGroupColor] = useState('#7c5cff')
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
+  const railMode = useStore((s) => s.railMode)
+  const toggleRail = useStore((s) => s.toggleRail)
   const toggleActiveOnly = () => {
     setActiveOnly((cur) => {
       try { localStorage.setItem(ACTIVE_ONLY_KEY, cur ? '0' : '1') } catch { /* só não persiste */ }
@@ -563,13 +579,77 @@ export function Sidebar() {
   const renderEntry = (e: Entry) =>
     e.kind === 'sector' ? renderSector(e.s, e.children) : e.kind === 'group' ? renderGroup(e.g, e.items) : renderCard(e.p)
 
+  /**
+   * A RÉGUA: a barra inteira em 62px, com os estados e os ícones.
+   *
+   * A profundidade não cabe em recuo, então vira contagem de traços — um por
+   * contêiner que envolve a linha, na cor do próprio contêiner (ver railRows). O
+   * traço do ancestral do terminal ABERTO acende: é o que responde "onde eu estou"
+   * sem um único rótulo na tela.
+   */
+  const renderRail = () => {
+    const fechado = (k: string) => collapsed.includes(Number(k.slice(2))) && k.startsWith('g-')
+      || collapsedSectors.includes(Number(k.slice(2))) && k.startsWith('s-')
+    const linhas = railRows(visibleEntries, fechado)
+    const abertoEm = activeLocalId ? sessions[activeLocalId]?.projectId : undefined
+
+    return (
+      <div className="rail" data-testid="rail">
+        {linhas.map((l) => {
+          if (l.kind !== 'project') {
+            const c = l.group!
+            return (
+              <div key={l.key} className="rail-row" title={c.name}
+                   onClick={() => (l.kind === 'sector' ? toggleSector(c.id) : toggleGroup(c.id))}>
+                <RailGuides guides={l.guides} />
+                <span className="rail-body">
+                  <span className={`rail-chip ${l.collapsed ? 'closed' : ''}`}
+                        style={{ ['--c' as string]: c.color ?? 'var(--accent)' }}>
+                    <Icon value={c.icon ?? (l.kind === 'sector' ? '🏢' : '🗂️')} size={13} />
+                  </span>
+                </span>
+              </div>
+            )
+          }
+          const p = l.project!
+          const live = liveSessionsOf(p.id, sessions)
+          const principal = primarySessionOf(p.id, sessions)
+          const badge = unreadOf(p.id, sessions, unread)
+          const esperando = live.some(isWaitingForYou)
+          return (
+            <div key={l.key} title={p.name}
+                 className={`rail-row ${abertoEm === p.id && (view === 'chat' || view === 'terminal') ? 'active' : ''}`}
+                 onClick={() => (principal ? openSession(principal.localId) : setStartFor(p))}>
+              <RailGuides guides={l.guides} />
+              <span className="rail-body">
+                {esperando && <Sonar />}
+                {/* Rosto e ícone viram UM objeto: lado a lado, em 62px, viravam dois
+                    borrões brigando por espaço. O ícone monta no canto do rosto —
+                    o estado continua sendo o que se lê primeiro, e a identidade do
+                    terminal vem grudada nele. */}
+                <span className="rail-mark">
+                  <AgentFace state={faceStateOf(principal)} size={22} />
+                  <Icon className="rail-ico" value={p.icon} size={12} />
+                </span>
+                {badge > 0 && <span className="rail-badge">{badge > 99 ? '99+' : badge}</span>}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
-    <div className="sidebar">
+    <div className={`sidebar ${railMode ? 'rail-mode' : ''}`}>
       <div className="sidebar__top">
         <div className="sidebar__logo" onClick={openDashboard} title={t('sidebar.overview')}>
           <span className="sidebar__logo-star">✳</span> Claudinei
         </div>
         <div className="sidebar__top-actions">
+          <button className="sidebar__icon-btn sidebar__rail-btn"
+                  title={t(railMode ? 'sidebar.expandSidebar' : 'sidebar.collapseSidebar')}
+                  onClick={toggleRail}>{railMode ? '»' : '«'}</button>
           <button className="sidebar__icon-btn" title={t('appearance.title')}
                   aria-label={t('appearance.title')} onClick={() => setShowAppearance(true)}>🎨</button>
           <UserMenu />
@@ -577,6 +657,7 @@ export function Sidebar() {
         </div>
       </div>
 
+      {railMode ? renderRail() : (<>
       {/* O cabeçalho "Terminais" é a zona de drop do TOPO: terminal sai do grupo,
           grupo vai pra primeira posição. */}
       <div
@@ -630,6 +711,8 @@ export function Sidebar() {
           />
         )}
       </div>
+
+      </>)}
 
       {/* wrapper ancora o grupo no rodapé mesmo quando o UsageCard não renderiza */}
       <div className="sidebar__bottom">

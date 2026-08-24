@@ -1203,6 +1203,86 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .sess-pop__newgroup button { flex: none; padding: 5px 10px; font-size: 12.5px; border-radius: var(--radius-sm); }
 .sess-pop__hint { color: var(--text-dim); font-size: 11px; padding: 2px 10px 8px; }
 
+
+/* ===== A RÉGUA — a barra lateral inteira em 62px =========================
+   Só os estados e os ícones. Quem colapsa quer a tela para o chat e um canto de
+   olho no que está acontecendo.
+
+   A profundidade não cabe em recuo (três níveis de margem comeriam a régua
+   inteira), então vira CONTAGEM: um traço por contêiner que envolve a linha, na
+   cor que o próprio grupo/setor já tem. Zero traços é raiz.
+
+   Os traços são contínuos porque as linhas não têm espaço entre si — quem recua
+   é o CORPO da linha, não ela. As pontas arredondam, e é isso que faz o traço ler
+   como um colchete que abre e fecha em vez de um corte de linha infinita. */
+.sidebar.rail-mode {
+  width: 68px; flex: none; padding: calc(8px * var(--density)) 0;
+  gap: calc(4px * var(--density)); overflow-x: hidden;
+}
+.sidebar.rail-mode .sidebar__top { justify-content: center; padding: 0 4px; }
+/* Em 62px o logo, o usuário e o idioma virariam uma coluna de tranqueira: some
+   tudo menos o botão que devolve a barra. */
+.sidebar.rail-mode .sidebar__logo,
+.sidebar.rail-mode .sidebar__top-actions > *:not(.sidebar__rail-btn),
+.sidebar.rail-mode .sidebar__footer-head,
+.sidebar.rail-mode .usage-card { display: none; }
+.sidebar.rail-mode .sidebar__footer-rows { flex-direction: column; gap: 2px; }
+.sidebar.rail-mode .sidebar__footer-row { justify-content: center; padding: 6px 0; }
+.sidebar.rail-mode .sidebar__footer-row > span:last-child { display: none; }
+.sidebar__rail-btn { font-size: 13px; }
+
+.rail { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.rail-row { position: relative; display: flex; align-items: stretch; height: 36px; flex: none; cursor: pointer; }
+
+/* A goteira dos traços. Largura fixa: o corpo da linha não se move conforme a
+   profundidade — é justamente o que a régua não pode gastar. */
+.rail-guide { flex: none; width: 15px; display: flex; gap: 3px; padding-left: 5px; }
+.rail-guide i { width: 2px; background: var(--c); opacity: .7; }
+/* A ponta nasce e morre na ALTURA DO MEIO da linha: no contêiner isso põe o traço
+   saindo do chip, e no último filho o faz parar no rosto dele. */
+.rail-guide i.is-start { margin-top: 18px; border-radius: 2px 2px 0 0; }
+.rail-guide i.is-end { margin-bottom: 18px; border-radius: 0 0 2px 2px; }
+/* Ramo fechado: começa e acaba na mesma linha, então vira um ponto — o traço de
+   altura zero simplesmente não apareceria. */
+.rail-guide i.is-start.is-end { margin: 15px 0; border-radius: 999px; opacity: .8; }
+
+.rail-body {
+  flex: 1; min-width: 0; position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+  margin: 2px 4px 2px 0; border-radius: var(--radius-md);
+}
+.rail-row:hover .rail-body { background: var(--surface-strong); }
+.rail-row.active .rail-body { background: var(--surface-strong); box-shadow: inset 0 0 0 1px var(--border); }
+
+/* Contêiner é CHIP, terminal é rosto. Sem essa diferença a régua vira uma pilha
+   de ícones iguais e o traço fica sozinho contando a história. */
+/* O ícone monta no canto do rosto, com um anel na cor do fundo para não encostar
+   nele: um objeto só, em vez de dois competindo pela largura. */
+.rail-mark { position: relative; display: grid; place-items: center; }
+.rail-mark .rail-ico {
+  position: absolute; right: -5px; bottom: -3px;
+  display: grid; place-items: center; padding: 1px;
+  border-radius: 999px; background: var(--bg);
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+.rail-row:hover .rail-mark .rail-ico, .rail-row.active .rail-mark .rail-ico {
+  background: color-mix(in srgb, var(--surface-strong), var(--bg));
+}
+
+.rail-chip {
+  display: grid; place-items: center; width: 26px; height: 22px; line-height: 1;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--c) 26%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent);
+}
+.rail-chip.closed { opacity: .55; }
+.rail-badge {
+  position: absolute; top: -1px; right: -1px;
+  min-width: 14px; padding: 0 3px; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent);
+  font-size: 9px; line-height: 15px; text-align: center;
+}
+
 /* SETOR: um nível acima do grupo. Mesma anatomia visual, um degrau mais forte —
    o cabeçalho é sólido e o trilho do corpo é colorido, para que a hierarquia se
    leia de relance sem contar recuos. */

@@ -98,6 +98,7 @@ export const ptBR: typeof en = {
     scheduleNext: 'próximo {{when}}', scheduleFailing: '⚠ vem falhando',
     openFolder: 'Abrir pasta', openVscode: 'Abrir no VS Code', openTerminal: 'Abrir terminal',
     copyPath: 'Copiar caminho',
+    collapseSidebar: 'Recolher barra', expandSidebar: 'Expandir barra',
     collapseAll: 'Recolher tudo', expandAll: 'Expandir tudo',
     collapseCard: 'Recolher', expandCard: 'Expandir',
     onThisMachine: 'Nesta máquina', terminalApp: 'Terminal', terminalAppSystem: 'Padrão do sistema',

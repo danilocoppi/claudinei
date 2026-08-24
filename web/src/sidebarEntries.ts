@@ -264,3 +264,72 @@ export function moveInto(entries: Entry[], dragKey: string, container: string): 
   const size = childKeysOf(rest, container).length
   return insertInto(rest, container, size, grabbed)
 }
+
+/* ------------------------------------------------------------------------- *
+ * A régua: a mesma árvore, achatada, para a barra lateral estreita
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Uma guia de profundidade: o traço vertical de UM contêiner que envolve a linha.
+ *
+ * Na régua não há recuo para gastar — 62px não comportam três níveis de margem —,
+ * então a profundidade vira CONTAGEM: zero traços é raiz, um é dentro de um
+ * contêiner, dois é dentro de um contêiner dentro de outro. A cor é a que o
+ * próprio grupo/setor já tem, então o traço também diz DE QUEM ele é.
+ *
+ * `start` e `end` marcam as pontas do trecho: é o que permite arredondá-las e ler
+ * o traço como um colchete fechado em vez de um corte de linha infinita.
+ */
+export interface RailGuide { color: string; start: boolean; end: boolean }
+
+export interface RailRow {
+  key: string
+  kind: Entry['kind']
+  guides: RailGuide[]
+  /** Do mais externo ao mais interno — presente em contêiner e em terminal. */
+  project?: Project
+  /** O grupo ou setor desta linha, quando ela é um contêiner. */
+  group?: Group
+  collapsed?: boolean
+}
+
+/**
+ * Achata a árvore em linhas de régua, respeitando o que está fechado.
+ *
+ * O `end` de cada guia só é decidido no fim: um traço de setor tem que sobreviver
+ * ao último filho do último grupo dele, e isso não se sabe ao descer.
+ */
+export function railRows(entries: Entry[], isCollapsed: (key: string) => boolean): RailRow[] {
+  const linhas: RailRow[] = []
+
+  const emite = (row: Omit<RailRow, 'guides'>, trilha: { color: string; start: boolean }[]) => {
+    linhas.push({ ...row, guides: trilha.map((t) => ({ ...t, end: false })) })
+  }
+
+  const desce = (e: Entry, trilha: { color: string; start: boolean }[]) => {
+    if (e.kind === 'project') return emite({ key: entryKey(e), kind: 'project', project: e.p }, trilha)
+
+    const contêiner = e.kind === 'sector' ? e.s : e.g
+    const fechado = isCollapsed(entryKey(e))
+    // O traço nasce NA linha do contêiner: é o que liga o chip aos filhos dele.
+    const minha = [...trilha, { color: contêiner.color ?? '#7c5cff', start: true }]
+    emite({ key: entryKey(e), kind: e.kind, group: contêiner, collapsed: fechado }, minha)
+    if (fechado) return
+    // Os filhos herdam o traço já aberto (start = false: quem abriu foi o pai).
+    const herdada = minha.map((t) => ({ ...t, start: false }))
+    const filhos = e.kind === 'sector' ? e.children : e.items.map((p) => ({ kind: 'project' as const, p }))
+    for (const f of filhos) desce(f, herdada)
+  }
+
+  for (const e of entries) desce(e, [])
+
+  // As pontas de baixo: uma guia acaba quando a linha SEGUINTE não a tem mais.
+  for (let i = 0; i < linhas.length; i++) {
+    const seguinte = linhas[i + 1]
+    for (let c = 0; c < linhas[i].guides.length; c++) {
+      const continua = !!seguinte && seguinte.guides.length > c && !seguinte.guides[c].start
+      linhas[i].guides[c].end = !continua
+    }
+  }
+  return linhas
+}

@@ -96,6 +96,7 @@ export const en = {
     scheduleNext: 'next {{when}}', scheduleFailing: '⚠ failing',
     openFolder: 'Open folder', openVscode: 'Open in VS Code', openTerminal: 'Open terminal',
     copyPath: 'Copy path',
+    collapseSidebar: 'Collapse sidebar', expandSidebar: 'Expand sidebar',
     collapseAll: 'Collapse all', expandAll: 'Expand all',
     collapseCard: 'Collapse', expandCard: 'Expand',
     onThisMachine: 'On this machine', terminalApp: 'Terminal', terminalAppSystem: 'System default',

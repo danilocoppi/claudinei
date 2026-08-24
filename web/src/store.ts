@@ -8,6 +8,9 @@ import { BUILTIN_FALLBACK } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 
+/** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
+const RAIL_KEY = 'claudinei:railMode'
+
 /**
  * Fallback embutido para `store.engines`, usado até `GET /api/engines` resolver (ou se falhar).
  * Espelha `capabilities()` de server/src/engine/claude-engine.ts e server/src/engine/codex/codex-engine.ts —
@@ -108,6 +111,9 @@ interface State {
    *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
    *  órfãos (cursor piscando de uma resposta que nunca vai terminar de chegar). */
   resyncOnReconnect(): void
+  /** Barra lateral em modo régua (62px, só estados e ícones). */
+  railMode: boolean
+  toggleRail(): void
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
@@ -192,6 +198,21 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ historyLoadedFor: { ...s.historyLoadedFor, [localId]: engineSessionId } })),
 
   resyncOnReconnect: () => set({ historyLoadedFor: {}, streaming: {} }),
+
+  railMode: (() => {
+    try { return localStorage.getItem(RAIL_KEY) === '1' } catch { return false }
+  })(),
+
+  /**
+   * Mora no store, e não dentro da Sidebar, porque o resizer é IRMÃO dela: sem um
+   * lugar comum, arrastar a borda de uma régua de 62px continuaria possível.
+   */
+  toggleRail: () =>
+    set((s) => {
+      const railMode = !s.railMode
+      try { localStorage.setItem(RAIL_KEY, railMode ? '1' : '0') } catch { /* só não persiste */ }
+      return { railMode }
+    }),
 
   addLocalUserText: (localId, text) =>
     set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text }] } })),

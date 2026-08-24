@@ -110,7 +110,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })
   if (deps.usage) await registerUsageRoutes(app, { usage: deps.usage, extraUsage: deps.extraUsage, engineUsage: deps.engineUsage })
   if (deps.terminalManager) registerTerminalRoutes(app, { manager: deps.manager, terminalManager: deps.terminalManager })
-  if (deps.wsHub) deps.wsHub.register(app, { manager: deps.manager })
+  if (deps.wsHub) deps.wsHub.register(app, { manager: deps.manager, db: deps.db })
 
   // Static (SPA) por ÚLTIMO: garante que as rotas /api já existem antes do
   // notFoundHandler entrar em cena (o fallback SPA usa setNotFoundHandler).

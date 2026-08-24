@@ -109,6 +109,7 @@ interface State {
    *  órfãos (cursor piscando de uma resposta que nunca vai terminar de chegar). */
   resyncOnReconnect(): void
   addLocalUserText(localId: string, text: string): void
+  addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
   applyWsMessage(msg: any): void
   openSession(localId: string): void
@@ -194,6 +195,16 @@ export const useStore = create<State>((set, get) => ({
 
   addLocalUserText: (localId, text) =>
     set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text }] } })),
+
+  /**
+   * Item que nasce AQUI, sem passar pela engine — hoje só o `!comando`.
+   *
+   * Como ele nunca entra no transcript da engine, some no reload: é olhada
+   * rápida, não conversa. Persistir exigiria um lugar novo para guardar, e o
+   * atalho existe justamente para não custar isso.
+   */
+  addLocalItem: (localId, item) =>
+    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), item] } })),
 
   requestEdit: (localId, text) =>
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
@@ -305,6 +316,16 @@ export const useStore = create<State>((set, get) => ({
           streaming,
         }
       })
+    } else if (msg.type === 'shell_result') {
+      // A saída do `!comando` reaproveita o bloco que o chat já usa para os
+      // comandos locais do CLI: mesma cara, nenhum desenho novo.
+      const { localId, output, isError } = msg
+      set((s) => ({
+        chat: {
+          ...s.chat,
+          [localId]: [...(s.chat[localId] ?? []), { kind: 'command_output', text: output, ...(isError ? { isError: true } : {}) }],
+        },
+      }))
     } else if (msg.type === 'board_post') {
       const post: BoardPost = {
         id: msg.id,

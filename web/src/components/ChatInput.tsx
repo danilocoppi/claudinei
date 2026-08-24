@@ -69,11 +69,30 @@ export function ChatInput({
   const [activeIndex, setActiveIndex] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
 
+  const addLocalItem = useStore((s) => s.addLocalItem)
+
   const send = () => {
     let out = text
     for (const [tok, path] of attachments.current) out = out.split(tok).join(path)
     const trimmed = out.trim()
-    if (!trimmed || disabled || uploading > 0) return
+    if (!trimmed || uploading > 0) return
+
+    // `!ls` é comando de terminal, não recado para a engine: roda na pasta do
+    // terminal e a saída volta aqui, sem gastar um turno (nem token, nem espera).
+    // Quem precisa começar a frase com "!" põe um espaço antes — o `out` cru é que
+    // manda, porque o trim comeria justamente esse espaço.
+    if (out.startsWith('!')) {
+      const comando = trimmed.slice(1).trim()
+      if (!comando) return
+      ws?.send({ type: 'shell', localId, command: comando })
+      addLocalItem(localId, { kind: 'local_command', command: comando })
+      setText('')
+      histIdxRef.current = null
+      attachments.current.clear()
+      return
+    }
+
+    if (disabled) return
     ws?.send({ type: 'send_message', localId, text: trimmed })
     addLocalUserText(localId, trimmed)
     setText('')

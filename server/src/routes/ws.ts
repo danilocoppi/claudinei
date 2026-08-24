@@ -4,11 +4,16 @@ import type { SessionManager } from '../claude/manager.js'
 import type { AuthUser } from '../auth/plugin.js'
 import { canAccessProject } from '../auth/guards.js'
 import { isAllowedOrigin } from './terminal.js'
+import { runShell } from '../shell.js'
+import { createProjectsService, type ProjectsService } from '../projects.js'
+import type { Db } from '../db.js'
 
 interface Client {
   ws: WebSocket
   /** undefined = auth desativada (pré-setup): vê tudo, como sempre foi. */
   user?: AuthUser
+  /** Conectou da máquina do servidor? É o que libera o `!comando` (ver abaixo). */
+  local: boolean
 }
 
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024
@@ -18,6 +23,8 @@ export function createWsHub() {
   // O manager chega no register(); broadcast antes disso (não ocorre em produção)
   // cai no comportamento sem filtro por localId.
   let mgr: SessionManager | undefined
+  /** Só o `!comando` precisa: é dele que sai a PASTA em que o comando roda. */
+  let projectsSvc: ProjectsService | undefined
 
   const canSee = (user: AuthUser | undefined, msg: any): boolean => {
     if (!user || user.kind === 'service' || user.isAdmin) return true
@@ -29,6 +36,25 @@ export function createWsHub() {
           : undefined
     // Sem projeto resolvível (ex.: evento global) → admin-only.
     return projectId !== undefined && canAccessProject(user, projectId)
+  }
+
+  /** Executa e devolve o resultado APENAS para o socket que pediu. */
+  async function runShellFor(client: Client, localId: unknown, command: unknown): Promise<void> {
+    if (typeof localId !== 'string' || typeof command !== 'string') return
+    const responde = (output: string, isError: boolean) =>
+      client.ws.send(JSON.stringify({ type: 'shell_result', localId, command, output, isError }))
+
+    if (!client.local) return responde('o comando só roda da máquina do servidor', true)
+    const info = mgr?.get(localId)
+    if (!info) return responde(`sessão ${localId} não existe`, true)
+    if (client.user && client.user.kind === 'user' && !canAccessProject(client.user, info.projectId)) {
+      return responde('sem acesso a este terminal', true)
+    }
+    const projeto = projectsSvc?.get(info.projectId)
+    if (!projeto) return responde('terminal sem pasta', true)
+
+    const r = await runShell(command, projeto.path)
+    responde(r.output, r.isError)
   }
 
   return {
@@ -55,8 +81,9 @@ export function createWsHub() {
       }
     },
 
-    register(app: FastifyInstance, deps: { manager: SessionManager }): void {
+    register(app: FastifyInstance, deps: { manager: SessionManager; db?: Db }): void {
       mgr = deps.manager
+      if (deps.db) projectsSvc = createProjectsService(deps.db)
       app.get('/ws', { websocket: true }, (socket, req) => {
         // Bloqueia cross-site WebSocket hijacking: no pré-setup (0 usuários) o
         // hook libera loopback sem credencial, então sem essa checagem qualquer
@@ -65,7 +92,12 @@ export function createWsHub() {
         if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
         // A autenticação aconteceu no hook onRequest (401 aborta o upgrade);
         // aqui só capturamos QUEM conectou para filtrar broadcasts.
-        const client: Client = { ws: socket, user: req.authUser }
+        const ip = req.ip
+        const client: Client = {
+          ws: socket,
+          user: req.authUser,
+          local: ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1',
+        }
         clients.add(client)
         const sessions = deps.manager.list().filter((s) =>
           !client.user || client.user.kind !== 'user' || canAccessProject(client.user, s.projectId))
@@ -93,6 +125,17 @@ export function createWsHub() {
             if (msg.type === 'send_message') deps.manager.send(msg.localId, msg.text)
             else if (msg.type === 'mark_read') deps.manager.markRead(msg.localId)
             else if (msg.type === 'interrupt') void deps.manager.interrupt(msg.localId).catch((err) => socket.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message })))
+            /**
+             * `!comando` do chat: roda na pasta do terminal e a saída volta só
+             * para quem pediu.
+             *
+             * SÓ da máquina do servidor. Pela rede a saída seria de um computador
+             * que quem pediu não está usando — e a porta de execução ficaria
+             * aberta a qualquer um que tenha entrado na interface. (Quem está na
+             * máquina já podia pedir o mesmo a um agente, que roda com
+             * `--dangerously-skip-permissions`: o atalho tira fricção, não muro.)
+             */
+            else if (msg.type === 'shell') runShellFor(client, msg.localId, msg.command)
           } catch (err) {
             socket.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message }))
           }

@@ -44,8 +44,34 @@ const PUBLIC = new Set([
 // (list/ask/board em /api/hermes/*; dispatch/list_tasks em /api/orchestrator/*).
 const SERVICE_PREFIXES = ['/api/hermes/', '/api/orchestrator/']
 
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
+/**
+ * 127.0.0.0/8 inteiro, mais as formas de IPv6. O `startsWith('127.')` de antes
+ * também dizia sim para `127.0.0.1.evil.com` — inalcançável na prática (o que
+ * chega aqui é endereço, não nome), mas um teste que compara texto não é lugar
+ * para "na prática".
+ */
 export function isLoopbackIp(ip: string): boolean {
-  return ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('127.')
+  if (ip === '::1') return true
+  const m = IPV4.exec(ip.startsWith('::ffff:') ? ip.slice(7) : ip)
+  if (!m) return false
+  const octetos = m.slice(1).map(Number)
+  return octetos.every((o) => o <= 255) && octetos[0] === 127
+}
+
+/**
+ * A requisição veio da PRÓPRIA máquina do servidor?
+ *
+ * Lê o par TCP, não `req.ip`: com `trustProxy` ligado o Fastify troca o `req.ip`
+ * pelo `X-Forwarded-For`, e a decisão de segurança passaria a vir de um cabeçalho
+ * que qualquer um escreve. O app hoje não liga `trustProxy` — mas o que este gate
+ * libera (abrir editor, revelar arquivo, rodar `!comando`) é forte demais para
+ * depender de uma opção continuar desligada.
+ */
+export function isLocalRequest(req: { socket?: { remoteAddress?: string } }): boolean {
+  const par = req.socket?.remoteAddress
+  return !!par && isLoopbackIp(par)
 }
 
 export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean }): Promise<void> {
@@ -70,7 +96,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
       // Pré-setup: sem credenciais no mundo — só o próprio computador entra.
       // Exceção: --insecure (rede confiável, por conta e risco) libera também
       // a LAN, cumprindo o que o guard de exposição promete para a flag.
-      if (!isLoopbackIp(req.ip) && !deps.insecure) {
+      if (!isLocalRequest(req) && !deps.insecure) {
         return reply.code(403).send({ error: 'setup_required_localhost_only' })
       }
       return

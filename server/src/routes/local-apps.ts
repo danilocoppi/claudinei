@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { canAccessProject } from '../auth/guards.js'
+import { isLocalRequest } from '../auth/plugin.js'
 import { availableApps, availableTerminals, launchApp, LOCAL_APPS, TERMINALS, type LocalApp, type LocalAppsDeps } from '../localApps.js'
 import type { ProjectsService } from '../projects.js'
 import type { SettingsService } from '../settings.js'
@@ -12,10 +13,6 @@ const TERMINAL_KEY = 'localApps.terminal'
  * um programa no host: quem chega pela rede abriria a janela na máquina ERRADA —
  * a do servidor, não a dele. (Mesma checagem de /api/files/reveal.)
  */
-function isLocalRequest(req: FastifyRequest): boolean {
-  const ip = req.ip
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
-}
 
 export interface LocalAppsRouteDeps extends LocalAppsDeps {
   projects: ProjectsService

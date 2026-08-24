@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname } from 'node:path'
 import { canAccessProject } from '../auth/guards.js'
+import { isLocalRequest } from '../auth/plugin.js'
 import { resolveInScope } from '../files/scope.js'
 import type { ProjectsService } from '../projects.js'
 
@@ -47,10 +48,8 @@ function projectFor(req: FastifyRequest, projects: ProjectsService, projectId?: 
  * localhost, mas esconder um botão não impede ninguém de chamar a rota direto —
  * quem chega pela rede é barrado aqui.
  */
-function isLocalRequest(req: FastifyRequest): boolean {
-  const ip = req.ip
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
-}
+// O gate mora em auth/plugin.ts: lê o par TCP, e não `req.ip`, que vira o
+// `X-Forwarded-For` se algum dia alguém ligar `trustProxy`.
 
 export function registerFileRoutes(
   app: FastifyInstance,

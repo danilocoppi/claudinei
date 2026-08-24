@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws'
 import type { SessionManager } from '../claude/manager.js'
 import type { AuthUser } from '../auth/plugin.js'
 import { canAccessProject } from '../auth/guards.js'
+import { isLocalRequest } from '../auth/plugin.js'
 import { isAllowedOrigin } from './terminal.js'
 import { runShell } from '../shell.js'
 import { createProjectsService, type ProjectsService } from '../projects.js'
@@ -92,12 +93,7 @@ export function createWsHub() {
         if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
         // A autenticação aconteceu no hook onRequest (401 aborta o upgrade);
         // aqui só capturamos QUEM conectou para filtrar broadcasts.
-        const ip = req.ip
-        const client: Client = {
-          ws: socket,
-          user: req.authUser,
-          local: ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1',
-        }
+        const client: Client = { ws: socket, user: req.authUser, local: isLocalRequest(req) }
         clients.add(client)
         const sessions = deps.manager.list().filter((s) =>
           !client.user || client.user.kind !== 'user' || canAccessProject(client.user, s.projectId))

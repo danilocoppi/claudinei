@@ -61,9 +61,36 @@ function Props({ state, size }: { state: FaceState; size: number }) {
       return <span className="agent-face__dots" aria-hidden="true"><i /><i /><i /></span>
     case 'sleeping':
       return <span className="agent-face__zzz" aria-hidden="true"><i>z</i><i>z</i><i>z</i></span>
+    case 'terminal':
+      // Só o brilho vem por baixo; a janela vem DEPOIS do corpo (ver Cena).
+      return <span className="agent-face__term-glow" aria-hidden="true" />
     default:
       return null
   }
+}
+
+/**
+ * O que precisa ser pintado POR CIMA do corpo.
+ *
+ * A janela do terminal é o caso: no desenho o rosto espia POR TRÁS dela, e essa
+ * ordem é o que faz a cena ter profundidade. Como o corpo é pintado na ordem do
+ * documento, a janela tem que vir depois dele — não dá para resolver com
+ * `z-index` sem inventar um contexto de empilhamento só para isto.
+ *
+ * As duas linhas de texto do desenho ("$ agente executar deploy") ficaram de fora:
+ * lá elas vivem numa janela de 196px, e aqui a cena inteira cabe em 20. O que
+ * sobrevive à escala é a silhueta — a janela, os três pontinhos e o cursor.
+ */
+function Cena({ state }: { state: FaceState }) {
+  if (state !== 'terminal') return null
+  return (
+    <span className="agent-face__term" aria-hidden="true">
+      <i className="agent-face__term-dot" />
+      <i className="agent-face__term-dot" />
+      <i className="agent-face__term-dot" />
+      <i className="agent-face__term-caret" />
+    </span>
+  )
 }
 
 export function AgentFace({ state, size = 20, title }: { state: FaceState; size?: number; title?: string }) {
@@ -82,6 +109,7 @@ export function AgentFace({ state, size = 20, title }: { state: FaceState; size?
           <i className="agent-face__eye" />
         </span>
       </span>
+      <Cena state={state} />
     </span>
   )
 }

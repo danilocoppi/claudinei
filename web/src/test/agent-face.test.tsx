@@ -72,6 +72,31 @@ describe('o estado vira expressão', () => {
     expect(render(<AgentFace state="attention" size={104} />).container.querySelector('.agent-face__pill')).toBeTruthy()
   })
 
+  /**
+   * "No terminal" é o único estado que tem CENA, não só adereço: no desenho o
+   * rosto espia por trás de uma janelinha que digita. A janela vem depois do corpo
+   * no documento porque é ela que fica na frente — a ordem é o que dá profundidade.
+   */
+  it('no terminal, o rosto espia por trás de uma janela', () => {
+    const { container } = render(<AgentFace state="terminal" />)
+    const janela = container.querySelector('.agent-face__term')!
+    expect(janela).toBeTruthy()
+    expect(janela.querySelectorAll('.agent-face__term-dot')).toHaveLength(3)
+    expect(janela.querySelector('.agent-face__term-caret'), 'sem cursor a janela parece morta').toBeTruthy()
+    expect(container.querySelector('.agent-face__term-glow')).toBeTruthy()
+
+    // a janela é pintada DEPOIS do corpo: é o que a põe na frente do rosto
+    const corpo = container.querySelector('.agent-face__body')!
+    expect(corpo.compareDocumentPosition(janela) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('só o estado de terminal ganha a cena', () => {
+    for (const state of ['idle', 'working', 'attention', 'waiting', 'uploading', 'sleeping'] as const) {
+      expect(render(<AgentFace state={state} />).container.querySelector('.agent-face__term'), state).toBeNull()
+      cleanup()
+    }
+  })
+
   /** O sétimo estado: a sessão aberta no TUI, que o desenho antigo não tinha. */
   it('sessão no terminal tem estado próprio', () => {
     expect(faceStateOf(sess({ status: 'in_terminal' }))).toBe('terminal')

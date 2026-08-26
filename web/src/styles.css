@@ -331,6 +331,10 @@
      "sua vez" se acha na lista sem precisar ler nada. */
   --face-attention: #ffd24a; --face-attention-eye: #4a3405;
   --face-attention-ink: #2a1e02;
+  /* A janelinha do estado "no terminal": tela, moldura e o verde de terminal. */
+  --face-term-bg: #0a0a0a;
+  --face-term-edge: #3a3a3a;
+  --face-term-screen: #7ee787;
   /* Sombreado e setas do próprio boneco: não escalam com o tema, porque o corpo
      dele é sempre uma bola colorida — clarear isso no tema claro o achataria. */
   --face-shade: rgba(0,0,0,.16);
@@ -1404,7 +1408,8 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   .agent-face__body, .agent-face__eyes, .agent-face__eye, .agent-face__shadow,
   .agent-face__arrows i, .agent-face__ring, .agent-face__sparks i,
   .agent-face__dots i, .agent-face__zzz i, .agent-face__halo,
-  .agent-face__glow, .agent-face__pill, .sonar i { animation: none; }
+  .agent-face__glow, .agent-face__pill, .sonar i,
+  .agent-face__term-caret, .agent-face__term-glow { animation: none; }
   /* Parado, o anel fica ACESO: quem desliga animação continua precisando ver
      quem espera. */
   .sonar i:first-child { box-shadow: 0 0 0 3px var(--warn); opacity: .55; }
@@ -1768,7 +1773,9 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 [data-motion="reduced"] .agent-face__halo,
 [data-motion="reduced"] .agent-face__glow,
 [data-motion="reduced"] .agent-face__pill,
-[data-motion="reduced"] .sonar i { animation: none; }
+[data-motion="reduced"] .sonar i,
+[data-motion="reduced"] .agent-face__term-caret,
+[data-motion="reduced"] .agent-face__term-glow { animation: none; }
 [data-motion="reduced"] .sonar i:first-child { box-shadow: 0 0 0 3px var(--warn); opacity: .55; }
 [data-motion="reduced"] .sonar i:nth-child(2) { display: none; }
 [data-motion="reduced"] .agent-face__halo { opacity: .55; transform: scale(1.18); }
@@ -2146,10 +2153,62 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   animation: face-nudge 2s ease-in-out infinite;
 }
 
-/* --- no terminal: espia a tela e acompanha cada linha --- */
+/* --- no terminal: espia POR TRÁS da janela e acompanha cada linha ---
+   A cena inteira cabe na caixa do rosto. No desenho a janela tem 196px e leva duas
+   linhas de texto digitando; aqui ela tem a largura do rosto, então o que
+   sobrevive à escala é a silhueta — a moldura, os três pontinhos e o cursor. O
+   texto a 20px seria meio pixel. */
 [data-face="terminal"] { --face-color: var(--face-terminal); --face-eye: var(--face-terminal-eye); }
-[data-face="terminal"] .agent-face__body { animation: face-peek 3s ease-in-out infinite; }
+/* O rosto encolhe e sobe: é a janela que ocupa a base, e ele espia por cima dela. */
+[data-face="terminal"] .agent-face__body {
+  /* Menor que nos outros estados: no desenho a janela é bem mais larga que o
+     rosto, e como aqui ela não pode passar da caixa, quem cede é ele. */
+  width: 62%; height: 62%; margin: 0 auto;
+  animation: face-peek 3s ease-in-out infinite;
+}
 [data-face="terminal"] .agent-face__eyes { animation: face-scan 2.6s ease-in-out infinite; }
+/* A sombra no chão sai: quem faz o chão agora é a janela. */
+[data-face="terminal"] .agent-face__shadow { display: none; }
+
+.agent-face__term-glow {
+  position: absolute; left: 50%; bottom: 0;
+  width: calc(var(--face) * 1.35); height: calc(var(--face) * .5);
+  margin-left: calc(var(--face) * -.675);
+  border-radius: 50%; background: var(--face-term-screen);
+  filter: blur(calc(var(--face) * .25));
+  animation: face-term-glow 3s ease-in-out infinite;
+}
+.agent-face__term {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 46%; border-radius: calc(var(--face) * .09);
+  background: var(--face-term-bg);
+  box-shadow: inset 0 0 0 max(1px, calc(var(--face) * .022)) var(--face-term-edge);
+  overflow: hidden;
+}
+/* O fio que separa a barra de título da tela: é ele que faz o retângulo ler como
+   JANELA e não como um bloco preto. */
+.agent-face__term::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 38%;
+  border-top: max(1px, calc(var(--face) * .012)) solid var(--face-term-edge);
+  opacity: .7;
+}
+/* Os três pontinhos da barra de título, e o traço que separa a barra da tela. */
+.agent-face__term-dot {
+  position: absolute; top: 13%; width: calc(var(--face) * .055); height: calc(var(--face) * .055);
+  border-radius: 50%; background: var(--face-term-edge);
+}
+.agent-face__term-dot:nth-child(1) { left: 10%; }
+.agent-face__term-dot:nth-child(2) { left: 26%; }
+.agent-face__term-dot:nth-child(3) { left: 42%; }
+/* O cursor: o único movimento dentro da janela, e o que diz que ela está viva. */
+.agent-face__term-caret {
+  position: absolute; left: 10%; bottom: 14%;
+  width: calc(var(--face) * .05); height: calc(var(--face) * .14);
+  background: var(--face-term-screen);
+  animation: face-caret 1s steps(1) infinite;
+}
+@keyframes face-caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes face-term-glow { 0%, 100% { opacity: .18; } 50% { opacity: .42; } }
 
 @keyframes face-blink { 0%, 91%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
 @keyframes face-breathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5.8%) scale(1.03); } }
@@ -2201,7 +2260,10 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 @keyframes face-attn-glow { 0%, 100% { opacity: .2; } 50% { opacity: .5; } }
 /* A tarja carrega o translateX que a centraliza: sem ele aqui, a animação o apaga. */
 @keyframes face-nudge { 0%, 100% { transform: translate(-50%, 0); } 45% { transform: translate(-50%, -22%); } }
-@keyframes face-peek { 0%, 100% { transform: translateY(3%); } 50% { transform: translateY(-3%); } }
+/* O deslocamento BASE mora aqui: o rosto fica acima da janela, e o balanço
+   acontece em volta dessa posição. Pôr o offset no `transform` do elemento e o
+   balanço na animação não funciona — a animação substitui o transform inteiro. */
+@keyframes face-peek { 0%, 100% { transform: translateY(-20%); } 50% { transform: translateY(-28%); } }
 @keyframes face-scan {
   0%, 100% { transform: translateX(-14%); } 30% { transform: translateX(14%); }
   55% { transform: translateX(-3%); } 80% { transform: translateX(8%); }

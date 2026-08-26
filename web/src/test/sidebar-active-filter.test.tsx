@@ -97,15 +97,17 @@ describe('Sidebar — filtro somente ativos', () => {
     expect(screen.queryByText('Grupo A')).toBeNull()
   })
 
-  it('mantém visível o terminal aberto no chat mesmo com a sessão parada', () => {
+  /**
+   * O defeito relatado: desligar todas as engines de um terminal e vê-lo seguir na
+   * lista de "somente ativos". Ele ficava porque era o terminal ABERTO, e havia um
+   * pin para o card não sumir embaixo de quem lia o chat. O pin saiu: um filtro de
+   * ativos que mostra um terminal sem agente nenhum mente sobre o que mostra.
+   *
+   * O que se perde é pequeno — quem desligou sabe que desligou, o chat continua
+   * aberto e o ▶ de reviver está nas abas do cabeçalho.
+   */
+  it('o terminal aberto sai da lista quando suas engines são desligadas', () => {
     useStore.setState({ view: 'chat', activeLocalId: 's2' })
-    render(<Sidebar />)
-    fireEvent.click(toggle())
-    expect(screen.getByText('Beta')).toBeTruthy()
-  })
-
-  it('não pina o terminal parado quando a view não é chat/terminal', () => {
-    useStore.setState({ view: 'dashboard', activeLocalId: 's2' })
     render(<Sidebar />)
     fireEvent.click(toggle())
     expect(screen.queryByText('Beta')).toBeNull()

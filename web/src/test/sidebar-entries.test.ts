@@ -37,12 +37,16 @@ describe('isProjectActive', () => {
     expect(isProjectActive(1, byId(sess('s1', 1, 'dead'), sess('s2', 1, 'working')))).toBe(true)
   })
 
-  it('mantém ativo o terminal aberto mesmo com a sessão parada (pin)', () => {
-    expect(isProjectActive(1, byId(sess('s1', 1, 'stopped')), 's1')).toBe(true)
-  })
-
-  it('não pina um projeto quando o localId aberto é de outro projeto', () => {
-    expect(isProjectActive(1, byId(sess('s1', 1, 'stopped'), sess('s2', 2, 'stopped')), 's2')).toBe(false)
+  /**
+   * O terminal ABERTO já foi fixado como ativo, para o card não sumir embaixo de
+   * quem lia o chat dele. Saiu: desligar todas as engines de um terminal e vê-lo
+   * seguir na lista de "somente ativos" é o filtro mentindo sobre o que mostra.
+   * Quem desligou sabe que desligou — e o chat continua aberto, com o ▶ de reviver
+   * nas abas do cabeçalho.
+   */
+  it('terminal sem engine viva não é ativo, nem sendo o que está aberto', () => {
+    expect(isProjectActive(1, byId(sess('s1', 1, 'stopped')))).toBe(false)
+    expect(isProjectActive(1, byId(sess('s1', 1, 'dead')))).toBe(false)
   })
 })
 
@@ -89,14 +93,12 @@ describe('filterEntries', () => {
     expect(out.map((e) => (e.kind === 'group' ? `g${e.g.id}` : e.kind === 'sector' ? `s${e.s.id}` : `p${e.p.id}`))).toEqual(['p1', 'g10', 'p3'])
   })
 
-  it('mantém visível o terminal aberto dentro de um grupo, mesmo parado (pin)', () => {
+  /** Grupo em que todas as engines foram desligadas some inteiro, como qualquer outro. */
+  it('grupo sem nenhum terminal vivo sai da lista filtrada', () => {
     const entries: Entry[] = [
       { kind: 'group', g: group(10), items: [proj(1, 10), proj(2, 10)] },
     ]
-    const out = filterEntries(entries, byId(sess('s1', 1, 'stopped'), sess('s2', 2, 'dead')), 's1')
-    expect(out).toEqual([
-      { kind: 'group', g: group(10), items: [proj(1, 10)] },
-    ])
+    expect(filterEntries(entries, byId(sess('s1', 1, 'stopped'), sess('s2', 2, 'dead')))).toEqual([])
   })
 
   it('não muta o array de entradas recebido', () => {

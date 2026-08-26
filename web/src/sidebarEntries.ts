@@ -32,18 +32,16 @@ export function projectsOf(e: Entry): Project[] {
  * coincidir exatamente com a bolinha de status que o card já mostra — se a noção de
  * "vivo" mudar, filtro e bolinha mudam juntos.
  *
- * `pinnedLocalId` (o terminal ABERTO agora) mantém o projeto visível mesmo com a
- * sessão parada: sem isso, terminar um agente faria o card sumir da sidebar embaixo
- * do usuário, que segue lendo o chat dele.
+ * O terminal ABERTO já foi fixado aqui, para o card não sumir embaixo de quem
+ * estava lendo o chat dele. Foi retirado: com o filtro ligado, um terminal cujas
+ * engines foram todas desligadas continuava na lista — e "somente ativos" que
+ * mostra um terminal sem agente nenhum mente sobre o que está mostrando.
+ *
+ * O que se perde é pequeno: quem desligou sabe que desligou, o chat continua
+ * aberto, e o cabeçalho dele mantém as abas de engine com o ▶ para reviver.
  */
-export function isProjectActive(
-  projectId: number,
-  sessions: Record<string, SessionInfo>,
-  pinnedLocalId?: string,
-): boolean {
-  if (liveSessionsOf(projectId, sessions).length > 0) return true
-  if (!pinnedLocalId) return false
-  return Object.values(sessions).some((s) => s.projectId === projectId && s.localId === pinnedLocalId)
+export function isProjectActive(projectId: number, sessions: Record<string, SessionInfo>): boolean {
+  return liveSessionsOf(projectId, sessions).length > 0
 }
 
 /**
@@ -54,12 +52,8 @@ export function isProjectActive(
  *
  * Não muta a entrada: a lista completa segue sendo a fonte do `applyOrder`.
  */
-export function filterEntries(
-  entries: Entry[],
-  sessions: Record<string, SessionInfo>,
-  pinnedLocalId?: string,
-): Entry[] {
-  const active = (projectId: number) => isProjectActive(projectId, sessions, pinnedLocalId)
+export function filterEntries(entries: Entry[], sessions: Record<string, SessionInfo>): Entry[] {
+  const active = (projectId: number) => isProjectActive(projectId, sessions)
   // Recursivo porque a árvore tem três níveis: um setor sobrevive se sobrar algo
   // dentro dele — seja um terminal solto, seja um grupo com filho ativo.
   const keep = (e: Entry): Entry | null => {

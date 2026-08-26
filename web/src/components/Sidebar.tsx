@@ -149,12 +149,8 @@ export function Sidebar() {
   // manteriam valores antigos que colidem com esses, e a ordem apareceria embaralhada
   // ao desligar o filtro. Enquanto filtra, não arrasta.
   const canDrag = isAdmin && !activeOnly
-  // O terminal ABERTO agora continua visível mesmo parado — mesma condição que acende
-  // o card como `active`. Fora do chat/terminal não há pin: o activeLocalId sobrevive
-  // à navegação, e um terminal visitado uma vez ficaria pinado para sempre.
-  const pinnedLocalId = view === 'chat' || view === 'terminal' ? activeLocalId : undefined
   // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
-  const visibleEntries = activeOnly ? filterEntries(entries, sessions, pinnedLocalId) : entries
+  const visibleEntries = activeOnly ? filterEntries(entries, sessions) : entries
 
   const toggleGroup = (id: number) => {
     setCollapsed((cur) => {

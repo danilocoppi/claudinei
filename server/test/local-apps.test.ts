@@ -61,7 +61,8 @@ describe('o que a máquina oferece', () => {
 
 /** Um filho de mentira que nunca morre: o `launchApp` espera pelo arranque. */
 const fakeChild = (over: Partial<Record<string, unknown>> = {}) => ({
-  unref: vi.fn(), once: vi.fn(), stderr: { on: vi.fn(), destroy: vi.fn() }, ...over,
+  unref: vi.fn(), once: vi.fn(),
+  stderr: { on: vi.fn(), removeAllListeners: vi.fn(), resume: vi.fn(), unref: vi.fn() }, ...over,
 })
 
 describe('disparo', () => {
@@ -88,7 +89,7 @@ describe('disparo', () => {
       once: vi.fn((evento: string, fn: (c: number) => void) => { if (evento === 'exit') fn(1) }),
       stderr: {
         on: vi.fn((_e: string, fn: (b: Buffer) => void) => fn(Buffer.from('libstdc++.so.6: version GLIBCXX_3.4.31 not found'))),
-        destroy: vi.fn(),
+        removeAllListeners: vi.fn(), resume: vi.fn(), unref: vi.fn(),
       },
     })
     await expect(launchApp('terminal', '/p', {

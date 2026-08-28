@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest'
-import { desktopEnv, ORIG_LD, availableTerminals, resolveLauncher, TERMINALS } from '../src/localApps.js'
+import { describe, it, expect, vi } from 'vitest'
+import {
+  desktopEnv, graphicalEnv, launchApp, withDisplay,
+  ORIG_LD, availableTerminals, resolveLauncher, TERMINALS,
+} from '../src/localApps.js'
+
+/** Um filho de mentira que nunca morre: o `launchApp` espera pelo arranque. */
+const fakeChild = () => ({
+  unref: () => {}, once: () => {},
+  stderr: { on: () => {}, removeAllListeners: () => {}, resume: () => {}, unref: () => {} },
+})
 
 /**
  * O defeito, visto rodando: clicar em "Abrir terminal" não fazia nada.
@@ -138,5 +147,131 @@ describe('abrir pasta abre o gerenciador de arquivos', () => {
   it('mac e Windows seguem como estavam', () => {
     expect(resolveLauncher('folder', '/p', { platform: 'darwin', available: () => true })?.cmd).toBe('open')
     expect(resolveLauncher('folder', 'C:\\p', { platform: 'win32', available: () => true })?.cmd).toBe('explorer')
+  })
+})
+
+/**
+ * O defeito relatado: "Abrir no VS Code" não faz nada.
+ *
+ * Medido: com o VS Code FECHADO e o ambiente do serviço, `code /tmp` sai com 0,
+ * sem saída e sem janela. O serviço não tem `DISPLAY` — ele nasceu antes de a
+ * sessão gráfica exportar as variáveis, e o usuário ainda trocou de sessão (X11
+ * para Wayland) no meio do caminho. O CLI do VS Code bifurca o Electron e volta
+ * 0 na hora; o filho morre sem display, e essa morte é invisível para nós.
+ *
+ * Com o VS Code ABERTO funcionava — o comando só conversava com a instância viva
+ * por IPC, sem precisar de display. Foi por isso que passou por bom no primeiro
+ * exame.
+ *
+ * Quem sabe onde está a sessão é o gerenciador do systemd, e ele sabe AGORA:
+ * é dele que as variáveis têm que vir, não do env congelado no arranque.
+ */
+describe('o ambiente gráfico vem da sessão viva', () => {
+  const systemctlDizendo = (saida: string) => () => saida
+
+  it('lê DISPLAY, WAYLAND_DISPLAY e XAUTHORITY do gerenciador', () => {
+    const g = graphicalEnv({ run: systemctlDizendo(
+      'DISPLAY=:0\nWAYLAND_DISPLAY=wayland-0\nXAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.3W35U3\nLANG=pt_BR.UTF-8\n',
+    ) })
+    expect(g).toEqual({
+      DISPLAY: ':0',
+      WAYLAND_DISPLAY: 'wayland-0',
+      XAUTHORITY: '/run/user/1000/.mutter-Xwaylandauth.3W35U3',
+    })
+  })
+
+  /** Só as três: o resto do ambiente do serviço é dele, e não se mistura. */
+  it('não traz de carona o resto do ambiente', () => {
+    const g = graphicalEnv({ run: systemctlDizendo('PATH=/roubado\nDISPLAY=:0\nHOME=/outro\n') })
+    expect(Object.keys(g)).toEqual(['DISPLAY'])
+  })
+
+  /**
+   * A sessão VENCE o que o serviço herdou: um `DISPLAY` velho aponta para uma
+   * sessão que já morreu, e é justamente esse o caso quando alguém sai e volta.
+   */
+  it('a sessão viva vence o valor congelado no arranque', () => {
+    const out = withDisplay({ DISPLAY: ':1', HOME: '/home/x' }, { run: systemctlDizendo('DISPLAY=:0\n') })
+    expect(out.DISPLAY).toBe(':0')
+    expect(out.HOME).toBe('/home/x')
+  })
+
+  it('sem resposta do systemd, não inventa nada', () => {
+    const env = { HOME: '/home/x' }
+    expect(withDisplay(env, { run: () => { throw new Error('sem systemctl') } })).toEqual(env)
+    expect(withDisplay(env, { run: () => '' })).toEqual(env)
+  })
+
+  it('fora do Linux não mexe em nada', () => {
+    const env = { HOME: '/Users/x' }
+    expect(withDisplay(env, { platform: 'darwin', run: systemctlDizendo('DISPLAY=:0\n') })).toEqual(env)
+  })
+})
+
+/**
+ * Sem servidor gráfico, abrir um app de janela é impossível — e o `code` mente:
+ * sai com 0 e não abre nada. Dizer isso é melhor que repetir o silêncio que
+ * gerou o relato.
+ */
+describe('sem display, avisa em vez de fingir', () => {
+  it('recusa e explica', async () => {
+    await expect(launchApp('vscode', '/p', {
+      platform: 'linux', available: () => true, spawnFn: (() => fakeChild()) as never,
+      env: { HOME: '/home/x' }, graphical: () => ({}),
+    })).rejects.toThrow(/gráfic/i)
+  })
+
+  it('com display, segue normalmente', async () => {
+    const spawnFn = (() => fakeChild()) as never
+    await expect(launchApp('vscode', '/p', {
+      platform: 'linux', available: () => true, spawnFn,
+      env: { HOME: '/home/x' }, graphical: () => ({ DISPLAY: ':0' }),
+    })).resolves.toBeUndefined()
+  })
+
+  /** Wayland puro também é sessão gráfica: não se exige X. */
+  it('só WAYLAND_DISPLAY basta', async () => {
+    await expect(launchApp('folder', '/p', {
+      platform: 'linux', available: () => true, spawnFn: (() => fakeChild()) as never,
+      env: {}, graphical: () => ({ WAYLAND_DISPLAY: 'wayland-0' }),
+    })).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * O defeito relatado: "Abrir no VS Code" parou de abrir.
+ *
+ * Foi a captura de erro deste mesmo arquivo que o quebrou. Medido: `code <pasta>`
+ * com o stdout num CANO sai com 0 e não abre janela; com o stdout descartado,
+ * abre — o CLI do VS Code decide o que fazer olhando para onde a saída vai.
+ *
+ * O stderr continua no cano, e é de propósito: é dele que veio a mensagem que
+ * explicou o "Abrir terminal" (o GLIBCXX do libstdc++). Perder isso seria trocar
+ * um silêncio por outro.
+ */
+describe('o cano do stdout mata quem se importa com ele', () => {
+  it('lança com stdout descartado e stderr capturado', async () => {
+    const spawnFn = vi.fn(() => fakeChild()) as never
+    await launchApp('vscode', '/p', {
+      platform: 'linux', available: () => true, spawnFn,
+      env: {}, graphical: () => ({ DISPLAY: ':0' }),
+    })
+    const opcoes = (spawnFn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][2] as { stdio: string[] }
+    expect(opcoes.stdio, 'stdout no cano faz o VS Code não abrir').toEqual(['ignore', 'ignore', 'pipe'])
+  })
+
+  /**
+   * Montar o ambiente certo e mandar OUTRO para o spawn foi exatamente o erro que
+   * eu cometi consertando isto: o guard de "sem sessão gráfica" passava (ele olha
+   * o ambiente montado) e o filho nascia cego mesmo assim.
+   */
+  it('o ambiente que chega ao filho é o que tem a sessão gráfica', async () => {
+    const spawnFn = vi.fn(() => fakeChild()) as never
+    await launchApp('vscode', '/p', {
+      platform: 'linux', available: () => true, spawnFn,
+      env: { HOME: '/home/x' }, graphical: () => ({ DISPLAY: ':0', XAUTHORITY: '/run/user/1000/.Xauth' }),
+    })
+    const opcoes = (spawnFn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][2] as { env: Record<string, string> }
+    expect(opcoes.env).toMatchObject({ HOME: '/home/x', DISPLAY: ':0', XAUTHORITY: '/run/user/1000/.Xauth' })
   })
 })

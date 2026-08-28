@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { posix, win32 } from 'node:path'
 import { binAvailableCached } from './engine/available.js'
 
@@ -127,6 +127,57 @@ function candidatesFor(app: LocalApp, dir: string, platform: NodeJS.Platform): L
   return TERMINALS.map((t) => ({ cmd: t.id, args: t.args(dir) }))
 }
 
+/**
+ * As variáveis que dizem ONDE está a tela do usuário. Só estas três: o resto do
+ * ambiente do gerenciador é dele, e misturar traria PATH e HOME de carona.
+ */
+const GRAPHICAL = ['DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY'] as const
+
+/**
+ * O ambiente gráfico da sessão VIVA, perguntado ao gerenciador do systemd.
+ *
+ * O serviço nasce quando o systemd manda, que costuma ser ANTES de a sessão
+ * gráfica exportar essas variáveis — e o usuário ainda pode sair e entrar de novo,
+ * trocando de X11 para Wayland, o que muda todas elas. O env congelado no arranque
+ * aponta para uma sessão que já não existe; o gerenciador sabe a de agora.
+ *
+ * Foi exatamente esse o defeito: com o VS Code fechado, `code <pasta>` saía com 0,
+ * sem janela e sem erro — o CLI bifurca o Electron e volta na hora, e o filho
+ * morria sem display, invisível.
+ */
+export function graphicalEnv(deps: { run?: () => string; platform?: NodeJS.Platform } = {}): Record<string, string> {
+  if ((deps.platform ?? process.platform) !== 'linux') return {}
+  const run = deps.run ?? (() =>
+    execFileSync('systemctl', ['--user', 'show-environment'], { encoding: 'utf8', timeout: 2000 }))
+  try {
+    const out: Record<string, string> = {}
+    for (const linha of run().split('\n')) {
+      const at = linha.indexOf('=')
+      if (at <= 0) continue
+      const chave = linha.slice(0, at)
+      if ((GRAPHICAL as readonly string[]).includes(chave)) out[chave] = linha.slice(at + 1)
+    }
+    return out
+  } catch {
+    // Sem systemd, sem sessão, sem permissão: segue com o que já havia.
+    return {}
+  }
+}
+
+/**
+ * O ambiente do serviço com o gráfico da sessão viva por cima.
+ *
+ * A sessão VENCE o valor herdado: um `DISPLAY` velho aponta para uma sessão morta,
+ * e é justamente o que sobra quando alguém sai e entra de novo.
+ */
+export function withDisplay(
+  env: NodeJS.ProcessEnv,
+  deps: { run?: () => string; platform?: NodeJS.Platform } = {},
+): NodeJS.ProcessEnv {
+  const g = graphicalEnv(deps)
+  return Object.keys(g).length ? { ...env, ...g } : env
+}
+
 export interface LocalAppsDeps {
   available?: (bin: string) => boolean
   platform?: NodeJS.Platform
@@ -135,6 +186,8 @@ export interface LocalAppsDeps {
   terminal?: string | null
   /** Injetável para o teste não depender do env do processo. */
   env?: NodeJS.ProcessEnv
+  /** Injetável: de onde vêm DISPLAY/WAYLAND_DISPLAY/XAUTHORITY (ver graphicalEnv). */
+  graphical?: () => Record<string, string>
 }
 
 /** Os terminais instalados aqui, para a tela de configuração oferecer a escolha. */
@@ -190,11 +243,23 @@ export async function launchApp(app: LocalApp, dir: string, deps: LocalAppsDeps 
   const launcher = resolveLauncher(app, dir, deps)
   if (!launcher) throw new Error(`nada instalado para abrir "${app}" nesta máquina`)
 
+  const base = desktopEnv(deps.env ?? process.env)
+  const grafico = deps.graphical ? deps.graphical() : graphicalEnv({ platform })
+  const ambiente = { ...base, ...grafico }
+
+  // Sem servidor gráfico não há janela para abrir — e alguns programas MENTEM
+  // sobre isso: o `code` sai com 0 e não abre nada. Dizer é melhor que repetir o
+  // silêncio que gerou o relato.
+  if (platform === 'linux' && !ambiente.DISPLAY && !ambiente.WAYLAND_DISPLAY) {
+    throw new Error('o serviço não enxerga a sessão gráfica — rode: systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY && systemctl --user restart claudinei.service')
+  }
+
   const child = (deps.spawnFn ?? spawn)(launcher.cmd, launcher.args, {
     detached: true,
     stdio: ['ignore', 'ignore', 'pipe'],
-    // Ambiente do SISTEMA, não o nosso: ver `desktopEnv`.
-    env: desktopEnv(deps.env ?? process.env),
+    // Ambiente do SISTEMA (ver desktopEnv) com a tela da sessão VIVA por cima
+    // (ver graphicalEnv) — montado acima, em `ambiente`.
+    env: ambiente,
     ...(launcher.cwd ? { cwd: launcher.cwd } : {}),
   })
 
@@ -211,7 +276,13 @@ export async function launchApp(app: LocalApp, dir: string, deps: LocalAppsDeps 
     })
   })
 
-  child.stderr?.destroy()
+  // NÃO destruir o cano: o filho continua escrevendo nele, e a ponta fechada lhe
+  // dá EPIPE. O VS Code fala muito no stderr (log de arranque inteiro) e morre
+  // assim — foi o que fez "Abrir no VS Code" parar de abrir quando este trecho
+  // ganhou a captura de erro. Consome e joga fora, sem referenciar o laço.
+  child.stderr?.removeAllListeners('data')
+  child.stderr?.resume()
+  ;(child.stderr as unknown as { unref?: () => void })?.unref?.()
   child.unref?.()
   if (erro) throw new Error(`${launcher.cmd}: ${erro}`)
 }

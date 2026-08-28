@@ -146,6 +146,7 @@ export const ptBR: typeof en = {
     thinking: 'Pensamento', forward: 'Encaminhar', forwardedTo: 'encaminhado para {{name}}',
     noAgents: 'Nenhum outro agente ativo', subagent: 'subagente', unknownProject: 'projeto',
     stop: 'Parar o turno',
+    toFoot: 'Ir para o fim',
     interrupted: 'Interrompido pelo usuário',
     actionsGroup: '{{count}} ações',
     showAll: 'mostrar tudo (+{{n}} linhas)', collapse: 'recolher',

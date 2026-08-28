@@ -144,6 +144,7 @@ export const en = {
     thinking: 'Thinking', forward: 'Forward', forwardedTo: 'forwarded to {{name}}',
     noAgents: 'No other active agents', subagent: 'subagent', unknownProject: 'project',
     stop: 'Stop the turn',
+    toFoot: 'Jump to latest',
     interrupted: 'Interrupted by the user',
     actionsGroup: '{{count}} actions',
     showAll: 'show all (+{{n}} lines)', collapse: 'collapse',

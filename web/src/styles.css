@@ -1208,6 +1208,31 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .sess-pop__hint { color: var(--text-dim); font-size: 11px; padding: 2px 10px 8px; }
 
 
+
+/* ===== A TELA SOLTA — quando você sobe para ler enquanto o agente escreve ====
+   O controle do auto-scroll é a própria rolagem: subir solta, voltar ao fim
+   prende. Não há botão para "desligar" porque o gesto que a pessoa já ia fazer
+   — subir para ler — é o desligamento.
+
+   O que sobra para a interface é DIZER que soltou, e oferecer o caminho de volta
+   num clique. Some sozinho quando a rolagem volta: um botão que fica na tela
+   depois de cumprido vira ruído. */
+.chat-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 24px; }
+.chat-tofoot {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 999px;
+  background: var(--surface-strong); border: 1px solid var(--border);
+  backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: 0 8px 22px var(--shadow);
+  color: var(--text); font-size: 12px; line-height: 1;
+  cursor: pointer; z-index: 5;
+  animation: tofoot-in .16s ease-out;
+}
+.chat-tofoot:hover { background: var(--surface-strong); border-color: var(--accent); filter: none; }
+@keyframes tofoot-in { from { opacity: 0; transform: translate(-50%, 6px); } }
+
 /* ===== A RÉGUA — a barra lateral inteira em 62px =========================
    Só os estados e os ícones. Quem colapsa quer a tela para o chat e um canto de
    olho no que está acontecendo.

@@ -146,6 +146,7 @@ export const es: typeof en = {
     thinking: 'Pensamiento', forward: 'Reenviar', forwardedTo: 'reenviado a {{name}}',
     noAgents: 'Ningún otro agente activo', subagent: 'subagente', unknownProject: 'proyecto',
     stop: 'Detener el turno',
+    toFoot: 'Ir al final',
     interrupted: 'Interrumpido por el usuario',
     actionsGroup: '{{count}} acciones',
     showAll: 'mostrar todo (+{{n}} líneas)', collapse: 'contraer',

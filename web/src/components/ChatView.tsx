@@ -16,6 +16,7 @@ import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
 import { Icon } from './Icon'
+import { isAtBottom } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 
@@ -29,6 +30,8 @@ export function ChatView() {
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
   const [editConfirm, setEditConfirm] = useState<string | null>(null)
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [following, setFollowing] = useState(true)
 
   const session = activeLocalId ? sessions[activeLocalId] : undefined
   const project = session ? projects.find((p) => p.id === session.projectId) : undefined
@@ -77,9 +80,19 @@ export function ChatView() {
     })
   }, [activeLocalId, session?.engineSessionId, session?.status, loadedEngineSessionId])
 
+  /**
+   * O auto-scroll só puxa a tela se ela estiver PRESA no fim.
+   *
+   * Antes puxava sempre, a cada pedaço que chegava — e ler algo que passou
+   * enquanto o agente escrevia era impossível: a barra voltava sozinha antes de
+   * dar tempo. Quem solta e prende é a própria rolagem (ver scrollFollow.ts).
+   */
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeLocalId, items.length, streamingText])
+    if (following) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeLocalId, items.length, streamingText, following])
+
+  // Terminal novo é conversa nova: chega-se no fim dela, não preso onde se estava.
+  useEffect(() => { setFollowing(true) }, [activeLocalId])
 
   useEffect(() => {
     if (session?.status === 'needs_attention' && activeLocalId) {
@@ -173,7 +186,13 @@ export function ChatView() {
         </button>
       </div>
       {menuAt && <TerminalMenu project={project} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+      <div className="chat-scroll-wrap">
+      <div
+        ref={scrollRef}
+        data-testid="chat-scroll"
+        className="chat-scroll"
+        onScroll={() => { if (scrollRef.current) setFollowing(isAtBottom(scrollRef.current)) }}
+      >
         <div className="chat-scroll__inner">
         {/* Sequências de ações (tool_call/thinking) viram um grupo colapsável;
             key pelo índice INICIAL do grupo, estável enquanto a cauda cresce
@@ -214,6 +233,20 @@ export function ChatView() {
         )}
         <div ref={bottomRef} />
         </div>
+      </div>
+      {/* A tela está solta: o rodapé da conversa continua andando lá embaixo.
+          Some sozinho quando a rolagem volta ao fim — o botão é o atalho, não a
+          única saída. */}
+      {!following && (
+        <button className="chat-tofoot" data-testid="chat-tofoot"
+                onClick={() => { setFollowing(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
+          </svg>
+          {t('chat.toFoot')}
+        </button>
+      )}
       </div>
       {/* Arquivo aberto INLINE: dockado aqui (fora da rolagem do chat) para
           continuar visível enquanto o operador digita e a conversa anda. */}

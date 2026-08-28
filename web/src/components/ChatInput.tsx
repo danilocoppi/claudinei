@@ -5,6 +5,7 @@ import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
 import { uploadFile } from '../api'
 import { SessionControls } from './SessionControls'
 import { filterCommands } from '../slash'
+import { readDraft, saveDraft } from '../drafts'
 import { SlashMenu } from './SlashMenu'
 import { MicButton, type MicDeps } from './MicButton'
 import { mergeTranscript } from '../speech/insert'
@@ -27,7 +28,10 @@ export function ChatInput({
   const ws = useContext(WsContext)
   const addLocalUserText = useStore((s) => s.addLocalUserText)
   const session = useStore((s) => s.sessions[localId])
-  const [text, setText] = useState('')
+  // Começa no que ficou escrito da última vez neste terminal. O componente é
+  // remontado a cada troca (key={localId} no ChatView), então é aqui que o
+  // rascunho volta.
+  const [text, setText] = useState(() => readDraft(localId))
   const [uploading, setUploading] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [micError, setMicError] = useState<string | null>(null)
@@ -70,6 +74,16 @@ export function ChatInput({
   const [slashDismissed, setSlashDismissed] = useState(false)
 
   const addLocalItem = useStore((s) => s.addLocalItem)
+
+  /**
+   * Grava o rascunho a cada mudança — de qualquer origem: digitação, ditado,
+   * anexo, histórico, slash. São sete caminhos que mexem no texto, e pendurar a
+   * gravação em cada um deles seria esquecer um.
+   *
+   * Campo vazio APAGA o rascunho (ver drafts.ts), então enviar já limpa sozinho:
+   * o envio zera o texto, e isto grava o zerado.
+   */
+  useEffect(() => { saveDraft(localId, text) }, [localId, text])
 
   const send = () => {
     let out = text

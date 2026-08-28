@@ -8,6 +8,9 @@ const okUpload = (name: string) =>
   new Response(JSON.stringify({ path: `/ups/${name}`, name }), { status: 201, headers: { 'Content-Type': 'application/json' } })
 
 beforeEach(() => {
+  // O campo agora começa no rascunho gravado (drafts.ts): sem limpar, o texto
+  // de um caso pré-preenche o seguinte.
+  localStorage.clear()
   useStore.setState({ chat: {}, sessions: {}, unread: {}, streaming: {}, historyLoadedFor: {} })
 })
 afterEach(() => cleanup())

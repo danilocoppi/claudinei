@@ -17,6 +17,9 @@ import { startMicCapture } from '../speech/recorder'
 import type { MicDeps } from '../components/MicButton'
 
 beforeEach(() => {
+  // O campo agora começa no rascunho gravado (drafts.ts): sem limpar, o texto
+  // de um caso pré-preenche o seguinte.
+  localStorage.clear()
   useStore.setState({ chat: {}, sessions: {}, unread: {}, streaming: {}, historyLoadedFor: {} })
   // limpa o histórico de chamadas entre testes (os mocks de módulo são
   // compartilhados pelo arquivo inteiro) sem descartar a implementação padrão.

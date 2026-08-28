@@ -18,6 +18,9 @@ function setup(status: 'working' | 'idle', items: ChatItem[]) {
 }
 // jsdom não implementa scrollIntoView; o ChatView chama no efeito de rolar até o fim.
 beforeEach(() => {
+  // O campo agora começa no rascunho gravado (drafts.ts): sem limpar, o texto
+  // de um caso pré-preenche o seguinte.
+  localStorage.clear()
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
 })
 afterEach(() => cleanup())

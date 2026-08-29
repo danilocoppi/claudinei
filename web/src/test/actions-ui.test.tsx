@@ -4,9 +4,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { useStore } from '../store'
-import { readRun, RUN_KEY } from '../actionRun'
+import { dentroDaTela, JANELA, readRun, RUN_KEY } from '../actionRun'
 import { TerminalMenu } from '../components/TerminalMenu'
 import { ActionEditor } from '../components/ActionEditor'
+import { ActionRunModal } from '../components/ActionRunModal'
 import type { Project } from '../types'
 
 vi.mock('../api', async () => {
@@ -15,12 +16,14 @@ vi.mock('../api', async () => {
     ...real,
     fetchLocalApps: vi.fn(async () => ({ folder: true, vscode: false, terminal: false, local: true })),
     fetchActions: vi.fn(async () => [
-      { id: 7, projectId: 1, name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false, running: false },
-      { id: 8, projectId: 1, name: 'Seed', commands: ['npm run seed'], autoClose: true, running: true },
+      { id: 7, projectId: 1, name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false, allowInput: false, running: false },
+      { id: 8, projectId: 1, name: 'Seed', commands: ['npm run seed'], autoClose: true, allowInput: true, running: true },
     ]),
     createAction: vi.fn(async (projectId: number, input: object) => ({ id: 9, projectId, ...input })),
     updateAction: vi.fn(async (id: number, input: object) => ({ id, projectId: 1, ...input })),
     deleteAction: vi.fn(async () => undefined),
+    stopAction: vi.fn(async () => undefined),
+    runAction: vi.fn(async () => ({ token: 't', wsUrl: '/ws/terminal/act-7', reattached: false })),
     fetchGroups: vi.fn(async () => []),
     fetchSectors: vi.fn(async () => []),
     fetchProjects: vi.fn(async () => []),
@@ -74,7 +77,9 @@ describe('seção de ações no menu do terminal', () => {
     render(<TerminalMenu project={project} x={0} y={0} onDone={onDone} />)
     fireEvent.click(await screen.findByTestId('action-7'))
     expect(onDone).toHaveBeenCalled()
-    expect(useStore.getState().actionRun).toEqual({ actionId: 7, name: 'Deploy', autoClose: false })
+    expect(useStore.getState().actionRun).toEqual({
+      actionId: 7, name: 'Deploy', autoClose: false, allowInput: false,
+    })
   })
 
   it('o botão de excluir não dispara a ação', async () => {
@@ -105,7 +110,7 @@ describe('cadastro de ação', () => {
     preenche('Deploy', 'awsVAEXA\nnpm run deploy')
     fireEvent.click(screen.getByText('Salvar'))
     await waitFor(() => expect(api.createAction).toHaveBeenCalledWith(1, {
-      name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false,
+      name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false, allowInput: false,
     }))
     expect(onSaved).toHaveBeenCalled()
   })
@@ -133,7 +138,7 @@ describe('cadastro de ação', () => {
   /** Fechar sozinho é o padrão DESLIGADO: quem roda um deploy quer ler o fim dele. */
   it('fechar ao terminar vem desligado e é escolha de quem cadastra', async () => {
     render(<ActionEditor projectId={1} onSaved={() => {}} onClose={() => {}} />)
-    const check = screen.getByRole('checkbox') as HTMLInputElement
+    const check = screen.getAllByRole('checkbox')[0] as HTMLInputElement
     expect(check.checked).toBe(false)
     fireEvent.click(check)
     preenche('Seed', 'npm run seed')
@@ -142,11 +147,11 @@ describe('cadastro de ação', () => {
   })
 
   it('editando, parte do que já estava lá e faz PATCH', async () => {
-    const acao = { id: 7, projectId: 1, name: 'Deploy', commands: ['a', 'b'], autoClose: true }
+    const acao = { id: 7, projectId: 1, name: 'Deploy', commands: ['a', 'b'], autoClose: true, allowInput: false }
     render(<ActionEditor projectId={1} action={acao} onSaved={() => {}} onClose={() => {}} />)
     expect((screen.getByPlaceholderText('ex.: Deploy') as HTMLInputElement).value).toBe('Deploy')
     expect((screen.getByPlaceholderText(/awsVAEXA/) as HTMLTextAreaElement).value).toBe('a\nb')
-    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getAllByRole('checkbox')[0] as HTMLInputElement).checked).toBe(true)
     fireEvent.click(screen.getByText('Salvar'))
     await waitFor(() => expect(api.updateAction).toHaveBeenCalledWith(7, expect.objectContaining({ name: 'Deploy' })))
   })
@@ -201,10 +206,25 @@ describe('CSS das ações', () => {
     expect(css).toMatch(/\.sess-pop__item--act:hover \.sess-pop__act-btn\s*\{[^}]*opacity:\s*1/)
   })
 
-  /** A caixinha não é modal de confirmação: não pode tapar a conversa. */
-  it('a janelinha ancora num canto, não no centro', () => {
-    expect(css).toMatch(/\.actrun__overlay\s*\{[^}]*align-items:\s*flex-end/)
-    expect(css).toMatch(/\.actrun__overlay\s*\{[^}]*justify-content:\s*flex-end/)
+  /**
+   * JANELA, não modal. O véu que come cliques era o defeito: como fechar é
+   * PARAR, um clique distraído no fundo matava o deploy sem avisar.
+   */
+  it('não existe véu de overlay cobrindo a página', () => {
+    expect(css, 'o véu voltou — clicar fora volta a matar o processo').not.toContain('.actrun__overlay')
+    expect(css).toMatch(/\.actrun\s*\{[^}]*position:\s*fixed/)
+  })
+
+  /** A barra inteira é a alça, e o desenho tem que dizer isso antes do arrasto. */
+  it('a barra de título se apresenta como alça', () => {
+    expect(css).toMatch(/\.actrun__bar\s*\{[^}]*cursor:\s*move/)
+    expect(css).toMatch(/\.actrun__bar\s*\{[^}]*user-select:\s*none/)
+  })
+
+  /** Encolhida, o processo continua TENDO um lugar na tela. */
+  it('a pílula fica num canto fixo, por cima de tudo', () => {
+    expect(css).toMatch(/\.actrun-pill\s*\{[^}]*position:\s*fixed/)
+    expect(css).toMatch(/\.actrun-pill\s*\{[^}]*z-index/)
   })
 
   it('o ponto de "rodando" pulsa e o de "terminou" para', () => {
@@ -223,7 +243,7 @@ describe('a janelinha atravessa o recarregamento', () => {
 
   it('abrir grava qual ação está aberta; fechar apaga', () => {
     useStore.getState().openActionRun({ actionId: 7, name: 'Deploy', autoClose: false })
-    expect(readRun()).toEqual({ actionId: 7, name: 'Deploy', autoClose: false })
+    expect(readRun()).toMatchObject({ actionId: 7, name: 'Deploy', autoClose: false })
     useStore.getState().closeActionRun()
     expect(readRun()).toBeNull()
   })
@@ -242,5 +262,172 @@ describe('a janelinha atravessa o recarregamento', () => {
     expect(readRun()).toBeNull()
     localStorage.setItem(RUN_KEY, 'não é json')
     expect(readRun()).toBeNull()
+  })
+})
+
+/**
+ * A janela deixou de ser modal, e cada teste aqui trava um sintoma relatado:
+ * "clicando fora, o terminal some e não sei onde vê-los".
+ *
+ * Era pior do que sumir: o clique no véu chamava o mesmo caminho do ✕, que MATA
+ * o processo. Um clique distraído no fundo derrubava o deploy sem avisar.
+ */
+describe('a janela flutuante', () => {
+  const abre = (extra: object = {}) => {
+    useStore.setState({
+      actionRun: { actionId: 7, name: 'Deploy', autoClose: false, ...extra },
+    })
+    render(<ActionRunModal />)
+  }
+
+  it('clicar fora não fecha nem para nada', () => {
+    abre()
+    fireEvent.click(document.body)
+    expect(useStore.getState().actionRun, 'clicar fora derrubou o processo').not.toBeNull()
+    expect(api.stopAction).not.toHaveBeenCalled()
+  })
+
+  /** Encolher é sair da frente, não parar: o processo segue e a pílula o mostra. */
+  it('minimizar guarda na pílula sem tocar no processo', () => {
+    abre()
+    fireEvent.click(screen.getByTestId('action-run-min'))
+    expect(api.stopAction).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('action-run')).toBeNull()
+    const pilula = screen.getByTestId('action-run-pill')
+    expect(pilula.textContent).toContain('Deploy')
+
+    fireEvent.click(pilula)
+    expect(screen.getByTestId('action-run')).toBeTruthy()
+  })
+
+  /** E atravessa o F5 encolhida: quem minimizou não quer a janela de volta. */
+  it('o estado encolhido fica gravado', () => {
+    localStorage.clear()
+    useStore.getState().openActionRun({ actionId: 7, name: 'Deploy', autoClose: false })
+    useStore.getState().setActionRunMinimized(true)
+    expect(readRun()?.minimized).toBe(true)
+  })
+
+  /** Parar não tem desfazer — mas só enquanto há o que parar. */
+  it('o ✕ pergunta com o processo de pé e fecha direto depois do fim', () => {
+    abre()
+    fireEvent.click(screen.getByTestId('action-run-close'))
+    expect(screen.getByTestId('action-run-ask')).toBeTruthy()
+    expect(api.stopAction).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Parar'))
+    expect(api.stopAction).toHaveBeenCalledWith(7)
+    expect(useStore.getState().actionRun).toBeNull()
+  })
+
+  it('terminada, o ✕ não pergunta nada', () => {
+    abre({ exited: true })
+    fireEvent.click(screen.getByTestId('action-run-close'))
+    expect(screen.queryByTestId('action-run-ask')).toBeNull()
+    expect(useStore.getState().actionRun).toBeNull()
+  })
+
+  it('a posição arrastada fica gravada para o F5 reencontrar', () => {
+    localStorage.clear()
+    useStore.getState().openActionRun({ actionId: 7, name: 'Deploy', autoClose: false })
+    useStore.getState().moveActionRun(300, 120)
+    expect(readRun()).toMatchObject({ x: 300, y: 120 })
+  })
+})
+
+/**
+ * O campo de digitação é do cadastro, não da janela: numa ação que só publica e
+ * cospe log, ele só serviria para mandar texto a quem não está lendo.
+ */
+describe('campo para responder ao comando', () => {
+  const abre = (extra: object) => {
+    useStore.setState({ actionRun: { actionId: 7, name: 'Deploy', autoClose: false, ...extra } })
+    render(<ActionRunModal />)
+  }
+
+  it('não aparece quando a ação não pediu', () => {
+    abre({ allowInput: false })
+    expect(screen.queryByTestId('action-run-input')).toBeNull()
+  })
+
+  it('aparece quando a ação pediu', () => {
+    abre({ allowInput: true })
+    expect(screen.getByTestId('action-run-input')).toBeTruthy()
+  })
+
+  /** Processo morto não lê: o campo some junto com ele. */
+  it('some quando o processo termina', () => {
+    abre({ allowInput: true, exited: true })
+    expect(screen.queryByTestId('action-run-input')).toBeNull()
+  })
+})
+
+/**
+ * A posição foi gravada numa tela que pode não ser esta. Sem trazer de volta,
+ * quem arrastou para a direita num monitor grande e abriu no notebook acharia a
+ * janela fora da área visível — sem barra de título, perdida de vez.
+ */
+describe('a janela não se perde fora da tela', () => {
+  const tela = { w: 1000, h: 800 }
+
+  it('segura uma faixa alcançável em qualquer borda', () => {
+    expect(dentroDaTela(5000, 400, tela).x).toBeLessThanOrEqual(tela.w - 120)
+    expect(dentroDaTela(-5000, 400, tela).x).toBeGreaterThanOrEqual(-(JANELA.largura - 120))
+    expect(dentroDaTela(400, -300, tela).y).toBe(0)
+    expect(dentroDaTela(400, 5000, tela).y).toBeLessThanOrEqual(tela.h - 40)
+  })
+
+  it('posição boa passa intacta', () => {
+    expect(dentroDaTela(200, 150, tela)).toEqual({ x: 200, y: 150 })
+  })
+
+  it('e a posição lida do armazenamento já vem corrigida', () => {
+    localStorage.setItem(RUN_KEY, JSON.stringify({
+      actionId: 7, name: 'Deploy', autoClose: false, x: 99999, y: 99999,
+    }))
+    const r = readRun()!
+    expect(r.x).toBeLessThan(99999)
+    expect(r.y).toBeLessThan(99999)
+  })
+})
+
+/**
+ * O que é gravado descreve a JANELA, não a execução.
+ *
+ * `attachOnly` é a resposta de uma pergunta que a próxima sessão ainda vai fazer
+ * ao servidor ("isto ainda está de pé?"). Gravá-la seria deixar um estado velho
+ * mandar num mundo novo.
+ */
+describe('o que vai para o armazenamento', () => {
+  it('não leva o estado de execução junto', () => {
+    localStorage.clear()
+    useStore.setState({
+      actionRun: {
+        actionId: 7, name: 'Deploy', autoClose: false,
+        attachOnly: true, exited: true,
+      },
+    })
+    useStore.getState().moveActionRun(10, 20)
+    const cru = JSON.parse(localStorage.getItem(RUN_KEY) ?? 'null')
+    // terminada, nem grava — mas se um dia gravar, não pode ser com isto dentro
+    if (cru) {
+      expect(cru).not.toHaveProperty('attachOnly')
+      expect(cru).not.toHaveProperty('exited')
+    }
+  })
+
+  it('grava a pose completa de uma execução viva', () => {
+    localStorage.clear()
+    useStore.getState().openActionRun({
+      actionId: 7, name: 'Deploy', autoClose: false, allowInput: true, attachOnly: true,
+    })
+    useStore.getState().moveActionRun(10, 20)
+    useStore.getState().setActionRunMinimized(true)
+    const cru = JSON.parse(localStorage.getItem(RUN_KEY)!)
+    expect(cru).toEqual({
+      actionId: 7, name: 'Deploy', autoClose: false, allowInput: true,
+      minimized: true, x: 10, y: 20,
+    })
+    expect(cru).not.toHaveProperty('attachOnly')
   })
 })

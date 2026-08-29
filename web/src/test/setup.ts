@@ -36,3 +36,14 @@ if (typeof IntersectionObserver === 'undefined') {
   }
   ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver = Stub
 }
+
+// O jsdom não implementa `matchMedia`, e o xterm consulta na abertura (ele checa
+// preferências de contraste e movimento). Sem isto, montar um terminal em teste
+// estoura antes de a tela existir.
+if (!window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    matches: false, media: query, onchange: null,
+    addListener() {}, removeListener() {},
+    addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia
+}

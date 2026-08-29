@@ -22,6 +22,7 @@ export function ActionEditor({ projectId, action, onSaved, onClose }: {
   const [name, setName] = useState(action?.name ?? '')
   const [text, setText] = useState((action?.commands ?? []).join('\n'))
   const [autoClose, setAutoClose] = useState(action?.autoClose ?? false)
+  const [allowInput, setAllowInput] = useState(action?.allowInput ?? false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -33,7 +34,7 @@ export function ActionEditor({ projectId, action, onSaved, onClose }: {
     setSaving(true)
     setError('')
     try {
-      const input = { name: name.trim(), commands, autoClose }
+      const input = { name: name.trim(), commands, autoClose, allowInput }
       onSaved(action ? await updateAction(action.id, input) : await createAction(projectId, input))
     } catch (err) {
       // Mostrado, e não engolido: o servidor recusa nome vazio e comando vazio, e
@@ -76,6 +77,14 @@ export function ActionEditor({ projectId, action, onSaved, onClose }: {
         <label className="acted__check">
           <input type="checkbox" checked={autoClose} onChange={(e) => setAutoClose(e.target.checked)} />
           <span>{t('actions.autoClose')}</span>
+        </label>
+        {/* Do lado do servidor o PTY sempre aceitou escrita — é um terminal. O que
+            esta opção decide é se a JANELA oferece por onde digitar: numa ação que
+            só publica e cospe log, o campo só serviria para mandar texto a quem não
+            está lendo. */}
+        <label className="acted__check" data-testid="acted-input">
+          <input type="checkbox" checked={allowInput} onChange={(e) => setAllowInput(e.target.checked)} />
+          <span>{t('actions.allowInput')}</span>
         </label>
 
         {error && <p className="acted__err">{error}</p>}

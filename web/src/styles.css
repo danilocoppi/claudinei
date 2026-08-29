@@ -581,7 +581,18 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 /* Sidebar Terminais */
 .sidebar__top { display: flex; align-items: center; justify-content: space-between; margin: 2px 4px 14px; }
 .sidebar__logo { font-size: 15px; font-weight: 600; letter-spacing: .02em; cursor: pointer; margin: 0; }
-.sidebar__logo-star { color: var(--accent); }
+/* O brasão do projeto no cabeçalho. `flex: none` e alinhamento pela linha do
+   texto: sem isso ele estica quando a sidebar aperta e a marca sai deformada. */
+/* O brasão do projeto no cabeçalho — no lugar de um asterisco genérico, enquanto
+   a marca de verdade já estava na aba do navegador.
+   Fica no fluxo do TEXTO (nada de flex aqui): com a sidebar no padrão de 250px, o
+   cabeçalho só tem ~50px para um logo que pede ~95px, então "Claudinei" desce
+   para a segunda linha — e sempre desceu, desde o asterisco. Forçar uma linha só
+   espremia os botões da direita para fora; forçar reticências cortava o nome. */
+.brand-mark { vertical-align: -4px; border-radius: var(--radius-xs); }
+/* A engrenagem que abre as configurações fica alinhada com os outros botões da
+   fileira, que são texto («, bandeira). Sem line-height:0 o SVG empurra a linha. */
+.sidebar__icon-btn svg { display: block; }
 .eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-dim); }
 .term-header { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 0 2px 6px; }
 /* `nowrap` é o conserto do defeito relatado: sem ele "+ Terminal" quebrava DENTRO
@@ -2334,35 +2345,75 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 @keyframes act-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
 
 /* ----- a janelinha onde a ação roda ----------------------------------------
-   Não é modal de confirmação: é uma tela de trabalho que fica aberta enquanto o
-   deploy anda. Por isso um retângulo largo e baixo, ancorado embaixo à direita e
-   não centralizado — para não tapar a conversa de quem quer continuar lendo. */
-.actrun__overlay {
-  position: fixed; inset: 0; z-index: 60;
-  display: flex; align-items: flex-end; justify-content: flex-end; padding: 20px;
-}
+   JANELA, não modal — e a diferença aqui não é estética. Um modal traz um véu
+   que come os cliques da página e some ao clique de fora; como fechar é PARAR,
+   um clique distraído no fundo matava o deploy sem avisar. Sem véu, a interface
+   segue viva embaixo dela, e sair da frente é arrastar ou encolher.
+
+   Por isso `position: fixed` direto, sem contêiner de overlay: não há nada para
+   cobrir a tela, só a janela flutuando por cima. */
 .actrun {
+  position: fixed; z-index: 60;
   display: flex; flex-direction: column;
-  width: min(720px, calc(100vw - 40px)); height: min(420px, calc(100vh - 40px));
-  border-radius: var(--radius); overflow: hidden; cursor: default;
+  max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
+  border-radius: var(--radius); overflow: hidden;
   box-shadow: 0 18px 44px var(--shadow);
 }
+/* `cursor: move` e não `grab`: a barra inteira é a alça, e o desenho tem que
+   dizer isso antes do primeiro arrasto. */
 .actrun__bar {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12.5px;
+  cursor: move; user-select: none; touch-action: none;
 }
 .actrun__dot {
   flex: none; width: 7px; height: 7px; border-radius: 50%;
   background: var(--ok); animation: act-pulse 1.6s ease-in-out infinite;
 }
-/* Terminou: para de pulsar e esfria. A caixinha continua aberta (é o que a opção
+/* Terminou: para de pulsar e esfria. A janela continua aberta (é o que a opção
    "fechar ao terminar" desligada quer dizer), então precisa dizer que acabou. */
 .actrun__dot--done { background: var(--text-dim); animation: none; }
 .actrun__name { flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 .actrun__state { flex: 1; color: var(--text-dim); }
-.actrun__close { flex: none; padding: 2px 8px; background: transparent; color: var(--text-dim); }
-.actrun__close:hover { color: var(--text); background: var(--surface-strong); }
+.actrun__btn { flex: none; padding: 2px 8px; background: transparent; color: var(--text-dim); cursor: pointer; }
+.actrun__btn:hover { color: var(--text); background: var(--surface-strong); }
 .actrun__screen { flex: 1; min-height: 0; padding: 6px; }
+
+/* Parar um deploy no meio não tem desfazer, então o ✕ pergunta enquanto há
+   processo de pé. Some sozinho depois que ele termina. */
+.actrun__ask {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; font-size: 12.5px;
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+.actrun__ask > span { flex: 1; }
+.actrun__ask button { padding: 4px 12px; font-size: 12.5px; border-radius: var(--radius-sm); }
+.actrun__stop { background: var(--err); color: var(--on-accent); }
+
+/* O campo de resposta. Só aparece quando a ação foi cadastrada com ele E o
+   processo ainda está vivo — campo de digitação para processo morto é engano. */
+.actrun__input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
+.actrun__input input {
+  flex: 1; min-width: 0; padding: 6px 10px; font-family: monospace; font-size: 12.5px;
+  border-radius: var(--radius-sm);
+}
+.actrun__input button { flex: none; padding: 6px 12px; border-radius: var(--radius-sm); }
+
+/* ----- encolhida ------------------------------------------------------------
+   Minimizar não para nada: é só sair da frente. A pílula existe para o processo
+   continuar TENDO um lugar na tela — foi some-sem-deixar-rastro o defeito que
+   originou esta reforma. Canto inferior direito, onde a janela nasce. */
+.actrun-pill {
+  position: fixed; right: 20px; bottom: 20px; z-index: 60;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  background: var(--surface-strong); border: 1px solid var(--border);
+  box-shadow: 0 8px 22px var(--shadow); font-size: 12.5px;
+}
+.actrun-pill:hover { border-color: var(--accent); }
+.actrun-pill__name { font-weight: 600; }
+.actrun-pill__state { color: var(--text-dim); }
 
 /* ----- o cadastro ---------------------------------------------------------- */
 .acted { width: 460px; max-width: calc(100vw - 32px); border-radius: var(--radius); padding: 20px; cursor: default; }

@@ -159,7 +159,10 @@ export function TerminalMenu({ project, x, y, onDone }: {
                    onClick={() => {
                      // O menu fecha; a caixinha vive no App e segue rodando.
                      onDone()
-                     openActionRun({ actionId: a.id, name: a.name, autoClose: a.autoClose })
+                     openActionRun({
+                       actionId: a.id, name: a.name,
+                       autoClose: a.autoClose, allowInput: a.allowInput,
+                     })
                    }}>
                 <PlayIcon />
                 <span className="sess-pop__act-name">{a.name}</span>

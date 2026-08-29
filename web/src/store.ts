@@ -126,6 +126,10 @@ interface State {
   }) | null
   openActionRun(run: SavedRun & { attachOnly?: boolean }): void
   closeActionRun(): void
+  /** Encolhe/devolve a janela. Encolher NÃO para o processo — é só sair da frente. */
+  setActionRunMinimized(minimized: boolean): void
+  /** Onde a janela foi largada. Gravado para o F5 reencontrá-la no mesmo canto. */
+  moveActionRun(x: number, y: number): void
   /** Barra lateral em modo régua (62px, só estados e ícones). */
   railMode: boolean
   toggleRail(): void
@@ -219,6 +223,24 @@ export const useStore = create<State>((set, get) => ({
   actionRun: (() => { const r = readRun(); return r ? { ...r, attachOnly: true } : null })(),
   openActionRun: (run) => { saveRun(run); set({ actionRun: run }) },
   closeActionRun: () => { saveRun(null); set({ actionRun: null }) },
+
+  // Minimizar e mover gravam junto: são a POSE da janela, e o F5 deve devolver a
+  // janela onde ela estava, não jogá-la de volta no meio da tela.
+  setActionRunMinimized: (minimized) => set((st) => {
+    if (!st.actionRun) return {}
+    const run = { ...st.actionRun, minimized }
+    // Só grava o que ainda está de pé: uma execução terminada saiu do registro de
+    // restauração de propósito (ver `action_exit`), e minimizá-la não a traz de volta.
+    if (!run.exited) saveRun(run)
+    return { actionRun: run }
+  }),
+
+  moveActionRun: (x, y) => set((st) => {
+    if (!st.actionRun) return {}
+    const run = { ...st.actionRun, x, y }
+    if (!run.exited) saveRun(run)
+    return { actionRun: run }
+  }),
 
   railMode: (() => {
     try { return localStorage.getItem(RAIL_KEY) === '1' } catch { return false }

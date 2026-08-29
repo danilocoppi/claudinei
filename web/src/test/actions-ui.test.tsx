@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { useStore } from '../store'
-import { dentroDaTela, JANELA, readRun, RUN_KEY } from '../actionRun'
+import { dentroDaTela, JANELA, readRuns, RUN_KEY } from '../actionRun'
 import { TerminalMenu } from '../components/TerminalMenu'
 import { ActionEditor } from '../components/ActionEditor'
 import { ActionRunModal } from '../components/ActionRunModal'
@@ -37,7 +37,7 @@ const api = await import('../api')
 const project: Project = { id: 1, name: 'Alvo', path: '/tmp/alvo' } as Project
 
 beforeEach(() => {
-  useStore.setState({ groups: [], sectors: [], actionRun: null })
+  useStore.setState({ groups: [], sectors: [], actionRuns: [] })
 })
 afterEach(() => { vi.clearAllMocks() })
 
@@ -79,7 +79,7 @@ describe('seção de ações no menu do terminal', () => {
     render(<TerminalMenu project={project} x={0} y={0} onDone={onDone} />)
     fireEvent.click(await screen.findByTestId('action-7'))
     expect(onDone).toHaveBeenCalled()
-    expect(useStore.getState().actionRun).toEqual({ actionId: 7, name: 'Deploy', autoClose: false })
+    expect(useStore.getState().actionRuns).toEqual([{ actionId: 7, name: 'Deploy', autoClose: false }])
   })
 
   it('o botão de excluir não dispara a ação', async () => {
@@ -87,7 +87,7 @@ describe('seção de ações no menu do terminal', () => {
     const linha = screen.getByTestId('action-7')
     fireEvent.click(linha.querySelector('.sess-pop__act-btn--danger')!)
     await waitFor(() => expect(api.deleteAction).toHaveBeenCalledWith(7))
-    expect(useStore.getState().actionRun).toBeNull()
+    expect(useStore.getState().actionRuns).toEqual([])
     await waitFor(() => expect(screen.queryByText('Deploy')).toBeNull())
   })
 
@@ -175,24 +175,24 @@ describe('cadastro de ação', () => {
  */
 describe('fim da execução', () => {
   const rodando = (autoClose: boolean) =>
-    useStore.setState({ actionRun: { actionId: 7, name: 'Deploy', autoClose } })
+    useStore.setState({ actionRuns: [{ actionId: 7, name: 'Deploy', autoClose }] })
 
   it('com fechar-ao-terminar, some sozinha', () => {
     rodando(true)
     useStore.getState().applyWsMessage({ type: 'action_exit', actionId: 7 })
-    expect(useStore.getState().actionRun).toBeNull()
+    expect(useStore.getState().actionRuns).toEqual([])
   })
 
   it('sem fechar-ao-terminar, fica aberta e marcada como terminada', () => {
     rodando(false)
     useStore.getState().applyWsMessage({ type: 'action_exit', actionId: 7 })
-    expect(useStore.getState().actionRun).toMatchObject({ actionId: 7, exited: true })
+    expect(useStore.getState().actionRuns[0]).toMatchObject({ actionId: 7, exited: true })
   })
 
   it('o fim de OUTRA ação não mexe na que está aberta', () => {
     rodando(true)
     useStore.getState().applyWsMessage({ type: 'action_exit', actionId: 99 })
-    expect(useStore.getState().actionRun).toMatchObject({ actionId: 7 })
+    expect(useStore.getState().actionRuns[0]).toMatchObject({ actionId: 7 })
   })
 })
 
@@ -221,10 +221,10 @@ describe('CSS das ações', () => {
     expect(css).toMatch(/\.actrun__bar\s*\{[^}]*user-select:\s*none/)
   })
 
-  /** Encolhida, o processo continua TENDO um lugar na tela. */
-  it('a pílula fica num canto fixo, por cima de tudo', () => {
-    expect(css).toMatch(/\.actrun-pill\s*\{[^}]*position:\s*fixed/)
-    expect(css).toMatch(/\.actrun-pill\s*\{[^}]*z-index/)
+  /** Encolhidas, os processos continuam TENDO um lugar na tela. */
+  it('a fileira das encolhidas fica num canto fixo, por cima de tudo', () => {
+    expect(css).toMatch(/\.actrun-tray\s*\{[^}]*position:\s*fixed/)
+    expect(css).toMatch(/\.actrun-tray\s*\{[^}]*z-index/)
   })
 
   it('o ponto de "rodando" pulsa e o de "terminou" para', () => {
@@ -243,9 +243,9 @@ describe('a janelinha atravessa o recarregamento', () => {
 
   it('abrir grava qual ação está aberta; fechar apaga', () => {
     useStore.getState().openActionRun({ actionId: 7, name: 'Deploy', autoClose: false })
-    expect(readRun()).toMatchObject({ actionId: 7, name: 'Deploy', autoClose: false })
-    useStore.getState().closeActionRun()
-    expect(readRun()).toBeNull()
+    expect(readRuns()).toMatchObject([{ actionId: 7, name: 'Deploy', autoClose: false }])
+    useStore.getState().closeActionRun(7)
+    expect(readRuns()).toEqual([])
   })
 
   /** Terminou: sai do registro mesmo ficando na tela. Um F5 aqui não deve
@@ -253,15 +253,15 @@ describe('a janelinha atravessa o recarregamento', () => {
   it('o fim da execução tira do registro, mesmo com a janela aberta', () => {
     useStore.getState().openActionRun({ actionId: 7, name: 'Deploy', autoClose: false })
     useStore.getState().applyWsMessage({ type: 'action_exit', actionId: 7 })
-    expect(useStore.getState().actionRun).toMatchObject({ exited: true })
-    expect(readRun()).toBeNull()
+    expect(useStore.getState().actionRuns[0]).toMatchObject({ exited: true })
+    expect(readRuns()).toEqual([])
   })
 
   it('lixo gravado não vira requisição a /api/actions/undefined', () => {
     localStorage.setItem(RUN_KEY, '{"name":"Deploy"}')
-    expect(readRun()).toBeNull()
+    expect(readRuns()).toEqual([])
     localStorage.setItem(RUN_KEY, 'não é json')
-    expect(readRun()).toBeNull()
+    expect(readRuns()).toEqual([])
   })
 })
 
@@ -274,64 +274,62 @@ describe('a janelinha atravessa o recarregamento', () => {
  */
 describe('a janela flutuante', () => {
   const abre = (extra: object = {}) => {
-    useStore.setState({
-      actionRun: { actionId: 7, name: 'Deploy', autoClose: false, ...extra },
-    })
+    useStore.setState({ actionRuns: [{ actionId: 7, name: 'Deploy', autoClose: false, ...extra }] })
     render(<ActionRunModal />)
   }
 
   it('clicar fora não fecha nem para nada', () => {
     abre()
     fireEvent.click(document.body)
-    expect(useStore.getState().actionRun, 'clicar fora derrubou o processo').not.toBeNull()
+    expect(useStore.getState().actionRuns, 'clicar fora derrubou o processo').toHaveLength(1)
     expect(api.stopAction).not.toHaveBeenCalled()
   })
 
   /** Encolher é sair da frente, não parar: o processo segue e a pílula o mostra. */
   it('minimizar guarda na pílula sem tocar no processo', () => {
     abre()
-    fireEvent.click(screen.getByTestId('action-run-min'))
+    fireEvent.click(screen.getByTestId('action-run-min-7'))
     expect(api.stopAction).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('action-run')).toBeNull()
-    const pilula = screen.getByTestId('action-run-pill')
+    expect(screen.queryByTestId('action-run-7')).toBeNull()
+    const pilula = screen.getByTestId('action-run-pill-7')
     expect(pilula.textContent).toContain('Deploy')
 
     fireEvent.click(pilula)
-    expect(screen.getByTestId('action-run')).toBeTruthy()
+    expect(screen.getByTestId('action-run-7')).toBeTruthy()
   })
 
   /** E atravessa o F5 encolhida: quem minimizou não quer a janela de volta. */
   it('o estado encolhido fica gravado', () => {
     localStorage.clear()
     useStore.getState().openActionRun({ actionId: 7, name: 'Deploy', autoClose: false })
-    useStore.getState().setActionRunMinimized(true)
-    expect(readRun()?.minimized).toBe(true)
+    useStore.getState().setActionRunMinimized(7, true)
+    expect(readRuns()[0].minimized).toBe(true)
   })
 
   /** Parar não tem desfazer — mas só enquanto há o que parar. */
   it('o ✕ pergunta com o processo de pé e fecha direto depois do fim', () => {
     abre()
-    fireEvent.click(screen.getByTestId('action-run-close'))
-    expect(screen.getByTestId('action-run-ask')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('action-run-close-7'))
+    expect(screen.getByTestId('action-run-ask-7')).toBeTruthy()
     expect(api.stopAction).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByText('Parar'))
     expect(api.stopAction).toHaveBeenCalledWith(7)
-    expect(useStore.getState().actionRun).toBeNull()
+    expect(useStore.getState().actionRuns).toEqual([])
   })
 
   it('terminada, o ✕ não pergunta nada', () => {
     abre({ exited: true })
-    fireEvent.click(screen.getByTestId('action-run-close'))
-    expect(screen.queryByTestId('action-run-ask')).toBeNull()
-    expect(useStore.getState().actionRun).toBeNull()
+    fireEvent.click(screen.getByTestId('action-run-close-7'))
+    expect(screen.queryByTestId('action-run-ask-7')).toBeNull()
+    expect(useStore.getState().actionRuns).toEqual([])
   })
 
   it('a posição arrastada fica gravada para o F5 reencontrar', () => {
     localStorage.clear()
     useStore.getState().openActionRun({ actionId: 7, name: 'Deploy', autoClose: false })
-    useStore.getState().moveActionRun(300, 120)
-    expect(readRun()).toMatchObject({ x: 300, y: 120 })
+    useStore.getState().moveActionRun(7, 300, 120)
+    expect(readRuns()).toMatchObject([{ x: 300, y: 120 }])
   })
 })
 
@@ -345,7 +343,7 @@ describe('a janela flutuante', () => {
  */
 describe('digitar no terminal', () => {
   const abre = (extra: object = {}) => {
-    useStore.setState({ actionRun: { actionId: 7, name: 'Deploy', autoClose: false, ...extra } })
+    useStore.setState({ actionRuns: [{ actionId: 7, name: 'Deploy', autoClose: false, ...extra }] })
     render(<ActionRunModal />)
   }
 
@@ -353,7 +351,7 @@ describe('digitar no terminal', () => {
     abre()
     expect(screen.queryByTestId('action-run-input')).toBeNull()
     // o xterm monta sua própria área de digitação dentro da tela
-    expect(screen.getByTestId('action-run').querySelector('.actrun__screen textarea')).toBeTruthy()
+    expect(screen.getByTestId('action-run-7').querySelector('.actrun__screen textarea')).toBeTruthy()
   })
 })
 
@@ -380,7 +378,7 @@ describe('a janela não se perde fora da tela', () => {
     localStorage.setItem(RUN_KEY, JSON.stringify({
       actionId: 7, name: 'Deploy', autoClose: false, x: 99999, y: 99999,
     }))
-    const r = readRun()!
+    const r = readRuns()[0]
     expect(r.x).toBeLessThan(99999)
     expect(r.y).toBeLessThan(99999)
   })
@@ -397,13 +395,10 @@ describe('o que vai para o armazenamento', () => {
   it('não leva o estado de execução junto', () => {
     localStorage.clear()
     useStore.setState({
-      actionRun: {
-        actionId: 7, name: 'Deploy', autoClose: false,
-        attachOnly: true, exited: true,
-      },
+      actionRuns: [{ actionId: 7, name: 'Deploy', autoClose: false, attachOnly: true, exited: true }],
     })
-    useStore.getState().moveActionRun(10, 20)
-    const cru = JSON.parse(localStorage.getItem(RUN_KEY) ?? 'null')
+    useStore.getState().moveActionRun(7, 10, 20)
+    const cru = JSON.parse(localStorage.getItem(RUN_KEY) ?? 'null')?.[0]
     // terminada, nem grava — mas se um dia gravar, não pode ser com isto dentro
     if (cru) {
       expect(cru).not.toHaveProperty('attachOnly')
@@ -416,9 +411,9 @@ describe('o que vai para o armazenamento', () => {
     useStore.getState().openActionRun({
       actionId: 7, name: 'Deploy', autoClose: false, attachOnly: true,
     })
-    useStore.getState().moveActionRun(10, 20)
-    useStore.getState().setActionRunMinimized(true)
-    const cru = JSON.parse(localStorage.getItem(RUN_KEY)!)
+    useStore.getState().moveActionRun(7, 10, 20)
+    useStore.getState().setActionRunMinimized(7, true)
+    const cru = JSON.parse(localStorage.getItem(RUN_KEY)!)[0]
     expect(cru).toEqual({
       actionId: 7, name: 'Deploy', autoClose: false, minimized: true, x: 10, y: 20,
     })
@@ -468,14 +463,135 @@ describe('a pílula não encosta no rodapé do chat', () => {
   const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles.css'), 'utf8')
 
   it('a posição sai da altura medida do rodapé, não de um número cravado', () => {
-    const regra = css.match(/\.actrun-pill\s*\{[^}]*\}/)![0]
+    const regra = css.match(/\.actrun-tray\s*\{[^}]*\}/)![0]
     expect(regra).toMatch(/bottom:\s*calc\([^)]*var\(--chat-foot-h/)
     expect(regra).toMatch(/right:/)
   })
 
   /** Sem chat na tela (dashboard, terminal) a variável não existe: pousa no canto. */
   it('tem um padrão para quando não há rodapé nenhum', () => {
-    const regra = css.match(/\.actrun-pill\s*\{[^}]*\}/)![0]
+    const regra = css.match(/\.actrun-tray\s*\{[^}]*\}/)![0]
     expect(regra, 'sem fallback, a pílula somiria da tela fora do chat').toMatch(/var\(--chat-foot-h,\s*0/)
+  })
+})
+
+/**
+ * Mais de uma ação ao mesmo tempo.
+ *
+ * Antes só cabia UMA: abrir a segunda fazia a primeira sumir da tela com o
+ * processo ainda de pé no servidor — o terminal órfão que esta tela existe para
+ * evitar. E encolhidas, as pílulas se empilhavam no mesmo ponto, escondendo umas
+ * às outras.
+ */
+describe('várias janelas ao mesmo tempo', () => {
+  const duas = (extra1: object = {}, extra2: object = {}) => {
+    useStore.setState({ actionRuns: [
+      { actionId: 7, name: 'Deploy', autoClose: false, ...extra1 },
+      { actionId: 8, name: 'Seed', autoClose: false, ...extra2 },
+    ] })
+    render(<ActionRunModal />)
+  }
+
+  it('abrir a segunda não derruba a primeira', () => {
+    const abrir = useStore.getState().openActionRun
+    abrir({ actionId: 7, name: 'Deploy', autoClose: false })
+    abrir({ actionId: 8, name: 'Seed', autoClose: false })
+    expect(useStore.getState().actionRuns.map((r) => r.actionId)).toEqual([7, 8])
+  })
+
+  /** Duas janelas para o MESMO PTY seriam dois clientes brigando pelo token. */
+  it('clicar de novo na mesma ação não abre uma segunda janela', () => {
+    const abrir = useStore.getState().openActionRun
+    abrir({ actionId: 7, name: 'Deploy', autoClose: false })
+    useStore.getState().setActionRunMinimized(7, true)
+    abrir({ actionId: 7, name: 'Deploy', autoClose: false })
+    const runs = useStore.getState().actionRuns
+    expect(runs).toHaveLength(1)
+    expect(runs[0].minimized, 'reabrir devia desencolher').toBe(false)
+  })
+
+  it('as duas janelas ficam na tela, cada uma com seu terminal', () => {
+    duas()
+    expect(screen.getByTestId('action-run-7')).toBeTruthy()
+    expect(screen.getByTestId('action-run-8')).toBeTruthy()
+  })
+
+  /** Sem cascata, a de baixo ficaria inalcançável até a de cima sair da frente. */
+  it('sem posição própria, pousam em cascata', () => {
+    duas()
+    const a = screen.getByTestId('action-run-7').style
+    const b = screen.getByTestId('action-run-8').style
+    expect(a.right).not.toBe(b.right)
+    expect(a.bottom).not.toBe(b.bottom)
+  })
+
+  it('a de cima fica na frente, e clicar numa traz ela para frente', () => {
+    duas()
+    const z = (id: number) => Number(screen.getByTestId(`action-run-${id}`).style.zIndex)
+    expect(z(8)).toBeGreaterThan(z(7))
+    fireEvent.pointerDown(screen.getByTestId('action-run-7'))
+    expect(useStore.getState().actionRuns.at(-1)!.actionId).toBe(7)
+  })
+
+  it('encolhidas, ficam lado a lado numa fileira só', () => {
+    duas({ minimized: true }, { minimized: true })
+    const fileira = screen.getByTestId('action-run-tray')
+    expect(fileira.querySelectorAll('.actrun-pill')).toHaveLength(2)
+    expect(screen.getByTestId('action-run-pill-7')).toBeTruthy()
+    expect(screen.getByTestId('action-run-pill-8')).toBeTruthy()
+  })
+
+  it('restaurar uma não mexe na outra', () => {
+    duas({ minimized: true }, { minimized: true })
+    fireEvent.click(screen.getByTestId('action-run-pill-7'))
+    const runs = useStore.getState().actionRuns
+    expect(runs.find((r) => r.actionId === 7)!.minimized).toBe(false)
+    expect(runs.find((r) => r.actionId === 8)!.minimized).toBe(true)
+  })
+
+  it('o fim de uma não afeta a outra', () => {
+    useStore.setState({ actionRuns: [
+      { actionId: 7, name: 'Deploy', autoClose: true },
+      { actionId: 8, name: 'Seed', autoClose: false },
+    ] })
+    useStore.getState().applyWsMessage({ type: 'action_exit', actionId: 7 })
+    const runs = useStore.getState().actionRuns
+    expect(runs.map((r) => r.actionId), 'a de autoClose devia sair sozinha').toEqual([8])
+    expect(runs[0].exited).toBeUndefined()
+  })
+
+  it('as duas atravessam o F5', () => {
+    localStorage.clear()
+    const abrir = useStore.getState().openActionRun
+    abrir({ actionId: 7, name: 'Deploy', autoClose: false })
+    abrir({ actionId: 8, name: 'Seed', autoClose: false })
+    expect(readRuns().map((r) => r.actionId)).toEqual([7, 8])
+  })
+})
+
+/**
+ * O armazenamento guardava UMA execução solta antes de caber mais de uma. Quem
+ * atualiza a página no meio de um deploy não pode perder a janela por causa do
+ * formato de um `localStorage`.
+ */
+describe('o formato antigo do armazenamento', () => {
+  it('uma execução solta é lida como uma lista de uma', () => {
+    localStorage.setItem(RUN_KEY, JSON.stringify({ actionId: 7, name: 'Deploy', autoClose: false }))
+    expect(readRuns()).toMatchObject([{ actionId: 7, name: 'Deploy' }])
+  })
+
+  it('entrada repetida do mesmo id vira uma só', () => {
+    localStorage.setItem(RUN_KEY, JSON.stringify([
+      { actionId: 7, name: 'Deploy', autoClose: false },
+      { actionId: 7, name: 'Deploy', autoClose: false },
+    ]))
+    expect(readRuns()).toHaveLength(1)
+  })
+
+  it('lixo continua sendo descartado', () => {
+    localStorage.setItem(RUN_KEY, JSON.stringify([{ name: 'sem id' }, { actionId: 9, name: 'ok' }]))
+    expect(readRuns()).toMatchObject([{ actionId: 9 }])
+    localStorage.setItem(RUN_KEY, 'não é json')
+    expect(readRuns()).toEqual([])
   })
 })

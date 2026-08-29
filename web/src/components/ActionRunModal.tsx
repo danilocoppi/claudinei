@@ -6,38 +6,81 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useStore } from '../store'
 import { runAction, stopAction } from '../api'
-import { dentroDaTela, JANELA } from '../actionRun'
+import { dentroDaTela, JANELA, poseDefault } from '../actionRun'
+
+type Run = ReturnType<typeof useStore.getState>['actionRuns'][number]
 
 /**
- * A janelinha onde uma ação roda.
+ * As janelas onde as ações rodam.
  *
- * É um terminal de verdade, e não um painel de log, porque o que está do outro
- * lado é um shell: um `npm run deploy` pergunta coisas, pinta barra de progresso,
+ * São terminais de verdade, e não painéis de log, porque o que está do outro lado
+ * é um shell: um `npm run deploy` pergunta coisas, pinta barra de progresso,
  * espera confirmação. Log não responde.
  *
- * E é uma JANELA, não um modal. A diferença não é estética: um modal tem um véu
- * que come os cliques da página e some quando se clica fora — e aqui isso matava
- * o deploy sem avisar, porque fechar é parar. Uma janela flutua por cima, deixa o
+ * E são JANELAS, não modais. A diferença não é estética: um modal tem um véu que
+ * come os cliques da página e some quando se clica fora — e aqui isso matava o
+ * deploy sem avisar, porque fechar é parar. Uma janela flutua por cima, deixa o
  * resto da interface viva embaixo dela, e sai da frente sendo arrastada ou
  * encolhida — nunca sendo morta por engano.
  */
 export function ActionRunModal() {
+  const runs = useStore((s) => s.actionRuns)
+  const abertas = runs.filter((r) => !r.minimized)
+  const encolhidas = runs.filter((r) => r.minimized)
+
+  return (
+    <>
+      {abertas.map((run, i) => (
+        <ActionWindow key={run.actionId} run={run} indice={i} zIndex={60 + runs.indexOf(run)} />
+      ))}
+      {encolhidas.length > 0 && <Bandeja runs={encolhidas} />}
+    </>
+  )
+}
+
+/**
+ * As encolhidas, lado a lado numa fileira.
+ *
+ * Empilhadas no mesmo ponto, a de cima escondia todas as outras — e um deploy
+ * invisível é exatamente o que a pílula existe para evitar. A fileira cresce para
+ * a esquerda e quebra em linhas quando não cabe mais.
+ */
+function Bandeja({ runs }: { runs: Run[] }) {
   const { t } = useTranslation()
-  const run = useStore((s) => s.actionRun)
+  const minimizar = useStore((s) => s.setActionRunMinimized)
+  return createPortal(
+    <div className="actrun-tray" data-testid="action-run-tray">
+      {runs.map((run) => (
+        <button
+          key={run.actionId}
+          className="actrun-pill"
+          data-testid={`action-run-pill-${run.actionId}`}
+          onClick={() => minimizar(run.actionId, false)}
+        >
+          <span className={`actrun__dot ${run.exited ? 'actrun__dot--done' : ''}`} />
+          <span className="actrun-pill__name">{run.name}</span>
+          <span className="actrun-pill__state">{run.exited ? t('actions.finished') : t('actions.running')}</span>
+        </button>
+      ))}
+    </div>,
+    document.body,
+  )
+}
+
+function ActionWindow({ run, indice, zIndex }: { run: Run; indice: number; zIndex: number }) {
+  const { t } = useTranslation()
   const close = useStore((s) => s.closeActionRun)
   const minimizar = useStore((s) => s.setActionRunMinimized)
   const mover = useStore((s) => s.moveActionRun)
+  const trazerParaFrente = useStore((s) => s.raiseActionRun)
   const ref = useRef<HTMLDivElement>(null)
   const [confirmandoParar, setConfirmandoParar] = useState(false)
 
-  const actionId = run?.actionId
-  const attachOnly = run?.attachOnly ?? false
-  const minimizado = !!run?.minimized
+  const { actionId } = run
+  const attachOnly = run.attachOnly ?? false
 
   useEffect(() => {
-    // Minimizada, o container não existe no DOM — e um xterm sem onde se desenhar
-    // mede 0x0 e nunca mais volta ao tamanho certo. Melhor não montar.
-    if (actionId === undefined || minimizado || !ref.current) return
+    if (!ref.current) return
     let ws: WebSocket | undefined
     let disposed = false
     const term = new Terminal({ fontFamily: 'monospace', fontSize: 12, theme: { background: '#0b1020' } })
@@ -78,7 +121,7 @@ export function ActionRunModal() {
         if (disposed) return
         // Restaurando de um F5 e o processo já acabou: a janela some sem alarde. Ela
         // só existia para acompanhar algo que estava acontecendo.
-        if (attachOnly) { useStore.getState().closeActionRun(); return }
+        if (attachOnly) { useStore.getState().closeActionRun(actionId); return }
         term.write(`\r\n${String(err)}\r\n`)
       }
     })()
@@ -90,7 +133,7 @@ export function ActionRunModal() {
       ws?.close()
       term.dispose()
     }
-  }, [actionId, attachOnly, minimizado])
+  }, [actionId, attachOnly])
 
   /**
    * Arrastar pela barra de título.
@@ -100,13 +143,12 @@ export function ActionRunModal() {
    * morreria no meio com a janela largada onde ninguém pediu.
    */
   const pegar = (e: React.PointerEvent) => {
-    if (!run) return
     const caixa = (e.currentTarget as HTMLElement).closest('.actrun')!.getBoundingClientRect()
     const dx = e.clientX - caixa.left
     const dy = e.clientY - caixa.top
     const arrasta = (ev: PointerEvent) => {
       const p = dentroDaTela(ev.clientX - dx, ev.clientY - dy)
-      mover(p.x, p.y)
+      mover(actionId, p.x, p.y)
     }
     const solta = () => {
       window.removeEventListener('pointermove', arrasta)
@@ -116,11 +158,9 @@ export function ActionRunModal() {
     window.addEventListener('pointerup', solta)
   }
 
-  if (!run) return null
-
   const parar = () => {
-    void stopAction(run.actionId).catch(() => {})
-    close()
+    void stopAction(actionId).catch(() => {})
+    close(actionId)
   }
 
   /**
@@ -130,30 +170,22 @@ export function ActionRunModal() {
    * tem desfazer — e quem só queria a janela fora da frente tem o "—" ao lado.
    */
   const pedirParaFechar = () => {
-    if (run.exited) close()
+    if (run.exited) close(actionId)
     else setConfirmandoParar(true)
   }
 
-  if (minimizado) {
-    return createPortal(
-      <button className="actrun-pill" data-testid="action-run-pill" onClick={() => minimizar(false)}>
-        <span className={`actrun__dot ${run.exited ? 'actrun__dot--done' : ''}`} />
-        <span className="actrun-pill__name">{run.name}</span>
-        <span className="actrun-pill__state">{run.exited ? t('actions.finished') : t('actions.running')}</span>
-      </button>,
-      document.body,
-    )
-  }
-
+  // Sem posição própria, pousa em cascata: duas janelas no mesmo canto deixariam a
+  // de baixo inalcançável até a de cima sair da frente.
   const pose = run.x !== undefined && run.y !== undefined
     ? { left: run.x, top: run.y }
-    : { right: 20, bottom: 20 }
+    : poseDefault(indice)
 
   return createPortal(
     <div
       className="actrun glass"
-      data-testid="action-run"
-      style={{ ...pose, width: JANELA.largura, height: JANELA.altura }}
+      data-testid={`action-run-${actionId}`}
+      style={{ ...pose, width: JANELA.largura, height: JANELA.altura, zIndex }}
+      onPointerDownCapture={() => trazerParaFrente(actionId)}
     >
       <div className="actrun__bar" onPointerDown={pegar}>
         <span className={`actrun__dot ${run.exited ? 'actrun__dot--done' : ''}`} />
@@ -161,14 +193,14 @@ export function ActionRunModal() {
         <span className="actrun__state">{run.exited ? t('actions.finished') : t('actions.running')}</span>
         {/* Os botões não arrastam: sem isto, um clique com o mínimo tremor no
             ponteiro viraria arrasto e o clique nunca chegaria. */}
-        <button className="actrun__btn" title={t('actions.minimize')} data-testid="action-run-min"
-                onPointerDown={(e) => e.stopPropagation()} onClick={() => minimizar(true)}>—</button>
-        <button className="actrun__btn" title={t('common.close')} data-testid="action-run-close"
+        <button className="actrun__btn" title={t('actions.minimize')} data-testid={`action-run-min-${actionId}`}
+                onPointerDown={(e) => e.stopPropagation()} onClick={() => minimizar(actionId, true)}>—</button>
+        <button className="actrun__btn" title={t('common.close')} data-testid={`action-run-close-${actionId}`}
                 onPointerDown={(e) => e.stopPropagation()} onClick={pedirParaFechar}>✕</button>
       </div>
 
       {confirmandoParar && (
-        <div className="actrun__ask" data-testid="action-run-ask">
+        <div className="actrun__ask" data-testid={`action-run-ask-${actionId}`}>
           <span>{t('actions.stopAsk')}</span>
           <button className="ghost" onClick={() => setConfirmandoParar(false)}>{t('common.cancel')}</button>
           <button className="actrun__stop" onClick={parar}>{t('actions.stop')}</button>
@@ -176,7 +208,6 @@ export function ActionRunModal() {
       )}
 
       <div className="actrun__screen" ref={ref} />
-
     </div>,
     document.body,
   )

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { readRun, saveRun, type SavedRun } from './actionRun'
+import { readRuns, saveRuns, type SavedRun } from './actionRun'
 import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import type { FileKind, ScopeResult } from './files'
@@ -119,17 +119,26 @@ interface State {
    * deploy de cinco minutos morreria junto com ele. Fica no store para o App
    * desenhar por cima de tudo e sobreviver à navegação.
    */
-  actionRun: (SavedRun & {
+  /**
+   * As execuções com janela aberta, da mais ao fundo para a mais à frente.
+   *
+   * Uma LISTA, e não uma só: com um campo único, abrir a segunda ação fazia a
+   * primeira sumir da tela com o processo ainda de pé no servidor — o terminal
+   * órfão que esta tela existe para evitar.
+   */
+  actionRuns: (SavedRun & {
     exited?: boolean
     /** Restaurada de um F5: LIGA-SE ao que existe, e desiste se não houver nada. */
     attachOnly?: boolean
-  }) | null
+  })[]
   openActionRun(run: SavedRun & { attachOnly?: boolean }): void
-  closeActionRun(): void
+  closeActionRun(actionId: number): void
   /** Encolhe/devolve a janela. Encolher NÃO para o processo — é só sair da frente. */
-  setActionRunMinimized(minimized: boolean): void
+  setActionRunMinimized(actionId: number, minimized: boolean): void
   /** Onde a janela foi largada. Gravado para o F5 reencontrá-la no mesmo canto. */
-  moveActionRun(x: number, y: number): void
+  moveActionRun(actionId: number, x: number, y: number): void
+  /** Traz para a frente das outras — o fim da lista é quem está por cima. */
+  raiseActionRun(actionId: number): void
   /** Barra lateral em modo régua (62px, só estados e ícones). */
   railMode: boolean
   toggleRail(): void
@@ -218,28 +227,48 @@ export const useStore = create<State>((set, get) => ({
 
   resyncOnReconnect: () => set({ historyLoadedFor: {}, streaming: {} }),
 
-  // Já nasce com o que ficou de um recarregamento; quem restaura de fato é o App,
-  // que só mantém a janela se o servidor confirmar que o processo continua de pé.
-  actionRun: (() => { const r = readRun(); return r ? { ...r, attachOnly: true } : null })(),
-  openActionRun: (run) => { saveRun(run); set({ actionRun: run }) },
-  closeActionRun: () => { saveRun(null); set({ actionRun: null }) },
+  // Já nasce com o que ficou de um recarregamento; quem restaura de fato é a
+  // janela, que só se mantém se o servidor confirmar que o processo continua de pé.
+  actionRuns: readRuns().map((r) => ({ ...r, attachOnly: true })),
 
-  // Minimizar e mover gravam junto: são a POSE da janela, e o F5 deve devolver a
-  // janela onde ela estava, não jogá-la de volta no meio da tela.
-  setActionRunMinimized: (minimized) => set((st) => {
-    if (!st.actionRun) return {}
-    const run = { ...st.actionRun, minimized }
-    // Só grava o que ainda está de pé: uma execução terminada saiu do registro de
-    // restauração de propósito (ver `action_exit`), e minimizá-la não a traz de volta.
-    if (!run.exited) saveRun(run)
-    return { actionRun: run }
+  openActionRun: (run) => set((st) => {
+    // Já aberta? Traz para a frente e desencolhe, em vez de abrir uma segunda
+    // janela para o mesmo PTY — duas seriam dois clientes brigando pelo token.
+    const resto = st.actionRuns.filter((r) => r.actionId !== run.actionId)
+    const atual = st.actionRuns.find((r) => r.actionId === run.actionId)
+    const runs: State['actionRuns'] = [...resto, atual ? { ...atual, minimized: false } : run]
+    saveRuns(runs.filter((r) => !r.exited))
+    return { actionRuns: runs }
   }),
 
-  moveActionRun: (x, y) => set((st) => {
-    if (!st.actionRun) return {}
-    const run = { ...st.actionRun, x, y }
-    if (!run.exited) saveRun(run)
-    return { actionRun: run }
+  closeActionRun: (actionId) => set((st) => {
+    const runs = st.actionRuns.filter((r) => r.actionId !== actionId)
+    saveRuns(runs.filter((r) => !r.exited))
+    return { actionRuns: runs }
+  }),
+
+  // Minimizar e mover gravam junto: são a POSE da janela, e o F5 deve devolvê-la
+  // onde ela estava, não jogá-la de volta no canto.
+  setActionRunMinimized: (actionId, minimized) => set((st) => {
+    const runs = st.actionRuns.map((r) => r.actionId === actionId ? { ...r, minimized } : r)
+    // Só grava o que ainda está de pé: uma execução terminada saiu do registro de
+    // restauração de propósito (ver `action_exit`), e minimizá-la não a traz de volta.
+    saveRuns(runs.filter((r) => !r.exited))
+    return { actionRuns: runs }
+  }),
+
+  moveActionRun: (actionId, x, y) => set((st) => {
+    const runs = st.actionRuns.map((r) => r.actionId === actionId ? { ...r, x, y } : r)
+    saveRuns(runs.filter((r) => !r.exited))
+    return { actionRuns: runs }
+  }),
+
+  raiseActionRun: (actionId) => set((st) => {
+    const alvo = st.actionRuns.find((r) => r.actionId === actionId)
+    if (!alvo || st.actionRuns[st.actionRuns.length - 1] === alvo) return {}
+    // Não grava: a ordem de empilhamento é da sessão, não da pose. Regravar a cada
+    // clique só gastaria escrita para restaurar uma informação que ninguém perde.
+    return { actionRuns: [...st.actionRuns.filter((r) => r.actionId !== actionId), alvo] }
   }),
 
   railMode: (() => {
@@ -275,14 +304,17 @@ export const useStore = create<State>((set, get) => ({
 
   applyWsMessage: (msg) => {
     if (msg.type === 'action_exit') {
-      const run = get().actionRun
-      if (!run || run.actionId !== msg.actionId) return
+      const runs = get().actionRuns
+      if (!runs.some((r) => r.actionId === msg.actionId)) return
       // Com "fechar ao terminar" ligado, some sozinha; sem ele, fica aberta com o
-      // resultado à vista — que é o motivo de a caixinha existir.
-      if (run.autoClose) { saveRun(null); set({ actionRun: null }) }
-      // Terminou: sai do registro de restauração mesmo ficando na tela. Um F5 aqui
-      // não deve reabrir a janela de um processo que já não existe.
-      else { saveRun(null); set({ actionRun: { ...run, exited: true } }) }
+      // resultado à vista — que é o motivo de a janela existir.
+      const restantes = runs
+        .filter((r) => !(r.actionId === msg.actionId && r.autoClose))
+        .map((r) => r.actionId === msg.actionId ? { ...r, exited: true } : r)
+      // Terminada sai do registro de restauração mesmo ficando na tela: um F5 não
+      // deve reabrir a janela de um processo que já não existe.
+      saveRuns(restantes.filter((r) => !r.exited))
+      set({ actionRuns: restantes })
     } else if (msg.type === 'sessions_snapshot') {
       const sessions: Record<string, SessionInfo> = {}
       for (const info of msg.sessions as SessionInfo[]) sessions[info.localId] = info

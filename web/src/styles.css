@@ -2391,23 +2391,36 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .actrun__ask button { padding: 4px 12px; font-size: 12.5px; border-radius: var(--radius-sm); }
 .actrun__stop { background: var(--err); color: var(--on-accent); }
 
-/* ----- encolhida ------------------------------------------------------------
-   Minimizar não para nada: é só sair da frente. A pílula existe para o processo
-   continuar TENDO um lugar na tela — foi some-sem-deixar-rastro o defeito que
-   originou esta reforma. Canto inferior direito, onde a janela nasce. */
-.actrun-pill {
-  /* Canto inferior direito, mas ACIMA do rodapé do chat — onde moram o campo, o
-     🎤, o ⚙ e o Send. A altura vem medida do próprio rodapé (ver ChatInput), e não
-     cravada aqui, porque ele cresce conforme se digita. Sem chat na tela a
-     variável não existe e o `0px` do fallback devolve a pílula ao canto. */
+/* ----- encolhidas ------------------------------------------------------------
+   Minimizar não para nada: é só sair da frente. As pílulas existem para os
+   processos continuarem TENDO um lugar na tela — foi some-sem-deixar-rastro o
+   defeito que originou esta reforma.
+
+   Numa FILEIRA, e não empilhadas no mesmo ponto: com duas ações encolhidas, a de
+   cima escondia a de baixo, e um deploy invisível é justamente o que a pílula
+   deveria impedir. Cresce para a esquerda (`row-reverse`), então a que chega por
+   último não empurra as que já estavam.
+
+   O canto é o inferior direito — mas ACIMA do rodapé do chat, onde moram o campo,
+   o 🎤, o ⚙ e o Send. A altura vem medida do próprio rodapé (ver ChatInput), e não
+   cravada aqui, porque ele cresce conforme se digita. Sem chat na tela a variável
+   não existe e o `0px` do fallback devolve a fileira ao canto. */
+.actrun-tray {
   position: fixed; right: 20px; bottom: calc(var(--chat-foot-h, 0px) + 20px); z-index: 60;
+  display: flex; flex-direction: row-reverse; flex-wrap: wrap-reverse;
+  justify-content: flex-start; gap: 8px;
+  max-width: calc(100vw - 40px);
+}
+.actrun-pill {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 14px; border-radius: 999px; cursor: pointer;
   background: var(--surface-strong); border: 1px solid var(--border);
   box-shadow: 0 8px 22px var(--shadow); font-size: 12.5px;
+  /* O nome pode ser longo; a fileira não pode virar uma parede. */
+  max-width: 260px; white-space: nowrap;
 }
 .actrun-pill:hover { border-color: var(--accent); }
-.actrun-pill__name { font-weight: 600; }
+.actrun-pill__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .actrun-pill__state { color: var(--text-dim); }
 
 /* ----- o cadastro ---------------------------------------------------------- */

@@ -18,6 +18,17 @@ let projectId: number
 let pasta: string
 let spawned: { file: string; args: string[] | string; cwd: string; env?: Record<string, string> }[]
 let vivos: Map<string, () => void>
+/** Chaves de PTY que receberam kill — é assim que se prova que nada sobreviveu. */
+let mortos: string[]
+let terminalManager: ReturnType<typeof createTerminalManager>
+
+/** O token continua servindo para ligar? Pergunta ao manager, sem rotacionar nada. */
+const tokenAindaVale = (actionId: number, token: string) => {
+  const socket = { send: () => {}, readyState: 1 }
+  const ok = terminalManager.attach(runKey(actionId), socket, token)
+  if (ok) terminalManager.detach(runKey(actionId), socket)
+  return ok
+}
 
 /** PTY de mentira: registra o que foi pedido e deixa matar na mão. */
 const ptyFalso = () => {
@@ -32,18 +43,26 @@ const ptyFalso = () => {
 
 beforeEach(async () => {
   spawned = []
+  mortos = []
   vivos = new Map()
   db = openDb(':memory:')
   pasta = mkdtempSync(join(tmpdir(), 'acr-'))
   projectId = createProjectsService(db).create({ name: 'Alpha', path: pasta }).id
-  const terminalManager = createTerminalManager({
+  let chave = ''
+  terminalManager = createTerminalManager({
     ptyFactory: (file, args, opts) => {
       spawned.push({ file, args, cwd: opts.cwd, env: opts.env })
       const p = ptyFalso()
+      const minhaChave = chave
+      const kill = p.kill
+      p.kill = () => { mortos.push(minhaChave); kill() }
       vivos.set(`${file} ${[args].flat().join(' ')}`, () => p.kill())
       return p
     },
   })
+  // embrulha o `open` para saber QUAL chave cada PTY falso representa
+  const abrirOriginal = terminalManager.open.bind(terminalManager)
+  terminalManager.open = (localId, opts) => { chave = localId; return abrirOriginal(localId, opts) }
   app = await buildApp({
     db, terminalManager, config: loadConfig({}),
     manager: createSessionManager({ db, broadcast: () => {} }),
@@ -242,5 +261,88 @@ describe('reatar depois de um F5', () => {
     })
     expect(r.statusCode).toBe(409)
     expect(spawned.length).toBe(0)
+  })
+})
+
+/**
+ * Saber se está de pé é uma LEITURA, e leitura não pode ter efeito colateral.
+ *
+ * A listagem usava `refreshToken` para isso — e ele ROTACIONA o token. Abrir o
+ * menu ⋮ enquanto uma ação rodava invalidava o token da janela aberta: a conexão
+ * já estabelecida sobrevivia (o token só é conferido no `attach`), mas qualquer
+ * religação depois falharia. Com um aviso global varrendo tudo de tempos em
+ * tempos, isso passaria a acontecer sozinho, o tempo todo.
+ */
+describe('perguntar se roda não mexe em nada', () => {
+  it('listar as ações não invalida o token de quem está ligado', async () => {
+    const acao = (await criar({ name: 'Deploy', commands: ['sleep 5'] })).json()
+    const { token } = (await app.inject({ method: 'POST', url: `/api/actions/${acao.id}/run` })).json()
+
+    await app.inject({ method: 'GET', url: `/api/projects/${projectId}/actions` })
+    await app.inject({ method: 'GET', url: `/api/projects/${projectId}/actions` })
+
+    // O token de antes tem de continuar valendo — é ele que a janela aberta usaria
+    // para religar. (Um `attachOnly` aqui no meio rotacionaria o token de propósito,
+    // que é outro contrato, travado em "o token da sessão anterior não serve mais".)
+    expect(tokenAindaVale(acao.id, token)).toBe(true)
+  })
+})
+
+/**
+ * A única porta por onde um PTY escapava sem deixar rastro.
+ *
+ * Excluir o terminal apagava o projeto E — por CASCATA — as ações dele, mas
+ * deixava os processos rodando. Medido: um `sleep` sobreviveu à exclusão. E como
+ * a ação sumia do banco, ela deixava de existir para toda a interface e
+ * continuava existindo para o sistema operacional: órfão indescobrível.
+ */
+describe('excluir o terminal leva as ações rodando junto', () => {
+  it('mata os processos antes de apagar', async () => {
+    const a = (await criar({ name: 'Deploy', commands: ['sleep 300'] })).json()
+    const b = (await criar({ name: 'Seed', commands: ['sleep 300'] })).json()
+    await app.inject({ method: 'POST', url: `/api/actions/${a.id}/run` })
+    await app.inject({ method: 'POST', url: `/api/actions/${b.id}/run` })
+    expect(mortos).toEqual([])
+
+    const r = await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}` })
+    expect(r.statusCode).toBe(204)
+    expect(mortos.sort(), 'PTY sobreviveu à exclusão do terminal').toEqual(
+      [runKey(a.id), runKey(b.id)].sort())
+  })
+
+  it('terminal sem ação rodando continua excluindo normalmente', async () => {
+    await criar({ name: 'Deploy', commands: ['ls'] })
+    expect((await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}` })).statusCode).toBe(204)
+  })
+})
+
+/**
+ * A rede de segurança: o que está de pé AGORA, em todos os terminais.
+ *
+ * As listagens são por projeto, então uma execução cuja janela ninguém está
+ * mostrando só apareceria para quem abrisse o menu certo. Este endpoint é o que
+ * permite à interface dizer "há 2 ações rodando" sem que se saiba onde procurar.
+ */
+describe('execuções vivas, em toda a instalação', () => {
+  it('lista o que está rodando, com o terminal de cada uma', async () => {
+    const a = (await criar({ name: 'Deploy', commands: ['sleep 300'] })).json()
+    await criar({ name: 'Parada', commands: ['ls'] })
+    await app.inject({ method: 'POST', url: `/api/actions/${a.id}/run` })
+
+    const vivas = (await app.inject({ method: 'GET', url: '/api/actions/running' })).json()
+    expect(vivas).toMatchObject([{ actionId: a.id, name: 'Deploy', projectId }])
+    expect(vivas[0].projectName).toBe('Alpha')
+  })
+
+  it('sem nada rodando, devolve lista vazia', async () => {
+    await criar({ name: 'Deploy', commands: ['ls'] })
+    expect((await app.inject({ method: 'GET', url: '/api/actions/running' })).json()).toEqual([])
+  })
+
+  it('parar a execução tira ela da lista', async () => {
+    const a = (await criar({ name: 'Deploy', commands: ['sleep 300'] })).json()
+    await app.inject({ method: 'POST', url: `/api/actions/${a.id}/run` })
+    await app.inject({ method: 'DELETE', url: `/api/actions/${a.id}/run` })
+    expect((await app.inject({ method: 'GET', url: '/api/actions/running' })).json()).toEqual([])
   })
 })

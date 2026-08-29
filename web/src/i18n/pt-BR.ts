@@ -20,6 +20,8 @@ export const ptBR: typeof en = {
     commandsHint: 'Um por linha. Rodam em sequência no mesmo shell — o seguinte só começa se o anterior der certo.',
     autoClose: 'Fechar a janela quando terminar',
     minimize: 'Minimizar',
+    orphanWarning_one: '{{count}} ação rodando sem janela',
+    orphanWarning_other: '{{count}} ações rodando sem janela',
     stopAsk: 'Parar o processo?',
     stop: 'Parar',
     running: 'Rodando',

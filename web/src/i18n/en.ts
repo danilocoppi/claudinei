@@ -18,6 +18,8 @@ export const en = {
     commandsHint: 'One per line. They run in sequence in the same shell — each one only starts if the previous succeeded.',
     autoClose: 'Close the window when it finishes',
     minimize: 'Minimize',
+    orphanWarning_one: '{{count}} action running with no window',
+    orphanWarning_other: '{{count}} actions running with no window',
     stopAsk: 'Stop the process?',
     stop: 'Stop',
     running: 'Running',

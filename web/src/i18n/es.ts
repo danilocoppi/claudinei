@@ -20,6 +20,8 @@ export const es: typeof en = {
     commandsHint: 'Uno por línea. Se ejecutan en secuencia en el mismo shell — el siguiente solo empieza si el anterior salió bien.',
     autoClose: 'Cerrar la ventana al terminar',
     minimize: 'Minimizar',
+    orphanWarning_one: '{{count}} acción ejecutándose sin ventana',
+    orphanWarning_other: '{{count}} acciones ejecutándose sin ventana',
     stopAsk: '¿Detener el proceso?',
     stop: 'Detener',
     running: 'Ejecutando',

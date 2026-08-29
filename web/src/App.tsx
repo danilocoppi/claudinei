@@ -14,6 +14,7 @@ import { TasksPanel } from './components/TasksPanel'
 import { TerminalView } from './components/TerminalView'
 import { AuthScreen } from './components/AuthScreen'
 import { ActionRunModal } from './components/ActionRunModal'
+import { OrphanActions } from './components/OrphanActions'
 import { FileViewerModal } from './components/FileViewerModal'
 import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
@@ -128,6 +129,7 @@ export default function App() {
           {view === 'terminal' && <TerminalView />}
         </div>
         <ActionRunModal />
+        <OrphanActions />
         <FileViewerModal />
         <FileOpenMenu />
         <ExternalLinkConfirm />

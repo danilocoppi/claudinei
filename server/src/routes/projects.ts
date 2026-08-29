@@ -4,8 +4,16 @@ import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
 import { canAccessProject, requireAdmin } from '../auth/guards.js'
 import { iconValueOf } from '../icons/value.js'
+import { createActionsStore } from '../actions.js'
+import { runKey } from './actions.js'
+import type { TerminalManager } from '../terminal/manager.js'
 
-export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db; manager: SessionManager }) {
+export function registerProjectRoutes(app: FastifyInstance, deps: {
+  db: Db
+  manager: SessionManager
+  /** Sem ele o servidor não tem como parar as ações do terminal que sai. */
+  terminalManager?: Pick<TerminalManager, 'closeAndWait'>
+}) {
   const svc = createProjectsService(deps.db)
 
   app.get('/api/projects', async (req) =>
@@ -67,6 +75,19 @@ export function registerProjectRoutes(app: FastifyInstance, deps: { db: Db; mana
     ).get(id) as any).c as number
     if (deps.manager.hasActiveSession(id) || inTerminal > 0) {
       return reply.code(409).send({ error: 'projeto tem uma sessão ativa; finalize-a antes de excluir' })
+    }
+    // As ações do terminal morrem COM ele.
+    //
+    // Era a única porta por onde um PTY escapava sem deixar rastro: o `remove`
+    // apaga o projeto e, por cascata, as ações — mas o processo continuava de pé.
+    // E sem a linha no banco, a ação deixava de existir para toda a interface e
+    // continuava existindo para o sistema operacional. Medido com um `sleep`, que
+    // sobreviveu à exclusão do próprio terminal que o criou.
+    if (deps.terminalManager) {
+      const actions = createActionsStore(deps.db)
+      for (const a of actions.list(id)) {
+        await deps.terminalManager.closeAndWait(runKey(a.id))
+      }
     }
     svc.remove(id)
     return reply.code(204).send()

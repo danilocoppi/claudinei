@@ -8,6 +8,7 @@ import { dentroDaTela, JANELA, readRuns, RUN_KEY } from '../actionRun'
 import { TerminalMenu } from '../components/TerminalMenu'
 import { ActionEditor } from '../components/ActionEditor'
 import { ActionRunModal } from '../components/ActionRunModal'
+import { OrphanActions } from '../components/OrphanActions'
 import type { Project } from '../types'
 
 vi.mock('../api', async () => {
@@ -23,6 +24,7 @@ vi.mock('../api', async () => {
     updateAction: vi.fn(async (id: number, input: object) => ({ id, projectId: 1, ...input })),
     deleteAction: vi.fn(async () => undefined),
     stopAction: vi.fn(async () => undefined),
+    fetchRunningActions: vi.fn(async () => []),
     runAction: vi.fn(async () => ({ token: 't', wsUrl: '/ws/terminal/act-7', reattached: false })),
     createSector: vi.fn(async (name: string) => ({ id: 42, name })),
     setProjectSector: vi.fn(async () => undefined),
@@ -593,5 +595,61 @@ describe('o formato antigo do armazenamento', () => {
     expect(readRuns()).toMatchObject([{ actionId: 9 }])
     localStorage.setItem(RUN_KEY, 'não é json')
     expect(readRuns()).toEqual([])
+  })
+})
+
+/**
+ * A rede de segurança contra o processo esquecido.
+ *
+ * Fechar mata, minimizar mostra a pílula, o F5 restaura o que estava aberto — mas
+ * nada disso alcança quem entrou de OUTRO navegador, limpou o armazenamento ou
+ * usou aba anônima. Ali o deploy segue de pé no servidor sem nada na tela que o
+ * mostre, e quem não sabe que ele existe não sabe onde procurar.
+ */
+describe('aviso de ação rodando sem janela', () => {
+  const rodandoNoServidor = (lista: object[]) =>
+    vi.mocked(api.fetchRunningActions).mockResolvedValue(lista as never)
+
+  it('avisa o que o servidor tem de pé e ninguém está vendo', async () => {
+    rodandoNoServidor([{ actionId: 7, name: 'Deploy', projectId: 1, projectName: 'Alvo' }])
+    render(<OrphanActions />)
+    await waitFor(() => expect(screen.getByTestId('orphan-actions')).toBeTruthy())
+    expect(screen.getByTestId('orphan-show-7').textContent).toBe('Deploy')
+  })
+
+  /** O que já tem janela não é esquecido — é acompanhado. */
+  it('cala sobre o que já está na tela, aberto ou encolhido', async () => {
+    rodandoNoServidor([{ actionId: 7, name: 'Deploy', projectId: 1, projectName: 'Alvo' }])
+    useStore.setState({ actionRuns: [{ actionId: 7, name: 'Deploy', autoClose: false, minimized: true }] })
+    render(<OrphanActions />)
+    await waitFor(() => expect(api.fetchRunningActions).toHaveBeenCalled())
+    expect(screen.queryByTestId('orphan-actions')).toBeNull()
+  })
+
+  it('sem nada de pé, não aparece', async () => {
+    rodandoNoServidor([])
+    render(<OrphanActions />)
+    await waitFor(() => expect(api.fetchRunningActions).toHaveBeenCalled())
+    expect(screen.queryByTestId('orphan-actions')).toBeNull()
+  })
+
+  /** Clicar traz de volta para a tela — e REATA, nunca dispara de novo. */
+  it('mostrar devolve o processo para uma janela, sem redisparar', async () => {
+    rodandoNoServidor([{ actionId: 7, name: 'Deploy', projectId: 1, projectName: 'Alvo' }])
+    render(<OrphanActions />)
+    fireEvent.click(await screen.findByTestId('orphan-show-7'))
+    const run = useStore.getState().actionRuns[0]
+    expect(run.actionId).toBe(7)
+    expect(run.attachOnly, 'sem attachOnly, mostrar publicaria o deploy de novo').toBe(true)
+  })
+
+  /** Dispensar esconde o aviso e NÃO para nada: quem sabe do processo e o quer
+   *  rodando não deve escolher entre matá-lo e conviver com um alerta eterno. */
+  it('dá para dispensar sem matar nada', async () => {
+    rodandoNoServidor([{ actionId: 7, name: 'Deploy', projectId: 1, projectName: 'Alvo' }])
+    render(<OrphanActions />)
+    fireEvent.click(await screen.findByTestId('orphan-dismiss'))
+    expect(screen.queryByTestId('orphan-actions')).toBeNull()
+    expect(api.stopAction).not.toHaveBeenCalled()
   })
 })

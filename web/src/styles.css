@@ -2423,6 +2423,34 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .actrun-pill__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .actrun-pill__state { color: var(--text-dim); }
 
+/* ----- ação rodando sem janela ----------------------------------------------
+   A rede de segurança. Fechar mata, minimizar mostra a pílula, o F5 restaura —
+   mas nada disso alcança quem entrou de outro navegador ou limpou o
+   armazenamento: ali o processo segue de pé sem nada na tela que o mostre.
+
+   Fica no ALTO, e não junto das pílulas: é um aviso, não um item de bandeja, e
+   precisa ser visto por quem não estava procurando. */
+.orphan-actions {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 61;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  max-width: calc(100vw - 32px);
+  padding: 8px 12px; border-radius: 999px; font-size: 12.5px;
+  background: var(--surface-strong); border: 1px solid var(--warn);
+  box-shadow: 0 8px 22px var(--shadow);
+}
+.orphan-actions__dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--warn); animation: act-pulse 1.6s ease-in-out infinite;
+}
+.orphan-actions__text { color: var(--text-dim); }
+.orphan-actions__show {
+  padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--text);
+}
+.orphan-actions__show:hover { background: var(--warn); color: var(--on-accent); }
+.orphan-actions__close { padding: 2px 6px; background: transparent; color: var(--text-dim); }
+.orphan-actions__close:hover { color: var(--text); }
+
 /* ----- o cadastro ---------------------------------------------------------- */
 .acted { width: 460px; max-width: calc(100vw - 32px); border-radius: var(--radius); padding: 20px; cursor: default; }
 .acted__title { margin: 0 0 14px; }

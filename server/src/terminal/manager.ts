@@ -144,6 +144,18 @@ export function createTerminalManager(deps: { ptyFactory: PtyFactory }) {
       return !!e && !e.exited
     },
 
+    /**
+     * Está de pé? Pergunta SEM efeito colateral.
+     *
+     * Existe porque `refreshToken` rotaciona o token, e usá-lo para uma simples
+     * conferência invalidava a ligação de quem estava conectado — um aviso que
+     * varresse tudo periodicamente quebraria todos os tokens a cada varredura.
+     */
+    isAlive(localId: string): boolean {
+      const entry = entries.get(localId)
+      return !!entry && !entry.exited
+    },
+
     refreshToken(localId: string): string | null {
       const entry = entries.get(localId)
       if (!entry || entry.exited) return null

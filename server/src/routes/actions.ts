@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { requireProjectAccess } from '../auth/guards.js'
+import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
 import { isLocalRequest } from '../auth/plugin.js'
 import { desktopEnv, graphicalEnv, ORIG_LD } from '../localApps.js'
 import type { ActionsStore } from '../actions.js'
@@ -9,7 +9,7 @@ import type { TerminalManager } from '../terminal/manager.js'
 export interface ActionsRouteDeps {
   actions: ActionsStore
   projects: ProjectsService
-  terminalManager: Pick<TerminalManager, 'open' | 'refreshToken' | 'closeAndWait'>
+  terminalManager: Pick<TerminalManager, 'open' | 'refreshToken' | 'closeAndWait' | 'isAlive'>
   broadcast?: (msg: object) => void
   /** Injetáveis para o teste não depender da máquina. */
   platform?: NodeJS.Platform
@@ -93,9 +93,34 @@ export function registerActionRoutes(app: FastifyInstance, deps: ActionsRouteDep
     if (!requireProjectAccess(req, reply, projectId)) return
     // `running` vem do PTY, não de uma tabela: o que está de pé é o processo, e
     // uma coluna no banco só teria como mentir depois de um restart.
+    // `isAlive` e não `refreshToken`: o segundo ROTACIONA o token, e uma listagem
+    // não pode invalidar a ligação da janela que já está aberta.
     return deps.actions.list(projectId).map((a) => ({
-      ...a, running: !!deps.terminalManager.refreshToken(runKey(a.id)),
+      ...a, running: deps.terminalManager.isAlive(runKey(a.id)),
     }))
+  })
+
+  /**
+   * O que está de pé AGORA, em todos os terminais.
+   *
+   * As outras listagens são por projeto, então uma execução cuja janela ninguém
+   * está mostrando só apareceria para quem abrisse o menu certo — e quem não sabe
+   * que ela existe não sabe onde procurar. É daqui que sai o aviso de "há ações
+   * rodando" que devolve o processo esquecido para a tela.
+   */
+  app.get('/api/actions/running', async (req) => {
+    const vivas = []
+    for (const project of deps.projects.list()) {
+      if (!canAccessProject(req.authUser, project.id)) continue
+      for (const a of deps.actions.list(project.id)) {
+        if (!deps.terminalManager.isAlive(runKey(a.id))) continue
+        vivas.push({
+          actionId: a.id, name: a.name,
+          projectId: project.id, projectName: project.name,
+        })
+      }
+    }
+    return vivas
   })
 
   app.post('/api/projects/:id/actions', async (req, reply) => {

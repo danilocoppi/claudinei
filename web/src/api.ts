@@ -28,6 +28,12 @@ export interface Action {
 }
 type ActionInput = { name: string; commands: string[]; autoClose: boolean }
 export const fetchActions = (projectId: number) => req<Action[]>(`/api/projects/${projectId}/actions`)
+
+/** O que está de pé AGORA, em todos os terminais — a rede contra processo esquecido. */
+export interface RunningAction {
+  actionId: number; name: string; projectId: number; projectName: string
+}
+export const fetchRunningActions = () => req<RunningAction[]>('/api/actions/running')
 export const createAction = (projectId: number, input: ActionInput) =>
   req<Action>(`/api/projects/${projectId}/actions`, { method: 'POST', body: JSON.stringify(input) })
 export const updateAction = (id: number, input: ActionInput) =>

@@ -1,6 +1,7 @@
 # Claudinei
 
-Local web interface to control **multiple Claude Code sessions**, each one in the context of its own project.
+Local web interface to control **multiple coding-agent sessions** — Claude Code, Codex,
+Kimi and OpenCode — each one in the context of its own project.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/29657b34-9e70-4947-bf78-472410114ab8" alt="Claudinei overview — sidebar with grouped terminals, sessions and usage" width="850">
@@ -13,7 +14,13 @@ Local web interface to control **multiple Claude Code sessions**, each one in th
 - **Board & Tasks (hermes MCP)**: agents talk to each other (`ask_agent`), publish to a shared **board** (`post_to_board`) and dispatch **tasks** to one another (`dispatch_task`) with an **automatic queue** — click the ⓘ in the sidebar footer for the full documentation.
 - **Usage card**: the `/usage` bars (session, week, per model) in the sidebar, with **pace coloring** — green if your consumption reaches the reset without maxing out, red if you're burning too fast.
 - **Per-session ⚙**: hot-swap **model**, **effort** (low→ultracode, persisted) and **permission mode**.
-- Multi-project, multi-session, resume conversations (`--continue`/`--resume`), notifications, i18n (en/es/pt-BR).
+- **Actions**: commands a terminal repeats with one click — name it once (`awsVAEXA` + `npm run deploy`) and it runs in a floating window you can drag, minimize and type into. Survives a page reload: the process lives on the server, so F5 finds the deploy still running instead of starting a second one.
+- **Shell shortcut**: a message starting with `!` runs in the terminal's folder instead of going to the agent — `!ls`, `!git status`.
+- **Schedules**: recurring tasks per terminal (every N minutes/hours, daily, weekly, monthly or cron), each with its own engine/model/effort and a history of results.
+- **Sectors → groups → terminals**: a three-level tree for when a dozen projects stop fitting in a flat list. Collapse the whole sidebar into a rail and depth still reads, without indentation.
+- **Open on this machine**: from a terminal's ⋮ menu, open its folder, VS Code or your terminal emulator (which one is configurable) — only when you're browsing from the machine that hosts the server.
+- **Multi-user**: login, per-terminal access for non-admins, lockout after failed attempts.
+- Multi-project, multi-session, resume conversations (`--continue`/`--resume`), notifications, themes, i18n (en/es/pt-BR).
 
 Everything runs **on `127.0.0.1` only** — nothing is exposed to the network.
 
@@ -24,15 +31,49 @@ Everything runs **on `127.0.0.1` only** — nothing is exposed to the network.
 ## Architecture
 
 ```
-Termaster/
+claudinei/
 ├── server/   Fastify 5 + better-sqlite3 + node-pty + sherpa-onnx  → http://127.0.0.1:9105
 ├── web/      React 18 + Vite 6 + zustand + xterm.js               → http://localhost:9100 (proxy to 9105)
-└── scripts/  utilities (emoji font for Linux)
+└── scripts/  packaging, emoji font (Linux), autostart (Windows)
 ```
 
 The frontend talks to the backend via REST + WebSocket (`/ws` for session events; `/ws/terminal/:id` for the embedded terminal's binary channel). Data lives in `~/.claudinei/` (SQLite, uploads, voice model). Upgrading from an older install? The legacy `~/.termaster/` folder is migrated automatically on first boot.
 
-## Prerequisites (both platforms)
+## Installation
+
+### 🤖 The easiest way: clone it and ask an agent
+
+This project is a cockpit for coding agents — so let one of them install it. Clone the
+repo, open it with **Claude Code**, **Codex**, **Kimi**, **OpenCode** or whichever agent
+you use, and ask it to do the whole thing:
+
+```bash
+git clone https://github.com/danilocoppi/claudinei.git
+cd claudinei
+claude          # or: codex · kimi · opencode · your agent of choice
+```
+
+Then paste something like this:
+
+> Install this project on my machine and set it up to start with the operating system.
+> Read the README first. Detect my OS and distro, install the dependencies, compile the
+> native modules with a compiler that works here, build the single-file binary, and
+> register it as a service (systemd user unit on Linux, Task Scheduler on Windows).
+> Show me the service file before creating it, and at the end confirm the app answers
+> on http://127.0.0.1:9105.
+
+The agent has everything it needs: this README documents each platform's traps, and
+`scripts/windows/` already carries the autostart scripts. It will read your actual
+environment — compiler version, where `node` and `claude` live, whether you're on WSL —
+which is exactly the part that generic instructions get wrong.
+
+**Two things worth asking for:** that it *shows you the service file* before writing it
+(it's going to run on every boot), and that it *tells you what it installed globally*.
+
+Prefer doing it by hand? The rest of this section is the manual path, and it's what the
+agent will follow anyway.
+
+### Prerequisites (both platforms)
 
 | Requirement | Detail |
 |---|---|
@@ -52,24 +93,31 @@ The frontend talks to the backend via REST + WebSocket (`/ws` for session events
 ### 1. Install
 
 ```bash
-git clone <this-repo> Termaster
-cd Termaster
+git clone https://github.com/danilocoppi/claudinei.git
+cd claudinei
 npm install
 ```
 
-### 2. The `node-pty` gotcha (important)
+### 2. The compiler gotcha (important)
 
-The embedded terminal uses **`node-pty`**, a native C++ module. It ships **no prebuilt binary for Linux** — it compiles during `npm install`, and with **Node 24 it requires a C++20-capable compiler (g++ 10 or newer)**.
+Three native C++ modules get compiled here — **`node-pty`** (embedded terminal),
+**`better-sqlite3`** (database) and **`sherpa-onnx`** (voice). `node-pty` ships **no
+prebuilt binary for Linux**, so it always compiles, and with **Node 22+ it requires a
+C++20-capable compiler (g++ 10 or newer)**.
 
-- **Ubuntu 22.04+ / recent distros:** the default g++ is enough; `npm install` compiles it on its own.
-- **Ubuntu 20.04 / Zorin 16 (g++ 9.4):** the build fails with `unrecognized command line option '-std=gnu++20'`. Fix it like this:
+- **Ubuntu 22.04+ / recent distros:** the default g++ is enough; `npm install` just works.
+- **Ubuntu 20.04 / Zorin 16 (g++ 9.4):** the install fails with `unrecognized command line
+  option '-std=gnu++20'` — and npm then **rolls the whole thing back**, leaving you with no
+  `node_modules` at all. Point the build at a newer compiler **from the root install**:
 
 ```bash
 sudo apt install -y gcc-10 g++-10
-cd node_modules/node-pty
-CXX=g++-10 CC=gcc-10 npm run install
-cd ../..
+CC=gcc-10 CXX=g++-10 npm install
 ```
+
+> Pass the compiler on the **root** `npm install`, not by rebuilding `node_modules/node-pty`
+> after the fact: the variables reach every native module in one go, and the failure isn't
+> `node-pty`-specific — it's the toolchain.
 
 Verify:
 
@@ -77,7 +125,9 @@ Verify:
 node -e "require('node-pty'); console.log('node-pty OK')"
 ```
 
-> ⚠️ **If you recreate `node_modules`** (`rm -rf node_modules`, `npm ci`), repeat the `CXX=g++-10` block above — npm falls back to the default g++ and the build fails again (sometimes silently).
+> ⚠️ **Every time you recreate `node_modules`** (`rm -rf node_modules`, `npm ci`, a fresh
+> clone), pass `CC`/`CXX` again — npm falls back to the default g++ and the build fails the
+> same way.
 
 ### 3. Voice transcription (optional, recommended)
 
@@ -103,29 +153,41 @@ Then **close the browser completely** and reopen it.
 
 ### 5. Run
 
-```bash
-npm run dev          # dev: backend (9105) + Vite (9100) together, with hot reload
-```
-
-**Single command (one process, one port)** — the backend serves the built SPA too:
+**To use the app** — one process, one port. The backend serves the built SPA too, so
+there's no separate Vite port:
 
 ```bash
 npm run build -w web    # build the frontend once (or whenever it changes)
-npm start               # or: node bin/claudinei.mjs  →  http://127.0.0.1:9105
+npm start               # or: node bin/claudinei.mjs
 ```
 
-The first run auto-downloads the Parakeet voice model if missing. Flags: `npm start -- --host 0.0.0.0 --port 9105` (exposing on the LAN is refused without auth — pass `--insecure` to force it on a trusted network, at your own risk).
+Open **http://127.0.0.1:9105**, create a project pointing at one of your folders and start
+a session. The first run auto-downloads the Parakeet voice model if missing. Flags go after
+`--`: `npm start -- --host 0.0.0.0 --port 9105` (exposing on the LAN is refused without
+auth — pass `--insecure` to force it on a trusted network, at your own risk).
 
-Or in two terminals (cleaner logs):
+**To work on the app** — two processes and hot reload, on **http://localhost:9100** (Vite
+proxies the API to 9105):
+
+```bash
+npm run dev             # both together
+```
+
+Or in two terminals, for cleaner logs:
 
 ```bash
 npm run dev -w server   # Fastify at http://127.0.0.1:9105
 npm run dev -w web      # Vite at http://localhost:9100
 ```
 
-Open **http://localhost:9100**, create a project pointing at one of your folders and start a session.
+> Mind which URL you open: **9105** is the app; **9100** only exists in dev mode.
 
 ### 6. Start with the system (systemd)
+
+> **For everyday use, prefer the single-file binary** — one service instead of two, no
+> `node_modules` to keep alive, and a restart picks up the new build. Jump to
+> [Run the binary as a service](#run-the-binary-as-a-service-systemd). The two services
+> below run the app **from source**, which is what you want while developing it.
 
 Two **user** services (no root needed; they run with your PATH/HOME, which is where `claude` and `~/.claudinei` live):
 
@@ -138,7 +200,7 @@ Description=Claudinei backend (Fastify)
 After=network.target
 
 [Service]
-WorkingDirectory=%h/Projects/Termaster/server
+WorkingDirectory=%h/claudinei/server
 ExecStart=/usr/bin/env npx tsx src/index.ts
 Restart=on-failure
 RestartSec=3
@@ -155,7 +217,7 @@ Description=Claudinei frontend (Vite)
 After=claudinei-server.service
 
 [Service]
-WorkingDirectory=%h/Projects/Termaster/web
+WorkingDirectory=%h/claudinei/web
 ExecStart=/usr/bin/env npx vite --port 9100 --strictPort
 Restart=on-failure
 RestartSec=3
@@ -169,7 +231,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now claudinei-server claudinei-web
 ```
 
-> Adjust `%h/Projects/Termaster` if the repo lives elsewhere, and `Environment=PATH=` to include wherever **your** `node`/`claude` live (`which node`, `which claude`).
+> Adjust `%h/claudinei` if the repo lives elsewhere, and `Environment=PATH=` to include wherever **your** `node`/`claude` live (`which node`, `which claude`).
 
 - **Status/logs:** `systemctl --user status claudinei-server` · `journalctl --user -u claudinei-server -f`
 - **Stop/disable:** `systemctl --user disable --now claudinei-server claudinei-web`
@@ -182,7 +244,12 @@ systemctl --user enable --now claudinei-server claudinei-web
 
 ## 🪟 Windows
 
-> The code was **designed** to be cross-platform (no hardcoded paths, shell-less spawn, ConPTY via node-pty), but it has **not been validated** on Windows yet. These steps are the expected path; if anything fails, WSL is the guaranteed route.
+> **What's actually been tested here.** The autostart (Task Scheduler) was validated on
+> Windows 11 — including the no-visible-window behaviour, measured window by window (see
+> below). The cross-platform plumbing is deliberate: no hardcoded paths, shell-less spawn,
+> ConPTY through node-pty, `PATH` resolution for the embedded terminal, `cmd.exe` quoting
+> for Actions. What has **not** had a full end-to-end pass is day-to-day use — chat, voice,
+> the engines. If something breaks, WSL is the guaranteed route.
 
 ### Option A — WSL2 (recommended)
 
@@ -198,7 +265,7 @@ Inside the WSL Ubuntu, follow the **Linux** section above (on 24.04 the default 
 
 ```powershell
 schtasks /create /tn "Claudinei (WSL)" /sc onlogon ^
-  /tr "wsl -d Ubuntu-24.04 -u YOUR_USER bash -lc 'cd ~/Termaster && npm run dev'"
+  /tr "wsl -d Ubuntu-24.04 -u YOUR_USER bash -lc 'cd ~/claudinei && npm run dev'"
 ```
 
 (Or, inside WSL with systemd enabled — `/etc/wsl.conf` with `[boot] systemd=true` — use the systemd services from the Linux section.)
@@ -220,11 +287,21 @@ schtasks /create /tn "Claudinei (WSL)" /sc onlogon ^
 **Install and run:**
 
 ```powershell
-git clone <this-repo> Termaster
-cd Termaster
+git clone https://github.com/danilocoppi/claudinei.git
+cd claudinei
 npm install
+npm run build -w web    # build the frontend once (or whenever it changes)
+npm start               # or: node bin\claudinei.mjs
+```
+
+Open **http://127.0.0.1:9105** — one process, one port, same as on Linux (the backend
+serves the built SPA, so there's no separate Vite port).
+
+**To work on the app** instead, use two terminals:
+
+```powershell
 npm run dev -w server    # in one terminal
-npm run dev -w web       # in another terminal
+npm run dev -w web       # in another  →  http://localhost:9100
 ```
 
 > The root `npm run dev` uses `&`/`wait` (POSIX shell syntax) and **does not work in PowerShell/cmd** — start the two workspaces in separate terminals (or use Git Bash).
@@ -239,12 +316,12 @@ $env:CLAUDINEI_CLAUDE_BIN = "C:\Users\<you>\AppData\Roaming\npm\claude.cmd"
 fail with `File not found:` (no name after the colon — that's the tell). `server/src/terminal/pty.ts`
 resolves the name against `PATH`/`PATHEXT` before spawning; on Linux/macOS it's a no-op.
 
-**Single command (one process, one port)** — like on Linux, the backend also serves the built SPA, so there's no separate Vite port:
-
-```powershell
-npm run build -w web    # build the frontend once (or whenever it changes)
-npm start               # or: node bin\claudinei.mjs  →  http://127.0.0.1:9105
-```
+**Actions and `!` commands** run through `cmd.exe /c`. `&&` chains work there exactly as in
+bash, but the command line is passed **raw**, because the default argument quoting escapes
+inner quotes the C compiler's way (`\"`) — which `cmd.exe` doesn't understand, and which
+turned a `git commit -m "message"` into literal backslashes. Aliases are the one thing that
+doesn't carry over: `doskey` macros don't exist in a non-interactive `cmd /c`, so the
+Windows equivalent of a shell alias is a `.bat`/`.cmd` on the `PATH`.
 
 ### Start with Windows (Task Scheduler)
 
@@ -336,9 +413,9 @@ Description=Claudinei
 After=network.target
 
 [Service]
-ExecStart=%h/Projects/Termaster/release/claudinei-linux-x64
+ExecStart=%h/claudinei/release/claudinei-linux-x64
 # expose on the LAN instead? use:
-# ExecStart=%h/Projects/Termaster/release/claudinei-linux-x64 --host 0.0.0.0
+# ExecStart=%h/claudinei/release/claudinei-linux-x64 --host 0.0.0.0
 Restart=on-failure
 RestartSec=3
 # claude/codex/opencode/kimi must be on the service PATH (check with `which claude`):
@@ -352,7 +429,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now claudinei
 ```
 
-> Adjust `%h/Projects/Termaster` if the repo lives elsewhere, and `Environment=PATH=`
+> Adjust `%h/claudinei` if the repo lives elsewhere, and `Environment=PATH=`
 > to include wherever **your** `node`/`claude` live.
 
 - **Status/logs:** `systemctl --user status claudinei` · `journalctl --user -u claudinei -f`
@@ -424,11 +501,16 @@ Tests do **not** need the native node-pty (fake PTY), the real Claude (`fake-cla
 | `CLAUDINEI_HOST` | `127.0.0.1` | bind address (`0.0.0.0` to expose on the LAN — requires at least one user configured, or `--insecure`; see **Multi-user authentication**) |
 | `CLAUDINEI_DB` | `~/.claudinei/claudinei.db` | SQLite path |
 | `CLAUDINEI_CLAUDE_BIN` | `claude` | Claude Code binary (useful on Windows/out-of-PATH installs) |
+| `CLAUDINEI_CODEX_BIN` | `codex` | Codex CLI binary |
+| `CLAUDINEI_OPENCODE_BIN` | `opencode` | OpenCode CLI binary |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | where Claude Code keeps transcripts (history) and credentials (usage card) |
 | `CLAUDINEI_SPEECH` | `~/.claudinei/speech` | voice model folder (Parakeet) |
 | `CLAUDINEI_UPLOADS` | `~/.claudinei/uploads` | chat uploads (automatic rotation) |
+| `CLAUDINEI_SCHEDULES` | `~/.claudinei/schedules` | scheduled-task results on disk |
 | `CLAUDINEI_API` | `http://127.0.0.1:<port>` | URL the hermes MCP uses to talk to the backend |
 | `CLAUDINEI_HERMES_SCRIPT` | `server/hermes/hermes-mcp.mjs` | hermes MCP server path |
+| `CLAUDINEI_HERMES_COMMAND` | the running `node` | interpreter that starts the hermes MCP |
+| `CLAUDINEI_HERMES_ARGS` | — | extra args for it, as a JSON array |
 | `CLAUDINEI_KEEP_SESSIONS` | `5` | finished sessions kept per project (startup prune) |
 
 ## How to use (quick flow)
@@ -441,13 +523,14 @@ Tests do **not** need the native node-pty (fake PTY), the real Claude (`fake-cla
 6. Need the TUI (approve a permission, interactive command)? **🖥 Open in terminal** on the title. **← Back to chat** brings the session back ready.
 7. **Board** and **Tasks** in the sidebar show agent collaboration — the **ⓘ** next to "Terminal Interaction" explains everything with examples.
 8. The **Usage** card shows your plan limits in real time (color = pace: green = sustainable until reset).
+9. Repeating the same commands in a terminal? The **⋮** menu has **Actions** — register them once, run with a click. And a message starting with **`!`** (`!git status`) runs right there instead of going to the agent.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `EADDRINUSE 127.0.0.1:9105` on startup | a backend is already running (another terminal, systemd, background) | `pkill -f "tsx.*src/index.ts"` (or `systemctl --user stop claudinei-server`) and start again |
-| Embedded terminal errors on open | node-pty without a compiled binary (Linux, old g++) | **Linux → node-pty** section |
+| Embedded terminal errors on open | node-pty without a compiled binary (Linux, old g++) | **Linux → the compiler gotcha** section |
 | 🎤 says "transcription model not installed" | voice setup never ran | `cd server && npm run setup:speech` |
 | 🎤 transcribes nonsense | microphone signal too low (the app warns "signal too low") | raise the mic's physical gain; speak closer |
 | Usage card doesn't show | no `~/.claude/.credentials.json` (Claude Code not logged in) | run `claude` and log in |

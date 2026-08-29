@@ -180,8 +180,30 @@ export function ChatInput({
   }
   const endMic = () => { micBase.current = null }
 
+  /**
+   * O rodapé publica a própria altura para quem flutua por cima da tela.
+   *
+   * A pílula da ação minimizada mora no canto inferior direito, que é exatamente
+   * onde ficam o campo, o 🎤, o ⚙ e o Send — e ela caía em cima deles. Um `bottom`
+   * cravado não resolveria: este rodapé CRESCE conforme se digita, então numa
+   * mensagem de várias linhas a colisão voltaria. Publicando a altura medida, quem
+   * está por cima se afasta na medida certa, e acompanha o campo crescendo.
+   */
+  const footRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = footRef.current
+    if (!el) return
+    const publica = () => document.documentElement.style.setProperty('--chat-foot-h', `${el.offsetHeight}px`)
+    publica()
+    const obs = new ResizeObserver(publica)
+    obs.observe(el)
+    // Some ao desmontar: fora do chat não há rodapé, e uma altura fantasma deixaria
+    // a pílula flutuando no meio do nada.
+    return () => { obs.disconnect(); document.documentElement.style.removeProperty('--chat-foot-h') }
+  }, [])
+
   return (
-    <div style={{ padding: 16, borderTop: '1px solid var(--glass-border)' }}>
+    <div ref={footRef} style={{ padding: 16, borderTop: '1px solid var(--glass-border)' }}>
       <div style={{ position: 'relative', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         {slashOpen && (
           <SlashMenu items={slashMatches} activeIndex={Math.min(activeIndex, slashMatches.length - 1)} onPick={pickSlash} />

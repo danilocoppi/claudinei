@@ -455,3 +455,27 @@ describe('criar setor pelo menu do terminal', () => {
     expect(api.createSector).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * A pílula fica no canto inferior direito — mas ACIMA do rodapé do chat, nunca
+ * por cima do campo de digitação, do microfone, do ⚙ ou do Send.
+ *
+ * Um `bottom` fixo não serviria: aquele rodapé cresce conforme se digita, e numa
+ * mensagem de várias linhas a pílula voltaria a cair em cima dos botões. Então
+ * quem manda é a altura MEDIDA do rodapé, publicada por ele numa variável CSS.
+ */
+describe('a pílula não encosta no rodapé do chat', () => {
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles.css'), 'utf8')
+
+  it('a posição sai da altura medida do rodapé, não de um número cravado', () => {
+    const regra = css.match(/\.actrun-pill\s*\{[^}]*\}/)![0]
+    expect(regra).toMatch(/bottom:\s*calc\([^)]*var\(--chat-foot-h/)
+    expect(regra).toMatch(/right:/)
+  })
+
+  /** Sem chat na tela (dashboard, terminal) a variável não existe: pousa no canto. */
+  it('tem um padrão para quando não há rodapé nenhum', () => {
+    const regra = css.match(/\.actrun-pill\s*\{[^}]*\}/)![0]
+    expect(regra, 'sem fallback, a pílula somiria da tela fora do chat').toMatch(/var\(--chat-foot-h,\s*0/)
+  })
+})

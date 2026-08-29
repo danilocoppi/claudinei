@@ -47,3 +47,14 @@ if (!window.matchMedia) {
     addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia
 }
+
+// Idem para o ResizeObserver: o rodapé do chat mede a própria altura com ele para
+// que a pílula da ação minimizada se afaste na medida certa.
+if (!globalThis.ResizeObserver) {
+  class Stub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = Stub
+}

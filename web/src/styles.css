@@ -2396,7 +2396,11 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
    continuar TENDO um lugar na tela — foi some-sem-deixar-rastro o defeito que
    originou esta reforma. Canto inferior direito, onde a janela nasce. */
 .actrun-pill {
-  position: fixed; right: 20px; bottom: 20px; z-index: 60;
+  /* Canto inferior direito, mas ACIMA do rodapé do chat — onde moram o campo, o
+     🎤, o ⚙ e o Send. A altura vem medida do próprio rodapé (ver ChatInput), e não
+     cravada aqui, porque ele cresce conforme se digita. Sem chat na tela a
+     variável não existe e o `0px` do fallback devolve a pílula ao canto. */
+  position: fixed; right: 20px; bottom: calc(var(--chat-foot-h, 0px) + 20px); z-index: 60;
   display: flex; align-items: center; gap: 8px;
   padding: 8px 14px; border-radius: 999px; cursor: pointer;
   background: var(--surface-strong); border: 1px solid var(--border);

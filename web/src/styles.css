@@ -2293,3 +2293,88 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   0%, 100% { transform: translateX(-14%); } 30% { transform: translateX(14%); }
   55% { transform: translateX(-3%); } 80% { transform: translateX(8%); }
 }
+
+
+/* ===== AÇÕES — os comandos que um terminal repete com um clique ==============
+   Elas vivem dentro de "nesta máquina", no menu ⋮, e não numa tela própria: uma
+   ação é do terminal, e o lugar dela é ao lado de "abrir a pasta" e "abrir o
+   VS Code" — as outras coisas que só existem onde o projeto está. */
+
+/* A tarja da seção vira linha: o rótulo à esquerda, o + à direita. É o único
+   eyebrow do menu com um botão, e por isso ganha esta variante em vez de o
+   .sess-pop__eyebrow virar flex para todo mundo. */
+.sess-pop__eyebrow--row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sess-pop__add {
+  flex: none; padding: 0 6px; line-height: 18px; font-size: 13px;
+  border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--text-dim);
+}
+.sess-pop__add:hover { background: var(--accent); color: var(--on-accent); }
+
+.sess-pop__empty { font-size: 12px; color: var(--text-dim); padding: 2px 10px 6px; font-style: italic; }
+
+/* Editar e excluir só APARECEM no hover da linha. Duas ações secundárias visíveis
+   em cada item transformariam a lista num painel de administração — e o clique
+   que se quer aqui, em 99% das vezes, é o de rodar. */
+.sess-pop__item--act { padding-right: 4px; }
+.sess-pop__act-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-pop__act-btn {
+  flex: none; padding: 4px; line-height: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-dim); opacity: 0;
+}
+.sess-pop__item--act:hover .sess-pop__act-btn { opacity: 1; }
+.sess-pop__act-btn:hover { background: var(--surface-strong); color: var(--text); }
+.sess-pop__act-btn--danger:hover { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
+
+/* O ponto de "esta está rodando agora". Pulsa porque a informação é que algo está
+   VIVO — um ponto parado leria como um marcador de seleção. */
+.sess-pop__act-live {
+  flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok); animation: act-pulse 1.6s ease-in-out infinite;
+}
+@keyframes act-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
+
+/* ----- a janelinha onde a ação roda ----------------------------------------
+   Não é modal de confirmação: é uma tela de trabalho que fica aberta enquanto o
+   deploy anda. Por isso um retângulo largo e baixo, ancorado embaixo à direita e
+   não centralizado — para não tapar a conversa de quem quer continuar lendo. */
+.actrun__overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: flex-end; justify-content: flex-end; padding: 20px;
+}
+.actrun {
+  display: flex; flex-direction: column;
+  width: min(720px, calc(100vw - 40px)); height: min(420px, calc(100vh - 40px));
+  border-radius: var(--radius); overflow: hidden; cursor: default;
+  box-shadow: 0 18px 44px var(--shadow);
+}
+.actrun__bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12.5px;
+}
+.actrun__dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ok); animation: act-pulse 1.6s ease-in-out infinite;
+}
+/* Terminou: para de pulsar e esfria. A caixinha continua aberta (é o que a opção
+   "fechar ao terminar" desligada quer dizer), então precisa dizer que acabou. */
+.actrun__dot--done { background: var(--text-dim); animation: none; }
+.actrun__name { flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.actrun__state { flex: 1; color: var(--text-dim); }
+.actrun__close { flex: none; padding: 2px 8px; background: transparent; color: var(--text-dim); }
+.actrun__close:hover { color: var(--text); background: var(--surface-strong); }
+.actrun__screen { flex: 1; min-height: 0; padding: 6px; }
+
+/* ----- o cadastro ---------------------------------------------------------- */
+.acted { width: 460px; max-width: calc(100vw - 32px); border-radius: var(--radius); padding: 20px; cursor: default; }
+.acted__title { margin: 0 0 14px; }
+.acted__label { display: block; margin-bottom: 12px; font-size: 12.5px; color: var(--text-dim); }
+.acted__label > span { display: block; margin-bottom: 5px; }
+.acted__label input, .acted__label textarea { width: 100%; box-sizing: border-box; }
+/* Monoespaçada: são comandos, e alinhar `npm run deploy` embaixo de `awsVAEXA`
+   em fonte de texto faz a lista parecer prosa. */
+.acted__label textarea { font-family: monospace; font-size: 12.5px; line-height: 1.5; resize: vertical; }
+.acted__hint { margin: -6px 0 14px; font-size: 11.5px; color: var(--text-dim); }
+.acted__check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.acted__check input { margin: 0; }
+.acted__err { color: var(--err); font-size: 12.5px; }
+.acted__foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }

@@ -147,6 +147,20 @@ export function openDb(path: string): Db {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_runs_schedule ON schedule_runs(schedule_id, seq DESC)`)
 
+  // Ações do terminal: um nome e uma sequência de comandos que o operador salva
+  // para repetir com um clique (deploy, migração, seed). São DO TERMINAL: o
+  // `awsVAEXA` que faz sentido num projeto publicaria na conta errada em outro.
+  db.exec(`CREATE TABLE IF NOT EXISTS actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    commands TEXT NOT NULL,
+    auto_close INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_actions_project ON actions(project_id, sort_order, id)`)
+
   // Desenhos de ícone baixados do Iconify. É CACHE, não dado do usuário: pode ser
   // apagado a qualquer momento que o servidor rebaixa tudo — mas enquanto existe,
   // a sidebar pinta sem tocar na rede, e o serviço gratuito deles recebe um pedido

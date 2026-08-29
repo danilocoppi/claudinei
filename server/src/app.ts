@@ -28,6 +28,8 @@ import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerPrefsRoutes } from './routes/prefs.js'
 import { registerLocalAppRoutes, type LocalAppsRouteDeps } from './routes/local-apps.js'
 import { registerIconRoutes } from './routes/icons.js'
+import { registerActionRoutes } from './routes/actions.js'
+import { createActionsStore } from './actions.js'
 import { createIconService } from './icons/service.js'
 import type { IconifyDeps } from './icons/iconify.js'
 import { createPrefsService } from './prefs.js'
@@ -97,6 +99,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     projects: createProjectsService(deps.db), settings: createSettingsService(deps.db), ...deps.localApps,
   })
   registerIconRoutes(app, { icons: createIconService(deps.db, deps.iconify) })
+  if (deps.terminalManager) {
+    registerActionRoutes(app, {
+      actions: createActionsStore(deps.db),
+      projects: createProjectsService(deps.db),
+      terminalManager: deps.terminalManager,
+      broadcast: deps.wsHub?.broadcast,
+    })
+  }
   // O agendador nasce aqui porque precisa do manager E do broadcast, que só existem
   // montados. index.ts recebe a referência para parar o laço no shutdown.
   const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })

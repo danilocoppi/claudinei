@@ -27,10 +27,15 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
    * SERVIDOR, não o hostname do navegador — acessar por um nome que resolve para
    * 127.0.0.1 enganaria o teste do lado do cliente.
    */
-  app.get('/api/local-apps', async (req) =>
-    isLocalRequest(req)
-      ? availableApps(deps)
-      : Object.fromEntries(LOCAL_APPS.map((a) => [a, false])))
+  app.get('/api/local-apps', async (req) => {
+    const local = isLocalRequest(req)
+    // `local` à parte dos apps: "nenhum app disponível" e "não é esta máquina" são
+    // coisas diferentes, e quem desenha a tela precisa distinguir — o menu de ações
+    // some pelo segundo motivo, não pelo primeiro.
+    return local
+      ? { ...availableApps(deps), local }
+      : { ...Object.fromEntries(LOCAL_APPS.map((a) => [a, false])), local }
+  })
 
   /**
    * Os terminais instalados e o escolhido.

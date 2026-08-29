@@ -178,10 +178,12 @@ describe('rotas', () => {
     expect((await app.inject({ method: 'POST', url: '/api/projects/999/open', payload: { action: 'folder' }, cookies: admin })).statusCode).toBe(404)
   })
 
-  it('GET diz o que a máquina oferece', async () => {
+  /** `local` vem junto e à parte dos apps: "nenhum app instalado" e "não é esta
+   *  máquina" pedem telas diferentes, e um mapa só de apps não os distingue. */
+  it('GET diz o que a máquina oferece, e que é esta máquina', async () => {
     const admin = await login('root')
     expect((await app.inject({ method: 'GET', url: '/api/local-apps', cookies: admin })).json())
-      .toEqual({ folder: true, vscode: true, terminal: true })
+      .toEqual({ folder: true, vscode: true, terminal: true, local: true })
   })
 })
 

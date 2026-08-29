@@ -11,7 +11,15 @@ export interface PtyProcess {
 
 export type PtyFactory = (
   file: string,
-  args: string[],
+  /**
+   * Lista de argumentos ou — só no Windows — a linha de comando CRUA.
+   *
+   * O node-pty aceita as duas, e a diferença importa: com lista, ele aplica o
+   * quoting do compilador C (aspas internas viram `\"`), que o `cmd.exe` não
+   * entende — ele não conhece `\` como escape. Quem monta uma linha para o cmd
+   * passa a string pronta e fica com o controle das aspas.
+   */
+  args: string[] | string,
   opts: { cwd: string; cols: number; rows: number; env?: Record<string, string> },
 ) => PtyProcess
 

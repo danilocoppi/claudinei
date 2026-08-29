@@ -20,6 +20,30 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const fetchProjects = () => req<Project[]>('/api/projects')
+
+/** Ações de um terminal: comandos salvos para repetir com um clique. */
+export interface Action {
+  id: number; projectId: number; name: string; commands: string[]
+  autoClose: boolean; running?: boolean
+}
+export const fetchActions = (projectId: number) => req<Action[]>(`/api/projects/${projectId}/actions`)
+export const createAction = (projectId: number, input: { name: string; commands: string[]; autoClose: boolean }) =>
+  req<Action>(`/api/projects/${projectId}/actions`, { method: 'POST', body: JSON.stringify(input) })
+export const updateAction = (id: number, input: { name: string; commands: string[]; autoClose: boolean }) =>
+  req<Action>(`/api/actions/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
+export const deleteAction = (id: number) => req<void>(`/api/actions/${id}`, { method: 'DELETE' })
+/**
+ * Roda — ou REATA à execução que já está de pé (é o que sobrevive ao F5).
+ *
+ * Com `attachOnly`, só reata: se o processo já acabou, o servidor devolve 409 em
+ * vez de disparar de novo. É a diferença entre restaurar uma janela e publicar
+ * um deploy pela segunda vez.
+ */
+export const runAction = (id: number, opts?: { attachOnly?: boolean }) =>
+  req<{ token: string; wsUrl: string; reattached: boolean }>(`/api/actions/${id}/run`, {
+    method: 'POST', body: JSON.stringify({ attachOnly: !!opts?.attachOnly }),
+  })
+export const stopAction = (id: number) => req<void>(`/api/actions/${id}/run`, { method: 'DELETE' })
 /** Terminais instalados na máquina do SERVIDOR, e qual está escolhido. */
 export const fetchTerminals = () =>
   req<{ options: { id: string; label: string }[]; chosen: string | null }>('/api/local-apps/terminals')
@@ -265,6 +289,7 @@ export const saveAppearance = (appearance: Appearance) =>
 export type LocalApp = 'folder' | 'vscode' | 'terminal'
 /** O que dá para abrir aqui. Quem decide é o SERVIDOR: ele sabe se a requisição é
  *  local e se o binário existe — o hostname do navegador erraria os dois casos. */
-export const fetchLocalApps = () => req<Record<LocalApp, boolean>>('/api/local-apps')
+export const fetchLocalApps = () =>
+  req<Record<LocalApp, boolean> & { local: boolean }>('/api/local-apps')
 export const openLocalApp = (projectId: number, action: LocalApp) =>
   req<{ ok: true }>(`/api/projects/${projectId}/open`, { method: 'POST', body: JSON.stringify({ action }) })

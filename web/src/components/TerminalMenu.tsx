@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
-  createGroup, deleteProject, fetchGroups, fetchLocalApps, fetchProjects, fetchSectors,
-  openLocalApp, setProjectGroup, setProjectSector, type LocalApp,
+  createGroup, deleteAction, deleteProject, fetchActions, fetchGroups, fetchLocalApps,
+  fetchProjects, fetchSectors, openLocalApp, setProjectGroup, setProjectSector,
+  type Action, type LocalApp,
 } from '../api'
 import { useStore } from '../store'
 import { copyText } from '../clipboard'
-import { CodeIcon, CopyIcon, EditIcon, FolderIcon, TerminalIcon, TrashIcon } from './MenuIcons'
+import { CodeIcon, CopyIcon, EditIcon, FolderIcon, PlayIcon, TerminalIcon, TrashIcon } from './MenuIcons'
 import { NewProjectModal } from './NewProjectModal'
+import { ActionEditor } from './ActionEditor'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { Project } from '../types'
 
@@ -37,10 +39,14 @@ export function TerminalMenu({ project, x, y, onDone }: {
   onDone: () => void
 }) {
   const { t } = useTranslation()
-  const [phase, setPhase] = useState<'menu' | 'edit' | 'delete'>('menu')
+  const [phase, setPhase] = useState<'menu' | 'edit' | 'delete' | 'action'>('menu')
   const [newGroupName, setNewGroupName] = useState('')
   const [deleteError, setDeleteError] = useState('')
-  const [localApps, setLocalApps] = useState<Partial<Record<LocalApp, boolean>>>({})
+  const [localApps, setLocalApps] = useState<Partial<Record<LocalApp, boolean>> & { local?: boolean }>({})
+  const [actions, setActions] = useState<Action[]>([])
+  // Indefinido = criando; definido = editando aquela.
+  const [editingAction, setEditingAction] = useState<Action | undefined>()
+  const openActionRun = useStore((s) => s.openActionRun)
 
   const groups = useStore((s) => s.groups)
   const sectors = useStore((s) => s.sectors)
@@ -58,6 +64,13 @@ export function TerminalMenu({ project, x, y, onDone }: {
   // Quem decide o que dá para abrir é o SERVIDOR: ele sabe se a requisição é local
   // E se o binário existe. Item morto seria pior que item nenhum.
   useEffect(() => { void fetchLocalApps().then(setLocalApps).catch(() => setLocalApps({})) }, [])
+
+  // Só busca as ações onde elas podem rodar. Pela rede, o botão abriria um shell na
+  // máquina de OUTRA pessoa — o servidor recusa, e a lista aqui só faria prometer.
+  useEffect(() => {
+    if (!localApps.local) return
+    void fetchActions(project.id).then(setActions).catch(() => setActions([]))
+  }, [localApps.local, project.id])
 
   const fechaEEntao = (fn: () => void | Promise<unknown>) => () => { onDone(); void fn() }
 
@@ -83,6 +96,16 @@ export function TerminalMenu({ project, x, y, onDone }: {
     }
   }
 
+  if (phase === 'action') {
+    return (
+      <ActionEditor
+        projectId={project.id}
+        action={editingAction}
+        onSaved={() => { void fetchActions(project.id).then(setActions).catch(() => {}); setPhase('menu') }}
+        onClose={() => setPhase('menu')}
+      />
+    )
+  }
   if (phase === 'edit') return <NewProjectModal editProject={project} onClose={onDone} />
   if (phase === 'delete') {
     return (
@@ -118,6 +141,46 @@ export function TerminalMenu({ project, x, y, onDone }: {
         <div className="sess-pop__item" onClick={fechaEEntao(() => copyText(project.path))}>
           <CopyIcon /><span>{t('sidebar.copyPath')}</span>
         </div>
+
+        {/* AÇÕES — comandos que este terminal repete com um clique. Ficam dentro de
+            "nesta máquina" porque é onde elas rodam, e são deste terminal só: o
+            mesmo `npm run deploy` publica coisas diferentes em pastas diferentes. */}
+        {localApps.local && (
+          <>
+            <div className="sess-pop__sep" />
+            <div className="sess-pop__eyebrow sess-pop__eyebrow--row">
+              <span>{t('actions.section')}</span>
+              <button className="sess-pop__add" data-testid="action-new" title={t('actions.new')}
+                      onClick={() => { setEditingAction(undefined); setPhase('action') }}>＋</button>
+            </div>
+            {actions.length === 0 && <div className="sess-pop__empty">{t('actions.empty')}</div>}
+            {actions.map((a) => (
+              <div key={a.id} className="sess-pop__item sess-pop__item--act" data-testid={`action-${a.id}`}
+                   onClick={() => {
+                     // O menu fecha; a caixinha vive no App e segue rodando.
+                     onDone()
+                     openActionRun({ actionId: a.id, name: a.name, autoClose: a.autoClose })
+                   }}>
+                <PlayIcon />
+                <span className="sess-pop__act-name">{a.name}</span>
+                {a.running && <span className="sess-pop__act-live" title={t('actions.running')} />}
+                <button className="sess-pop__act-btn" title={t('common.edit')}
+                        onClick={(e) => { e.stopPropagation(); setEditingAction(a); setPhase('action') }}>
+                  <EditIcon />
+                </button>
+                <button className="sess-pop__act-btn sess-pop__act-btn--danger" title={t('common.delete')}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void deleteAction(a.id)
+                            .then(() => setActions((prev) => prev.filter((x) => x.id !== a.id)))
+                            .catch(() => {})
+                        }}>
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+          </>
+        )}
         <div className="sess-pop__sep" />
 
         {/* Grupo e setor em dropdown: com uma dúzia de cada, a lista de itens

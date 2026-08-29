@@ -13,6 +13,7 @@ import { BoardPanel } from './components/BoardPanel'
 import { TasksPanel } from './components/TasksPanel'
 import { TerminalView } from './components/TerminalView'
 import { AuthScreen } from './components/AuthScreen'
+import { ActionRunModal } from './components/ActionRunModal'
 import { FileViewerModal } from './components/FileViewerModal'
 import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
@@ -126,6 +127,7 @@ export default function App() {
           {view === 'schedules' && <SchedulesView />}
           {view === 'terminal' && <TerminalView />}
         </div>
+        <ActionRunModal />
         <FileViewerModal />
         <FileOpenMenu />
         <ExternalLinkConfirm />

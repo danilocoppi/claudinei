@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { readRun, saveRun, type SavedRun } from './actionRun'
 import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import type { FileKind, ScopeResult } from './files'
@@ -111,6 +112,20 @@ interface State {
    *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
    *  órfãos (cursor piscando de uma resposta que nunca vai terminar de chegar). */
   resyncOnReconnect(): void
+  /**
+   * A execução de ação aberta agora.
+   *
+   * Mora AQUI, e não no menu que a disparou: o menu fecha assim que se clica, e um
+   * deploy de cinco minutos morreria junto com ele. Fica no store para o App
+   * desenhar por cima de tudo e sobreviver à navegação.
+   */
+  actionRun: (SavedRun & {
+    exited?: boolean
+    /** Restaurada de um F5: LIGA-SE ao que existe, e desiste se não houver nada. */
+    attachOnly?: boolean
+  }) | null
+  openActionRun(run: SavedRun & { attachOnly?: boolean }): void
+  closeActionRun(): void
   /** Barra lateral em modo régua (62px, só estados e ícones). */
   railMode: boolean
   toggleRail(): void
@@ -199,6 +214,12 @@ export const useStore = create<State>((set, get) => ({
 
   resyncOnReconnect: () => set({ historyLoadedFor: {}, streaming: {} }),
 
+  // Já nasce com o que ficou de um recarregamento; quem restaura de fato é o App,
+  // que só mantém a janela se o servidor confirmar que o processo continua de pé.
+  actionRun: (() => { const r = readRun(); return r ? { ...r, attachOnly: true } : null })(),
+  openActionRun: (run) => { saveRun(run); set({ actionRun: run }) },
+  closeActionRun: () => { saveRun(null); set({ actionRun: null }) },
+
   railMode: (() => {
     try { return localStorage.getItem(RAIL_KEY) === '1' } catch { return false }
   })(),
@@ -231,7 +252,16 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
 
   applyWsMessage: (msg) => {
-    if (msg.type === 'sessions_snapshot') {
+    if (msg.type === 'action_exit') {
+      const run = get().actionRun
+      if (!run || run.actionId !== msg.actionId) return
+      // Com "fechar ao terminar" ligado, some sozinha; sem ele, fica aberta com o
+      // resultado à vista — que é o motivo de a caixinha existir.
+      if (run.autoClose) { saveRun(null); set({ actionRun: null }) }
+      // Terminou: sai do registro de restauração mesmo ficando na tela. Um F5 aqui
+      // não deve reabrir a janela de um processo que já não existe.
+      else { saveRun(null); set({ actionRun: { ...run, exited: true } }) }
+    } else if (msg.type === 'sessions_snapshot') {
       const sessions: Record<string, SessionInfo> = {}
       for (const info of msg.sessions as SessionInfo[]) sessions[info.localId] = info
       // Sessão que sumiu do snapshot foi deletada: leva junto as entradas dela nos

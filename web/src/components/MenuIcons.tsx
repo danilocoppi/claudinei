@@ -72,3 +72,11 @@ export const TrashIcon = ({ size }: { size?: number }) => (
     <path d="M10 11v6" /><path d="M14 11v6" />
   </Glyph>
 )
+
+/** O triângulo do "toca isto". Preenchido, ao contrário dos outros: uma ação que
+ *  DISPARA algo pede um glifo com peso, e não mais um contorno na coluna. */
+export const PlayIcon = ({ size = 15 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M8 5.2a1 1 0 0 1 1.5-.87l9 6.8a1 1 0 0 1 0 1.74l-9 6.8A1 1 0 0 1 8 18.8z" />
+  </svg>
+)

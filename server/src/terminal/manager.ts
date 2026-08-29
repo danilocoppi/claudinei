@@ -7,7 +7,8 @@ const BUFFER_LIMIT = 256 * 1024
 export interface OpenOpts {
   cwd: string
   file: string
-  args: string[]
+  /** Lista, ou a linha crua quando quem chama precisa mandar nas aspas (ver PtyFactory). */
+  args: string[] | string
   /** Mesclado ao ambiente do PTY (ex.: KIMI_CODE_HOME do projeto). */
   env?: Record<string, string>
   onExit: () => void

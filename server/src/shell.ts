@@ -29,6 +29,18 @@ export interface ShellDeps {
   platform?: NodeJS.Platform
 }
 
+/**
+ * Qual shell roda o `!comando`, e como a linha chega inteira nele.
+ *
+ * Separado da execução para poder ser conferido: o ramo do Windows não roda nesta
+ * máquina, e sem uma função pura ele só seria testado por quem já sofreu o bug.
+ */
+export function shellFor(platform: NodeJS.Platform): { bin: string; flag: string; verbatim: boolean } {
+  return platform === 'win32'
+    ? { bin: 'cmd.exe', flag: '/c', verbatim: true }
+    : { bin: '/bin/bash', flag: '-lc', verbatim: false }
+}
+
 export async function runShell(command: string, cwd: string, deps: ShellDeps = {}): Promise<ShellResult> {
   const cmd = command.trim()
   if (!cmd) return { output: 'comando vazio', isError: true, truncated: false, timedOut: false }
@@ -37,7 +49,7 @@ export async function runShell(command: string, cwd: string, deps: ShellDeps = {
   // Shell de VERDADE: pipe, glob e `&&` são o motivo de o atalho existir. O
   // comando vai como UM argumento, então não há concatenação a escapar — quem
   // digita já está digitando shell, conscientemente.
-  const [bin, flag] = platform === 'win32' ? ['cmd.exe', '/c'] : ['/bin/bash', '-lc']
+  const { bin, flag, verbatim } = shellFor(platform)
 
   return await new Promise<ShellResult>((resolve) => {
     const child = spawn(bin, [flag, cmd], {
@@ -46,6 +58,13 @@ export async function runShell(command: string, cwd: string, deps: ShellDeps = {
       // morrer — senão o `sleep` fica órfão segurando os canos. Sem `detached`, o
       // filho ficaria no grupo do SERVIDOR e o `kill(-pid)` não teria alvo certo.
       detached: true,
+      // Windows: SEM o quoting automático. O libuv escaparia as aspas do comando
+      // à moda do compilador C (`\"`), e o `cmd.exe` não conhece `\` como escape —
+      // um `!git commit -m "oi"` chegaria com barras literais e a mensagem
+      // partida. Em modo verbatim ele junta os argumentos com espaço e mais nada,
+      // que é exatamente a linha que o cmd espera. (Mesmo motivo do shellFor das
+      // ações; lá a saída é uma string crua, aqui é esta opção.)
+      windowsVerbatimArguments: verbatim,
       // Ambiente do SISTEMA: o libstdc++ portátil que o Claudinei carrega é mais
       // velho que o do sistema, e herdá-lo mata programas gráficos no arranque
       // (ver desktopEnv — foi o que fazia "Abrir terminal" não abrir nada).

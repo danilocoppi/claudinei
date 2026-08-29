@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runShell, MAX_OUTPUT } from '../src/shell.js'
+import { runShell, MAX_OUTPUT, shellFor } from '../src/shell.js'
 
 const dir = () => mkdtempSync(join(tmpdir(), 'sh-'))
 
@@ -94,4 +94,25 @@ describe('o timeout leva os filhos junto', () => {
     await new Promise((res) => setTimeout(res, 3500))
     expect(existsSync(marca), 'o neto sobreviveu ao timeout').toBe(false)
   }, 15000)
+})
+
+/**
+ * O ramo do Windows não roda nesta máquina, então fica fixado aqui.
+ *
+ * O `&&` funciona nos dois shells — o `cmd.exe` o suporta com o mesmo sentido de
+ * "só siga se deu certo". O que NÃO funciona sozinho é o quoting: sem o modo
+ * verbatim, o libuv escapa as aspas do comando à moda do compilador C (`\"`), e o
+ * cmd não trata `\` como escape — um `!git commit -m "oi"` chegaria com barras
+ * literais e a mensagem partida ao meio.
+ */
+describe('o shell de cada sistema', () => {
+  it('no Unix é bash de login', () => {
+    expect(shellFor('linux')).toEqual({ bin: '/bin/bash', flag: '-lc', verbatim: false })
+  })
+
+  it('no Windows é o cmd, e sem o quoting automático', () => {
+    const { bin, flag, verbatim } = shellFor('win32')
+    expect([bin, flag]).toEqual(['cmd.exe', '/c'])
+    expect(verbatim, 'sem verbatim, as aspas do comando chegam escapadas com \\').toBe(true)
+  })
 })

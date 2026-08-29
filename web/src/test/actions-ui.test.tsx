@@ -16,8 +16,8 @@ vi.mock('../api', async () => {
     ...real,
     fetchLocalApps: vi.fn(async () => ({ folder: true, vscode: false, terminal: false, local: true })),
     fetchActions: vi.fn(async () => [
-      { id: 7, projectId: 1, name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false, allowInput: false, running: false },
-      { id: 8, projectId: 1, name: 'Seed', commands: ['npm run seed'], autoClose: true, allowInput: true, running: true },
+      { id: 7, projectId: 1, name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false, running: false },
+      { id: 8, projectId: 1, name: 'Seed', commands: ['npm run seed'], autoClose: true, running: true },
     ]),
     createAction: vi.fn(async (projectId: number, input: object) => ({ id: 9, projectId, ...input })),
     updateAction: vi.fn(async (id: number, input: object) => ({ id, projectId: 1, ...input })),
@@ -77,9 +77,7 @@ describe('seção de ações no menu do terminal', () => {
     render(<TerminalMenu project={project} x={0} y={0} onDone={onDone} />)
     fireEvent.click(await screen.findByTestId('action-7'))
     expect(onDone).toHaveBeenCalled()
-    expect(useStore.getState().actionRun).toEqual({
-      actionId: 7, name: 'Deploy', autoClose: false, allowInput: false,
-    })
+    expect(useStore.getState().actionRun).toEqual({ actionId: 7, name: 'Deploy', autoClose: false })
   })
 
   it('o botão de excluir não dispara a ação', async () => {
@@ -110,7 +108,7 @@ describe('cadastro de ação', () => {
     preenche('Deploy', 'awsVAEXA\nnpm run deploy')
     fireEvent.click(screen.getByText('Salvar'))
     await waitFor(() => expect(api.createAction).toHaveBeenCalledWith(1, {
-      name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false, allowInput: false,
+      name: 'Deploy', commands: ['awsVAEXA', 'npm run deploy'], autoClose: false,
     }))
     expect(onSaved).toHaveBeenCalled()
   })
@@ -138,7 +136,7 @@ describe('cadastro de ação', () => {
   /** Fechar sozinho é o padrão DESLIGADO: quem roda um deploy quer ler o fim dele. */
   it('fechar ao terminar vem desligado e é escolha de quem cadastra', async () => {
     render(<ActionEditor projectId={1} onSaved={() => {}} onClose={() => {}} />)
-    const check = screen.getAllByRole('checkbox')[0] as HTMLInputElement
+    const check = screen.getByRole('checkbox') as HTMLInputElement
     expect(check.checked).toBe(false)
     fireEvent.click(check)
     preenche('Seed', 'npm run seed')
@@ -147,11 +145,11 @@ describe('cadastro de ação', () => {
   })
 
   it('editando, parte do que já estava lá e faz PATCH', async () => {
-    const acao = { id: 7, projectId: 1, name: 'Deploy', commands: ['a', 'b'], autoClose: true, allowInput: false }
+    const acao = { id: 7, projectId: 1, name: 'Deploy', commands: ['a', 'b'], autoClose: true }
     render(<ActionEditor projectId={1} action={acao} onSaved={() => {}} onClose={() => {}} />)
     expect((screen.getByPlaceholderText('ex.: Deploy') as HTMLInputElement).value).toBe('Deploy')
     expect((screen.getByPlaceholderText(/awsVAEXA/) as HTMLTextAreaElement).value).toBe('a\nb')
-    expect((screen.getAllByRole('checkbox')[0] as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
     fireEvent.click(screen.getByText('Salvar'))
     await waitFor(() => expect(api.updateAction).toHaveBeenCalledWith(7, expect.objectContaining({ name: 'Deploy' })))
   })
@@ -336,29 +334,24 @@ describe('a janela flutuante', () => {
 })
 
 /**
- * O campo de digitação é do cadastro, não da janela: numa ação que só publica e
- * cospe log, ele só serviria para mandar texto a quem não está lendo.
+ * Não há campo de digitação, e isso é a decisão — não a falta dela.
+ *
+ * O terminal É o campo: cada tecla vai direto para o PTY (medido: um `read -p`
+ * recebeu a resposta digitada com o campo ausente). Um `<input>` no rodapé
+ * perderia justamente o que faz dele um terminal — Ctrl-C, setas,
+ * tab-completion, histórico do shell.
  */
-describe('campo para responder ao comando', () => {
-  const abre = (extra: object) => {
+describe('digitar no terminal', () => {
+  const abre = (extra: object = {}) => {
     useStore.setState({ actionRun: { actionId: 7, name: 'Deploy', autoClose: false, ...extra } })
     render(<ActionRunModal />)
   }
 
-  it('não aparece quando a ação não pediu', () => {
-    abre({ allowInput: false })
+  it('não há campo separado — o terminal recebe a digitação', () => {
+    abre()
     expect(screen.queryByTestId('action-run-input')).toBeNull()
-  })
-
-  it('aparece quando a ação pediu', () => {
-    abre({ allowInput: true })
-    expect(screen.getByTestId('action-run-input')).toBeTruthy()
-  })
-
-  /** Processo morto não lê: o campo some junto com ele. */
-  it('some quando o processo termina', () => {
-    abre({ allowInput: true, exited: true })
-    expect(screen.queryByTestId('action-run-input')).toBeNull()
+    // o xterm monta sua própria área de digitação dentro da tela
+    expect(screen.getByTestId('action-run').querySelector('.actrun__screen textarea')).toBeTruthy()
   })
 })
 
@@ -419,14 +412,13 @@ describe('o que vai para o armazenamento', () => {
   it('grava a pose completa de uma execução viva', () => {
     localStorage.clear()
     useStore.getState().openActionRun({
-      actionId: 7, name: 'Deploy', autoClose: false, allowInput: true, attachOnly: true,
+      actionId: 7, name: 'Deploy', autoClose: false, attachOnly: true,
     })
     useStore.getState().moveActionRun(10, 20)
     useStore.getState().setActionRunMinimized(true)
     const cru = JSON.parse(localStorage.getItem(RUN_KEY)!)
     expect(cru).toEqual({
-      actionId: 7, name: 'Deploy', autoClose: false, allowInput: true,
-      minimized: true, x: 10, y: 20,
+      actionId: 7, name: 'Deploy', autoClose: false, minimized: true, x: 10, y: 20,
     })
     expect(cru).not.toHaveProperty('attachOnly')
   })

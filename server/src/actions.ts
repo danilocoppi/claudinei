@@ -17,22 +17,12 @@ export interface Action {
   commands: string[]
   /** Fecha a janelinha quando o comando termina. Desligado por padrão. */
   autoClose: boolean
-  /**
-   * Mostra o campo de digitação na janelinha.
-   *
-   * Do lado do servidor não muda nada — o PTY sempre aceitou escrita, é um
-   * terminal. O que esta opção decide é se a INTERFACE oferece por onde digitar:
-   * numa ação que só publica e cospe log, um campo de texto só serviria para
-   * mandar caractere para quem não está lendo.
-   */
-  allowInput: boolean
 }
 
 export interface ActionInput {
   name: string
   commands: string[]
   autoClose?: boolean
-  allowInput?: boolean
 }
 
 /** Linha em branco no meio dos comandos é descuido de digitação, não comando. */
@@ -47,10 +37,7 @@ function validar(input: ActionInput): { name: string; commands: string[] } {
   return { name, commands }
 }
 
-interface Row {
-  id: number; project_id: number; name: string; commands: string
-  auto_close: number; allow_input: number
-}
+interface Row { id: number; project_id: number; name: string; commands: string; auto_close: number }
 
 const paraAcao = (r: Row): Action => ({
   id: r.id,
@@ -60,7 +47,6 @@ const paraAcao = (r: Row): Action => ({
   // por caractere mágico devolveria comando picado no dia em que alguém usasse ele.
   commands: (() => { try { const v = JSON.parse(r.commands); return Array.isArray(v) ? v.map(String) : [] } catch { return [] } })(),
   autoClose: r.auto_close === 1,
-  allowInput: r.allow_input === 1,
 })
 
 export function createActionsStore(db: Db) {
@@ -83,25 +69,18 @@ export function createActionsStore(db: Db) {
       const ordem = (db.prepare<[number], { n: number | null }>(
         'SELECT MAX(sort_order) n FROM actions WHERE project_id = ?').get(projectId)?.n ?? 0) + 1
       const info = db.prepare(
-        'INSERT INTO actions (project_id, name, commands, auto_close, allow_input, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(projectId, name, JSON.stringify(commands),
-        input.autoClose ? 1 : 0, input.allowInput ? 1 : 0, ordem)
-      return {
-        id: Number(info.lastInsertRowid), projectId, name, commands,
-        autoClose: !!input.autoClose, allowInput: !!input.allowInput,
-      }
+        'INSERT INTO actions (project_id, name, commands, auto_close, sort_order) VALUES (?, ?, ?, ?, ?)',
+      ).run(projectId, name, JSON.stringify(commands), input.autoClose ? 1 : 0, ordem)
+      return { id: Number(info.lastInsertRowid), projectId, name, commands, autoClose: !!input.autoClose }
     },
 
     update(id: number, input: ActionInput): Action {
       const atual = byId.get(id)
       if (!atual) throw new Error(`ação ${id} não existe`)
       const { name, commands } = validar(input)
-      db.prepare('UPDATE actions SET name = ?, commands = ?, auto_close = ?, allow_input = ? WHERE id = ?')
-        .run(name, JSON.stringify(commands), input.autoClose ? 1 : 0, input.allowInput ? 1 : 0, id)
-      return {
-        id, projectId: atual.project_id, name, commands,
-        autoClose: !!input.autoClose, allowInput: !!input.allowInput,
-      }
+      db.prepare('UPDATE actions SET name = ?, commands = ?, auto_close = ? WHERE id = ?')
+        .run(name, JSON.stringify(commands), input.autoClose ? 1 : 0, id)
+      return { id, projectId: atual.project_id, name, commands, autoClose: !!input.autoClose }
     },
 
     remove(id: number): void {

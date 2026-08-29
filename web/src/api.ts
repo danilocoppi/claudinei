@@ -24,9 +24,9 @@ export const fetchProjects = () => req<Project[]>('/api/projects')
 /** Ações de um terminal: comandos salvos para repetir com um clique. */
 export interface Action {
   id: number; projectId: number; name: string; commands: string[]
-  autoClose: boolean; allowInput: boolean; running?: boolean
+  autoClose: boolean; running?: boolean
 }
-type ActionInput = { name: string; commands: string[]; autoClose: boolean; allowInput: boolean }
+type ActionInput = { name: string; commands: string[]; autoClose: boolean }
 export const fetchActions = (projectId: number) => req<Action[]>(`/api/projects/${projectId}/actions`)
 export const createAction = (projectId: number, input: ActionInput) =>
   req<Action>(`/api/projects/${projectId}/actions`, { method: 'POST', body: JSON.stringify(input) })

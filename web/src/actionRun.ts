@@ -15,8 +15,6 @@ export interface SavedRun {
   actionId: number
   name: string
   autoClose: boolean
-  /** Mostra o campo de digitação: escolha de quem cadastrou a ação. */
-  allowInput?: boolean
   /** Encolhida na pílula do canto. */
   minimized?: boolean
   /** Canto superior esquerdo, em pixels da viewport. Ausente = pousa no padrão. */
@@ -60,7 +58,6 @@ export function readRun(): SavedRun | null {
       actionId: v.actionId,
       name: v.name,
       autoClose: !!v.autoClose,
-      allowInput: !!v.allowInput,
       minimized: !!v.minimized,
       ...pos,
     }
@@ -80,9 +77,7 @@ export function readRun(): SavedRun | null {
 export function saveRun(run: SavedRun | null): void {
   try {
     if (!run) { localStorage.removeItem(RUN_KEY); return }
-    const { actionId, name, autoClose, allowInput, minimized, x, y } = run
-    localStorage.setItem(RUN_KEY, JSON.stringify({
-      actionId, name, autoClose, allowInput, minimized, x, y,
-    }))
+    const { actionId, name, autoClose, minimized, x, y } = run
+    localStorage.setItem(RUN_KEY, JSON.stringify({ actionId, name, autoClose, minimized, x, y }))
   } catch { /* cota cheia: perde-se a restauração, não a execução */ }
 }

@@ -28,10 +28,7 @@ export function ActionRunModal() {
   const minimizar = useStore((s) => s.setActionRunMinimized)
   const mover = useStore((s) => s.moveActionRun)
   const ref = useRef<HTMLDivElement>(null)
-  /** O terminal vivo, para o campo de digitação poder escrever nele. */
-  const envio = useRef<((texto: string) => void) | null>(null)
   const [confirmandoParar, setConfirmandoParar] = useState(false)
-  const [linha, setLinha] = useState('')
 
   const actionId = run?.actionId
   const attachOnly = run?.attachOnly ?? false
@@ -53,12 +50,17 @@ export function ActionRunModal() {
       fit.fit()
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
     }
-    const manda = (dados: string) => {
+    // Cada tecla vai direto para o PTY. É por isto que não há campo de digitação:
+    // o terminal É o campo, e um `<input>` no rodapé perderia justamente o que faz
+    // dele um terminal — Ctrl-C, setas, tab-completion, histórico do shell.
+    const onData = term.onData((dados) => {
       if (ws?.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(dados))
-    }
-    const onData = term.onData(manda)
-    envio.current = manda
+    })
     window.addEventListener('resize', ajusta)
+
+    // Foco só quando a janela foi ABERTA por alguém — nunca ao restaurar de um F5,
+    // que rouba o cursor de quem acabou de carregar a página para escrever no chat.
+    if (!attachOnly) term.focus()
 
     // O POST é idempotente no servidor: se a ação já estiver de pé, ele devolve um
     // token novo para o MESMO processo. É isso que faz um F5 reencontrar o deploy
@@ -83,7 +85,6 @@ export function ActionRunModal() {
 
     return () => {
       disposed = true
-      envio.current = null
       window.removeEventListener('resize', ajusta)
       onData.dispose()
       ws?.close()
@@ -133,12 +134,6 @@ export function ActionRunModal() {
     else setConfirmandoParar(true)
   }
 
-  const enviarLinha = () => {
-    if (!envio.current) return
-    envio.current(`${linha}\r`)
-    setLinha('')
-  }
-
   if (minimizado) {
     return createPortal(
       <button className="actrun-pill" data-testid="action-run-pill" onClick={() => minimizar(false)}>
@@ -182,21 +177,6 @@ export function ActionRunModal() {
 
       <div className="actrun__screen" ref={ref} />
 
-      {/* O campo existe porque digitar direto no terminal exige saber que dá — e
-          porque aqui dá para corrigir antes de mandar, o que o PTY (que recebe
-          tecla a tecla) não permitiria. */}
-      {run.allowInput && !run.exited && (
-        <form className="actrun__input" onSubmit={(e) => { e.preventDefault(); enviarLinha() }}>
-          <input
-            value={linha}
-            spellCheck={false}
-            placeholder={t('actions.inputPlaceholder')}
-            data-testid="action-run-input"
-            onChange={(e) => setLinha(e.target.value)}
-          />
-          <button type="submit" title={t('actions.send')}>↵</button>
-        </form>
-      )}
     </div>,
     document.body,
   )

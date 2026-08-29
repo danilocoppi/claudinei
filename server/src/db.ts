@@ -160,10 +160,6 @@ export function openDb(path: string): Db {
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_actions_project ON actions(project_id, sort_order, id)`)
-  // Campo para responder ao comando. Opcional porque a maioria das ações não
-  // pergunta nada, e um campo de digitação numa janela que só cospe log é convite
-  // a mandar texto para um processo que não está lendo.
-  try { db.exec(`ALTER TABLE actions ADD COLUMN allow_input INTEGER NOT NULL DEFAULT 0`) } catch { /* já migrado */ }
 
   // Desenhos de ícone baixados do Iconify. É CACHE, não dado do usuário: pode ser
   // apagado a qualquer momento que o servidor rebaixa tudo — mas enquanto existe,

@@ -76,29 +76,3 @@ describe('ações de um terminal', () => {
     expect(store.list(alpha)).toEqual([])
   })
 })
-
-/**
- * O campo de digitação é escolha de quem cadastra, e não um padrão.
- *
- * O PTY sempre aceitou escrita — é um terminal. Quem decide é a INTERFACE: numa
- * ação que só publica e cospe log, um campo de texto só serviria para mandar
- * caractere a um processo que não está lendo.
- */
-describe('campo para responder ao comando', () => {
-  it('vem desligado e sobrevive à edição', () => {
-    const a = store.create(alpha, { name: 'Deploy', commands: ['ls'] })
-    expect(a.allowInput).toBe(false)
-
-    const b = store.update(a.id, { name: 'Deploy', commands: ['ls'], allowInput: true })
-    expect(b.allowInput).toBe(true)
-    expect(store.get(a.id)?.allowInput).toBe(true)
-
-    store.update(a.id, { name: 'Deploy', commands: ['ls'] })
-    expect(store.get(a.id)?.allowInput, 'omitir é desligar, como no autoClose').toBe(false)
-  })
-
-  it('nasce ligado quando pedido', () => {
-    const a = store.create(alpha, { name: 'Migrar', commands: ['npm run migrate'], allowInput: true })
-    expect(store.get(a.id)?.allowInput).toBe(true)
-  })
-})

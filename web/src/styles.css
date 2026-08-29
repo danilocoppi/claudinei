@@ -2391,15 +2391,6 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .actrun__ask button { padding: 4px 12px; font-size: 12.5px; border-radius: var(--radius-sm); }
 .actrun__stop { background: var(--err); color: var(--on-accent); }
 
-/* O campo de resposta. Só aparece quando a ação foi cadastrada com ele E o
-   processo ainda está vivo — campo de digitação para processo morto é engano. */
-.actrun__input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); }
-.actrun__input input {
-  flex: 1; min-width: 0; padding: 6px 10px; font-family: monospace; font-size: 12.5px;
-  border-radius: var(--radius-sm);
-}
-.actrun__input button { flex: none; padding: 6px 12px; border-radius: var(--radius-sm); }
-
 /* ----- encolhida ------------------------------------------------------------
    Minimizar não para nada: é só sair da frente. A pílula existe para o processo
    continuar TENDO um lugar na tela — foi some-sem-deixar-rastro o defeito que

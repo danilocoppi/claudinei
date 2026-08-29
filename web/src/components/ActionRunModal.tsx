@@ -25,13 +25,13 @@ type Run = ReturnType<typeof useStore.getState>['actionRuns'][number]
  */
 export function ActionRunModal() {
   const runs = useStore((s) => s.actionRuns)
-  const abertas = runs.filter((r) => !r.minimized)
   const encolhidas = runs.filter((r) => r.minimized)
 
   return (
     <>
-      {abertas.map((run, i) => (
-        <ActionWindow key={run.actionId} run={run} indice={i} zIndex={60 + runs.indexOf(run)} />
+      {/* TODAS ficam montadas, inclusive as encolhidas — ver ActionWindow. */}
+      {runs.map((run, i) => (
+        <ActionWindow key={run.actionId} run={run} indice={i} zIndex={60 + i} />
       ))}
       {encolhidas.length > 0 && <Bandeja runs={encolhidas} />}
     </>
@@ -79,6 +79,19 @@ function ActionWindow({ run, indice, zIndex }: { run: Run; indice: number; zInde
   const { actionId } = run
   const attachOnly = run.attachOnly ?? false
 
+  /**
+   * O efeito NÃO depende de estar encolhida — e é isso que conserta o defeito
+   * relatado: uma ação já terminada recomeçava do zero ao voltar da pílula.
+   *
+   * Encolher desmontava a janela; voltar remontava, e o efeito rodava outra vez
+   * chamando `runAction` sem `attachOnly` — que no servidor é a ordem de LANÇAR.
+   * Num deploy, publicava duas vezes.
+   *
+   * Manter montado resolve mais que isso: o buffer do servidor SOME quando o
+   * processo morre (o manager apaga a entrada no `onExit`), então nem reatar
+   * traria de volta o que já tinha saído. Quem guarda esse texto é o xterm aqui
+   * do lado — e ele só guarda enquanto existir.
+   */
   useEffect(() => {
     if (!ref.current) return
     let ws: WebSocket | undefined
@@ -180,11 +193,19 @@ function ActionWindow({ run, indice, zIndex }: { run: Run; indice: number; zInde
     ? { left: run.x, top: run.y }
     : poseDefault(indice)
 
+  // Encolhida sai da VISTA, não do DOM: `display: none` zeraria o tamanho do
+  // xterm, que nunca mais voltaria a medir certo. Fora da tela ele conserva as
+  // dimensões — e o texto que já tinha saído.
+  const escondida = !!run.minimized
+
   return createPortal(
     <div
-      className="actrun glass"
+      className={`actrun glass ${escondida ? 'actrun--min' : ''}`}
       data-testid={`action-run-${actionId}`}
-      style={{ ...pose, width: JANELA.largura, height: JANELA.altura, zIndex }}
+      aria-hidden={escondida}
+      style={escondida
+        ? { width: JANELA.largura, height: JANELA.altura }
+        : { ...pose, width: JANELA.largura, height: JANELA.altura, zIndex }}
       onPointerDownCapture={() => trazerParaFrente(actionId)}
     >
       <div className="actrun__bar" onPointerDown={pegar}>

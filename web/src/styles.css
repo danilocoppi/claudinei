@@ -2414,6 +2414,17 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .actrun__ask button { padding: 4px 12px; font-size: 12.5px; border-radius: var(--radius-sm); }
 .actrun__stop { background: var(--err); color: var(--on-accent); }
 
+/* Encolhida: sai da vista, não do DOM.
+   `display: none` faria o xterm medir 0x0 e nunca mais voltar ao tamanho certo —
+   e desmontar a janela era pior ainda: o efeito remontava e RELANÇAVA a ação (uma
+   já terminada recomeçava do zero ao voltar da pílula). Fora da tela ele conserva
+   as dimensões e o texto que já tinha saído, que o servidor não guarda depois que
+   o processo morre. */
+.actrun--min {
+  left: -99999px; top: 0; right: auto; bottom: auto;
+  visibility: hidden; pointer-events: none;
+}
+
 /* ----- encolhidas ------------------------------------------------------------
    Minimizar não para nada: é só sair da frente. As pílulas existem para os
    processos continuarem TENDO um lugar na tela — foi some-sem-deixar-rastro o

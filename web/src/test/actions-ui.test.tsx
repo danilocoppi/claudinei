@@ -287,17 +287,23 @@ describe('a janela flutuante', () => {
     expect(api.stopAction).not.toHaveBeenCalled()
   })
 
-  /** Encolher é sair da frente, não parar: o processo segue e a pílula o mostra. */
+  /**
+   * Encolher é sair da frente, não parar: o processo segue e a pílula o mostra.
+   *
+   * A janela CONTINUA no DOM, apenas fora da vista — antes ela desmontava, e ao
+   * voltar o efeito remontava e RELANÇAVA a ação. É por isso que aqui se checa a
+   * classe, e não a ausência do elemento.
+   */
   it('minimizar guarda na pílula sem tocar no processo', () => {
     abre()
     fireEvent.click(screen.getByTestId('action-run-min-7'))
     expect(api.stopAction).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('action-run-7')).toBeNull()
+    expect(screen.getByTestId('action-run-7').className).toContain('actrun--min')
     const pilula = screen.getByTestId('action-run-pill-7')
     expect(pilula.textContent).toContain('Deploy')
 
     fireEvent.click(pilula)
-    expect(screen.getByTestId('action-run-7')).toBeTruthy()
+    expect(screen.getByTestId('action-run-7').className).not.toContain('actrun--min')
   })
 
   /** E atravessa o F5 encolhida: quem minimizou não quer a janela de volta. */
@@ -651,5 +657,65 @@ describe('aviso de ação rodando sem janela', () => {
     fireEvent.click(await screen.findByTestId('orphan-dismiss'))
     expect(screen.queryByTestId('orphan-actions')).toBeNull()
     expect(api.stopAction).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Minimizar e voltar NÃO pode redisparar a ação.
+ *
+ * Relatado: uma ação que já tinha TERMINADO, ao ser restaurada da pílula,
+ * recomeçava tudo do zero. A janela desmontava ao encolher, e ao voltar o efeito
+ * rodava de novo chamando `runAction` sem `attachOnly` — que no servidor é a
+ * ordem de LANÇAR. Num deploy, isso publica duas vezes.
+ *
+ * O conserto é não desmontar: encolher tira a janela da vista, não da existência.
+ * De quebra, o que já tinha saído continua na tela ao voltar — o buffer do
+ * servidor some quando o processo morre (o manager apaga a entrada no `onExit`),
+ * então reatar não traria o texto de volta nem se tentasse.
+ */
+describe('encolher e voltar não relança nada', () => {
+  const abrir = () => {
+    useStore.setState({ actionRuns: [{ actionId: 7, name: 'Deploy', autoClose: false }] })
+    return render(<ActionRunModal />)
+  }
+
+  it('restaurar da pílula não chama o servidor de novo', async () => {
+    abrir()
+    await waitFor(() => expect(api.runAction).toHaveBeenCalledTimes(1))
+
+    // Espera o React confirmar cada passo: agrupadas no mesmo tick, as duas
+    // mudanças se anulariam e a janela nunca chegaria a desmontar — o teste
+    // passaria sem exercitar nada.
+    useStore.getState().setActionRunMinimized(7, true)
+    await waitFor(() => expect(screen.getByTestId('action-run-pill-7')).toBeTruthy())
+    useStore.getState().setActionRunMinimized(7, false)
+    await waitFor(() => expect(screen.getByTestId('action-run-7')).toBeTruthy())
+
+    expect(api.runAction, 'voltar da pílula relançou a ação').toHaveBeenCalledTimes(1)
+  })
+
+  /** O caso do relato: já tinha terminado, e mesmo assim recomeçou. */
+  it('nem quando a ação já terminou', async () => {
+    abrir()
+    await waitFor(() => expect(api.runAction).toHaveBeenCalledTimes(1))
+    useStore.getState().applyWsMessage({ type: 'action_exit', actionId: 7 })
+
+    useStore.getState().setActionRunMinimized(7, true)
+    await waitFor(() => expect(screen.getByTestId('action-run-pill-7')).toBeTruthy())
+    useStore.getState().setActionRunMinimized(7, false)
+    await waitFor(() => expect(screen.getByTestId('action-run-7')).toBeTruthy())
+
+    expect(api.runAction, 'uma ação TERMINADA foi lançada de novo').toHaveBeenCalledTimes(1)
+  })
+
+  /** Encolhida, o terminal continua montado — é o que preserva a saída. */
+  it('o terminal não é destruído ao encolher', async () => {
+    abrir()
+    useStore.getState().setActionRunMinimized(7, true)
+    await waitFor(() => expect(screen.getByTestId('action-run-pill-7')).toBeTruthy())
+    const janela = screen.getByTestId('action-run-7')
+    expect(janela, 'a janela sumiu do DOM: a saída se perde e o efeito remonta').toBeTruthy()
+    expect(janela.className).toContain('actrun--min')
+    expect(screen.getByTestId('action-run-pill-7')).toBeTruthy()
   })
 })

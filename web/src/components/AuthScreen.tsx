@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { login, setupMaster, type Me } from '../api'
+import { BrandMark } from './BrandMark'
 
 /** Tela de login OU de criação do master (1º acesso). Padrão Glass, centrada. */
 export function AuthScreen({ mode, onDone }: { mode: 'login' | 'setup'; onDone: (me: Me) => void }) {
@@ -39,7 +40,7 @@ export function AuthScreen({ mode, onDone }: { mode: 'login' | 'setup'; onDone: 
   return (
     <div className="auth-screen">
       <form className="auth-card glass" onSubmit={submit}>
-        <div className="auth-card__logo"><span className="sidebar__logo-star">✳</span> Claudinei</div>
+        <div className="auth-card__logo"><BrandMark size={22} /> Claudinei</div>
         <h1>{mode === 'setup' ? t('auth.setupTitle') : t('auth.signInTitle')}</h1>
         {mode === 'setup' && <p className="auth-card__hint">{t('auth.setupHint')}</p>}
         <label>

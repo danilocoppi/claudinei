@@ -19,8 +19,9 @@ import { ColorField } from './ColorField'
 import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
-import { MoreIcon } from './MenuIcons'
+import { MoreIcon, GearIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
+import { BrandMark } from './BrandMark'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -640,14 +641,14 @@ export function Sidebar() {
     <div className={`sidebar ${railMode ? 'rail-mode' : ''}`}>
       <div className="sidebar__top">
         <div className="sidebar__logo" onClick={openDashboard} title={t('sidebar.overview')}>
-          <span className="sidebar__logo-star">✳</span> Claudinei
+          <BrandMark /> Claudinei
         </div>
         <div className="sidebar__top-actions">
           <button className="sidebar__icon-btn sidebar__rail-btn"
                   title={t(railMode ? 'sidebar.expandSidebar' : 'sidebar.collapseSidebar')}
                   onClick={toggleRail}>{railMode ? '»' : '«'}</button>
           <button className="sidebar__icon-btn" title={t('appearance.title')}
-                  aria-label={t('appearance.title')} onClick={() => setShowAppearance(true)}>🎨</button>
+                  aria-label={t('appearance.title')} onClick={() => setShowAppearance(true)}><GearIcon size={14} /></button>
           <UserMenu />
           <LanguageSwitcher />
         </div>

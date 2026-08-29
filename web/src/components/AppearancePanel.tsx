@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { chooseTerminal, fetchTerminals, saveAppearance } from '../api'
 import { useStore } from '../store'
+import { GearIcon } from './MenuIcons'
 import {
   ACCENTS, CHAT_WIDTHS, CODE_FONTS, DEFAULT_APPEARANCE, DENSITIES, GLASS, RADII, THEMES, UI_FONTS,
   type Appearance, type Option,
@@ -102,7 +103,7 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" onClick={cancel}>
       <div className="glass ap-panel" data-testid="appearance-panel" onClick={(e) => e.stopPropagation()}>
         <header className="ap-panel__head">
-          <span aria-hidden="true">🎨</span>
+          <GearIcon size={16} />
           <h3>{t('appearance.title')}</h3>
         </header>
 

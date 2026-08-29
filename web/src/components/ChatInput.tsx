@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
@@ -7,6 +7,8 @@ import { SessionControls } from './SessionControls'
 import { filterCommands } from '../slash'
 import { readDraft, saveDraft } from '../drafts'
 import { SlashMenu } from './SlashMenu'
+import { MentionMenu } from './MentionMenu'
+import { applyMention, mentionAt } from '../mentions'
 import { MicButton, type MicDeps } from './MicButton'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
@@ -71,6 +73,8 @@ export function ChatInput({
   const slashCommands = useSessionSlashCommands(session)
   const engine = useEngineFor(session)
   const [activeIndex, setActiveIndex] = useState(0)
+  /** Aberta pelo `@@`: com quem este terminal vai falar. */
+  const [mencaoAberta, setMencaoAberta] = useState(false)
   const [slashDismissed, setSlashDismissed] = useState(false)
 
   const addLocalItem = useStore((s) => s.addLocalItem)
@@ -146,6 +150,36 @@ export function ChatInput({
     }
   }
 
+  /**
+   * Os terminais que dá para referenciar: todos, menos este.
+   *
+   * Mandar tarefa para si mesmo não é colaboração — é uma volta ao próprio
+   * terminal, e o servidor a entregaria à sessão que a pediu.
+   */
+  // Os dois valores vêm CRUS do store e o filtro acontece aqui. Filtrar dentro do
+  // seletor devolveria um array novo a cada leitura, e o zustand — que compara por
+  // identidade — entenderia "mudou" para sempre: render infinito.
+  const todosProjetos = useStore((s) => s.projects)
+  const meuProjeto = useStore((s) => (localId ? s.sessions[localId]?.projectId : undefined))
+  const projetosParaMencao = useMemo(
+    () => todosProjetos.filter((p) => p.id !== meuProjeto),
+    [todosProjetos, meuProjeto],
+  )
+
+  const escolheMencao = (nome: string) => {
+    const el = areaRef.current
+    const cursor = el?.selectionStart ?? text.length
+    const r = applyMention(el?.value ?? text, cursor, nome)
+    setText(r.text)
+    setMencaoAberta(false)
+    // O cursor tem de ir para depois da referência: sem isto ele volta ao fim do
+    // texto, e quem estava escrevendo no meio da frase perde o lugar.
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(r.cursor, r.cursor)
+    })
+  }
+
   const slashQuery = /^\/\S*$/.test(text) ? text.slice(1) : null
   const slashMatches = slashQuery !== null ? filterCommands(slashCommands, slashQuery) : []
   const slashOpen = !disabled && !slashDismissed && histIdxRef.current === null && slashMatches.length > 0
@@ -208,6 +242,13 @@ export function ChatInput({
         {slashOpen && (
           <SlashMenu items={slashMatches} activeIndex={Math.min(activeIndex, slashMatches.length - 1)} onPick={pickSlash} />
         )}
+        {mencaoAberta && (
+          <MentionMenu
+            projects={projetosParaMencao}
+            onPick={escolheMencao}
+            onClose={() => { setMencaoAberta(false); areaRef.current?.focus() }}
+          />
+        )}
         <textarea
           ref={areaRef}
           className={dragOver ? 'drag-over' : undefined}
@@ -220,7 +261,15 @@ export function ChatInput({
           }
           value={text}
           disabled={disabled}
-          onChange={(e) => { setText(e.target.value); setSlashDismissed(false); setActiveIndex(0); histIdxRef.current = null }}
+          onChange={(e) => {
+            setText(e.target.value)
+            setSlashDismissed(false); setActiveIndex(0); histIdxRef.current = null
+            // `@@` recém-digitado convoca a lista de terminais. A conferência é
+            // pela POSIÇÃO DO CURSOR, não pelo texto inteiro: um `@@` mais atrás
+            // na frase já foi resolvido ou foi descartado, e reabrir a lista por
+            // causa dele atrapalharia quem só está escrevendo.
+            if (mentionAt(e.target.value, e.target.selectionStart ?? 0) !== null) setMencaoAberta(true)
+          }}
           // clicar fora fecha o menu; a seleção usa onMouseDown+preventDefault,
           // então clicar num item NÃO dispara este blur antes do pick.
           onBlur={() => setSlashDismissed(true)}

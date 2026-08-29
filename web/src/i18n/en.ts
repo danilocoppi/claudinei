@@ -160,6 +160,8 @@ export const en = {
     inTerminalNotice: 'This session is open in the terminal. Close it there to resume on the web.',
     placeholder: 'Message for {{engine}}… (drag or paste files)',
     placeholderWorking: 'processing… additions you send now join the current turn', placeholderUploading: 'uploading attachment…',
+    mentionSearch: 'search terminal…',
+    mentionEmpty: 'no terminal with that name',
     processing: 'processing',
     thinking: 'Thinking', forward: 'Forward', forwardedTo: 'forwarded to {{name}}',
     noAgents: 'No other active agents', subagent: 'subagent', unknownProject: 'project',

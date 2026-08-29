@@ -162,6 +162,8 @@ export const es: typeof en = {
     inTerminalNotice: 'Esta sesión está abierta en la terminal. Ciérrala allí para retomar en la web.',
     placeholder: 'Mensaje para {{engine}}… (arrastra o pega archivos)',
     placeholderWorking: 'procesando… lo que envíes ahora se suma al turno actual', placeholderUploading: 'subiendo adjunto…',
+    mentionSearch: 'buscar terminal…',
+    mentionEmpty: 'ningún terminal con ese nombre',
     processing: 'procesando',
     thinking: 'Pensamiento', forward: 'Reenviar', forwardedTo: 'reenviado a {{name}}',
     noAgents: 'Ningún otro agente activo', subagent: 'subagente', unknownProject: 'proyecto',

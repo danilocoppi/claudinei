@@ -162,6 +162,8 @@ export const ptBR: typeof en = {
     inTerminalNotice: 'Esta sessão está aberta no terminal. Feche a janela do terminal para poder retomar na web.',
     placeholder: 'Mensagem para o {{engine}}… (arraste ou cole arquivos)',
     placeholderWorking: 'processando… adendos enviados agora entram no turno atual', placeholderUploading: 'enviando anexo…',
+    mentionSearch: 'buscar terminal…',
+    mentionEmpty: 'nenhum terminal com esse nome',
     processing: 'processando',
     thinking: 'Pensamento', forward: 'Encaminhar', forwardedTo: 'encaminhado para {{name}}',
     noAgents: 'Nenhum outro agente ativo', subagent: 'subagente', unknownProject: 'projeto',

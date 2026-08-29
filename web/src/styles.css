@@ -1941,7 +1941,7 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 }
 @container sidebar (max-width: 215px) {
   /* Sem espaço nem para o rótulo, sobra o sinal: a ação continua ali, com o title. */
-  .term-header__label, .term-header__plus { display: none; }
+  .term-header__label { display: none; }
 }
 
 /* ---- Cartão de terminal colapsado ----

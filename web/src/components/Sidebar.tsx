@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { createSector, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
+import { deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, railRows, type Entry, type RailGuide } from '../sidebarEntries'
@@ -121,8 +121,6 @@ export function Sidebar() {
   const [collapsedCards, setCollapsedCards] = useState<number[]>(loadCollapsedCards)
   // Editor de contêiner (grupo OU setor): mesma anatomia, um discriminador só.
   const [groupMenuFor, setGroupMenuFor] = useState<{ kind: 'group' | 'sector'; id: number; name: string; x: number; y: number } | null>(null)
-  const [newSectorAt, setNewSectorAt] = useState<{ x: number; y: number } | null>(null)
-  const [newSectorName, setNewSectorName] = useState('')
   const [groupRename, setGroupRename] = useState('')
   const [groupIcon, setGroupIcon] = useState('🗂️')
   const [groupError, setGroupError] = useState('')
@@ -244,13 +242,6 @@ export function Sidebar() {
   // Soltar no cabeçalho "Terminais": tira de grupo/setor e manda para o topo da raiz.
   const dropOnRoot = async () => {
     await dropAt(entries.length ? entryKey(entries[0]) : null)
-  }
-
-  const createSectorNamed = async () => {
-    const name = newSectorName.trim()
-    if (!name) return
-    setNewSectorAt(null); setNewSectorName('')
-    try { await createSector(name); await refetchAll() } catch { /* mantém como está */ }
   }
 
   /**
@@ -674,14 +665,6 @@ export function Sidebar() {
         <button className="ghost term-header__icon" title={t('sidebar.expandAll')}
                 onClick={() => collapseAll(false)}>⌄</button>
         {isAdmin && (
-          <button className="ghost term-header__icon" title={t('sidebar.newSector')}
-                  onClick={(e) => {
-                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                    setNewSectorName('')
-                    setNewSectorAt({ x: Math.max(8, Math.min(r.left - 60, window.innerWidth - 250)), y: r.bottom + 4 })
-                  }}>🏢<span className="term-header__plus">+</span></button>
-        )}
-        {isAdmin && (
           <button className="ghost term-header__add" title={t('sidebar.addTerminal')} onClick={() => setShowNew(true)}>
             +<span className="term-header__label"> Terminal</span>
           </button>
@@ -775,25 +758,6 @@ export function Sidebar() {
               <span>🗑</span><span>{t(groupMenuFor.kind === 'sector' ? 'sidebar.deleteSector' : 'sidebar.deleteGroup')}</span>
             </div>
             <div className="sess-pop__hint">{t(groupMenuFor.kind === 'sector' ? 'sidebar.deleteSectorHint' : 'sidebar.deleteGroupHint')}</div>
-          </div>
-        </div>,
-        document.body,
-      )}
-
-      {newSectorAt && createPortal(
-        <div className="sess-pop__overlay" onClick={() => setNewSectorAt(null)}>
-          <div className="sess-pop glass" style={{ left: newSectorAt.x, top: newSectorAt.y, minWidth: 230 }} onClick={(e) => e.stopPropagation()}>
-            <div className="sess-pop__eyebrow">{t('sidebar.newSector')}</div>
-            <div className="sess-pop__newgroup">
-              <input
-                autoFocus
-                value={newSectorName}
-                placeholder={t('sidebar.newSectorPlaceholder')}
-                onChange={(e) => setNewSectorName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void createSectorNamed() }}
-              />
-              <button title={t('sidebar.newSector')} disabled={!newSectorName.trim()} onClick={() => void createSectorNamed()}>＋</button>
-            </div>
           </div>
         </div>,
         document.body,

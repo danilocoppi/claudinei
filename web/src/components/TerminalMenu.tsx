@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
-  createGroup, deleteAction, deleteProject, fetchActions, fetchGroups, fetchLocalApps,
-  fetchProjects, fetchSectors, openLocalApp, setProjectGroup, setProjectSector,
-  type Action, type LocalApp,
+  createGroup, createSector, deleteAction, deleteProject, fetchActions, fetchGroups,
+  fetchLocalApps, fetchProjects, fetchSectors, openLocalApp, setProjectGroup,
+  setProjectSector, type Action, type LocalApp,
 } from '../api'
 import { useStore } from '../store'
 import { copyText } from '../clipboard'
@@ -41,6 +41,7 @@ export function TerminalMenu({ project, x, y, onDone }: {
   const { t } = useTranslation()
   const [phase, setPhase] = useState<'menu' | 'edit' | 'delete' | 'action'>('menu')
   const [newGroupName, setNewGroupName] = useState('')
+  const [newSectorName, setNewSectorName] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [localApps, setLocalApps] = useState<Partial<Record<LocalApp, boolean>> & { local?: boolean }>({})
   const [actions, setActions] = useState<Action[]>([])
@@ -82,6 +83,18 @@ export function TerminalMenu({ project, x, y, onDone }: {
     try {
       const g = await createGroup(name)
       await setProjectGroup(project.id, g.id)
+      await refetchAll()
+    } catch { /* mantém como está */ }
+  }
+
+  const criarSetorEMover = async () => {
+    const name = newSectorName.trim()
+    if (!name) return
+    onDone()
+    setNewSectorName('')
+    try {
+      const sec = await createSector(name)
+      await setProjectSector(project.id, sec.id)
       await refetchAll()
     } catch { /* mantém como está */ }
   }
@@ -207,20 +220,35 @@ export function TerminalMenu({ project, x, y, onDone }: {
           <button title={t('sidebar.newGroup')} disabled={!newGroupName.trim()}
                   onClick={() => void criarGrupoEMover()}>＋</button>
         </div>
-        {sectors.length > 0 && (
-          <label className="sess-pop__field">
-            <span>{t('sidebar.sector')}</span>
-            <select data-testid="menu-sector" value={project.sectorId ?? ''}
-                    onChange={(e) => {
-                      const sectorId = e.target.value ? Number(e.target.value) : null
-                      onDone()
-                      void setProjectSector(project.id, sectorId).then(refetchAll).catch(() => {})
-                    }}>
-              <option value="">{t('sidebar.noSector')}</option>
-              {sectors.map((sec) => <option key={sec.id} value={sec.id}>{sec.name}</option>)}
-            </select>
-          </label>
-        )}
+        {/* Setor mora aqui pelo mesmo motivo que grupo: é onde se responde "onde este
+            terminal fica". Antes, criar setor era um botão na barra de cima — longe do
+            terminal que ia para dentro dele, e escondido atrás de um ícone.
+            E aparece SEMPRE, mesmo sem nenhum setor cadastrado: ele é o único caminho
+            para o primeiro, e um campo que só nasce depois de existir o que ele cria
+            não teria como ser usado. */}
+        <label className="sess-pop__field">
+          <span>{t('sidebar.sector')}</span>
+          <select data-testid="menu-sector" value={project.sectorId ?? ''}
+                  onChange={(e) => {
+                    const sectorId = e.target.value ? Number(e.target.value) : null
+                    onDone()
+                    void setProjectSector(project.id, sectorId).then(refetchAll).catch(() => {})
+                  }}>
+            <option value="">{t('sidebar.noSector')}</option>
+            {sectors.map((sec) => <option key={sec.id} value={sec.id}>{sec.name}</option>)}
+          </select>
+        </label>
+        <div className="sess-pop__newgroup">
+          <input
+            data-testid="menu-new-sector"
+            value={newSectorName}
+            placeholder={t('sidebar.newSectorPlaceholder')}
+            onChange={(e) => setNewSectorName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void criarSetorEMover() }}
+          />
+          <button title={t('sidebar.newSector')} disabled={!newSectorName.trim()}
+                  onClick={() => void criarSetorEMover()}>＋</button>
+        </div>
 
         {/* O irreversível por último, separado e tingido. Antes era o SEGUNDO item
             do menu, encostado em Editar — no ponto de maior tráfego do ponteiro. */}

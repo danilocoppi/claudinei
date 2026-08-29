@@ -24,6 +24,8 @@ vi.mock('../api', async () => {
     deleteAction: vi.fn(async () => undefined),
     stopAction: vi.fn(async () => undefined),
     runAction: vi.fn(async () => ({ token: 't', wsUrl: '/ws/terminal/act-7', reattached: false })),
+    createSector: vi.fn(async (name: string) => ({ id: 42, name })),
+    setProjectSector: vi.fn(async () => undefined),
     fetchGroups: vi.fn(async () => []),
     fetchSectors: vi.fn(async () => []),
     fetchProjects: vi.fn(async () => []),
@@ -421,5 +423,35 @@ describe('o que vai para o armazenamento', () => {
       actionId: 7, name: 'Deploy', autoClose: false, minimized: true, x: 10, y: 20,
     })
     expect(cru).not.toHaveProperty('attachOnly')
+  })
+})
+
+/**
+ * Criar setor mudou de lugar: era um 🏢+ na barra de cima, longe do terminal que
+ * ia para dentro dele. Agora fica junto de grupo, no ⋮ do terminal — onde já se
+ * responde "onde este terminal fica".
+ */
+describe('criar setor pelo menu do terminal', () => {
+  it('o campo aparece mesmo sem nenhum setor cadastrado', async () => {
+    useStore.setState({ sectors: [] })
+    await abreMenu()
+    // sem isto, o único caminho para o PRIMEIRO setor teria sumido com o botão antigo
+    expect(screen.getByTestId('menu-new-sector')).toBeTruthy()
+    expect(screen.getByTestId('menu-sector')).toBeTruthy()
+  })
+
+  it('cria e já move o terminal para dentro dele', async () => {
+    await abreMenu()
+    fireEvent.change(screen.getByTestId('menu-new-sector'), { target: { value: 'Financeiro' } })
+    fireEvent.keyDown(screen.getByTestId('menu-new-sector'), { key: 'Enter' })
+    await waitFor(() => expect(api.createSector).toHaveBeenCalledWith('Financeiro'))
+    await waitFor(() => expect(api.setProjectSector).toHaveBeenCalledWith(project.id, 42))
+  })
+
+  it('nome vazio não cria nada', async () => {
+    await abreMenu()
+    fireEvent.change(screen.getByTestId('menu-new-sector'), { target: { value: '   ' } })
+    fireEvent.keyDown(screen.getByTestId('menu-new-sector'), { key: 'Enter' })
+    expect(api.createSector).not.toHaveBeenCalled()
   })
 })

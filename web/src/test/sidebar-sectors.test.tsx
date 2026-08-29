@@ -168,8 +168,15 @@ describe('Sidebar com setores', () => {
     expect(screen.getByText('Excluir setor')).toBeTruthy()
   })
 
-  it('o cabeçalho tem o botão de criar setor', () => {
+  /**
+   * Invertido de propósito. Criar setor era um 🏢+ na barra de cima — longe do
+   * terminal que ia para dentro dele, e escondido atrás de um ícone. Mudou para o
+   * ⋮ do terminal, ao lado de grupo, onde já se responde "onde este terminal
+   * fica". Se este botão voltar à barra, passam a existir dois lugares que fazem
+   * a mesma coisa.
+   */
+  it('o cabeçalho NÃO tem mais o botão de criar setor', () => {
     render(<Sidebar />)
-    expect(screen.getByTitle('Novo setor')).toBeTruthy()
+    expect(screen.queryByTitle('Novo setor')).toBeNull()
   })
 })

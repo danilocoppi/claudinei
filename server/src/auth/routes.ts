@@ -11,8 +11,8 @@ export interface AuthRouteDeps {
   onRevokeAll?: () => void
   /** Chamado quando os tokens/permissões de UM usuário mudam (derruba os WS dele). */
   onUserInvalidated?: (userId: number) => void
-  /** Há proxy na frente? Decide a flag `secure` do cookie (ver cookieOpts). */
-  behindProxy?: boolean
+  /** A conexão do navegador é HTTPS? Decide a flag `secure` do cookie (ver cookieOpts). */
+  secureTransport?: boolean
 }
 
 // Rate limit de login por IP: complementa o lockout por conta — sem ele, 5
@@ -26,7 +26,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   const setAuthCookie = (reply: FastifyReply, userId: number): void => {
     const ver = auth.users.tokenVersion(userId) ?? 0
     // `secure` acompanha o modo do processo: ver cookieOpts.
-    reply.setCookie(COOKIE_NAME, auth.tokens.signUser(userId, ver), cookieOpts(!!deps.behindProxy))
+    reply.setCookie(COOKIE_NAME, auth.tokens.signUser(userId, ver), cookieOpts(!!deps.secureTransport))
   }
 
   const ipFailures = new Map<string, { count: number; resetAt: number }>()

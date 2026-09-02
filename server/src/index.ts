@@ -2,6 +2,7 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { loadConfig, migrateLegacyDataDir, parseCliArgs, resolveSelfUrl } from './config.js'
 import { assertExposureAllowed, isLoopbackHost } from './expose-guard.js'
+import { loadTlsOptions } from './tls.js'
 import { moduleDirname } from './dirname.js'
 
 const __dirname = moduleDirname(import.meta.url)
@@ -192,10 +193,25 @@ if (process.argv.includes('--hermes')) {
   // (é o proxy que conecta em 127.0.0.1). Aceita CLI e env — em systemd, a env é
   // mais prática que editar o ExecStart.
   const behindProxy = !!cli.behindProxy || process.env.CLAUDINEI_TRUSTED_PROXY === '1'
+  // TLS próprio (opcional). CLI tem precedência sobre env — quem digitou a flag
+  // agora quer aquilo, não o que está no unit do systemd.
+  let https: ReturnType<typeof loadTlsOptions> = null
+  try {
+    https = loadTlsOptions({
+      cert: cli.tlsCert ?? config.tlsCert,
+      key: cli.tlsKey ?? config.tlsKey,
+    })
+  } catch (err) {
+    // Morrer aqui é o certo: subir em HTTP depois de pedirem HTTPS seria expor em
+    // texto puro alguém que acredita estar protegido.
+    console.error((err as Error).message)
+    process.exit(1)
+  }
   const app = await buildApp({
     config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage], engineUsage, auth,
     insecure: !!cli.insecure,
     behindProxy,
+    https: https ?? undefined,
     webDist: existsSync(webDist) ? webDist : undefined,
     onOrchestratorReady: (d) => { drain = d },
     onSchedulerReady: (s) => { scheduler = s },
@@ -212,7 +228,7 @@ if (process.argv.includes('--hermes')) {
   // o momento em que a porta começa a aceitar conexões.
   scheduler?.start()
   console.log(
-    `Termaster server em http://${host}:${port}` +
+    `Termaster server em ${https ? 'https' : 'http'}://${host}:${port}` +
     (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : '') +
     (behindProxy ? '  🔒 atrás de proxy (funções de host desativadas p/ acesso remoto)' : ''),
   )

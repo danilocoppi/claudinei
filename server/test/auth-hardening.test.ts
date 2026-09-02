@@ -142,3 +142,52 @@ describe('cabeçalhos sem auth configurada', () => {
     await app.close()
   })
 })
+
+/**
+ * `Secure` e HSTS seguem o TRANSPORTE, não a topologia.
+ *
+ * Nasceram presos a `behindProxy` porque, na época, proxy era o único jeito de
+ * ter TLS. Com HTTPS nativo isso ficou errado nos dois sentidos: sem proxy mas
+ * com TLS próprio, o cookie sairia sem `Secure` numa conexão que É segura.
+ */
+describe('transporte seguro sem proxy', () => {
+  let db: Db
+  let auth: AuthService
+
+  beforeEach(() => {
+    db = openDb(':memory:')
+    auth = createAuthService({ db })
+    auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
+  })
+
+  it('HTTPS nativo marca o cookie como Secure e manda HSTS', async () => {
+    const app = await buildApp({
+      config: loadConfig({}), db, auth, secureTransport: true,
+      manager: createSessionManager({ db, broadcast: () => {} }),
+    })
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/login', remoteAddress: '127.0.0.1',
+      payload: { username: 'root', password: 'abcd1234' },
+    })
+    const c = res.cookies.find((x: any) => x.name === 'claudinei_token') as any
+    expect(c.secure, 'cookie sem Secure numa conexão HTTPS').toBe(true)
+    expect((res.headers as any)['strict-transport-security']).toMatch(/max-age/)
+    await app.close()
+  })
+
+  /** HTTP simples continua sem Secure — senão o login local pararia de funcionar. */
+  it('HTTP puro continua sem Secure', async () => {
+    const app = await buildApp({
+      config: loadConfig({}), db, auth,
+      manager: createSessionManager({ db, broadcast: () => {} }),
+    })
+    const res = await app.inject({
+      method: 'POST', url: '/api/auth/login', remoteAddress: '127.0.0.1',
+      payload: { username: 'root', password: 'abcd1234' },
+    })
+    const c = res.cookies.find((x: any) => x.name === 'claudinei_token') as any
+    expect(c.secure).toBeFalsy()
+    expect((res.headers as any)['strict-transport-security']).toBeUndefined()
+    await app.close()
+  })
+})

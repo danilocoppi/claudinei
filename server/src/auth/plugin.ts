@@ -31,13 +31,12 @@ export const COOKIE_OPTS = { httpOnly: true, sameSite: 'strict' as const, path: 
 /**
  * As flags do cookie para este processo.
  *
- * `secure` depende de haver TLS — e nesta arquitetura o app NUNCA termina HTTPS:
- * quem faz isso é o proxy na frente. Por isso a flag acompanha `behindProxy`, e
- * não um valor fixo: marcada em acesso HTTP local, o navegador simplesmente não
- * devolveria o cookie e o login pararia de funcionar.
+ * `secure` depende de haver TLS de verdade na conexão — seja servido aqui
+ * (--tls-cert) ou terminado num proxy à frente. Marcada em acesso HTTP puro, o
+ * navegador simplesmente não devolveria o cookie e o login pararia de funcionar.
  */
-export function cookieOpts(behindProxy: boolean) {
-  return { ...COOKIE_OPTS, secure: behindProxy }
+export function cookieOpts(secureTransport: boolean) {
+  return { ...COOKIE_OPTS, secure: secureTransport }
 }
 
 /**
@@ -139,7 +138,7 @@ export function isTrustedLocal(req: { socket?: { remoteAddress?: string }; behin
  * no modo pré-setup (zero usuários) a aplicação era servida sem nenhum deles — e
  * essa é justamente a janela em que qualquer visitante pode criar o admin.
  */
-export function registerSecurityHeaders(app: FastifyInstance, behindProxy: boolean): void {
+export function registerSecurityHeaders(app: FastifyInstance, secureTransport: boolean): void {
   /**
    * Cabeçalhos de segurança em toda resposta.
    *
@@ -153,7 +152,7 @@ export function registerSecurityHeaders(app: FastifyInstance, behindProxy: boole
     reply.header('X-Frame-Options', 'DENY')
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'no-referrer')
-    if (behindProxy) {
+    if (secureTransport) {
       reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
     }
     // Só se a rota não tiver posto a sua: as de arquivo respondem com
@@ -167,7 +166,7 @@ export function registerSecurityHeaders(app: FastifyInstance, behindProxy: boole
 
 }
 
-export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean }): Promise<void> {
+export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean; secureTransport?: boolean }): Promise<void> {
   await app.register(cookie)
 
   app.addHook('onRequest', async (req, reply) => {
@@ -224,7 +223,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
             if (payload.iat !== undefined && payload.exp !== undefined) {
               const nowSec = Math.floor(Date.now() / 1000)
               if (shouldRefresh(payload.iat, payload.exp, nowSec)) {
-                reply.setCookie(COOKIE_NAME, deps.auth.tokens.signUser(id, ver), cookieOpts(!!deps.behindProxy))
+                reply.setCookie(COOKIE_NAME, deps.auth.tokens.signUser(id, ver), cookieOpts(!!deps.secureTransport))
               }
             }
           }

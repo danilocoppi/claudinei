@@ -29,6 +29,9 @@ export interface Config {
   speechDir: string
   /** Conteúdo dos resultados de agendamento (um arquivo por execução). */
   schedulesDir: string
+  /** Certificado/chave para servir HTTPS direto. Vazios = HTTP (padrão). */
+  tlsCert?: string
+  tlsKey?: string
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -60,6 +63,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     selfUrl: env.CLAUDINEI_API ?? `http://127.0.0.1:${port}`,
     keepSessionsPerProject: env.CLAUDINEI_KEEP_SESSIONS ? Number(env.CLAUDINEI_KEEP_SESSIONS) : 5,
     uploadsDir: env.CLAUDINEI_UPLOADS ?? join(homedir(), '.claudinei', 'uploads'),
+    tlsCert: env.CLAUDINEI_TLS_CERT,
+    tlsKey: env.CLAUDINEI_TLS_KEY,
     speechDir: env.CLAUDINEI_SPEECH ?? join(homedir(), '.claudinei', 'speech'),
     schedulesDir: env.CLAUDINEI_SCHEDULES ?? join(homedir(), '.claudinei', 'schedules'),
   }
@@ -85,8 +90,14 @@ export function resolveSelfUrl(
 }
 
 /** Parser mínimo de flags de CLI (host/port/insecure). Puro e testável. */
-export function parseCliArgs(argv: string[]): { host?: string; port?: number; insecure?: boolean; behindProxy?: boolean } {
-  const out: { host?: string; port?: number; insecure?: boolean; behindProxy?: boolean } = {}
+export function parseCliArgs(argv: string[]): {
+  host?: string; port?: number; insecure?: boolean; behindProxy?: boolean
+  tlsCert?: string; tlsKey?: string
+} {
+  const out: {
+    host?: string; port?: number; insecure?: boolean; behindProxy?: boolean
+    tlsCert?: string; tlsKey?: string
+  } = {}
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const val = () => {
@@ -97,6 +108,8 @@ export function parseCliArgs(argv: string[]): { host?: string; port?: number; in
     else if (a === '--behind-proxy') out.behindProxy = true
     else if (a === '--host' || a.startsWith('--host=')) { const v = val(); if (v) out.host = v }
     else if (a === '--port' || a.startsWith('--port=')) { const n = Number(val()); if (Number.isInteger(n)) out.port = n }
+    else if (a === '--tls-cert' || a.startsWith('--tls-cert=')) { const v = val(); if (v) out.tlsCert = v }
+    else if (a === '--tls-key' || a.startsWith('--tls-key=')) { const v = val(); if (v) out.tlsKey = v }
   }
   return out
 }

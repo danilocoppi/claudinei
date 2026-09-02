@@ -416,6 +416,11 @@ After=network.target
 ExecStart=%h/claudinei/release/claudinei-linux-x64
 # expose on the LAN instead? use:
 # ExecStart=%h/claudinei/release/claudinei-linux-x64 --host 0.0.0.0
+# serve HTTPS yourself (see "HTTPS served by Claudinei itself"):
+# Environment=CLAUDINEI_TLS_CERT=/etc/ssl/claudinei/cert.pem
+# Environment=CLAUDINEI_TLS_KEY=/etc/ssl/claudinei/key.pem
+# or, if a reverse proxy terminates TLS in front of you:
+# Environment=CLAUDINEI_TRUSTED_PROXY=1
 Restart=on-failure
 RestartSec=3
 # claude/codex/opencode/kimi must be on the service PATH (check with `which claude`):
@@ -479,6 +484,40 @@ sqlite3 ~/.claudinei/claudinei.db "DELETE FROM users;"
 
 The next access from `localhost` shows **Create master account** again.
 
+### HTTPS served by Claudinei itself (optional)
+
+Point it at a certificate and it speaks TLS directly — no proxy in the middle:
+
+```bash
+claudinei --tls-cert /etc/ssl/claudinei/cert.pem --tls-key /etc/ssl/claudinei/key.pem
+```
+
+In a systemd unit, the environment variables are usually handier:
+
+```ini
+Environment=CLAUDINEI_TLS_CERT=/etc/ssl/claudinei/cert.pem
+Environment=CLAUDINEI_TLS_KEY=/etc/ssl/claudinei/key.pem
+```
+
+**Off by default** — running on localhost shouldn't require a certificate. Give
+both files and it starts on `https://`; give neither and nothing changes. Give
+only one and it **refuses to start**: silently falling back to HTTP would leave
+you believing you're encrypted when you're not.
+
+The browser side needs no change — the app already picks `wss://` for its
+WebSockets when the page is HTTPS, so chat and terminals follow along.
+
+> **This is usually the better option here, and not just for convenience.** With a
+> reverse proxy, every request arrives from `127.0.0.1`, so the server can no
+> longer tell you-at-the-keyboard from a stranger on the internet — which is why
+> `--behind-proxy` has to switch off "open folder", VS Code, `!` commands and
+> Actions *for everyone*. Serving TLS here keeps the real client IP, so those keep
+> working for you locally while remote users stay locked out of them.
+>
+> What a proxy still does better: **renewing certificates**. Caddy handles Let's
+> Encrypt on its own; Claudinei only reads the files you point it at, so plan a
+> `certbot` (or similar) renewal plus a restart.
+
 ### Behind a reverse proxy — use `--behind-proxy`
 
 If you put nginx/Caddy in front (the usual way to add HTTPS), **turn this on**:
@@ -527,6 +566,9 @@ Tests do **not** need the native node-pty (fake PTY), the real Claude (`fake-cla
 | Variable | Default | What it does |
 |---|---|---|
 | `CLAUDINEI_PORT` | `9105` | backend/app port |
+| `CLAUDINEI_TLS_CERT` | — | certificate (PEM) to serve HTTPS directly; needs `CLAUDINEI_TLS_KEY` too |
+| `CLAUDINEI_TLS_KEY` | — | private key (PEM) that goes with the certificate |
+| `CLAUDINEI_TRUSTED_PROXY` | — | `1` when a reverse proxy sits in front — see **Behind a reverse proxy** |
 | `CLAUDINEI_HOST` | `127.0.0.1` | bind address (`0.0.0.0` to expose on the LAN — requires at least one user configured, or `--insecure`; see **Multi-user authentication**) |
 | `CLAUDINEI_DB` | `~/.claudinei/claudinei.db` | SQLite path |
 | `CLAUDINEI_CLAUDE_BIN` | `claude` | Claude Code binary (useful on Windows/out-of-PATH installs) |

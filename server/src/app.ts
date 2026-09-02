@@ -67,6 +67,16 @@ export interface AppDeps {
   insecure?: boolean
   /** --behind-proxy: há um reverse proxy na frente, então loopback não é mais prova de "dono na máquina". */
   behindProxy?: boolean
+  /** Certificado/chave já lidos (ver tls.ts). Presente = o servidor fala HTTPS. */
+  https?: { cert: Buffer; key: Buffer }
+  /**
+   * A conexão do navegador é HTTPS? Decide `Secure` no cookie e o HSTS.
+   *
+   * Segue o TRANSPORTE, não a topologia: vale tanto para TLS nativo (`https`
+   * aqui) quanto para TLS terminado num proxy (`behindProxy`). Marcar `Secure`
+   * em HTTP puro quebraria o login — o navegador não devolveria o cookie.
+   */
+  secureTransport?: boolean
   /** Pós revoke-all: derruba todos os WS. */
   onRevokeAll?: () => void
   /** Tokens/permissões de um usuário mudaram: derruba os WS dele. */
@@ -80,17 +90,23 @@ export interface AppDeps {
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false })
+  // O Fastify decide entre http e https no CONSTRUTOR, e tipa o servidor de forma
+  // diferente em cada caso — daí os dois ramos e o cast. A API que usamos daqui
+  // para baixo é idêntica nos dois (rotas, hooks, listen, server.address()).
+  const app = (deps.https
+    ? Fastify({ logger: false, https: deps.https })
+    : Fastify({ logger: false })) as unknown as FastifyInstance
   await app.register(websocket)
   // FORA do `if (deps.auth)`: a decoração precisa existir mesmo sem auth
   // configurada (modo pré-setup). Dentro, `req.behindProxy` ficava undefined e
   // `isTrustedLocal` voltava a valer como `isLocalRequest` — o que reabria o
   // `!comando` e as rotas de host para quem chegasse pelo proxy.
   app.decorateRequest('behindProxy', !!deps.behindProxy)
-  registerSecurityHeaders(app, !!deps.behindProxy)
+  const seguro = deps.secureTransport ?? (!!deps.https || !!deps.behindProxy)
+  registerSecurityHeaders(app, seguro)
   if (deps.auth) {
-    await registerAuth(app, { auth: deps.auth, insecure: deps.insecure, behindProxy: deps.behindProxy })
-    registerAuthRoutes(app, { auth: deps.auth, onRevokeAll: deps.onRevokeAll, onUserInvalidated: deps.onUserInvalidated, behindProxy: deps.behindProxy })
+    await registerAuth(app, { auth: deps.auth, insecure: deps.insecure, behindProxy: deps.behindProxy, secureTransport: seguro })
+    registerAuthRoutes(app, { auth: deps.auth, onRevokeAll: deps.onRevokeAll, onUserInvalidated: deps.onUserInvalidated, secureTransport: seguro })
   }
 
   app.get('/api/health', async () => ({ ok: true }))

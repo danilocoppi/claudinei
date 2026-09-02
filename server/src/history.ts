@@ -13,6 +13,17 @@ export function transcriptPath(claudeConfigDir: string, projectPath: string, eng
 }
 
 /**
+ * O transcript desta conversa existe em disco?
+ *
+ * `claude --resume <id>` morre com "No conversation found with session ID" quando
+ * o `.jsonl` sumiu (limpeza do ~/.claude, máquina trocada). Chamar isto ANTES de
+ * montar o `--resume` troca esse erro fatal por uma sessão nova.
+ */
+export function transcriptExists(claudeConfigDir: string, projectPath: string, engineSessionId: string): boolean {
+  return existsSync(transcriptPath(claudeConfigDir, projectPath, engineSessionId))
+}
+
+/**
  * Id (basename sem .jsonl) do transcript mais recente da pasta do projeto —
  * é a conversa que `claude --continue` vai retomar. Null se não houver nenhum.
  */

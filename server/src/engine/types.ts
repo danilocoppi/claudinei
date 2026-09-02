@@ -76,6 +76,14 @@ export interface Engine {
   readHistory(projectPath: string, engineSessionId: string): AgentEvent[] | Promise<AgentEvent[]>
   latestConversationId(projectPath: string): string | null
   /**
+   * Uma conversa específica ainda existe no storage da engine?
+   *
+   * Opcional: engine que não implementa faz o manager confiar no id do banco
+   * como antes. O Claude implementa porque é onde um id fantasma vira erro fatal
+   * de `--resume`. Ver SessionManager.resolveResume.
+   */
+  conversationExists?(projectPath: string, id: string): boolean
+  /**
    * Comando do terminal interativo. resumeSessionId ausente/null → sessão NOVA (fresh), sem retomar.
    * `env` (opcional) é MESCLADO ao ambiente do PTY — o Kimi precisa disso para abrir
    * no mesmo data root (KIMI_CODE_HOME) das sessões do chat.

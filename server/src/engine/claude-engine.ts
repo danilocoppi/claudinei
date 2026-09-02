@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ClaudeSession, type PermissionMode } from '../claude/session.js'
-import { latestTranscriptId, readTranscript } from '../history.js'
+import { latestTranscriptId, readTranscript, transcriptExists } from '../history.js'
 import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, AgentEvent } from './types.js'
 
 // Diretório de config do Claude (mesma regra do config.ts) — a engine resolve
@@ -49,6 +49,10 @@ export const claudeEngine: Engine = {
 
   latestConversationId(projectPath: string): string | null {
     return latestTranscriptId(claudeConfigDir(), projectPath)
+  },
+
+  conversationExists(projectPath: string, id: string): boolean {
+    return transcriptExists(claudeConfigDir(), projectPath, id)
   },
 
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {

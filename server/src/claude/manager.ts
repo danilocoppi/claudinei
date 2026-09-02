@@ -112,6 +112,29 @@ export function createSessionManager(deps: Deps) {
   const makeSession = (engineId: EngineId, opts: EngineSessionOptions): EngineSession =>
     deps.sessionFactory ? deps.sessionFactory(opts) : getEngine(engineId).createSession(opts)
 
+  /**
+   * O id de conversa a retomar, DEPOIS de conferir que ele ainda existe.
+   *
+   * Um `claude_session_id` gravado cujo transcript sumiu (limpeza do ~/.claude,
+   * máquina trocada) fazia `--resume` morrer com "No conversation found" — e como
+   * o id vinha do banco e nunca era descartado, chat e terminal ficavam presos
+   * para sempre. Aqui o fantasma é jogado fora E apagado do banco (o COALESCE do
+   * persist nunca sobrescreve com null, então sem este DELETE explícito ele
+   * voltaria na próxima abertura).
+   */
+  const resolveResume = (engineId: EngineId, projectPath: string, localId: string, candidate: string | null): string | null => {
+    if (!candidate) return null
+    // Formato ANTES de existência: um id malformado no banco não pode virar argv
+    // ("-x flag") nem sequer tocar o disco. Rejeita em vez de descartar.
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(candidate)) throw new Error('id de sessão inválido')
+    const eng = getEngine(engineId)
+    if (eng.conversationExists && !eng.conversationExists(projectPath, candidate)) {
+      deps.db.prepare('UPDATE sessions SET claude_session_id=NULL WHERE local_id=?').run(localId)
+      return null
+    }
+    return candidate
+  }
+
   const persist = (localId: string, status: SessionStatus, engineSessionId: string | null) => {
     deps.db.prepare(
       `UPDATE sessions SET status=?, claude_session_id=COALESCE(?, claude_session_id), updated_at=datetime('now') WHERE local_id=?`,
@@ -312,13 +335,16 @@ export function createSessionManager(deps: Deps) {
       }
       const project = deps.db.prepare('SELECT * FROM projects WHERE id=?').get(row.project_id) as any
       if (!project) throw new Error(`projeto da sessão não existe mais`)
+      // Fantasma (transcript sumiu) é descartado aqui também: sem isto, reviver o
+      // chat caía no mesmo "No conversation found" do terminal.
+      const reviveResume = resolveResume(engine, project.path, localId, row.claude_session_id ?? null)
       wire(localId, row.project_id, engine, makeSession(engine, {
         projectPath: project.path,
-        resumeSessionId: row.claude_session_id ?? undefined,
+        resumeSessionId: reviveResume ?? undefined,
         // Sem conversa própria para retomar (--resume), preserva a intenção
         // original: sessão nascida com --continue revive continuando a última
         // conversa da pasta — não uma conversa nova em branco.
-        continueLatest: row.claude_session_id ? undefined : row.continue_latest !== 0,
+        continueLatest: reviveResume ? undefined : row.continue_latest !== 0,
         permissionMode: (row.permission_mode ?? 'bypassPermissions') as PermissionMode,
         model: row.model ?? undefined,
         effort: row.effort ?? undefined,
@@ -386,7 +412,9 @@ export function createSessionManager(deps: Deps) {
       // thread desta pasta lido do storage da engine (rollouts do Codex / sessões do
       // Claude) — assim o terminal RETOMA a conversa em vez de abrir em branco. Sem
       // nenhum → sessão nova (fresh).
-      let resumeId: string | null = row.claude_session_id ?? null
+      // Descarta um id cujo transcript não existe mais (senão --resume morre); só
+      // então cai para o último thread real da pasta, ou fresh.
+      let resumeId: string | null = resolveResume(engineId, project.path, localId, row.claude_session_id ?? null)
       if (!resumeId) {
         try { resumeId = getEngine(engineId).latestConversationId(project.path) } catch { resumeId = null }
       }

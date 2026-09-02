@@ -381,6 +381,15 @@ describe('SessionManager', () => {
       const engineSessionId = mgr.get(info.localId)?.engineSessionId
       expect(engineSessionId).toBeTruthy()
 
+      // Em produção o claude escreve o transcript ao rodar; o fake não, então
+      // criamos o `.jsonl` para o resume encontrá-lo (senão é descartado como
+      // fantasma — ver o teste "claude_session_id fantasma").
+      const cfg1 = mkdtempSync(join(tmpdir(), 'claude-cfg-'))
+      const pd1 = join(cfg1, 'projects', project.path.replace(/[^a-zA-Z0-9]/g, '-'))
+      mkdirSync(pd1, { recursive: true })
+      writeFileSync(join(pd1, `${engineSessionId}.jsonl`), '{"type":"user"}\n')
+      process.env.CLAUDE_CONFIG_DIR = cfg1
+
       const result = await mgr.openInTerminal(info.localId)
 
       expect(result.status).toBe('in_terminal')
@@ -466,6 +475,67 @@ describe('SessionManager', () => {
       expect(
         broadcasts.some((b: any) => b.type === 'session_status' && b.localId === info.localId && b.status === 'stopped'),
       ).toBe(true)
+    })
+
+    /**
+     * O bug do "No conversation found with session ID".
+     *
+     * O banco guarda um claude_session_id cujo transcript NÃO existe mais (limpeza
+     * do ~/.claude, máquina trocada, migração). Passar `--resume <id-fantasma>`
+     * fazia o `claude` morrer com "No conversation found" — e como o id vinha do
+     * banco e nunca era descartado, chat E terminal ficavam bloqueados PARA SEMPRE.
+     *
+     * A defesa: só retoma um transcript que existe. O fantasma é descartado (e
+     * limpo do banco, senão o COALESCE do persist o preservaria à toa) e a sessão
+     * abre fresh — ou retoma o último thread real da pasta, se houver.
+     */
+    it('claude_session_id fantasma (transcript sumiu) não vira --resume: abre fresh e limpa o banco', async () => {
+      // um CLAUDE_CONFIG_DIR vazio: a pasta do projeto não tem transcript nenhum
+      const cfgDir = mkdtempSync(join(tmpdir(), 'claude-cfg-vazio-'))
+      const prevCfg = process.env.CLAUDE_CONFIG_DIR
+      process.env.CLAUDE_CONFIG_DIR = cfgDir
+      try {
+        const { mgr, launches } = makeManagerWithLauncher()
+        db.prepare(
+          `INSERT INTO sessions (local_id, project_id, status, claude_session_id) VALUES ('fantasma', ?, 'stopped', 'id-que-nao-existe')`,
+        ).run(project.id)
+
+        await mgr.openInTerminal('fantasma')
+
+        // sem --resume: o id fantasma foi descartado antes de virar argv
+        expect(launches).toHaveLength(1)
+        expect(launches[0].args).toEqual(['--dangerously-skip-permissions'])
+        // e some do banco, senão a próxima abertura tentaria o mesmo fantasma
+        const row = db.prepare('SELECT claude_session_id FROM sessions WHERE local_id=?').get('fantasma') as any
+        expect(row.claude_session_id).toBeNull()
+      } finally {
+        if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR
+        else process.env.CLAUDE_CONFIG_DIR = prevCfg
+      }
+    })
+
+    it('claude_session_id fantasma, MAS há um thread real na pasta: retoma o real', async () => {
+      const cfgDir = mkdtempSync(join(tmpdir(), 'claude-cfg-real-'))
+      const projDir = join(cfgDir, 'projects', project.path.replace(/[^a-zA-Z0-9]/g, '-'))
+      mkdirSync(projDir, { recursive: true })
+      writeFileSync(join(projDir, 'thread-real.jsonl'), '{"type":"user"}\n')
+      const prevCfg = process.env.CLAUDE_CONFIG_DIR
+      process.env.CLAUDE_CONFIG_DIR = cfgDir
+      try {
+        const { mgr, launches } = makeManagerWithLauncher()
+        db.prepare(
+          `INSERT INTO sessions (local_id, project_id, status, claude_session_id) VALUES ('fantasma2', ?, 'stopped', 'id-que-nao-existe')`,
+        ).run(project.id)
+
+        await mgr.openInTerminal('fantasma2')
+
+        expect(launches[0].args).toEqual(['--resume', 'thread-real', '--dangerously-skip-permissions'])
+        const row = db.prepare('SELECT claude_session_id FROM sessions WHERE local_id=?').get('fantasma2') as any
+        expect(row.claude_session_id).toBe('thread-real')
+      } finally {
+        if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR
+        else process.env.CLAUDE_CONFIG_DIR = prevCfg
+      }
     })
 
     it('sem claude_session_id: abre uma sessão NOVA no terminal (fresh, sem --resume)', async () => {
@@ -850,12 +920,25 @@ describe('revive preserva a intenção de --continue', () => {
   it('sessão COM claude_session_id revive com resume (continue irrelevante)', async () => {
     const { captured, factory } = capturing()
     const mgr = createSessionManager({ db, sessionFactory: factory, broadcast: () => {} })
+    // O transcript de sid-x existe — senão o revive o trata como fantasma e cai
+    // para continue (ver "claude_session_id fantasma... retoma o real").
+    const cfg = mkdtempSync(join(tmpdir(), 'claude-cfg-'))
+    const pd = join(cfg, 'projects', project.path.replace(/[^a-zA-Z0-9]/g, '-'))
+    mkdirSync(pd, { recursive: true })
+    writeFileSync(join(pd, 'sid-x.jsonl'), '{"type":"user"}\n')
+    const prev = process.env.CLAUDE_CONFIG_DIR
+    process.env.CLAUDE_CONFIG_DIR = cfg
     db.prepare(
       `INSERT INTO sessions (local_id, project_id, status, claude_session_id, continue_latest) VALUES ('res-1', ?, 'stopped', 'sid-x', 1)`,
     ).run(project.id)
-    mgr.revive('res-1')
-    expect(captured[0].resumeSessionId).toBe('sid-x')
-    expect(captured[0].continueLatest).toBeUndefined()
+    try {
+      mgr.revive('res-1')
+      expect(captured[0].resumeSessionId).toBe('sid-x')
+      expect(captured[0].continueLatest).toBeUndefined()
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = prev
+    }
     await mgr.stop('res-1')
   })
 })

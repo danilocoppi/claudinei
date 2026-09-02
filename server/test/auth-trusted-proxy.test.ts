@@ -111,3 +111,27 @@ describe('rotas de execução no host atrás de proxy', () => {
     await app.close()
   })
 })
+
+/**
+ * A decoração `behindProxy` tem de existir mesmo SEM auth configurada.
+ *
+ * Ela morava dentro do `if (deps.auth)` do buildApp. Num app sem auth — o modo
+ * pré-setup, antes do primeiro usuário —, `req.behindProxy` ficava undefined e
+ * `isTrustedLocal` degradava para `isLocalRequest`: atrás de proxy, tudo volta a
+ * parecer local. Descoberto porque o `!comando` executou num teste de WS que não
+ * passava `auth`.
+ */
+describe('a flag vale mesmo sem auth configurada', () => {
+  it('rotas de host recusam atrás de proxy num app sem auth', async () => {
+    const db = openDb(':memory:')
+    const app = await buildApp({
+      config: loadConfig({}), db, behindProxy: true,
+      manager: createSessionManager({ db, broadcast: () => {} }),
+    })
+    // sem `auth`, o hook de autenticação nem existe — o gate de host tem de
+    // continuar valendo por conta própria
+    const res = await app.inject({ method: 'GET', url: '/api/local-apps', remoteAddress: '127.0.0.1' })
+    expect(res.json().local, 'sem auth, a flag de proxy foi ignorada').toBe(false)
+    await app.close()
+  })
+})

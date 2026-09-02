@@ -479,9 +479,38 @@ sqlite3 ~/.claudinei/claudinei.db "DELETE FROM users;"
 
 The next access from `localhost` shows **Create master account** again.
 
-### ⚠️ No TLS
+### Behind a reverse proxy — use `--behind-proxy`
 
-There's no HTTPS here — over the LAN, the password and the session cookie travel **in cleartext**. Fine for a quick session on a trusted home network; for anything more serious, put a **reverse proxy with HTTPS** (nginx, Caddy, Tailscale, …) in front of Claudinei — that's outside this app's scope.
+If you put nginx/Caddy in front (the usual way to add HTTPS), **turn this on**:
+
+```bash
+claudinei --behind-proxy          # or: CLAUDINEI_TRUSTED_PROXY=1
+```
+
+Without it there is a real hole, and it is not subtle. Several privileged
+routes — creating the **first admin**, opening a folder / VS Code / your terminal,
+`!` shell commands, and running **Actions** — are allowed only for requests
+coming from the server's own machine, decided by the socket's peer IP. With a
+proxy in front, the peer is *the proxy*, on `127.0.0.1`. So **every request from
+the internet looks local**, and those routes open up to anyone who reaches the
+proxy.
+
+With the flag on, loopback stops counting as proof of "the owner at the keyboard":
+those routes are refused for everyone, the session cookie gains `Secure`, and HSTS
+is sent. Chat and terminals keep working normally — they're behind login + RBAC.
+
+> **Create the first admin *before* enabling it.** With the flag on, the setup
+> screen is blocked for everyone (that's the point) — so run once without it, on
+> localhost, create your admin, then restart with the proxy. The server warns at
+> boot if it starts with the flag and zero users.
+
+### ⚠️ No TLS of its own
+
+There's no HTTPS in the app itself — over the LAN, the password and the session cookie travel **in cleartext**. Fine for a quick session on a trusted home network; for anything more serious, put a **reverse proxy with HTTPS** (nginx, Caddy, …) in front of Claudinei — and remember `--behind-proxy` above.
+
+For a tool that is effectively *shell as a service*, the calmest option is not a
+public port at all: **Tailscale/WireGuard** gives you remote access without
+exposing anything to the internet.
 
 ## Tests
 

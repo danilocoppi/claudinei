@@ -9,7 +9,7 @@ import type { SpeechService } from './speech/transcriber.js'
 import type { UsageService } from './usage.js'
 import type { EngineUsageService } from './engine-usage.js'
 import type { AuthService } from './auth/index.js'
-import { registerAuth } from './auth/plugin.js'
+import { registerAuth, registerSecurityHeaders } from './auth/plugin.js'
 import { registerAuthRoutes } from './auth/routes.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerSessionRoutes } from './routes/sessions.js'
@@ -82,6 +82,12 @@ export interface AppDeps {
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false })
   await app.register(websocket)
+  // FORA do `if (deps.auth)`: a decoração precisa existir mesmo sem auth
+  // configurada (modo pré-setup). Dentro, `req.behindProxy` ficava undefined e
+  // `isTrustedLocal` voltava a valer como `isLocalRequest` — o que reabria o
+  // `!comando` e as rotas de host para quem chegasse pelo proxy.
+  app.decorateRequest('behindProxy', !!deps.behindProxy)
+  registerSecurityHeaders(app, !!deps.behindProxy)
   if (deps.auth) {
     await registerAuth(app, { auth: deps.auth, insecure: deps.insecure, behindProxy: deps.behindProxy })
     registerAuthRoutes(app, { auth: deps.auth, onRevokeAll: deps.onRevokeAll, onUserInvalidated: deps.onUserInvalidated, behindProxy: deps.behindProxy })

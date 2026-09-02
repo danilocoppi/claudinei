@@ -118,3 +118,27 @@ describe('Content-Security-Policy', () => {
     expect(h).toMatch(/connect-src[^;]*ws/)
   })
 })
+
+/**
+ * Os cabeçalhos também não podem depender de auth configurada.
+ *
+ * O hook nasceu dentro do `registerAuth`, que só roda `if (deps.auth)` — então
+ * no modo pré-setup (zero usuários, antes do primeiro admin) a aplicação era
+ * servida SEM nenhum deles. É uma janela curta, mas é justamente a janela em que
+ * qualquer visitante pode criar o admin.
+ */
+describe('cabeçalhos sem auth configurada', () => {
+  it('valem mesmo antes do primeiro usuário', async () => {
+    const db = openDb(':memory:')
+    const app = await buildApp({
+      config: loadConfig({}), db,
+      manager: createSessionManager({ db, broadcast: () => {} }),
+    })
+    const res = await app.inject({ method: 'GET', url: '/api/health', remoteAddress: '127.0.0.1' })
+    const h = res.headers as Record<string, string>
+    expect(h['x-frame-options']).toBe('DENY')
+    expect(h['x-content-type-options']).toBe('nosniff')
+    expect(h['content-security-policy']).toContain("frame-ancestors 'none'")
+    await app.close()
+  })
+})

@@ -108,3 +108,48 @@ describe('comando de shell pelo chat', () => {
     c.ws.close()
   })
 })
+
+/**
+ * O `!comando` atrás de um reverse proxy.
+ *
+ * Este é o caminho do WebSocket, e não o do request HTTP comum — o gate vive no
+ * UPGRADE, onde a decoração `behindProxy` precisa chegar igual. Se não chegasse,
+ * `isTrustedLocal` viraria `loopback && !undefined` = true, e o `!comando`
+ * continuaria executando shell na máquina para qualquer um que chegasse pelo
+ * proxy: exatamente o furo que o --behind-proxy fecha nas rotas HTTP.
+ */
+describe('!comando atrás de proxy', () => {
+  it('recusa mesmo o WS vindo de loopback (que é onde o proxy conecta)', async () => {
+    const db2 = openDb(':memory:')
+    const pasta2 = mkdtempSync(join(tmpdir(), 'shws-proxy-'))
+    const projeto2 = createProjectsService(db2).create({ name: 'Alvo', path: pasta2 })
+    const manager2 = createSessionManager({ db: db2, broadcast: () => {}, sessionFactory: fakeFactory })
+    const app2 = await buildApp({
+      db: db2, manager: manager2, wsHub: createWsHub(), config: loadConfig({}),
+      behindProxy: true,
+    })
+    await app2.listen({ port: 0, host: '127.0.0.1' })
+    const { port } = app2.server.address() as { port: number }
+    const r = await app2.inject({ method: 'POST', url: `/api/projects/${projeto2.id}/sessions` })
+    const local2 = r.json().localId
+
+    const { WebSocket } = await import('ws')
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: `http://127.0.0.1:${port}` })
+    const recebidas: any[] = []
+    ws.on('message', (d: Buffer) => recebidas.push(JSON.parse(d.toString())))
+    await new Promise((res, rej) => { ws.once('open', res); ws.once('error', rej) })
+
+    ws.send(JSON.stringify({ type: 'shell', localId: local2, command: 'echo NAO_DEVERIA_RODAR' }))
+    const inicio = Date.now()
+    let msg: any
+    while (Date.now() - inicio < 8000 && !msg) {
+      msg = recebidas.find((x) => x.type === 'shell_result')
+      if (!msg) await new Promise((res) => setTimeout(res, 20))
+    }
+    expect(msg.isError, 'o !comando executou atrás de proxy').toBe(true)
+    expect(msg.output).toMatch(/máquina do servidor/i)
+    expect(msg.output).not.toContain('NAO_DEVERIA_RODAR')
+    ws.close()
+    await app2.close()
+  })
+})

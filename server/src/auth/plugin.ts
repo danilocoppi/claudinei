@@ -134,13 +134,12 @@ export function isTrustedLocal(req: { socket?: { remoteAddress?: string }; behin
   return isLocalRequest(req) && !req.behindProxy
 }
 
-export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean }): Promise<void> {
-  await app.register(cookie)
-  // Valor fixo por processo (não muda por request), então decorate com default
-  // estático basta — sem hook. Disponível já no 1º onRequest, inclusive no gate
-  // de setup abaixo.
-  app.decorateRequest('behindProxy', !!deps.behindProxy)
-
+/**
+ * Instala os cabeçalhos de segurança. Chamado pelo buildApp SEM depender de auth:
+ * no modo pré-setup (zero usuários) a aplicação era servida sem nenhum deles — e
+ * essa é justamente a janela em que qualquer visitante pode criar o admin.
+ */
+export function registerSecurityHeaders(app: FastifyInstance, behindProxy: boolean): void {
   /**
    * Cabeçalhos de segurança em toda resposta.
    *
@@ -154,7 +153,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
     reply.header('X-Frame-Options', 'DENY')
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'no-referrer')
-    if (deps.behindProxy) {
+    if (behindProxy) {
       reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
     }
     // Só se a rota não tiver posto a sua: as de arquivo respondem com
@@ -165,6 +164,12 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
     }
     return payload
   })
+
+}
+
+export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean }): Promise<void> {
+  await app.register(cookie)
+
   app.addHook('onRequest', async (req, reply) => {
     const rawPath = req.url.split('?')[0]
     // find-my-way (router do Fastify) decodifica percent-encoding ANTES de

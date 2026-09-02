@@ -84,7 +84,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(websocket)
   if (deps.auth) {
     await registerAuth(app, { auth: deps.auth, insecure: deps.insecure, behindProxy: deps.behindProxy })
-    registerAuthRoutes(app, { auth: deps.auth, onRevokeAll: deps.onRevokeAll, onUserInvalidated: deps.onUserInvalidated })
+    registerAuthRoutes(app, { auth: deps.auth, onRevokeAll: deps.onRevokeAll, onUserInvalidated: deps.onUserInvalidated, behindProxy: deps.behindProxy })
   }
 
   app.get('/api/health', async () => ({ ok: true }))

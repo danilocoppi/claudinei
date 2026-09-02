@@ -1,7 +1,7 @@
 // Rotas de autenticação e administração de usuários.
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { AuthService } from './index.js'
-import { COOKIE_NAME, COOKIE_OPTS, isTrustedLocal } from './plugin.js'
+import { COOKIE_NAME, cookieOpts, isTrustedLocal } from './plugin.js'
 import { requireAdmin } from './guards.js'
 import { verifyPassword, verifyPasswordAsync, fakeVerifyAsync } from './passwords.js'
 
@@ -11,6 +11,8 @@ export interface AuthRouteDeps {
   onRevokeAll?: () => void
   /** Chamado quando os tokens/permissões de UM usuário mudam (derruba os WS dele). */
   onUserInvalidated?: (userId: number) => void
+  /** Há proxy na frente? Decide a flag `secure` do cookie (ver cookieOpts). */
+  behindProxy?: boolean
 }
 
 // Rate limit de login por IP: complementa o lockout por conta — sem ele, 5
@@ -23,7 +25,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   const { auth } = deps
   const setAuthCookie = (reply: FastifyReply, userId: number): void => {
     const ver = auth.users.tokenVersion(userId) ?? 0
-    reply.setCookie(COOKIE_NAME, auth.tokens.signUser(userId, ver), COOKIE_OPTS)
+    // `secure` acompanha o modo do processo: ver cookieOpts.
+    reply.setCookie(COOKIE_NAME, auth.tokens.signUser(userId, ver), cookieOpts(!!deps.behindProxy))
   }
 
   const ipFailures = new Map<string, { count: number; resetAt: number }>()

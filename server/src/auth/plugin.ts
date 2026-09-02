@@ -29,6 +29,45 @@ export const COOKIE_NAME = 'claudinei_token'
 export const COOKIE_OPTS = { httpOnly: true, sameSite: 'strict' as const, path: '/', maxAge: 7 * 24 * 3600 }
 
 /**
+ * As flags do cookie para este processo.
+ *
+ * `secure` depende de haver TLS — e nesta arquitetura o app NUNCA termina HTTPS:
+ * quem faz isso é o proxy na frente. Por isso a flag acompanha `behindProxy`, e
+ * não um valor fixo: marcada em acesso HTTP local, o navegador simplesmente não
+ * devolveria o cookie e o login pararia de funcionar.
+ */
+export function cookieOpts(behindProxy: boolean) {
+  return { ...COOKIE_OPTS, secure: behindProxy }
+}
+
+/**
+ * A política de conteúdo do app.
+ *
+ * `'unsafe-inline'` aparece em `style-src` e só ali: o React escreve
+ * `style="..."` a cada `style={{}}` e o xterm injeta a própria folha no head —
+ * sem isso a interface fica sem estilo. Em `script-src` ele NÃO entra, que é
+ * onde protegeria de fato; `'unsafe-eval'` também não (o bundle de produção do
+ * Vite não precisa).
+ *
+ * `connect-src` inclui ws/wss porque o chat e os terminais vivem em WebSocket.
+ * `img-src` inclui data:/blob: por causa dos ícones embutidos e das prévias de
+ * upload.
+ */
+export const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' ws: wss:",
+  "media-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ')
+
+/**
  * true quando já passamos da METADE da validade do token (iat..exp) — sinal
  * pra re-emitir um cookie fresco num usuário ativo, sem forçar login a cada 7
  * dias. Pura (sem I/O) pra ser testável isoladamente sem precisar forjar JWT.
@@ -101,6 +140,31 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
   // estático basta — sem hook. Disponível já no 1º onRequest, inclusive no gate
   // de setup abaixo.
   app.decorateRequest('behindProxy', !!deps.behindProxy)
+
+  /**
+   * Cabeçalhos de segurança em toda resposta.
+   *
+   * `X-Frame-Options`/`frame-ancestors`: sem eles, um site hostil embute o
+   * Claudinei num iframe invisível e colhe cliques de quem já está logado — e um
+   * clique aqui roda comando. `nosniff` impede o navegador de reinterpretar uma
+   * resposta como script. HSTS só atrás de proxy: prometer HTTPS onde o app
+   * serve HTTP trancaria o navegador fora de uma instalação local.
+   */
+  app.addHook('onSend', async (_req, reply, payload) => {
+    reply.header('X-Frame-Options', 'DENY')
+    reply.header('X-Content-Type-Options', 'nosniff')
+    reply.header('Referrer-Policy', 'no-referrer')
+    if (deps.behindProxy) {
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    }
+    // Só se a rota não tiver posto a sua: as de arquivo respondem com
+    // `sandbox`, que é MAIS restritivo e proposital — sobrescrever afrouxaria
+    // justamente onde se serve conteúdo que o usuário enviou.
+    if (!reply.getHeader('Content-Security-Policy')) {
+      reply.header('Content-Security-Policy', CSP)
+    }
+    return payload
+  })
   app.addHook('onRequest', async (req, reply) => {
     const rawPath = req.url.split('?')[0]
     // find-my-way (router do Fastify) decodifica percent-encoding ANTES de
@@ -155,7 +219,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
             if (payload.iat !== undefined && payload.exp !== undefined) {
               const nowSec = Math.floor(Date.now() / 1000)
               if (shouldRefresh(payload.iat, payload.exp, nowSec)) {
-                reply.setCookie(COOKIE_NAME, deps.auth.tokens.signUser(id, ver), COOKIE_OPTS)
+                reply.setCookie(COOKIE_NAME, deps.auth.tokens.signUser(id, ver), cookieOpts(!!deps.behindProxy))
               }
             }
           }

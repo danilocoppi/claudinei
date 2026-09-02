@@ -4,7 +4,7 @@ import { createReadStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname } from 'node:path'
 import { canAccessProject } from '../auth/guards.js'
-import { isLocalRequest } from '../auth/plugin.js'
+import { isTrustedLocal } from '../auth/plugin.js'
 import { resolveInScope } from '../files/scope.js'
 import type { ProjectsService } from '../projects.js'
 
@@ -59,7 +59,7 @@ export function registerFileRoutes(
   // para o SO: passa pelo mesmo resolveInScope das outras rotas, então o
   // parâmetro não vira "abra qualquer pasta da máquina".
   app.post('/api/files/reveal', async (req, reply) => {
-    if (!isLocalRequest(req)) return reply.code(403).send({ error: 'somente local' })
+    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'somente local' })
     const body = req.body as { path?: unknown; projectId?: number }
     const raw = typeof body?.path === 'string' ? body.path : ''
     if (!raw) return reply.code(404).send({ error: 'arquivo não encontrado' })

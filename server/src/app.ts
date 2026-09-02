@@ -65,6 +65,8 @@ export interface AppDeps {
   auth?: AuthService
   /** --insecure da CLI: pré-setup, libera também IPs não-loopback (rede confiável, por conta e risco). */
   insecure?: boolean
+  /** --behind-proxy: há um reverse proxy na frente, então loopback não é mais prova de "dono na máquina". */
+  behindProxy?: boolean
   /** Pós revoke-all: derruba todos os WS. */
   onRevokeAll?: () => void
   /** Tokens/permissões de um usuário mudaram: derruba os WS dele. */
@@ -81,7 +83,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false })
   await app.register(websocket)
   if (deps.auth) {
-    await registerAuth(app, { auth: deps.auth, insecure: deps.insecure })
+    await registerAuth(app, { auth: deps.auth, insecure: deps.insecure, behindProxy: deps.behindProxy })
     registerAuthRoutes(app, { auth: deps.auth, onRevokeAll: deps.onRevokeAll, onUserInvalidated: deps.onUserInvalidated })
   }
 

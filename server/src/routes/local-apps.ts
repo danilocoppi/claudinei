@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { canAccessProject } from '../auth/guards.js'
-import { isLocalRequest } from '../auth/plugin.js'
+import { isTrustedLocal } from '../auth/plugin.js'
 import { availableApps, availableTerminals, launchApp, LOCAL_APPS, TERMINALS, type LocalApp, type LocalAppsDeps } from '../localApps.js'
 import type { ProjectsService } from '../projects.js'
 import type { SettingsService } from '../settings.js'
@@ -28,7 +28,7 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
    * 127.0.0.1 enganaria o teste do lado do cliente.
    */
   app.get('/api/local-apps', async (req) => {
-    const local = isLocalRequest(req)
+    const local = isTrustedLocal(req)
     // `local` à parte dos apps: "nenhum app disponível" e "não é esta máquina" são
     // coisas diferentes, e quem desenha a tela precisa distinguir — o menu de ações
     // some pelo segundo motivo, não pelo primeiro.
@@ -46,7 +46,7 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
    * usava, e o botão parecia não fazer nada.
    */
   app.get('/api/local-apps/terminals', async (req) => {
-    if (!isLocalRequest(req)) return { options: [], chosen: null }
+    if (!isTrustedLocal(req)) return { options: [], chosen: null }
     return {
       options: availableTerminals(deps),
       // Vazio é "sem escolha": apagar é gravar vazio, e ler vazio tem de doer nada.
@@ -55,7 +55,7 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
   })
 
   app.put('/api/local-apps/terminals', async (req, reply) => {
-    if (!isLocalRequest(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
+    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
     const terminal = (req.body as { terminal?: unknown })?.terminal
 
     // Voltar ao padrão do sistema é apagar a escolha, não gravar vazio.
@@ -76,7 +76,7 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
   })
 
   app.post('/api/projects/:id/open', async (req, reply) => {
-    if (!isLocalRequest(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
+    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
 
     const action = (req.body as { action?: unknown })?.action
     // A ação é uma CHAVE de uma lista fechada. Sem isto o parâmetro viraria

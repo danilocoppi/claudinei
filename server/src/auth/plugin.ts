@@ -12,6 +12,12 @@ export type AuthUser =
 declare module 'fastify' {
   interface FastifyRequest {
     authUser?: AuthUser
+    /**
+     * Há um proxy reverso na frente? Fixo por processo (--behind-proxy), decorado
+     * no request. Quando true, `isTrustedLocal` deixa de tratar loopback como
+     * "dono na máquina" — porque loopback passa a ser o endereço do proxy.
+     */
+    behindProxy?: boolean
   }
 }
 
@@ -74,8 +80,27 @@ export function isLocalRequest(req: { socket?: { remoteAddress?: string } }): bo
   return !!par && isLoopbackIp(par)
 }
 
-export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean }): Promise<void> {
+/**
+ * A requisição merece os privilégios de estar NA máquina do servidor?
+ *
+ * Não é a mesma pergunta que `isLocalRequest`. Aquela é factual sobre o
+ * transporte ("o socket é loopback?") e continua certa contra header
+ * falsificável. Esta é sobre CONFIANÇA: atrás de um proxy reverso, quem conecta
+ * no socket local é o próprio proxy, então "loopback" pára de significar "o dono
+ * na frente do computador" e passa a significar "qualquer um na internet". As
+ * rotas que rodam binário no host, e o setup do primeiro admin, dependem desta —
+ * não da outra.
+ */
+export function isTrustedLocal(req: { socket?: { remoteAddress?: string }; behindProxy?: boolean }): boolean {
+  return isLocalRequest(req) && !req.behindProxy
+}
+
+export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean }): Promise<void> {
   await app.register(cookie)
+  // Valor fixo por processo (não muda por request), então decorate com default
+  // estático basta — sem hook. Disponível já no 1º onRequest, inclusive no gate
+  // de setup abaixo.
+  app.decorateRequest('behindProxy', !!deps.behindProxy)
   app.addHook('onRequest', async (req, reply) => {
     const rawPath = req.url.split('?')[0]
     // find-my-way (router do Fastify) decodifica percent-encoding ANTES de
@@ -96,7 +121,9 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
       // Pré-setup: sem credenciais no mundo — só o próprio computador entra.
       // Exceção: --insecure (rede confiável, por conta e risco) libera também
       // a LAN, cumprindo o que o guard de exposição promete para a flag.
-      if (!isLocalRequest(req) && !deps.insecure) {
+      // isTrustedLocal, não isLocalRequest: atrás de proxy, loopback é o proxy —
+      // liberar o setup aqui abriria a criação do 1º admin para a rede inteira.
+      if (!isTrustedLocal(req) && !deps.insecure) {
         return reply.code(403).send({ error: 'setup_required_localhost_only' })
       }
       return

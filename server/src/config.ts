@@ -85,8 +85,8 @@ export function resolveSelfUrl(
 }
 
 /** Parser mínimo de flags de CLI (host/port/insecure). Puro e testável. */
-export function parseCliArgs(argv: string[]): { host?: string; port?: number; insecure?: boolean } {
-  const out: { host?: string; port?: number; insecure?: boolean } = {}
+export function parseCliArgs(argv: string[]): { host?: string; port?: number; insecure?: boolean; behindProxy?: boolean } {
+  const out: { host?: string; port?: number; insecure?: boolean; behindProxy?: boolean } = {}
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const val = () => {
@@ -94,6 +94,7 @@ export function parseCliArgs(argv: string[]): { host?: string; port?: number; in
       return eq >= 0 ? a.slice(eq + 1) : argv[++i]
     }
     if (a === '--insecure') out.insecure = true
+    else if (a === '--behind-proxy') out.behindProxy = true
     else if (a === '--host' || a.startsWith('--host=')) { const v = val(); if (v) out.host = v }
     else if (a === '--port' || a.startsWith('--port=')) { const n = Number(val()); if (Number.isInteger(n)) out.port = n }
   }

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
-import { isLocalRequest } from '../auth/plugin.js'
+import { isTrustedLocal } from '../auth/plugin.js'
 import { desktopEnv, graphicalEnv, ORIG_LD } from '../localApps.js'
 import type { ActionsStore } from '../actions.js'
 import type { ProjectsService } from '../projects.js'
@@ -169,7 +169,7 @@ export function registerActionRoutes(app: FastifyInstance, deps: ActionsRouteDep
    * entre a conferência e o pedido o processo pode acabar.
    */
   app.post('/api/actions/:actionId/run', async (req, reply) => {
-    if (!isLocalRequest(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
+    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
     const alvo = resolver(req, reply, Number((req.params as { actionId: string }).actionId))
     if (!alvo) return reply.code(404).send({ error: 'ação não existe' })
     if (!requireProjectAccess(req, reply, alvo.project.id)) return

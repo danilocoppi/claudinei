@@ -1,7 +1,7 @@
 // Rotas de autenticação e administração de usuários.
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { AuthService } from './index.js'
-import { COOKIE_NAME, COOKIE_OPTS, isLocalRequest } from './plugin.js'
+import { COOKIE_NAME, COOKIE_OPTS, isTrustedLocal } from './plugin.js'
 import { requireAdmin } from './guards.js'
 import { verifyPassword, verifyPasswordAsync, fakeVerifyAsync } from './passwords.js'
 
@@ -44,7 +44,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   app.post('/api/auth/setup', async (req, reply) => {
     if (auth.users.count() > 0) return reply.code(403).send({ error: 'already_configured' })
     // defesa em profundidade: o hook global já barra não-loopback no pré-setup
-    if (!isLocalRequest(req)) return reply.code(403).send({ error: 'setup_required_localhost_only' })
+    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'setup_required_localhost_only' })
     const body = (req.body ?? {}) as { username?: string; password?: string }
     if (!body.username || !body.password) return reply.code(400).send({ error: 'username_and_password_required' })
     try {

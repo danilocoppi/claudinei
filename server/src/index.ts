@@ -188,9 +188,14 @@ if (process.argv.includes('--hermes')) {
   // O agendador nasce dentro do buildApp (precisa do manager já montado); guardamos
   // a referência para ligar o laço depois do listen e desligá-lo no shutdown.
   let scheduler: import('./schedules/scheduler.js').Scheduler | undefined
+  // Proxy reverso na frente? Então loopback deixa de valer como "dono na máquina"
+  // (é o proxy que conecta em 127.0.0.1). Aceita CLI e env — em systemd, a env é
+  // mais prática que editar o ExecStart.
+  const behindProxy = !!cli.behindProxy || process.env.CLAUDINEI_TRUSTED_PROXY === '1'
   const app = await buildApp({
     config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage], engineUsage, auth,
     insecure: !!cli.insecure,
+    behindProxy,
     webDist: existsSync(webDist) ? webDist : undefined,
     onOrchestratorReady: (d) => { drain = d },
     onSchedulerReady: (s) => { scheduler = s },
@@ -208,8 +213,18 @@ if (process.argv.includes('--hermes')) {
   scheduler?.start()
   console.log(
     `Termaster server em http://${host}:${port}` +
-    (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : ''),
+    (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : '') +
+    (behindProxy ? '  🔒 atrás de proxy (funções de host desativadas p/ acesso remoto)' : ''),
   )
+  // Beco sem saída silencioso: proxy ligado + nenhum usuário = o setup do 1º admin
+  // fica bloqueado (é o que se quer contra a rede), mas ninguém avisou o dono.
+  if (behindProxy && !auth.configured()) {
+    console.log(
+      '  ⚠ --behind-proxy com ZERO usuários: o setup do primeiro admin está bloqueado ' +
+      'para a rede. Suba UMA vez SEM --behind-proxy (em localhost) para criar o admin, ' +
+      'depois religue com o proxy.',
+    )
+  }
 
   for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     process.on(sig, async () => {

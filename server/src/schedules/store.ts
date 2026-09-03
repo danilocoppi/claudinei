@@ -256,6 +256,28 @@ export function createSchedulesStore(db: Db, opts: { dir: string }) {
       return !!db.prepare(`SELECT 1 FROM schedule_runs WHERE schedule_id=? AND status='running'`).get(scheduleId)
     },
 
+    /**
+     * Apaga resultados escolhidos a dedo, do banco E do disco.
+     *
+     * Complementa o `prune`, que só corta pela idade (mantém os N mais novos) e
+     * por isso não serve para limpar um lote específico.
+     *
+     * O `schedule_id` entra no WHERE junto com o seq porque o seq recomeça em 1
+     * para cada agendamento: sem ele, apagar o resultado 1 de um limparia o do
+     * vizinho. Devolve quantos saíram — seq inexistente é ignorado, não é erro.
+     */
+    deleteRuns(scheduleId: number, seqs: number[]): number {
+      let apagados = 0
+      for (const seq of seqs) {
+        const r = db.prepare(`DELETE FROM schedule_runs WHERE schedule_id=? AND seq=?`).run(scheduleId, seq)
+        if (r.changes === 0) continue
+        apagados += r.changes
+        // Falha e agendamento sem retorno não geram arquivo: a ausência é normal.
+        try { rmSync(fileOf(scheduleId, seq)) } catch { /* não havia conteúdo */ }
+      }
+      return apagados
+    },
+
     listRuns(scheduleId: number, limit = 20): ScheduleRun[] {
       return (db.prepare(`SELECT * FROM schedule_runs WHERE schedule_id=? ORDER BY seq DESC LIMIT ?`)
         .all(scheduleId, limit) as any[]).map(rowToRun)

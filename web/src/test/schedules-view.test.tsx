@@ -282,3 +282,73 @@ describe('datas do log', () => {
     expect(out).not.toMatch(/:42/)
   })
 })
+
+/**
+ * Limpar resultados antigos: selecionar vários e apagar.
+ *
+ * A poda automática (`keepResults`) corta só pela idade — sempre os N mais novos
+ * ficam. Quem quer limpar um lote específico não tinha por onde.
+ *
+ * A seleção nasce DESLIGADA: numa lista onde cada linha abre o resultado ao
+ * clicar, caixas de seleção permanentes convidariam ao clique errado numa ação
+ * que não tem desfazer.
+ */
+describe('limpar resultados antigos', () => {
+  const comAntigos = () => sched({ lastRun: run(4, { preview: 'último' }) })
+  const abrir = async (routes: Record<string, unknown> = {}) => {
+    stubFetch({ '/runs': [run(4), run(3), run(2), run(1)], '/schedules': [comAntigos()], ...routes })
+    render(<SchedulesView />)
+    await screen.findByTestId('sched-card')
+  }
+  const linhas = () => screen.getAllByTestId('sched-run-pick')
+
+  it('a seleção começa desligada e é ligada por um botão', async () => {
+    await abrir()
+    expect(screen.queryAllByTestId('sched-run-pick')).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('sched-select-mode'))
+    // as antigas (a última fica no destaque, fora da lista)
+    expect(linhas()).toHaveLength(3)
+  })
+
+  it('apaga as selecionadas e recarrega a lista', async () => {
+    const fetchSpy = await abrir().then(() => vi.mocked(globalThis.fetch))
+    fireEvent.click(screen.getByTestId('sched-select-mode'))
+    fireEvent.click(linhas()[0])
+    fireEvent.click(linhas()[2])
+    fireEvent.click(screen.getByTestId('sched-delete-picked'))
+    // confirma: apagar resultado não tem desfazer
+    fireEvent.click(await screen.findByRole('button', { name: 'Excluir' }))
+
+    await vi.waitFor(() => {
+      const chamada = fetchSpy.mock.calls.find(([u, i]) => String(u).includes('/runs') && (i as RequestInit)?.method === 'DELETE')
+      expect(chamada, 'não chamou o DELETE').toBeTruthy()
+      expect(JSON.parse((chamada![1] as RequestInit).body as string)).toEqual({ seqs: [3, 1] })
+    })
+  })
+
+  it('sem nada marcado, não dá para apagar', async () => {
+    await abrir()
+    fireEvent.click(screen.getByTestId('sched-select-mode'))
+    expect((screen.getByTestId('sched-delete-picked') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('marcar todas e desmarcar todas', async () => {
+    await abrir()
+    fireEvent.click(screen.getByTestId('sched-select-mode'))
+    fireEvent.click(screen.getByTestId('sched-select-all'))
+    expect(linhas().filter((c) => (c as HTMLInputElement).checked)).toHaveLength(3)
+    fireEvent.click(screen.getByTestId('sched-select-all'))
+    expect(linhas().filter((c) => (c as HTMLInputElement).checked)).toHaveLength(0)
+  })
+
+  /** Sair do modo seleção esquece o que estava marcado: voltar depois com uma
+   *  seleção antiga de pé é como se apaga o que não queria. */
+  it('sair da seleção limpa o que estava marcado', async () => {
+    await abrir()
+    fireEvent.click(screen.getByTestId('sched-select-mode'))
+    fireEvent.click(linhas()[0])
+    fireEvent.click(screen.getByTestId('sched-select-mode'))
+    fireEvent.click(screen.getByTestId('sched-select-mode'))
+    expect(linhas().filter((c) => (c as HTMLInputElement).checked)).toHaveLength(0)
+  })
+})

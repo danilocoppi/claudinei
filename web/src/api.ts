@@ -280,6 +280,10 @@ export const updateSchedule = (id: number, patch: Partial<ScheduleInput> & { ena
 export const deleteSchedule = (id: number) => req<void>(`/api/schedules/${id}`, { method: 'DELETE' })
 export const runScheduleNow = (id: number) => req<{ ok: true }>(`/api/schedules/${id}/run`, { method: 'POST' })
 export const fetchScheduleRuns = (id: number, limit = 20) => req<ScheduleRun[]>(`/api/schedules/${id}/runs?limit=${limit}`)
+/** Apaga resultados escolhidos. Um DELETE só: dez requisições podiam falhar no meio. */
+export const deleteScheduleRuns = (id: number, seqs: number[]) =>
+  req<{ deleted: number }>(`/api/schedules/${id}/runs`, { method: 'DELETE', body: JSON.stringify({ seqs }) })
+
 export const fetchRunContent = (id: number, seq: number) =>
   req<{ content: string | null }>(`/api/schedules/${id}/runs/${seq}/content`)
 /** Preview vem do SERVIDOR: um cálculo próprio no front acabaria discordando do agendador. */

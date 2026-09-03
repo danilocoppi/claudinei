@@ -9,9 +9,11 @@ import { createAuthService, type AuthService } from '../src/auth/index.js'
 import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { COOKIE_NAME } from '../src/auth/plugin.js'
+import { createSchedulesStore } from '../src/schedules/store.js'
 
 let db: Db
 let app: Awaited<ReturnType<typeof buildApp>>
+let dirDosResultados: string
 let auth: AuthService
 let meu: Project, alheio: Project
 
@@ -32,7 +34,8 @@ beforeEach(async () => {
   alheio = projects.create({ name: 'alheio', path: mkdtempSync(join(tmpdir(), 'sr-')) })
   auth = createAuthService({ db })
   const manager = createSessionManager({ db, broadcast: () => {} })
-  const config = { ...loadConfig({}), schedulesDir: mkdtempSync(join(tmpdir(), 'sr-results-')) }
+  dirDosResultados = mkdtempSync(join(tmpdir(), 'sr-results-'))
+  const config = { ...loadConfig({}), schedulesDir: dirDosResultados }
   app = await buildApp({ config, db, manager, auth })
   auth.users.create({ username: 'root', password: 'abcd1234', isAdmin: true })
   auth.users.create({ username: 'ana', password: 'abcd1234', projectIds: [meu.id] })
@@ -153,5 +156,67 @@ describe('conteúdo de uma execução', () => {
     const res = await app.inject({ method: 'GET', url: `/api/schedules/${s.id}/runs/99/content`, cookies: admin })
     expect(res.statusCode).toBe(200)
     expect(res.json().content).toBeNull()
+  })
+})
+
+/**
+ * Limpeza em lote dos resultados (pedida na tela: selecionar vários e apagar).
+ *
+ * `DELETE` com corpo, e não um seq por vez: dez resultados virariam dez
+ * requisições, cada uma podendo falhar no meio e deixar a lista pela metade.
+ */
+describe('apagar resultados em lote', () => {
+  /** Gera execuções de verdade pelo store — é o que a rota vai apagar. */
+  const comResultados = async (projectId: number, n: number) => {
+    const admin = await login('root')
+    const s = (await app.inject({ method: 'POST', url: `/api/projects/${projectId}/schedules`, payload: base, cookies: admin })).json()
+    const store = createSchedulesStore(db, { dir: dirDosResultados })
+    for (let i = 0; i < n; i++) {
+      const run = store.startRun(s.id, {})
+      store.finishRun(run.id, { status: 'ok', content: `resultado ${i}` })
+    }
+    return s
+  }
+  const seqs = async (id: number, cookies: Record<string, string>) =>
+    (await app.inject({ method: 'GET', url: `/api/schedules/${id}/runs`, cookies })).json().map((r: any) => r.seq).sort()
+
+  it('apaga os selecionados e deixa os outros', async () => {
+    const admin = await login('root')
+    const s = await comResultados(meu.id, 4)
+    const res = await app.inject({
+      method: 'DELETE', url: `/api/schedules/${s.id}/runs`, payload: { seqs: [1, 3] }, cookies: admin,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ deleted: 2 })
+    expect(await seqs(s.id, admin)).toEqual([2, 4])
+  })
+
+  it('quem opera o terminal pode limpar; terminal alheio é 403', async () => {
+    const admin = await login('root')
+    const ana = await login('ana')
+    const meuSched = await comResultados(meu.id, 2)
+    const alheioSched = await comResultados(alheio.id, 2)
+
+    expect((await app.inject({ method: 'DELETE', url: `/api/schedules/${meuSched.id}/runs`, payload: { seqs: [1] }, cookies: ana })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'DELETE', url: `/api/schedules/${alheioSched.id}/runs`, payload: { seqs: [1] }, cookies: ana })).statusCode).toBe(403)
+    // e o alheio continua intacto
+    expect(await seqs(alheioSched.id, admin)).toEqual([1, 2])
+  })
+
+  it('corpo inválido é 400, não apaga nada por engano', async () => {
+    const admin = await login('root')
+    const s = await comResultados(meu.id, 2)
+    expect((await app.inject({ method: 'DELETE', url: `/api/schedules/${s.id}/runs`, payload: {}, cookies: admin })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'DELETE', url: `/api/schedules/${s.id}/runs`, payload: { seqs: 'tudo' }, cookies: admin })).statusCode).toBe(400)
+    expect(await seqs(s.id, admin)).toEqual([1, 2])
+  })
+
+  /** Um `IN (...)` sem teto é jeito barato de segurar o banco — e a lista da tela
+   *  mostra no máximo 50, então nada legítimo passa disso. */
+  it('recusa lote absurdo', async () => {
+    const admin = await login('root')
+    const s = await comResultados(meu.id, 1)
+    const enorme = Array.from({ length: 201 }, (_, i) => i + 1)
+    expect((await app.inject({ method: 'DELETE', url: `/api/schedules/${s.id}/runs`, payload: { seqs: enorme }, cookies: admin })).statusCode).toBe(400)
   })
 })

@@ -5,8 +5,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import {
   createSchedule, deleteSchedule, fetchProjectSchedules, fetchRunContent, fetchScheduleRuns,
-  runScheduleNow, updateSchedule, type Schedule, type ScheduleRun,
-} from '../api'
+  runScheduleNow, updateSchedule, type Schedule, type ScheduleRun, deleteScheduleRuns } from '../api'
 import { useStore } from '../store'
 import { describeCadence, formatShort } from '../cadenceText'
 import { MarkdownPre } from './MarkdownPre'
@@ -35,7 +34,14 @@ const STATUS_ICON: Record<ScheduleRun['status'], string> = {
 }
 
 /** Uma execução antiga: título numa linha; o corpo só chega quando se clica nela. */
-function RunRow({ scheduleId, run }: { scheduleId: number; run: ScheduleRun }) {
+function RunRow({ scheduleId, run, picking, picked, onPick }: {
+  scheduleId: number
+  run: ScheduleRun
+  /** No modo seleção a linha não abre o resultado — o clique passa a marcar. */
+  picking?: boolean
+  picked?: boolean
+  onPick?: (seq: number) => void
+}) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState<string | null | undefined>(undefined)
@@ -46,6 +52,20 @@ function RunRow({ scheduleId, run }: { scheduleId: number; run: ScheduleRun }) {
     void fetchRunContent(scheduleId, run.seq)
       .then((r) => setContent(r.content))
       .catch(() => setContent(null))
+  }
+
+  if (picking) {
+    // Uma <label> envolvendo a caixa: o alvo de clique vira a linha inteira, que
+    // é o que se espera ao marcar itens de uma lista.
+    return (
+      <label className={`sched-run sched-run--pick ${picked ? 'on' : ''}`}>
+        <input type="checkbox" data-testid="sched-run-pick" checked={!!picked}
+               onChange={() => onPick?.(run.seq)} />
+        <span className="sched-run__when">{fmtTime(run.startedAt)}</span>
+        <span className={`sched-run__status sched-run__status--${run.status}`}>{STATUS_ICON[run.status]}</span>
+        <span className="sched-run__title">{run.title ?? run.error ?? t('schedules.noTitle')}</span>
+      </label>
+    )
   }
 
   return (
@@ -76,6 +96,15 @@ function ScheduleCard({ schedule, onChanged }: { schedule: Schedule; onChanged: 
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [fullResult, setFullResult] = useState<string | null>(null)
+  /**
+   * Modo seleção para limpar resultados antigos.
+   *
+   * Nasce desligado: nesta lista cada linha ABRE o resultado ao clicar, e caixas
+   * de seleção permanentes convidariam ao clique errado numa ação sem desfazer.
+   */
+  const [picking, setPicking] = useState(false)
+  const [picked, setPicked] = useState<number[]>([])
+  const [confirmingRuns, setConfirmingRuns] = useState(false)
 
   useEffect(() => {
     void fetchScheduleRuns(schedule.id, 20).then(setRuns).catch(() => setRuns([]))
@@ -89,6 +118,19 @@ function ScheduleCard({ schedule, onChanged }: { schedule: Schedule; onChanged: 
   const truncated = !!last?.contentSize && !!last.preview && last.contentSize > last.preview.length
 
   const act = (fn: () => Promise<unknown>) => () => void fn().then(onChanged).catch(() => {})
+
+  // Sair do modo esquece o que estava marcado: voltar depois com uma seleção
+  // antiga de pé é como se apaga o que não queria.
+  const togglePicking = () => { setPicking((era) => !era); setPicked([]) }
+  const togglePick = (seq: number) =>
+    setPicked((atual) => atual.includes(seq) ? atual.filter((s) => s !== seq) : [...atual, seq])
+  const toggleAll = () => setPicked((atual) => atual.length === older.length ? [] : older.map((r) => r.seq))
+  const apagarSelecionados = () => {
+    void deleteScheduleRuns(schedule.id, picked)
+      .then(() => fetchScheduleRuns(schedule.id, 20).then(setRuns))
+      .then(() => { setPicked([]); setPicking(false); setConfirmingRuns(false); onChanged() })
+      .catch(() => setConfirmingRuns(false))
+  }
 
   return (
     <div data-testid="sched-card"
@@ -158,11 +200,42 @@ function ScheduleCard({ schedule, onChanged }: { schedule: Schedule; onChanged: 
           )}
           {older.length > 0 && (
             <div className="sched-older">
-              {older.map((r) => <RunRow key={r.seq} scheduleId={schedule.id} run={r} />)}
+              <div className="sched-older__bar">
+                <button type="button" className="sched-older__pick" data-testid="sched-select-mode"
+                        onClick={togglePicking}>
+                  {picking ? t('common.cancel') : t('schedules.cleanUp')}
+                </button>
+                {picking && (
+                  <>
+                    <button type="button" className="sched-older__pick" data-testid="sched-select-all"
+                            onClick={toggleAll}>
+                      {picked.length === older.length ? t('schedules.pickNone') : t('schedules.pickAll')}
+                    </button>
+                    <button type="button" className="sched-older__del" data-testid="sched-delete-picked"
+                            disabled={picked.length === 0} onClick={() => setConfirmingRuns(true)}>
+                      {t('schedules.deletePicked', { count: picked.length })}
+                    </button>
+                  </>
+                )}
+              </div>
+              {older.map((r) => (
+                <RunRow key={r.seq} scheduleId={schedule.id} run={r}
+                        picking={picking} picked={picked.includes(r.seq)} onPick={togglePick} />
+              ))}
               <div className="sched-older__count">{t('schedules.showing', { n: runs.length, total: schedule.keepResults })}</div>
             </div>
           )}
         </div>
+      )}
+
+      {confirmingRuns && (
+        <ConfirmDialog
+          title={t('schedules.deleteRunsTitle', { count: picked.length })}
+          message={t('schedules.deleteRunsMsg')}
+          confirmLabel={t('common.delete')}
+          onConfirm={apagarSelecionados}
+          onClose={() => setConfirmingRuns(false)}
+        />
       )}
 
       {editing && (

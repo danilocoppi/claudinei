@@ -166,3 +166,66 @@ describe('listagem', () => {
     expect(store.listByProject(projectId)).toEqual([])
   })
 })
+
+/**
+ * Apagar resultados escolhidos a dedo.
+ *
+ * A poda automática (`keepResults`) só corta pela idade: sempre os N mais novos
+ * ficam. Não serve para quem quer limpar um lote específico — foi o pedido:
+ * selecionar vários e apagar.
+ *
+ * O conteúdo mora em disco (`<dir>/<scheduleId>/<seq>.md`) e o banco guarda só o
+ * cabeçalho, então apagar tem de mexer nos dois: linha órfã sem arquivo mostraria
+ * um resultado que não abre, e arquivo órfão sem linha nunca mais seria limpo.
+ */
+describe('apagar resultados selecionados', () => {
+  const comResultados = (n: number) => {
+    const s = store.create(projectId, base)
+    for (let i = 0; i < n; i++) {
+      const run = store.startRun(s.id, {})
+      store.finishRun(run.id, { status: 'ok', content: `resultado ${i}` })
+    }
+    return s
+  }
+  const seqsNoBanco = (id: number) => store.listRuns(id, 50).map((r) => r.seq).sort((a, b) => a - b)
+  const arquivosEmDisco = (id: number) =>
+    existsSync(join(dir, String(id))) ? readdirSync(join(dir, String(id))).sort() : []
+
+  it('apaga só os escolhidos, do banco e do disco', () => {
+    const s = comResultados(4)
+    expect(seqsNoBanco(s.id)).toEqual([1, 2, 3, 4])
+    expect(arquivosEmDisco(s.id)).toEqual(['1.md', '2.md', '3.md', '4.md'])
+
+    expect(store.deleteRuns(s.id, [1, 3])).toBe(2)
+
+    expect(seqsNoBanco(s.id)).toEqual([2, 4])
+    expect(arquivosEmDisco(s.id), 'arquivo órfão fica no disco para sempre').toEqual(['2.md', '4.md'])
+  })
+
+  /** O id do agendamento entra no WHERE: sem ele, um seq de outro agendamento
+   *  apagaria o resultado do vizinho — os seq recomeçam em 1 para cada um. */
+  it('não alcança resultado de outro agendamento', () => {
+    const a = comResultados(2)
+    const b = comResultados(2)
+    expect(store.deleteRuns(a.id, [1, 2])).toBe(2)
+    expect(seqsNoBanco(b.id), 'apagou o resultado do agendamento vizinho').toEqual([1, 2])
+    expect(arquivosEmDisco(b.id)).toEqual(['1.md', '2.md'])
+  })
+
+  it('seq que não existe é ignorado, não é erro', () => {
+    const s = comResultados(2)
+    expect(store.deleteRuns(s.id, [99])).toBe(0)
+    expect(store.deleteRuns(s.id, [])).toBe(0)
+    expect(seqsNoBanco(s.id)).toEqual([1, 2])
+  })
+
+  /** Resultado sem conteúdo (falha, ou agendamento que não espera retorno) não
+   *  tem arquivo — apagar não pode estourar por causa disso. */
+  it('resultado sem arquivo apaga sem reclamar', () => {
+    const s = store.create(projectId, base)
+    const run = store.startRun(s.id, {})
+    store.finishRun(run.id, { status: 'error', error: 'quebrou' })
+    expect(store.deleteRuns(s.id, [1])).toBe(1)
+    expect(seqsNoBanco(s.id)).toEqual([])
+  })
+})

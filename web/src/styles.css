@@ -1010,6 +1010,28 @@ button.subagent__stop:hover { opacity: 1; color: var(--err); background: color-m
 .slash-item__name { font-family: var(--font-code); font-size: 13px; color: var(--text); }
 .slash-item__desc { font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Limpeza dos resultados antigos. A barra só aparece quando há execuções na
+   lista, e o modo seleção troca as linhas por caixas — nesta lista cada linha
+   ABRE o resultado ao clicar, então as caixas não podem ficar permanentes. */
+.sched-older__bar { display: flex; align-items: center; gap: 8px; padding: 4px 0 6px; }
+.sched-older__pick, .sched-older__del {
+  padding: 3px 10px; font-size: 11.5px; border-radius: var(--radius-sm);
+  background: var(--surface-strong); color: var(--text-dim);
+}
+.sched-older__pick:hover { color: var(--text); }
+.sched-older__del { margin-left: auto; }
+.sched-older__del:not(:disabled) { background: color-mix(in srgb, var(--err) 16%, transparent); color: var(--err); }
+.sched-older__del:not(:disabled):hover { background: var(--err); color: var(--on-accent); }
+.sched-older__del:disabled { opacity: .45; cursor: not-allowed; }
+/* A linha inteira é o alvo do clique: é o que se espera ao marcar itens. */
+.sched-run--pick {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.sched-run--pick:hover { background: var(--surface-strong); }
+.sched-run--pick.on { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.sched-run--pick input { margin: 0; flex: none; }
+
 /* O campo de mensagem cresce com o conteúdo SEM JavaScript onde o navegador
    suporta `field-sizing` (Chrome/Edge 123+). Onde não, o ChatInput mede — mas
    só quando há quebra de linha, porque medir custa um reflow da página inteira.

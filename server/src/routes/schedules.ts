@@ -134,6 +134,27 @@ export function registerScheduleRoutes(
     return store.listRuns(cur.id, limit)
   })
 
+  /**
+   * Apaga resultados escolhidos (limpeza em lote, pedida na tela).
+   *
+   * `DELETE` com corpo, e não um seq por vez: apagar dez resultados viraria dez
+   * requisições, cada uma podendo falhar no meio e deixar a lista pela metade.
+   *
+   * O teto de 200 existe porque a lista da tela mostra no máximo 50 — um corpo
+   * maior que isso não vem da interface, e um `IN (...)` sem limite é um jeito
+   * barato de segurar o banco.
+   */
+  app.delete('/api/schedules/:id/runs', async (req, reply) => {
+    const cur = reachable(req, reply, Number((req.params as { id: string }).id))
+    if (!cur) return
+    const seqs = (req.body as { seqs?: unknown })?.seqs
+    if (!Array.isArray(seqs)) return reply.code(400).send({ error: 'seqs é obrigatório (lista de números)' })
+    if (seqs.length > 200) return reply.code(400).send({ error: 'no máximo 200 resultados por vez' })
+    // Só inteiros positivos: o seq vai para o WHERE e para o nome do arquivo.
+    const limpos = seqs.filter((n): n is number => Number.isInteger(n) && (n as number) > 0)
+    return { deleted: store.deleteRuns(cur.id, limpos) }
+  })
+
   app.get('/api/schedules/:id/runs/:seq/content', async (req, reply) => {
     const cur = reachable(req, reply, Number((req.params as { id: string }).id))
     if (!cur) return

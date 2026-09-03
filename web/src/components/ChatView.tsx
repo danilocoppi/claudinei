@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { fetchHistory, stopSubagentTask } from '../api'
@@ -149,10 +149,15 @@ export function ChatView() {
   // Editar durante o turno é DESTRUTIVO (interrompe o que está rodando e
   // recomeça da mensagem editada) — o operador pode achar que só vai corrigir
   // uma mensagem enfileirada. Por isso pede confirmação antes.
-  const handleEdit = (text: string) => {
-    if (session.status === 'working') { setEditConfirm(text); return }
-    useStore.getState().requestEdit(session.localId, text)
-  }
+  // Estável entre renders (só muda com a sessão): é o que permite ao MessageBlock
+  // ser memoizado — uma closure nova por render furaria o memo em todos os
+  // blocos editáveis. O status é lido na hora, não capturado.
+  const localId = session.localId
+  const handleEdit = useCallback((text: string) => {
+    const st = useStore.getState()
+    if (st.sessions[localId]?.status === 'working') { setEditConfirm(text); return }
+    st.requestEdit(localId, text)
+  }, [localId])
 
   return (
     <>
@@ -204,7 +209,7 @@ export function ChatView() {
           const item = node.item
           return (
             <MessageBlock key={node.index} item={item} currentLocalId={session.localId}
-                          onEdit={editableIdx.has(node.index) && item.kind === 'user_text' ? () => handleEdit(item.text) : undefined} />
+                          editable={editableIdx.has(node.index)} onEdit={handleEdit} />
           )
         })}
         {streamingText && (

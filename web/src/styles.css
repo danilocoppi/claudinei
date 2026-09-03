@@ -1010,6 +1010,12 @@ button.subagent__stop:hover { opacity: 1; color: var(--err); background: color-m
 .slash-item__name { font-family: var(--font-code); font-size: 13px; color: var(--text); }
 .slash-item__desc { font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* O campo de mensagem cresce com o conteúdo SEM JavaScript onde o navegador
+   suporta `field-sizing` (Chrome/Edge 123+). Onde não, o ChatInput mede — mas
+   só quando há quebra de linha, porque medir custa um reflow da página inteira.
+   O teto é o mesmo dos dois caminhos: 10 linhas de 24px mais o padding. */
+.chat-compose__area { field-sizing: content; max-height: 260px; overflow-y: auto; }
+
 /* ---- A lista que o `@@` abre: com quem este terminal vai falar --------------
    Mesma âncora do menu de barra (sobe do campo), mas com um campo de busca no
    topo: nome de terminal tem espaço, e espaço encerra a palavra em qualquer

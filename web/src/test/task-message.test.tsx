@@ -43,7 +43,7 @@ describe('MessageBlock — task de outro terminal', () => {
   })
 
   it('mensagem digitada de verdade continua oferecendo editar', () => {
-    render(<MessageBlock item={{ kind: 'user_text', text: 'oi' }} onEdit={() => {}} />)
+    render(<MessageBlock item={{ kind: 'user_text', text: 'oi' }} editable onEdit={() => {}} />)
     expect(screen.queryByLabelText(/editar/i)).toBeTruthy()
   })
 })

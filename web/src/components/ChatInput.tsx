@@ -58,15 +58,32 @@ export function ChatInput({
   }, [editRequest?.seq])
 
   // Auto-resize: cresce de 1 até 10 linhas conforme o conteúdo; passou disso, rola.
+  //
+  // Era o MAIOR custo isolado do app (CPU profile na base real): `height='auto'`
+  // seguido de `scrollHeight` força um reflow SÍNCRONO da página inteira — 2.000
+  // nós e 29 blurs — e este componente é remontado a cada troca de terminal. Três
+  // saídas, em ordem:
+  //  1. Navegador com `field-sizing: content` dimensiona sozinho, via CSS (ver
+  //     .chat-compose__area). Aqui o JS nem entra.
+  //  2. Vazio ou de uma linha — o caso de toda troca de terminal — cabe numa linha
+  //     por definição: nada a medir.
+  //  3. Só com quebra de linha (ou texto que pode dobrar) é que se mede.
   const MAX_LINES = 10
   const LINE_H = 24
   useEffect(() => {
     const el = areaRef.current
     if (!el) return
+    if ('fieldSizing' in el.style) return
+    if (!text.includes('\n') && text.length < 80) {
+      el.style.height = ''
+      el.style.overflowY = 'hidden'
+      return
+    }
     el.style.height = 'auto'
     const max = LINE_H * MAX_LINES + 20 // + padding vertical
-    el.style.height = `${Math.min(el.scrollHeight, max)}px`
-    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+    const h = el.scrollHeight
+    el.style.height = `${Math.min(h, max)}px`
+    el.style.overflowY = h > max ? 'auto' : 'hidden'
   }, [text])
   // Fonte da lista dirigida pela engine da sessão: protocolo (Claude), curada
   // (ex.: Codex) ou nenhuma — ver useSessionSlashCommands (store.ts).
@@ -251,8 +268,8 @@ export function ChatInput({
         )}
         <textarea
           ref={areaRef}
-          className={dragOver ? 'drag-over' : undefined}
-          style={{ flex: 1, resize: 'none', fontSize: 15, lineHeight: '24px', overflowY: 'hidden' }}
+          className={`chat-compose__area ${dragOver ? 'drag-over' : ''}`}
+          style={{ flex: 1, resize: 'none', fontSize: 15, lineHeight: '24px' }}
           rows={1}
           placeholder={
             uploading > 0 ? t('chat.placeholderUploading')

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState, memo } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
@@ -15,13 +15,31 @@ import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
 import rehypeFilePaths from '../rehypeFilePaths'
 import { MarkdownPre } from './MarkdownPre'
 
-export function MessageBlock({ item, currentLocalId, onEdit }: { item: ChatItem; currentLocalId?: string; onEdit?: () => void }) {
-  const content = <MessageContent item={item} currentLocalId={currentLocalId} onEdit={onEdit} />
+/**
+ * Memoizado, e as props foram desenhadas para o memo VALER.
+ *
+ * O `react-markdown` reconstrói o pipeline inteiro a cada render (sem cache —
+ * confirmado no código da lib), e o `rehype-highlight` re-registra 37 linguagens
+ * junto. Sem memo, cada render do ChatView refazia isso em cada bloco — e o
+ * ChatView re-renderiza a cada mensagem do WebSocket. Apareceu no CPU profile numa
+ * segunda visita, com histórico em cache: nada tinha mudado, e tudo foi refeito.
+ *
+ * Daí `editable` + `onEdit(text)` em vez de uma closure `() => edit(item.text)`
+ * montada pelo pai: a closure seria nova a cada render e furaria o memo.
+ */
+export const MessageBlock = memo(function MessageBlock({ item, currentLocalId, editable, onEdit }: {
+  item: ChatItem
+  currentLocalId?: string
+  editable?: boolean
+  onEdit?: (text: string) => void
+}) {
+  const edit = editable && onEdit && item.kind === 'user_text' ? () => onEdit(item.text) : undefined
+  const content = <MessageContent item={item} currentLocalId={currentLocalId} onEdit={edit} />
   if (item.fromSubagent) {
     return <SubagentWrapper>{content}</SubagentWrapper>
   }
   return content
-}
+})
 
 /** Mensagens acima disso colapsam: mostra as primeiras linhas + botão de expandir. */
 const COLLAPSE_LINES = 13

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from './store'
 import { fetchAppearance, fetchEngines, fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
@@ -8,18 +8,42 @@ import { Sidebar } from './components/Sidebar'
 import { SidebarResizer } from './components/SidebarResizer'
 import { Dashboard } from './components/Dashboard'
 import { ChatView } from './components/ChatView'
-import { SchedulesView } from './components/SchedulesView'
 import { BoardPanel } from './components/BoardPanel'
 import { TasksPanel } from './components/TasksPanel'
-import { TerminalView } from './components/TerminalView'
 import { AuthScreen } from './components/AuthScreen'
-import { ActionRunModal } from './components/ActionRunModal'
 import { OrphanActions } from './components/OrphanActions'
-import { FileViewerModal } from './components/FileViewerModal'
 import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
 import { MobileTopbar } from './components/MobileTopbar'
 import { initNotifications } from './notifications'
+
+/**
+ * O que não pertence ao carregamento inicial.
+ *
+ * O bundle era um arquivo só de 1,38 MB, e 45% dele eram bibliotecas que a tela
+ * de login nunca usa: o xterm (terminal e Actions), o seletor de emoji, e as
+ * telas que só abrem por clique. Cada uma vira um chunk que baixa na primeira
+ * vez que é preciso. Em localhost a diferença é nula; em acesso remoto por rede
+ * lenta é a diferença entre 1 e 3 segundos até a tela responder.
+ */
+const SchedulesView = lazy(() => import('./components/SchedulesView').then((m) => ({ default: m.SchedulesView })))
+const TerminalView = lazy(() => import('./components/TerminalView').then((m) => ({ default: m.TerminalView })))
+const ActionRunModal = lazy(() => import('./components/ActionRunModal').then((m) => ({ default: m.ActionRunModal })))
+const FileViewerModal = lazy(() => import('./components/FileViewerModal').then((m) => ({ default: m.FileViewerModal })))
+
+/**
+ * Os modais são renderizados SEMPRE (devolvem null quando inativos), então um
+ * lazy puro baixaria o chunk no mount do App e não ganharia nada. Estes portões
+ * só montam o componente quando há o que mostrar — é aí que o xterm baixa.
+ */
+function ActionRunsGate() {
+  const temRuns = useStore((s) => s.actionRuns.length > 0)
+  return temRuns ? <Suspense fallback={null}><ActionRunModal /></Suspense> : null
+}
+function FileViewerGate() {
+  const aberto = useStore((s) => !!s.fileViewer)
+  return aberto ? <Suspense fallback={null}><FileViewerModal /></Suspense> : null
+}
 
 export default function App() {
   const { t } = useTranslation()
@@ -125,12 +149,12 @@ export default function App() {
           {view === 'chat' && <ChatView />}
           {view === 'board' && <BoardPanel />}
           {view === 'tasks' && <TasksPanel />}
-          {view === 'schedules' && <SchedulesView />}
-          {view === 'terminal' && <TerminalView />}
+          {view === 'schedules' && <Suspense fallback={null}><SchedulesView /></Suspense>}
+          {view === 'terminal' && <Suspense fallback={null}><TerminalView /></Suspense>}
         </div>
-        <ActionRunModal />
+        <ActionRunsGate />
         <OrphanActions />
-        <FileViewerModal />
+        <FileViewerGate />
         <FileOpenMenu />
         <ExternalLinkConfirm />
       </div>

@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { EmojiPicker } from './EmojiPicker'
+import { lazy, Suspense } from 'react'
+
+// `emoji-picker-react` era 18,6% do bundle — carregado na tela de login para uma
+// aba que só abre quando se troca o ícone de um projeto. Baixa quando a aba abre.
+const EmojiPicker = lazy(() => import('./EmojiPicker').then((m) => ({ default: m.EmojiPicker })))
 import { Icon } from './Icon'
 import { searchIcons } from '../api'
 import { parseIcon, rememberIcons, type IconBody } from '../icons'
@@ -119,7 +123,9 @@ export function IconPicker({ value, onSelect, onClose }: {
         </div>
 
         {tab === 'emoji' ? (
-          <EmojiPicker inline onSelect={(emoji) => pick(emoji)} onClose={onClose} />
+          <Suspense fallback={<div className="icon-picker__loading">…</div>}>
+            <EmojiPicker inline onSelect={(emoji) => pick(emoji)} onClose={onClose} />
+          </Suspense>
         ) : (
           <>
             <input

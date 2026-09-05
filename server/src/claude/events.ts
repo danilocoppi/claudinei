@@ -22,7 +22,7 @@ export type ClaudeEvent =
   | { kind: 'assistant'; message: ApiMessage; raw: unknown }
   | { kind: 'user'; message: ApiMessage; raw: unknown }
   | { kind: 'system'; subtype: string; raw: unknown }
-  | { kind: 'result'; subtype: string; isError: boolean; resultText: string; costUsd: number; raw: unknown; tokens?: { input: number; cachedInput: number; output: number; reasoning: number; total: number } }
+  | { kind: 'result'; subtype: string; isError: boolean; resultText: string; costUsd: number; raw: unknown; tokens?: { input: number; cachedInput: number; output: number; reasoning: number; total: number }; contextTokens?: number }
   | { kind: 'raw'; raw: unknown }
   | { kind: 'parse_error'; line: string }
   | { kind: 'stream'; text: string; raw: unknown }

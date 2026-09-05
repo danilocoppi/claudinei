@@ -13,7 +13,8 @@ Kimi and OpenCode — each one in the context of its own project.
 - **100% local voice transcription**: the chat's 🎤 records and transcribes with **NVIDIA Parakeet v3** on your backend (25 languages, punctuation, ~30× realtime on CPU). Audio never leaves your machine. Text appears live while you speak.
 - **Board & Tasks (hermes MCP)**: agents talk to each other (`ask_agent`), publish to a shared **board** (`post_to_board`) and dispatch **tasks** to one another (`dispatch_task`) with an **automatic queue** — click the ⓘ in the sidebar footer for the full documentation.
 - **Usage card**: the `/usage` bars (session, week, per model) in the sidebar, with **pace coloring** — green if your consumption reaches the reset without maxing out, red if you're burning too fast.
-- **Per-session ⚙**: hot-swap **model**, **effort** (low→ultracode, persisted) and **permission mode**.
+- **Context meter**: a bar in the chat title shows how much of the window the conversation is using — the size comes from the model actually running (1M on the current Opus/Sonnet/Fable, 200k on Haiku), not a fixed guess. It costs nothing: the number rides along in the `usage` every Claude turn already returns.
+- **Per-session ⚙**: hot-swap **model**, **effort** (low→ultracode, persisted) and **permission mode**; **Compact now** frees window space on demand, and admins can set a global **auto-compact** threshold so any Claude session compacts itself once it crosses that share of its window.
 - **Actions**: commands a terminal repeats with one click — name it once (`awsVAEXA` + `npm run deploy`) and it runs in a floating window you can drag, minimize and type into. Survives a page reload: the process lives on the server, so F5 finds the deploy still running instead of starting a second one.
 - **Shell shortcut**: a message starting with `!` runs in the terminal's folder instead of going to the agent — `!ls`, `!git status`.
 - **Schedules**: recurring tasks per terminal (every N minutes/hours, daily, weekly, monthly or cron), each with its own engine/model/effort and a history of results.
@@ -589,7 +590,7 @@ Tests do **not** need the native node-pty (fake PTY), the real Claude (`fake-cla
 1. **+ Terminal** → pick the project folder, icon and color.
 2. **▶ Start session** → toggle "Continue last conversation" and "Skip permissions" to taste.
 3. Chat away — or click the **🎤** and speak (text appears live; review and send). Tool calls, diffs and subagents render structured.
-4. **⚙** next to Send: hot-swap model, **effort** and permission mode.
+4. **⚙** next to Send: hot-swap model, **effort** and permission mode — and, when the context bar in the title climbs, **Compact now** (or set auto-compact once and forget it).
 5. Claude working and you want to stop? **■** (or Esc). Forgot something in your instruction? **✏** on the message → fix → resend.
 6. Need the TUI (approve a permission, interactive command)? **🖥 Open in terminal** on the title. **← Back to chat** brings the session back ready.
 7. **Board** and **Tasks** in the sidebar show agent collaboration — the **ⓘ** next to "Terminal Interaction" explains everything with examples.

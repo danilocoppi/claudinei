@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { SessionInfo } from '../types'
-import { setSessionOptions, type PermissionMode } from '../api'
+import { fetchAutoCompact, putAutoCompact, setSessionOptions, type PermissionMode } from '../api'
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
 import { MODE_KEY, MODE_COLOR } from '../permissionLabels'
@@ -56,6 +56,27 @@ export function SessionControls({ session }: { session: SessionInfo }) {
   // trazer), ele é um slash command headless-executável (spike 2026-07-12): envia
   // como mensagem normal e a confirmação volta pelo chat, movendo o ✓ (farejador
   // no store). Decisão dirigida pela lista de slash da sessão — SEM hardcode por engine.
+  // Contexto: /compact manual + limiar do auto-compact. Só Claude — nas outras
+  // engines o "/compact" iria como texto para o MODELO, não para o CLI.
+  const isClaude = session.engine === 'claude'
+  const me = useStore((st) => st.me)
+  const isAdmin = !me || me.isAdmin !== false
+  const [autoCompact, setAutoCompact] = useState<number | null>(null)
+  useEffect(() => {
+    if (!open || !isClaude) return
+    fetchAutoCompact().then((r) => setAutoCompact(typeof r.pct === 'number' ? r.pct : null)).catch(() => setAutoCompact(null))
+  }, [open, isClaude])
+  const compactNow = () => {
+    const text = '/compact'
+    ws?.send({ type: 'send_message', localId: session.localId, text })
+    addLocalUserText(session.localId, text)
+    setOpen(false)
+  }
+  const changeAutoCompact = (pct: number) => {
+    setAutoCompact(pct) // otimista; o PUT devolve o saneado
+    void putAutoCompact(pct).then((r) => setAutoCompact(r.pct)).catch((err) => setError((err as Error).message))
+  }
+
   const applyEffort = (level: string) => {
     if (slashCommands.includes('effort')) {
       const text = `/effort ${level}`
@@ -123,6 +144,27 @@ export function SessionControls({ session }: { session: SessionInfo }) {
               </>
             )}
             {effort === 'ultracode' && <div className="sess-pop__warn">{t('session.effortUltracodeHint')}</div>}
+            {isClaude && (
+              <>
+                <div className="sess-pop__eyebrow">{t('controls.context')}</div>
+                <div className={`sess-pop__item${busy ? ' sess-pop__item--off' : ''}`}
+                     data-testid="compact-now"
+                     title={busy ? t('controls.workingHint') : t('controls.compactHint')}
+                     onClick={() => { if (!busy) compactNow() }}>
+                  <span>{t('controls.compactNow')}</span>
+                </div>
+                {isAdmin && autoCompact !== null && (
+                  <div className="sess-pop__item sess-pop__item--row" title={t('controls.autoCompactHint')}>
+                    <span style={{ flex: 1 }}>{t('controls.autoCompact')}</span>
+                    <select className="sess-pop__select" data-testid="auto-compact-select" value={autoCompact}
+                            onChange={(e) => changeAutoCompact(Number(e.target.value))}>
+                      <option value={0}>{t('controls.autoCompactOff')}</option>
+                      {[60, 70, 80, 90].map((p) => <option key={p} value={p}>{p}%</option>)}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
             {permissions.length > 0 && mode !== 'bypassPermissions' && <div className="sess-pop__warn">{t('session.permWarning')}</div>}
             {error && <div className="sess-pop__error">⚠ {error}</div>}
           </div>

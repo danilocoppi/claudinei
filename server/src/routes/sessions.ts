@@ -5,7 +5,7 @@ import type { Config } from '../config.js'
 import type { PermissionMode } from '../claude/session.js'
 import { createProjectsService } from '../projects.js'
 import { createSettingsService } from '../settings.js'
-import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
+import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/guards.js'
 import { hasEngine, DEFAULT_ENGINE_ID, getEngine, listEngines } from '../engine/index.js'
 
 const PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'plan', 'bypassPermissions'])
@@ -65,6 +65,20 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
   // Lista de slash commands instalados (capturada de eventos init e persistida),
   // para o autocomplete do chat estar disponível já no carregamento da página.
   app.get('/api/slash-commands', async () => settings.getSlashCommands())
+
+  // Auto-compact: limiar em % da janela de contexto (0 = desligado), global da
+  // instalação (kv settings) — o manager o lê a cada result. PUT é admin-only:
+  // muda o comportamento das sessões de TODOS.
+  app.get('/api/auto-compact', async () => ({ pct: Number(settings.get('autoCompactPct') || 0) }))
+  app.put('/api/auto-compact', async (req, reply) => {
+    if (!requireAdmin(req, reply)) return
+    const pct = Number((req.body as { pct?: unknown })?.pct)
+    if (!Number.isInteger(pct) || pct < 0 || pct > 95) {
+      return reply.code(400).send({ error: 'pct deve ser 0 (desligado) ou um inteiro de 1 a 95' })
+    }
+    settings.set('autoCompactPct', pct > 0 ? String(pct) : '')
+    return { pct }
+  })
 
   app.post('/api/projects/:id/sessions', async (req, reply) => {
     const project = projects.get(Number((req.params as { id: string }).id))

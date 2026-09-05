@@ -72,6 +72,11 @@ export const startSession = (
     method: 'POST',
     ...(opts ? { body: JSON.stringify(opts) } : {}),
   })
+/** Limiar global do auto-compact (% da janela; 0 = desligado). PUT é admin-only. */
+export const fetchAutoCompact = () => req<{ pct: number }>('/api/auto-compact')
+export const putAutoCompact = (pct: number) =>
+  req<{ pct: number }>('/api/auto-compact', { method: 'PUT', body: JSON.stringify({ pct }) })
+
 export const setSessionOptions = (localId: string, opts: { model?: string; permissionMode?: PermissionMode; effort?: string }) =>
   req<SessionInfo>(`/api/sessions/${localId}/options`, { method: 'PATCH', body: JSON.stringify(opts) })
 export const deleteProject = (id: number) =>

@@ -167,6 +167,7 @@ export const es: typeof en = {
   },
   chat: {
     select: 'Selecciona una sesión.', openInTerminal: 'Abrir en la terminal', backToTerminal: 'Volver a la terminal',
+    ctxTip: 'Contexto de la conversación: ~{{used}} de {{window}} tokens. Compacta (⚙ → Compactar ahora o /compact) para liberar espacio.',
     handoffTitle: '¿Abrir en la terminal?', handoffWorking: 'El turno en curso se detendrá para abrir esta conversación en la terminal.', handoffUnavailable: 'Disponible cuando la sesión esté activa.', terminalNoConversation: 'Abrir en la terminal está disponible tras el primer mensaje — aún no hay conversación para abrir.',
     inTerminalNotice: 'Esta sesión está abierta en la terminal. Ciérrala allí para retomar en la web.',
     placeholder: 'Mensaje para {{engine}}… (arrastra o pega archivos)',
@@ -228,6 +229,8 @@ export const es: typeof en = {
   controls: {
     model: 'Modelo', effort: 'Esfuerzo', permission: 'Permiso', applied: 'aplicado',
     workingHint: 'espera a que termine el turno actual', title: 'Controles de sesión',
+    context: 'Contexto', compactNow: 'Compactar ahora', compactHint: 'resume la conversación para liberar espacio en la ventana de contexto (/compact)',
+    autoCompact: 'Auto-compactar al', autoCompactOff: 'apagado', autoCompactHint: 'compacta solo cuando cualquier sesión de Claude supere esta parte de la ventana (global)',
   },
   slash: {
     compact: 'compacta el contexto para liberar espacio',

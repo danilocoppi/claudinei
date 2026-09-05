@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { fetchHistory, stopSubagentTask } from '../api'
 import { EngineTabs } from './EngineTabs'
+import { ContextMeter } from './ContextMeter'
 import { MessageBlock } from './MessageBlock'
 import { ChatInput } from './ChatInput'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -175,6 +176,7 @@ export function ChatView() {
         <Icon value={project.icon} size={20} />
         <strong>{project.name}</strong>
         <EngineTabs projectId={session.projectId} activeLocalId={session.localId} />
+        <ContextMeter session={session} />
         {session.status === 'dead' && session.detail && (
           <span style={{ color: 'var(--err)' }}>{session.detail.slice(0, 140)}</span>
         )}

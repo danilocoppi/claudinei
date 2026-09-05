@@ -165,6 +165,7 @@ export const en = {
   },
   chat: {
     select: 'Select a session.', openInTerminal: 'Open in terminal', backToTerminal: 'Back to the terminal',
+    ctxTip: 'Conversation context: ~{{used}} of {{window}} tokens. Compact (⚙ → Compact now or /compact) to free space.',
     handoffTitle: 'Open in terminal?', handoffWorking: 'The turn in progress will be stopped to open this conversation in the terminal.', handoffUnavailable: 'Available when the session is active.', terminalNoConversation: 'Open in terminal is available after the first message — no conversation to open yet.',
     inTerminalNotice: 'This session is open in the terminal. Close it there to resume on the web.',
     placeholder: 'Message for {{engine}}… (drag or paste files)',
@@ -226,6 +227,8 @@ export const en = {
   controls: {
     model: 'Model', effort: 'Effort', permission: 'Permission', applied: 'applied',
     workingHint: 'wait for the current turn to finish', title: 'Session controls',
+    context: 'Context', compactNow: 'Compact now', compactHint: 'summarizes the conversation to free context-window space (/compact)',
+    autoCompact: 'Auto-compact at', autoCompactOff: 'off', autoCompactHint: 'compacts automatically when any Claude session passes this share of the window (global)',
   },
   slash: {
     compact: 'compact the context to free space',

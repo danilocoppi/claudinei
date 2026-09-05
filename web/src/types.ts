@@ -30,6 +30,10 @@ export interface SessionInfo {
    * reautenticar — a UI oferece o login em vez de mostrar mais um erro de API.
    */
   authExpired?: boolean
+  /** Tamanho do contexto (tokens) do último result — alimenta o medidor do chat. Só sessão viva; ausente até o 1º turno. */
+  contextTokens?: number
+  /** Janela de contexto (tokens) do modelo em uso — o denominador do medidor. Ausente → 200k conservador. */
+  contextWindow?: number
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */

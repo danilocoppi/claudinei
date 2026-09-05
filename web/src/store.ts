@@ -361,6 +361,8 @@ export const useStore = create<State>((set, get) => ({
             // banco): o servidor manda a lista completa a cada mudança.
             backgroundTasks: msg.backgroundTasks ?? s.sessions[msg.localId]?.backgroundTasks ?? [],
             authExpired: msg.authExpired ?? s.sessions[msg.localId]?.authExpired ?? false,
+            // Janela do modelo: chega no init (e a cada troca de modelo).
+            contextWindow: msg.contextWindow ?? s.sessions[msg.localId]?.contextWindow,
             // Atividade do TUI só sobrevive à PERMANÊNCIA em in_terminal; na entrada
             // (status anterior não era in_terminal) zera — senão dois in_terminal
             // consecutivos mostrariam atividade velha do terminal anterior.
@@ -400,6 +402,12 @@ export const useStore = create<State>((set, get) => ({
         // confirmação do /effort — vale tanto para o popover quanto para o comando digitado
         const m = /^Set effort level to (\w+)/.exec(event.resultText)
         if (m) set((s) => ({ sessionEffort: { ...s.sessionEffort, [localId]: m[1] } }))
+      }
+      if (event.kind === 'result' && typeof event.contextTokens === 'number') {
+        // medidor de contexto: cada result traz o tamanho atual da conversa
+        set((s) => (s.sessions[localId]
+          ? { sessions: { ...s.sessions, [localId]: { ...s.sessions[localId], contextTokens: event.contextTokens } } }
+          : s))
       }
       if (event.kind === 'stream') {
         set((s) => ({ streaming: { ...s.streaming, [localId]: (s.streaming[localId] ?? '') + event.text } }))

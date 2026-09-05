@@ -4,6 +4,8 @@ import type { Project } from '../projects.js'
 import type { SessionStatus, PermissionMode } from './session.js'
 import type { ClaudeEvent } from './events.js'
 import { getEngine, DEFAULT_ENGINE_ID, type EngineId, type EngineSession, type EngineSessionOptions } from '../engine/index.js'
+import { userEchoEvent } from '../engine/echo.js'
+import { contextWindowFor, DEFAULT_CONTEXT_WINDOW } from './context-window.js'
 
 export interface SessionInfo {
   localId: string
@@ -24,6 +26,10 @@ export interface SessionInfo {
   backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
   /** Credencial do Claude expirada: a UI mostra "reautenticar" no lugar do erro cru. */
   authExpired?: boolean
+  /** Tamanho do contexto (tokens) do último result da sessão VIVA. Só memória: após restart do servidor, volta no próximo turno. */
+  contextTokens?: number
+  /** Janela de contexto (tokens) do modelo que a sessão viva está rodando — o denominador do medidor. */
+  contextWindow?: number
 }
 
 export interface TerminalLauncherOpts {
@@ -65,6 +71,13 @@ interface Deps {
   onSessionAvailable?: (projectId: number) => void
   /** Chamado quando um evento result traz tokens (Codex e demais engines que os expõem). Claude não seta tokens → nunca dispara. */
   onEngineUsage?: (engine: EngineId, tokens: { input: number; cachedInput: number; output: number; reasoning: number; total: number }) => void
+  /**
+   * Limiar do auto-compact em % da janela de contexto (0/ausente = desligado),
+   * lido A CADA result — mudar a configuração vale na hora, sem recriar sessão.
+   * Quando o contexto reportado cruza o limiar, o manager envia `/compact` à
+   * sessão (só engines cujo parser reporta contextTokens — hoje, o Claude).
+   */
+  autoCompactPct?: () => number
 }
 
 const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_attention'])
@@ -107,7 +120,7 @@ function waitForResult(session: EngineSession, timeoutMs: number): Promise<strin
 }
 
 export function createSessionManager(deps: Deps) {
-  const live = new Map<string, { session: EngineSession; projectId: number; engine: EngineId }>()
+  const live = new Map<string, { session: EngineSession; projectId: number; engine: EngineId; contextTokens?: number; contextWindow?: number; autoCompacting?: boolean }>()
   // Resolve a sessão pela engine (registry) — ou, em teste, pelo override sessionFactory.
   const makeSession = (engineId: EngineId, opts: EngineSessionOptions): EngineSession =>
     deps.sessionFactory ? deps.sessionFactory(opts) : getEngine(engineId).createSession(opts)
@@ -159,7 +172,7 @@ export function createSessionManager(deps: Deps) {
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
       const info = infoOf(localId)
-      deps.broadcast({ type: 'session_status', localId, projectId, engine: info?.engine ?? engine, status, engineSessionId: effectiveEngineSessionId(localId, session), detail, model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null, backgroundTasks: info?.backgroundTasks ?? [], authExpired: info?.authExpired ?? false })
+      deps.broadcast({ type: 'session_status', localId, projectId, engine: info?.engine ?? engine, status, engineSessionId: effectiveEngineSessionId(localId, session), detail, model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null, backgroundTasks: info?.backgroundTasks ?? [], authExpired: info?.authExpired ?? false, contextWindow: info?.contextWindow })
       if (status === 'dead' || status === 'stopped') live.delete(localId)
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => deps.onSessionAvailable?.(projectId))
@@ -167,6 +180,11 @@ export function createSessionManager(deps: Deps) {
     })
     session.on('event', (event) => {
       if (event.kind === 'init') {
+        // A janela sai do modelo que o CLI reporta aqui (o stream não anuncia o
+        // tamanho). Vale para o modelo EM USO: trocar de modelo emite novo init,
+        // então a janela acompanha — inclusive os 1M do Opus/Sonnet/Fable atuais.
+        const entryI = live.get(localId)
+        if (entryI) entryI.contextWindow = contextWindowFor(event.model)
         // O init carrega a lista de slash commands instalados: persiste para o
         // autocomplete do chat ficar disponível já no load (sem esperar a 1ª msg).
         if (Array.isArray(event.slashCommands) && event.slashCommands.length) {
@@ -179,7 +197,7 @@ export function createSessionManager(deps: Deps) {
         if (event.sessionId) {
           persist(localId, session.status, event.sessionId)
           const infoI = infoOf(localId)
-          deps.broadcast({ type: 'session_status', localId, projectId, engine: infoI?.engine ?? engine, status: session.status, engineSessionId: event.sessionId, model: infoI?.model ?? null, permissionMode: infoI?.permissionMode, effort: infoI?.effort ?? null, backgroundTasks: infoI?.backgroundTasks ?? [], authExpired: infoI?.authExpired ?? false })
+          deps.broadcast({ type: 'session_status', localId, projectId, engine: infoI?.engine ?? engine, status: session.status, engineSessionId: event.sessionId, model: infoI?.model ?? null, permissionMode: infoI?.permissionMode, effort: infoI?.effort ?? null, backgroundTasks: infoI?.backgroundTasks ?? [], authExpired: infoI?.authExpired ?? false, contextWindow: infoI?.contextWindow })
         }
       }
       if (event.kind === 'result' && event.tokens) {
@@ -187,11 +205,39 @@ export function createSessionManager(deps: Deps) {
         // stdout da engine — um erro do SQLite aqui viraria uncaughtException.
         try { deps.onEngineUsage?.(engine, event.tokens) } catch {}
       }
+      if (event.kind === 'result' && typeof event.contextTokens === 'number') {
+        const entry = live.get(localId)
+        if (entry) {
+          entry.contextTokens = event.contextTokens
+          // Auto-compact: cruzou o limiar → envia /compact UMA vez por cruzamento.
+          // O flag só re-arma quando um result volta abaixo do limiar (o da própria
+          // compactação, tipicamente) — se compactar não reduzir o bastante, não
+          // entra em loop de /compact atrás de /compact.
+          const pct = deps.autoCompactPct?.() ?? 0
+          const janela = entry.contextWindow ?? DEFAULT_CONTEXT_WINDOW
+          const limiar = pct > 0 ? (janela * pct) / 100 : Infinity
+          if (event.contextTokens >= limiar && !entry.autoCompacting) {
+            entry.autoCompacting = true
+            // Microtask: deixa o status do result assentar antes de abrir o turno
+            // de compactação (mesmo adiamento do onSessionAvailable, mesmo motivo).
+            queueMicrotask(() => {
+              if (live.get(localId) !== entry) return // sessão saiu entre o result e o envio
+              try {
+                entry.session.send('/compact')
+                // Eco na UI: sem ele a sessão "trabalha sozinha" sem explicação.
+                deps.broadcast({ type: 'session_event', localId, event: userEchoEvent('/compact') })
+              } catch { /* stopped/dead no meio do caminho: nada a compactar */ }
+            })
+          } else if (event.contextTokens < limiar) {
+            entry.autoCompacting = false
+          }
+        }
+      }
       deps.broadcast({ type: 'session_event', localId, event })
     })
     session.start()
     const info0 = infoOf(localId)
-    deps.broadcast({ type: 'session_status', localId, projectId, engine: info0?.engine ?? engine, status: session.status, engineSessionId: effectiveEngineSessionId(localId, session), model: info0?.model ?? null, permissionMode: info0?.permissionMode, effort: info0?.effort ?? null, backgroundTasks: info0?.backgroundTasks ?? [], authExpired: info0?.authExpired ?? false })
+    deps.broadcast({ type: 'session_status', localId, projectId, engine: info0?.engine ?? engine, status: session.status, engineSessionId: effectiveEngineSessionId(localId, session), model: info0?.model ?? null, permissionMode: info0?.permissionMode, effort: info0?.effort ?? null, backgroundTasks: info0?.backgroundTasks ?? [], authExpired: info0?.authExpired ?? false, contextWindow: info0?.contextWindow })
   }
 
   const infoOf = (localId: string): SessionInfo | undefined => {
@@ -210,6 +256,8 @@ export function createSessionManager(deps: Deps) {
       effort: row.effort ?? null,
       backgroundTasks: liveEntry?.session.backgroundTasks ?? [],
       authExpired: liveEntry?.session.authExpired ?? false,
+      contextTokens: liveEntry?.contextTokens,
+      contextWindow: liveEntry?.contextWindow,
     }
   }
 

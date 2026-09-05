@@ -103,3 +103,21 @@ describe('createLineParser', () => {
     expect(got.map((e) => e.kind)).toEqual(['result', 'assistant'])
   })
 })
+
+describe('contextTokens do result (medidor de contexto)', () => {
+  it('soma input + cache lido + cache criado do usage', () => {
+    const e = classifyLine(JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0,
+      usage: { input_tokens: 18, cache_read_input_tokens: 43776, cache_creation_input_tokens: 9022, output_tokens: 177 },
+    })) as any
+    expect(e.kind).toBe('result')
+    expect(e.contextTokens).toBe(18 + 43776 + 9022)
+  })
+
+  it('sem usage (ou usage vazio) → undefined, não zero', () => {
+    const sem = classifyLine(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok' })) as any
+    expect(sem.contextTokens).toBeUndefined()
+    const vazio = classifyLine(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', usage: {} })) as any
+    expect(vazio.contextTokens).toBeUndefined()
+  })
+})

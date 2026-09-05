@@ -356,3 +356,16 @@ describe('limite de eventos do histórico (transcripts gigantes não travam o na
     await app2.close()
   })
 })
+
+describe('auto-compact (limiar global)', () => {
+  it('GET default 0; PUT persiste e devolve o valor; fora da faixa → 400', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/auto-compact' })).json()).toEqual({ pct: 0 })
+    expect((await app.inject({ method: 'PUT', url: '/api/auto-compact', payload: { pct: 70 } })).json()).toEqual({ pct: 70 })
+    expect((await app.inject({ method: 'GET', url: '/api/auto-compact' })).json()).toEqual({ pct: 70 })
+    // 0 desliga
+    expect((await app.inject({ method: 'PUT', url: '/api/auto-compact', payload: { pct: 0 } })).json()).toEqual({ pct: 0 })
+    for (const pct of [96, -1, 3.5, 'alto']) {
+      expect((await app.inject({ method: 'PUT', url: '/api/auto-compact', payload: { pct } })).statusCode).toBe(400)
+    }
+  })
+})

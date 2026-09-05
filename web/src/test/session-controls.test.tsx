@@ -70,7 +70,11 @@ describe('SessionControls', () => {
       const item = screen.getByText('Opus').closest('.sess-pop__item') as HTMLElement
       expect(item.className).toContain('sess-pop__item--off')
       fireEvent.click(item)
-      expect(globalThis.fetch).not.toHaveBeenCalled()
+      // abrir o popover busca o limiar do auto-compact (GET) — o que não pode
+      // haver é o PATCH da troca de modelo
+      const patches = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
+      expect(patches).toHaveLength(0)
     })
 
     it('effort CONTINUA disponível durante o turno (o backend aceita)', () => {
@@ -185,6 +189,58 @@ describe('SessionControls', () => {
       await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/s1/options',
         expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ effort: 'high' }) })))
       expect(send).not.toHaveBeenCalled()
+    })
+  })
+})
+
+describe('contexto: compactar agora + auto-compact', () => {
+  const jsonFor = (url: string) =>
+    String(url).includes('/api/auto-compact')
+      ? new Response(JSON.stringify({ pct: 70 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      : new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+  it('Compactar agora envia /compact pelo WS e registra no chat local', () => {
+    vi.mocked(globalThis.fetch).mockImplementation((async (u: string) => jsonFor(u)) as never)
+    useStore.setState({ chat: {} })
+    const send = renderWithWs(sess())
+    fireEvent.click(screen.getByTestId('session-controls-pill'))
+    fireEvent.click(screen.getByTestId('compact-now'))
+    expect(send).toHaveBeenCalledWith({ type: 'send_message', localId: 's1', text: '/compact' })
+    expect((useStore.getState().chat['s1'] ?? []).some((i) => i.kind === 'user_text' && i.text === '/compact')).toBe(true)
+  })
+
+  it('durante o turno o item fica inerte (o /compact abriria fila no meio do trabalho)', () => {
+    vi.mocked(globalThis.fetch).mockImplementation((async (u: string) => jsonFor(u)) as never)
+    const send = renderWithWs(sess({ status: 'working' }))
+    fireEvent.click(screen.getByTestId('session-controls-pill'))
+    const item = screen.getByTestId('compact-now')
+    expect(item.className).toContain('sess-pop__item--off')
+    fireEvent.click(item)
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ text: '/compact' }))
+  })
+
+  it('seção não existe para engine que não executa /compact headless (codex)', () => {
+    vi.mocked(globalThis.fetch).mockImplementation((async (u: string) => jsonFor(u)) as never)
+    render(<SessionControls session={sess({ engine: 'codex' })} />)
+    fireEvent.click(screen.getByTestId('session-controls-pill'))
+    expect(screen.queryByTestId('compact-now')).toBeNull()
+  })
+
+  it('select do auto-compact carrega o limiar e faz PUT ao trocar', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = []
+    vi.mocked(globalThis.fetch).mockImplementation((async (u: string, init?: RequestInit) => {
+      calls.push([String(u), init])
+      return jsonFor(String(u))
+    }) as never)
+    render(<SessionControls session={sess()} />)
+    fireEvent.click(screen.getByTestId('session-controls-pill'))
+    const select = await screen.findByTestId('auto-compact-select') as HTMLSelectElement
+    expect(select.value).toBe('70')
+    fireEvent.change(select, { target: { value: '80' } })
+    await vi.waitFor(() => {
+      const put = calls.find(([u, i]) => u.includes('/api/auto-compact') && i?.method === 'PUT')
+      expect(put).toBeTruthy()
+      expect(JSON.parse(String(put![1]!.body))).toEqual({ pct: 80 })
     })
   })
 })

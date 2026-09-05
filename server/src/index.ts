@@ -167,6 +167,7 @@ if (process.argv.includes('--hermes')) {
     hermes: { command: config.hermesCommand, args: config.hermesArgs, apiUrl: config.selfUrl, serviceTokenFile },
     keepSessionsPerProject: config.keepSessionsPerProject,
     onSlashCommands: (cmds) => settings.setSlashCommands(cmds),
+    autoCompactPct: () => Number(settings.get('autoCompactPct') || 0),
     onSessionAvailable: (projectId) => drain?.(projectId),
     onEngineUsage: (engine, tokens) => engineUsage.record(engine, tokens),
     terminalLauncher: (opts) => terminalManager.open(opts.localId, {

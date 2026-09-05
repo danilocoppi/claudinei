@@ -22,7 +22,10 @@ const slash_commands = slashArg !== -1 ? (process.argv[slashArg + 1] ?? '').spli
 // pkgExecPath ecoa process.env.PKG_EXECPATH no init: prova de regressão de que
 // session.ts spawna com PKG_EXECPATH='' (ver comentário em session.ts) —
 // exercitado em session.test.ts.
-out({ type: 'system', subtype: 'init', session_id: sid, model: 'fake-model', cwd: process.cwd(), tools: [], slash_commands, pkgExecPath: process.env.PKG_EXECPATH ?? null })
+// --model é ecoado no init como o claude real faz: alimenta a janela de contexto.
+const modelArg = process.argv.indexOf('--model')
+const model = modelArg !== -1 ? (process.argv[modelArg + 1] ?? 'fake-model') : 'fake-model'
+out({ type: 'system', subtype: 'init', session_id: sid, model, cwd: process.cwd(), tools: [], slash_commands, pkgExecPath: process.env.PKG_EXECPATH ?? null })
 
 const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
@@ -81,7 +84,12 @@ rl.on('line', (line) => {
       out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fake_1', content: 'oi' }] } })
     }
     out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${text}` }] } })
-    out({ type: 'result', subtype: 'success', is_error: false, result: `eco: ${text}`, session_id: sid, num_turns: 1, total_cost_usd: 0 })
+    out({
+      type: 'result', subtype: 'success', is_error: false, result: `eco: ${text}`, session_id: sid, num_turns: 1, total_cost_usd: 0,
+      // usage como o claude real: alimenta o medidor de contexto (input + caches).
+      // CLAUDE_FAKE_CTX simula uma conversa grande (teste do auto-compact).
+      usage: { input_tokens: 10, cache_read_input_tokens: Number(process.env.CLAUDE_FAKE_CTX ?? 100), cache_creation_input_tokens: 0, output_tokens: 5 },
+    })
   }
   if (text.includes('devagar')) setTimeout(respond, 300)
   else respond()

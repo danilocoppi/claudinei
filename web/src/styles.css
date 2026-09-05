@@ -658,6 +658,23 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .term-card__status > span:last-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* texto do status empurra o ▶ p/ a direita */
 /* Bolinhas das engines vivas: juntas entre si (gap menor que o do flex do pai). */
 .term-card__dots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+
+/* Medidor de contexto no header do chat: barrinha + % — o title traz os tokens. */
+.ctx-meter { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 11px; color: var(--text-dim); cursor: default; }
+.ctx-meter__bar { width: 46px; height: 5px; border-radius: var(--radius-xs); background: var(--surface-strong); overflow: hidden; }
+.ctx-meter__bar > span { display: block; height: 100%; border-radius: var(--radius-xs); background: var(--ok); transition: width .3s ease; }
+.ctx-meter--warn .ctx-meter__bar > span { background: var(--warn); }
+.ctx-meter--warn .ctx-meter__pct { color: var(--warn); }
+.ctx-meter--danger .ctx-meter__bar > span { background: var(--err); }
+.ctx-meter--danger .ctx-meter__pct { color: var(--err); }
+
+/* Linha de controle com select no popover da sessão (auto-compact). */
+.sess-pop__item--row { cursor: default; }
+.sess-pop__item--row:hover { background: transparent; }
+.sess-pop__select {
+  background: var(--surface); color: var(--text); border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xs); font-size: 12px; padding: 3px 6px; cursor: pointer;
+}
 .status-none { background: transparent; border: 1px solid var(--text-dim); }
 /* Ações do card: identidade única — caixa 22px sem borda, SVG em currentColor. */
 button.term-card__action {

@@ -14,9 +14,15 @@ const fmtK = (n: number): string => {
 }
 
 /**
- * Medidor do contexto da conversa no header do chat. O dado vem do `usage` que
- * cada result do Claude já traz (novo + cache lido + cache criado) — custo zero.
- * Sem dado (outras engines, sessão sem turno desde o boot), não renderiza nada.
+ * Medidor do contexto, renderizado DENTRO da aba da engine a que ele pertence.
+ * O dado é por sessão — o `manager.ts` só o tem para engines cujo parser reporta
+ * `usage` (hoje, o Claude) — então solto no header ele parecia um número do
+ * terminal inteiro, valendo para as três abas.
+ *
+ * Duas leituras da mesma grandeza: o trilho ocupa o fio inferior da própria aba
+ * (ambiente, comparável entre abas de relance, e não custa largura nenhuma numa
+ * barra que rola no celular) e o numeral dá o valor exato. Sem dado — outra
+ * engine, ou sessão sem turno desde o boot — não renderiza nada.
  */
 export function ContextMeter({ session }: { session: SessionInfo }) {
   const { t } = useTranslation()
@@ -33,8 +39,10 @@ export function ContextMeter({ session }: { session: SessionInfo }) {
       data-testid="ctx-meter"
       title={t('chat.ctxTip', { used: fmtK(used), window: fmtK(janela) })}
     >
-      <span className="ctx-meter__bar" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>
       <span className="ctx-meter__pct">{pct}%</span>
+      {/* Posicionado contra a .engine-tab (não contra este span): atravessa a aba
+          inteira, passando por baixo do ⏻. */}
+      <span className="ctx-meter__rail" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>
     </span>
   )
 }

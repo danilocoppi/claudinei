@@ -6,6 +6,7 @@ import { stopSession } from '../api'
 import type { SessionInfo, SessionStatus } from '../types'
 import { EngineIcon } from './EngineIcon'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ContextMeter } from './ContextMeter'
 
 /**
  * Abas por engine de um projeto — usadas no header do ChatView E na barra do
@@ -81,6 +82,8 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
                   {tabSession ? t(`status.${displayStatusKey(tabSession)}` as 'status.in_terminal') : t('sidebar.noSession')}
                 </span>
               )}
+              {/* O contexto é da SESSÃO, então mora na aba da engine dona dele. */}
+              {tabSession && <ContextMeter session={tabSession} />}
             </button>
             {live && tabSession && (
               <button

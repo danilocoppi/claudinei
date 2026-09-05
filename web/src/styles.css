@@ -494,6 +494,10 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   display: flex; align-items: center; gap: 2px; border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--ink) calc(18% * var(--ink-k)), transparent); border: 1px solid var(--border);
   transition: background .15s ease, border-color .15s ease;
+  /* Âncora do .ctx-meter__rail. Sem `overflow: hidden` de propósito: ele
+     recortaria o anel de foco dos botões de dentro. Quem evita a curva do canto
+     é o recuo do próprio trilho. */
+  position: relative;
 }
 .engine-tab.active { background: var(--surface-strong); border-color: var(--accent); }
 .engine-tab__main {
@@ -674,12 +678,40 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .term-card__dots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
 
 /* Medidor de contexto no header do chat: barrinha + % — o title traz os tokens. */
-.ctx-meter { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 11px; color: var(--text-dim); cursor: default; }
-.ctx-meter__bar { width: 46px; height: 5px; border-radius: var(--radius-xs); background: var(--surface-strong); overflow: hidden; }
-.ctx-meter__bar > span { display: block; height: 100%; border-radius: var(--radius-xs); background: var(--ok); transition: width .3s ease; }
-.ctx-meter--warn .ctx-meter__bar > span { background: var(--warn); }
+/* Medidor de contexto — vive DENTRO da .engine-tab, porque o dado é por sessão.
+   Duas leituras da mesma grandeza: o numeral (exato) e o trilho no fio inferior
+   da aba (ambiente). O trilho não usa fundo próprio: a borda de baixo da aba já
+   é o trilho, e um segundo seria decoração. */
+.ctx-meter { display: inline-flex; align-items: center; flex: none; cursor: default; }
+.ctx-meter__pct {
+  font-size: 11px; font-weight: 500;
+  /* Em --text-dim puro o número encostava na frase de status e era lido como
+     parte dela ("ready — send a message 37%"). O respiro extra (o resto da aba
+     usa 6px) e o matiz do próprio trilho o separam como dado, sem precisar de
+     divisória. */
+  margin-left: 4px;
+  color: color-mix(in srgb, var(--ok) 45%, var(--text-dim));
+  /* Sem tabular-nums a aba treme a cada turno: 1 é mais estreito que 8. */
+  font-variant-numeric: tabular-nums;
+}
+.ctx-meter__rail {
+  /* Recuado pelo raio do canto: encostado nas bordas, um preenchimento pequeno
+     cabia inteiro dentro da curva e sumia — a 2% não aparecia trilho nenhum.
+     O --radius muda por tema, então o recuo acompanha. */
+  position: absolute; left: var(--radius-md); right: var(--radius-md); bottom: 0; height: 2px;
+  pointer-events: none; /* atravessa a aba inteira, inclusive sob o ⏻ */
+}
+.ctx-meter__rail > span {
+  display: block; height: 100%;
+  /* Verde saturado o tempo todo vira ruído numa barra que se olha o dia inteiro:
+     no estado tranquilo o trilho é discreto e só ganha cor quando passa a
+     importar. */
+  background: color-mix(in srgb, var(--ok) 60%, transparent);
+  border-radius: 1px; transition: width .3s ease;
+}
+.ctx-meter--warn .ctx-meter__rail > span { background: var(--warn); }
 .ctx-meter--warn .ctx-meter__pct { color: var(--warn); }
-.ctx-meter--danger .ctx-meter__bar > span { background: var(--err); }
+.ctx-meter--danger .ctx-meter__rail > span { background: var(--err); }
 .ctx-meter--danger .ctx-meter__pct { color: var(--err); }
 
 /* Linha de controle com select no popover da sessão (auto-compact). */
@@ -1588,6 +1620,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
+  .ctx-meter__rail > span { transition: none; }
   .status-working, .status-dot--pulse, .status-needs_attention::after,
   .agent-face__body, .agent-face__eyes, .agent-face__eye, .agent-face__shadow,
   .agent-face__arrows i, .agent-face__ring, .agent-face__sparks i,

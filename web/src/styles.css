@@ -366,7 +366,11 @@ body {
   backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--border);
 }
-.app { display: flex; height: 100vh; }
+/* dvh, não vh: no celular `100vh` é a altura com a barra do navegador ESCONDIDA,
+   então o rodapé de digitação nasce abaixo da dobra e o teclado o cobre. `dvh`
+   acompanha a área visível (com o interactive-widget do index.html, também o
+   teclado). O vh fica de fallback para navegador sem dvh. */
+.app { display: flex; height: 100vh; height: 100dvh; }
 .sidebar {
   width: var(--sidebar-w, 250px); flex: none; overflow-y: auto;
   padding: calc(14px * var(--density));
@@ -433,6 +437,11 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
   position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
+/* Caminho de arquivo, URL ou hash sem espaço não pode empurrar a conversa para o
+   lado: no celular a coluna tem 366px e um `/home/ubuntu/.../arquivo.ts` já
+   estoura. Só quebra quando não couber de outro jeito — dentro de <pre> não vale
+   (lá o `white-space: pre` manda, e o bloco rola na horizontal). */
+.markdown { overflow-wrap: break-word; }
 .markdown code { font-family: var(--font-code); background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); padding: 1px 5px; border-radius: var(--radius-xs); }
 .markdown pre { font-family: var(--font-code); background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); padding: 12px; border-radius: var(--radius-md); overflow-x: auto; }
 
@@ -569,6 +578,11 @@ button.engine-tab__stop:hover { background: var(--surface-strong); color: var(--
 .terminal-view { display: flex; flex-direction: column; height: 100%; }
 .terminal-view__bar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 8px; }
 .terminal-view__bar .engine-tabs { margin-right: auto; }
+/* flex: none no "voltar ao chat". Sem isto ele encolhia junto com a barra e o
+   rótulo quebrava em três linhas numa tela de celular — um botão de 160px de
+   altura no canto, que foi como apareceu na revisão. Quem cede espaço é a barra
+   de engines, que rola. */
+.terminal-view__bar > button { flex: none; }
 .terminal-view__screen { flex: 1; min-height: 0; padding: 4px 8px; }
 .terminal-view__conn { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85em; padding: 3px 10px; border-radius: var(--radius-xs); }
 .terminal-view__conn--reconnecting { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
@@ -936,6 +950,14 @@ button.term-card__action--play:hover { color: var(--ok); }
 .sess-pop__sep { height:1px; margin:6px 0; background:var(--border); }
 /* As três bolinhas no título do terminal aberto: mesmo alvo de clique do cartão,
    mas discretas — quem abriu a conversa veio ler, não mexer na configuração. */
+/* Ícone + nome do projeto viraram um bloco só (para o celular escondê-los de uma
+   vez); o gap que eles tinham como filhos diretos do flex vive aqui agora. */
+.chat-header__project { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Botões do cabeçalho não encolhem — o rótulo "Abrir no terminal" quebrava em
+   duas linhas e engordava o cabeçalho inteiro assim que a barra de engines
+   enchia. Quem cede espaço é a barra, que já rola (ver .engine-tabs). */
+.chat-header > .ghost { flex: none; }
+.chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-header__more { padding:5px; line-height:0; color:var(--text-dim); }
 .chat-header__more:hover { color:var(--text); }
 /* Fronteira entre o que é preferência de quem entrou e o que é da máquina. */
@@ -1053,7 +1075,16 @@ button.subagent__stop:hover { opacity: 1; color: var(--err); background: color-m
    suporta `field-sizing` (Chrome/Edge 123+). Onde não, o ChatInput mede — mas
    só quando há quebra de linha, porque medir custa um reflow da página inteira.
    O teto é o mesmo dos dois caminhos: 10 linhas de 24px mais o padding. */
-.chat-compose__area { field-sizing: content; max-height: 260px; overflow-y: auto; }
+/* Rodapé de digitação. Estas três regras eram `style` inline no ChatInput; vieram
+   para cá porque só daqui o @media do celular consegue reorganizar a linha. */
+.chat-foot { padding: 16px; border-top: 1px solid var(--glass-border); }
+.chat-compose { position: relative; display: flex; gap: 8px; align-items: flex-end; }
+.chat-compose__area {
+  field-sizing: content; max-height: 260px; overflow-y: auto;
+  /* min-width: 0 — sem isso o textarea assume a largura do atributo `cols` como
+     mínimo e empurra os botões para fora numa janela estreita. */
+  flex: 1; min-width: 0; resize: none; font-size: 15px; line-height: 24px;
+}
 
 /* ---- A lista que o `@@` abre: com quem este terminal vai falar --------------
    Mesma âncora do menu de barra (sobe do campo), mas com um campo de busca no
@@ -1114,7 +1145,7 @@ button.subagent__stop:hover { opacity: 1; color: var(--err); background: color-m
 button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; color: var(--text-dim); border: none; background: transparent; font-weight: 400; }
 .sidebar__info-btn:hover { color: var(--accent); }
 .interaction-info {
-  width: 560px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px);
+  width: 560px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); max-height: calc(100dvh - 64px);
   overflow-y: auto; border-radius: var(--radius); padding: 22px 24px; cursor: default;
   font-size: 13.5px; line-height: 1.55;
 }
@@ -1134,7 +1165,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   background: color-mix(in srgb, var(--ok) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 25%, transparent); color: color-mix(in srgb, var(--ok) 65%, var(--text)); }
 
 /* ---- auth ---- */
-.auth-screen { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.auth-screen { display: flex; align-items: center; justify-content: center; height: 100vh; height: 100dvh; }
 .auth-card {
   display: flex; flex-direction: column; gap: 14px; width: 320px; padding: 28px;
   border-radius: var(--radius);
@@ -1468,7 +1499,10 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 
   .mobile-topbar {
     display: flex; align-items: center; gap: 10px; flex: none;
-    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    /* env(): instalado como PWA a barra encosta no entalhe/status bar. Fora do
+       PWA os valores são 0 e o padding vira o de sempre. */
+    padding: calc(8px + env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 8px max(10px, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--border);
     background: var(--surface);
     backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
   }
@@ -1496,14 +1530,60 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 
   .mobile-backdrop { display: block; position: fixed; inset: 0; z-index: 39; background: var(--scrim); }
 
-  /* Cabeçalho do chat: quebra linha (a rolagem das abas já vem da regra base). */
-  .chat-header { flex-wrap: wrap; padding: 10px 12px !important; row-gap: 6px; }
+  /* Cabeçalho do chat em UMA linha. Quebrando linha ele media 130px de altura —
+     com a topbar, 185px dos 844px do aparelho gastos antes da primeira mensagem.
+     Cabe numa linha porque o nome do projeto sai (a topbar já o mostra) e os
+     botões viram só ícone; quem encolhe é a barra de engines, que rola. */
+  .chat-header { flex-wrap: nowrap; padding: 8px 10px !important; gap: 8px !important; }
+  .chat-header__project { display: none; }
+  .chat-header .btn-label { display: none; }
+  .chat-header .engine-tabs { flex: 1 1 auto; }
+  /* A aba da engine traz o status por extenso ("ready — send a message"). Numa
+     tela de 390px ela sozinha estoura o cabeçalho e aparece cortada no meio de
+     uma palavra; o pontinho de status ao lado já diz a mesma coisa. */
+  .engine-tab__status { display: none; }
   /* No toque a barra de rolagem é dispensável (arrasta com o dedo) e rouba altura. */
   .engine-tabs { max-width: 100%; scrollbar-width: none; }
   .engine-tabs::-webkit-scrollbar { display: none; }
 
+  /* 24px de recuo lateral em cada lado tiravam 48px dos 390px da tela só de
+     margem em volta do texto da conversa. */
+  .chat-scroll { padding: 12px 12px; }
+
+  /* Rodapé de digitação: o campo ocupa a LINHA INTEIRA e os botões descem para a
+     segunda. Medido no aparelho (390px de largura): mic + engrenagem + Enviar
+     comiam 165px e sobravam 177px para escrever — menos da metade da tela. Pior,
+     como o `field-sizing: content` mede o placeholder, o campo VAZIO já nascia
+     com 3 linhas de altura. A altura total não cresce: a linha de botões ocupa
+     o que a quebra do placeholder ocupava. */
+  .chat-foot { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .chat-compose { flex-wrap: wrap; row-gap: 8px; justify-content: flex-end; }
+  .chat-compose__area {
+    flex: 1 0 100%;
+    /* 16px é PISO, não gosto: abaixo disso o Safari do iPhone dá zoom na página
+       ao focar o campo, e a tela fica torta até o usuário desfazer na mão. */
+    font-size: 16px;
+  }
+  /* Os menus do `/` e do `@@` pediam 300px de largura mínima — estouravam a tela
+     de 360px. Aqui eles acompanham a largura do campo. */
+  .slash-menu, .mention-menu { min-width: 0; max-width: none; left: 0; right: 0; }
+
+  /* A última linha do terminal ficava debaixo da faixa do gesto do iPhone. */
+  .terminal-view__screen { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+
   /* Alvos de toque um pouco maiores nos cards. */
   .term-card__action { padding: 6px; }
+  /* A gaveta tem largura fixa: virar "trilho" não faz sentido aqui. */
+  .sidebar__rail-btn { display: none; }
+  .sidebar { padding-bottom: calc(14px * var(--density) + env(safe-area-inset-bottom)); }
+}
+
+/* Piso de 16px no campo de mensagem em QUALQUER tela de toque.
+   Está fora do @media de 768px de propósito: o celular deitado passa de 768px
+   (844x390 num iPhone), o media query de largura não pega — e o Safari continua
+   dando zoom na página ao focar um campo com fonte menor que 16px. */
+@media (pointer: coarse) {
+  .chat-compose__area { font-size: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2423,7 +2503,7 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .actrun {
   position: fixed; z-index: 60;
   display: flex; flex-direction: column;
-  max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
+  max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px);
   border-radius: var(--radius); overflow: hidden;
   box-shadow: 0 18px 44px var(--shadow);
 }

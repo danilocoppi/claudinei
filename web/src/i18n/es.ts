@@ -30,7 +30,7 @@ export const es: typeof en = {
   },
   lang: { label: 'Idioma' },
   pwa: { install: 'Instalar app en el dispositivo' },
-  mobile: { menu: 'Abrir menú' },
+  mobile: { menu: 'Abrir menú', back: 'Volver a la lista de terminales' },
   usageInfo: {
     title: 'Cómo leer la tarjeta de uso',
     intro: 'Las barras muestran el consumo de los límites de tu plan de Claude, y el COLOR de cada barra muestra tu ritmo de uso respecto al tiempo restante hasta el reset.',
@@ -171,6 +171,7 @@ export const es: typeof en = {
     handoffTitle: '¿Abrir en la terminal?', handoffWorking: 'El turno en curso se detendrá para abrir esta conversación en la terminal.', handoffUnavailable: 'Disponible cuando la sesión esté activa.', terminalNoConversation: 'Abrir en la terminal está disponible tras el primer mensaje — aún no hay conversación para abrir.',
     inTerminalNotice: 'Esta sesión está abierta en la terminal. Ciérrala allí para retomar en la web.',
     placeholder: 'Mensaje para {{engine}}… (arrastra o pega archivos)',
+    placeholderShort: 'Mensaje para {{engine}}…',
     placeholderWorking: 'procesando… lo que envíes ahora se suma al turno actual', placeholderUploading: 'subiendo adjunto…',
     mentionSearch: 'buscar terminal…',
     mentionEmpty: 'ningún terminal con ese nombre',

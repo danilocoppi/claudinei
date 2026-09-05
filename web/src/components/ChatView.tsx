@@ -173,8 +173,13 @@ export function ChatView() {
                 }}>
           <MoreIcon size={14} />
         </button>
-        <Icon value={project.icon} size={20} />
-        <strong>{project.name}</strong>
+        {/* Ícone + nome num só bloco para o celular poder escondê-los: lá a topbar
+            já mostra o nome do projeto, e repeti-lo custava uma linha inteira
+            de um cabeçalho que precisa caber em uma. */}
+        <span className="chat-header__project">
+          <Icon value={project.icon} size={20} />
+          <strong>{project.name}</strong>
+        </span>
         <EngineTabs projectId={session.projectId} activeLocalId={session.localId} />
         <ContextMeter session={session} />
         {session.status === 'dead' && session.detail && (
@@ -183,13 +188,13 @@ export function ChatView() {
         <button className="ghost" style={{ marginLeft: 'auto' }}
                 title={t('schedules.openTitle')}
                 onClick={() => useStore.getState().openSchedules()}>
-          ⏱ {t('schedules.open')}
+          ⏱ <span className="btn-label">{t('schedules.open')}</span>
         </button>
         <button className="ghost"
                 disabled={!canOpenTerminal}
-                title={!canOpenTerminal ? t('chat.handoffUnavailable') : undefined}
+                title={!canOpenTerminal ? t('chat.handoffUnavailable') : t('chat.openInTerminal')}
                 onClick={handleOpenTerminal}>
-          🖥 {t('chat.openInTerminal')}
+          🖥 <span className="btn-label">{t('chat.openInTerminal')}</span>
         </button>
       </div>
       {menuAt && <TerminalMenu project={project} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}

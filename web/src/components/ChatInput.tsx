@@ -13,6 +13,28 @@ import { MicButton, type MicDeps } from './MicButton'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
 
+/**
+ * Tela estreita (o mesmo limiar do @media do CSS).
+ *
+ * Existe por UM motivo: escolher o placeholder. O texto de desktop termina em
+ * "(arraste ou cole arquivos)" — dica que no celular nem se aplica — e ele
+ * quebra em duas linhas num campo estreito. Como o campo usa
+ * `field-sizing: content`, quem manda na altura do campo VAZIO é o placeholder:
+ * o resultado era uma caixa de duas linhas antes de digitar qualquer coisa.
+ */
+function useTelaEstreita(): boolean {
+  const mq = () => (typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 768px)') : undefined)
+  const [estreita, setEstreita] = useState(() => !!mq()?.matches)
+  useEffect(() => {
+    const m = mq()
+    if (!m?.addEventListener) return
+    const onChange = () => setEstreita(m.matches)
+    m.addEventListener('change', onChange)
+    return () => m.removeEventListener('change', onChange)
+  }, [])
+  return estreita
+}
+
 /** Token inline que marca a posição do anexo no texto até o envio. */
 const token = (name: string) => `[📎 ${name}]`
 
@@ -27,6 +49,7 @@ export function ChatInput({
   micDeps?: MicDeps
 }) {
   const { t } = useTranslation()
+  const telaEstreita = useTelaEstreita()
   const ws = useContext(WsContext)
   const addLocalUserText = useStore((s) => s.addLocalUserText)
   const session = useStore((s) => s.sessions[localId])
@@ -254,8 +277,11 @@ export function ChatInput({
   }, [])
 
   return (
-    <div ref={footRef} style={{ padding: 16, borderTop: '1px solid var(--glass-border)' }}>
-      <div style={{ position: 'relative', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+    <div ref={footRef} className="chat-foot">
+      {/* Classe, não `style` inline: no celular esta linha precisa QUEBRAR (campo
+          em cima, botões embaixo), e regra inline vence media query — com o
+          estilo aqui dentro o mobile não tinha como reorganizar nada. */}
+      <div className="chat-compose">
         {slashOpen && (
           <SlashMenu items={slashMatches} activeIndex={Math.min(activeIndex, slashMatches.length - 1)} onPick={pickSlash} />
         )}
@@ -269,12 +295,11 @@ export function ChatInput({
         <textarea
           ref={areaRef}
           className={`chat-compose__area ${dragOver ? 'drag-over' : ''}`}
-          style={{ flex: 1, resize: 'none', fontSize: 15, lineHeight: '24px' }}
           rows={1}
           placeholder={
             uploading > 0 ? t('chat.placeholderUploading')
             : session?.status === 'working' ? t('chat.placeholderWorking')
-            : t('chat.placeholder', { engine: engine?.label ?? 'Claude Code' })
+            : t(telaEstreita ? 'chat.placeholderShort' : 'chat.placeholder', { engine: engine?.label ?? 'Claude Code' })
           }
           value={text}
           disabled={disabled}

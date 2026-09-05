@@ -2,7 +2,12 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: instalado como PWA (display: standalone) a página vai até a
+         borda, então quem encosta no topo/base precisa de env(safe-area-inset-*) —
+         ver .mobile-topbar e .chat-foot. interactive-widget=resizes-content: o
+         teclado do celular ENCOLHE o layout em vez de deslizar a página por baixo
+         dele, que é o que mantém o campo de mensagem visível ao digitar. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icon-192.png" />

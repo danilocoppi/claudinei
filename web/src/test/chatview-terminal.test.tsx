@@ -30,7 +30,7 @@ describe('botão Abrir no terminal no título', () => {
   it('idle → abre direto (view terminal)', () => {
     setup('idle')
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
-    fireEvent.click(screen.getByText(/terminal/i, { selector: 'button' }))
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
     expect(useStore.getState().view).toBe('terminal')
   })
 
@@ -38,7 +38,7 @@ describe('botão Abrir no terminal no título', () => {
     const send = vi.fn()
     setup('working')
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
-    fireEvent.click(screen.getByText(/terminal/i, { selector: 'button' }))
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
     expect(screen.getByText('O turno em andamento será interrompido para abrir esta conversa no terminal.')).toBeTruthy()
     fireEvent.click(screen.getByText('Confirmar'))
     expect(send).toHaveBeenCalledWith({ type: 'interrupt', localId: 's1' })
@@ -51,7 +51,7 @@ describe('botão Abrir no terminal no título', () => {
     const send = vi.fn()
     setup('working')
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
-    fireEvent.click(screen.getByText(/terminal/i, { selector: 'button' }))
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
     fireEvent.click(screen.getByText('Cancelar'))
     expect(send).not.toHaveBeenCalled()
     expect(useStore.getState().view).toBe('chat')
@@ -65,7 +65,7 @@ describe('botão Abrir no terminal no título', () => {
       activeLocalId: 's1', view: 'chat',
     })
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
-    const btn = screen.getByText(/terminal/i, { selector: 'button' }) as HTMLButtonElement
+    const btn = screen.getByRole('button', { name: /terminal/i }) as HTMLButtonElement
     expect(btn.disabled).toBe(false)
     fireEvent.click(btn)
     expect(useStore.getState().view).toBe('terminal')
@@ -79,7 +79,7 @@ describe('botão Abrir no terminal no título', () => {
       activeLocalId: 's1', view: 'chat',
     })
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
-    const btn = screen.getByText(/terminal/i, { selector: 'button' }) as HTMLButtonElement
+    const btn = screen.getByRole('button', { name: /terminal/i }) as HTMLButtonElement
     expect(btn.disabled).toBe(false)
     fireEvent.click(btn)
     expect(useStore.getState().view).toBe('terminal')
@@ -107,7 +107,7 @@ describe('botão Abrir no terminal no título', () => {
   it('sessão ativa SEM conversa (Codex turn-based antes do 1º turno) → HABILITADO (abre sessão nova no terminal)', () => {
     setup('idle', null) // idle mas sem engineSessionId: o thread ainda não existe → terminal fresh
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
-    const btn = screen.getByText(/terminal/i, { selector: 'button' }) as HTMLButtonElement
+    const btn = screen.getByRole('button', { name: /terminal/i }) as HTMLButtonElement
     expect(btn.disabled).toBe(false)
     fireEvent.click(btn)
     expect(useStore.getState().view).toBe('terminal')

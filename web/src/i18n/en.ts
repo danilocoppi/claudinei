@@ -28,7 +28,7 @@ export const en = {
   },
   lang: { label: 'Language' },
   pwa: { install: 'Install app on this device' },
-  mobile: { menu: 'Open menu' },
+  mobile: { menu: 'Open menu', back: 'Back to the terminal list' },
   usageInfo: {
     title: 'How to read the usage card',
     intro: 'Bars show how much of your Claude plan limits you have consumed, and each bar COLOR shows your usage pace relative to the time left until the reset.',
@@ -169,6 +169,7 @@ export const en = {
     handoffTitle: 'Open in terminal?', handoffWorking: 'The turn in progress will be stopped to open this conversation in the terminal.', handoffUnavailable: 'Available when the session is active.', terminalNoConversation: 'Open in terminal is available after the first message — no conversation to open yet.',
     inTerminalNotice: 'This session is open in the terminal. Close it there to resume on the web.',
     placeholder: 'Message for {{engine}}… (drag or paste files)',
+    placeholderShort: 'Message for {{engine}}…',
     placeholderWorking: 'processing… additions you send now join the current turn', placeholderUploading: 'uploading attachment…',
     mentionSearch: 'search terminal…',
     mentionEmpty: 'no terminal with that name',

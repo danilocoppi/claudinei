@@ -58,7 +58,7 @@ it('mostra "Abrir no terminal" quando idle e ao clicar abre a view de terminal',
   const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
   useStore.setState({ sessions: { a: sess('a', { status: 'idle' }) }, activeLocalId: 'a', view: 'chat' })
   render(<ChatView />)
-  fireEvent.click(await screen.findByText(/Abrir no terminal/i))
+  fireEvent.click(await screen.findByRole('button', { name: /Abrir no terminal/i }))
   await vi.waitFor(() => expect(useStore.getState().view).toBe('terminal'))
   expect(useStore.getState().activeLocalId).toBe('a')
   spy.mockRestore()
@@ -68,7 +68,7 @@ it('durante working o botão "Abrir no terminal" fica habilitado mas abre um di�
   useStore.setState({ sessions: { a: sess('a', { status: 'working' }), b: sess('b') } })
   const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
-  const btn = screen.getByText(/Abrir no terminal/i, { selector: 'button' }) as HTMLButtonElement
+  const btn = screen.getByRole('button', { name: /Abrir no terminal/i }) as HTMLButtonElement
   expect(btn.disabled).toBe(false)
   fireEvent.click(btn)
   expect(screen.getByText('O turno em andamento será interrompido para abrir esta conversa no terminal.')).toBeTruthy()
@@ -106,7 +106,7 @@ it('quando status é in_terminal, mostra o aviso e esconde a entrada de mensagem
   expect(await screen.findByText(/aberta no terminal/)).toBeTruthy()
   expect(screen.queryByPlaceholderText('Mensagem para o Claude Code…')).toBeNull()
   expect(screen.queryByText('Enviar')).toBeNull()
-  const btn = screen.getByText(/Abrir no terminal/i, { selector: 'button' }) as HTMLButtonElement
+  const btn = screen.getByRole('button', { name: /Abrir no terminal/i }) as HTMLButtonElement
   expect(btn.disabled).toBe(true)
   expect(btn.title).toBe('Disponível quando a sessão estiver ativa.')
   spy.mockRestore()

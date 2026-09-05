@@ -30,7 +30,7 @@ export const ptBR: typeof en = {
   },
   lang: { label: 'Idioma' },
   pwa: { install: 'Instalar app no dispositivo' },
-  mobile: { menu: 'Abrir menu' },
+  mobile: { menu: 'Abrir menu', back: 'Voltar para a lista de terminais' },
   usageInfo: {
     title: 'Como ler o card de uso',
     intro: 'As barras mostram o consumo dos limites do seu plano do Claude, e a COR de cada barra mostra o seu ritmo de uso em relação ao tempo que falta para o reset.',
@@ -171,6 +171,8 @@ export const ptBR: typeof en = {
     handoffTitle: 'Abrir no terminal?', handoffWorking: 'O turno em andamento será interrompido para abrir esta conversa no terminal.', handoffUnavailable: 'Disponível quando a sessão estiver ativa.', terminalNoConversation: 'Abrir no terminal fica disponível após a primeira mensagem — ainda não há conversa para abrir.',
     inTerminalNotice: 'Esta sessão está aberta no terminal. Feche a janela do terminal para poder retomar na web.',
     placeholder: 'Mensagem para o {{engine}}… (arraste ou cole arquivos)',
+    /* Celular: sem a dica de arrastar (que lá nem existe) o campo vazio cabe em UMA linha. */
+    placeholderShort: 'Mensagem para o {{engine}}…',
     placeholderWorking: 'processando… adendos enviados agora entram no turno atual', placeholderUploading: 'enviando anexo…',
     mentionSearch: 'buscar terminal…',
     mentionEmpty: 'nenhum terminal com esse nome',

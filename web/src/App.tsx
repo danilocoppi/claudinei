@@ -140,7 +140,14 @@ export default function App() {
   return (
     <WsContext.Provider value={ws ?? null}>
       <div className={`app ${navOpen ? 'nav-open' : ''}`}>
-        <MobileTopbar open={navOpen} onToggle={() => setNavOpen((o) => !o)} title={topbarTitle} />
+        {/* Nas visões de detalhe (conversa e terminal) o ☰ vira "voltar", e voltar
+            é trazer a lista de terminais — que no celular É a gaveta. */}
+        <MobileTopbar
+          open={navOpen}
+          onToggle={() => setNavOpen((o) => !o)}
+          title={topbarTitle}
+          onBack={view === 'chat' || view === 'terminal' ? () => setNavOpen(true) : undefined}
+        />
         <Sidebar />
         <SidebarResizer />
         {navOpen && <div className="mobile-backdrop" onClick={() => setNavOpen(false)} />}

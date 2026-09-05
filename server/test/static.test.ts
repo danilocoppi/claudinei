@@ -53,3 +53,21 @@ describe('registerStatic', () => {
     expect(res.statusCode).toBe(404)
   })
 })
+
+describe('rebuild do web/dist com o servidor no ar', () => {
+  beforeEach(() => { app = Fastify() })
+
+  // Regressão (2026-09-05, "tela branca"): `npm run build -w web` gera assets com
+  // hash novo. Se o static congela a lista de arquivos no register, o bundle novo
+  // cai no fallback SPA e o browser recebe HTML no lugar do JS — tela branca até
+  // reiniciar o servidor.
+  it('serve asset criado DEPOIS do register (rebuild em runtime)', async () => {
+    const dist = makeDist()
+    await registerStatic(app, dist)
+    writeFileSync(join(dist, 'assets', 'index-NOVOHASH.js'), 'console.log("novo")')
+    const res = await app.inject({ method: 'GET', url: '/assets/index-NOVOHASH.js' })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('novo')
+    expect(res.headers['content-type']).toMatch(/javascript/)
+  })
+})

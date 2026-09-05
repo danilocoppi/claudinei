@@ -9,6 +9,7 @@ export const ptBR: typeof en = {
   },
   actions: {
     section: 'Ações',
+    remoteHint: 'rodam no servidor',
     new: 'Nova ação',
     empty: 'Nenhuma ação ainda',
     newTitle: 'Nova ação',

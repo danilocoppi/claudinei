@@ -7,6 +7,7 @@ export const en = {
   },
   actions: {
     section: 'Actions',
+    remoteHint: 'run on the server',
     new: 'New action',
     empty: 'No actions yet',
     newTitle: 'New action',

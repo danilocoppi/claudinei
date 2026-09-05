@@ -62,6 +62,9 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
         const tabSession = sessionForEngine(projectId, e.id, sessions)
         const live = isLive(tabSession)
         const active = !!tabSession && tabSession.localId === activeLocalId
+        // Não instalada e sem sessão viva: "não instalada" já diz tudo — mostrar
+        // "○ sem sessão" junto é redundância que come a largura da barra.
+        const missing = e.available === false && !live
         return (
           <div key={e.id} className={`engine-tab ${active ? 'active' : ''}`} role="tab" aria-selected={active}>
             <button
@@ -72,10 +75,12 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
             >
               <EngineIcon className="engine-tab__icon" icon={e.icon} />
               <span className="engine-tab__label">{e.label}</span>
-              <span className={tabSession ? dotClassOf(tabSession) : 'status-dot status-none'} />
-              <span className="engine-tab__status">
-                {tabSession ? t(`status.${displayStatusKey(tabSession)}` as 'status.in_terminal') : t('sidebar.noSession')}
-              </span>
+              {!missing && <span className={tabSession ? dotClassOf(tabSession) : 'status-dot status-none'} />}
+              {!missing && (
+                <span className="engine-tab__status">
+                  {tabSession ? t(`status.${displayStatusKey(tabSession)}` as 'status.in_terminal') : t('sidebar.noSession')}
+                </span>
+              )}
             </button>
             {live && tabSession && (
               <button

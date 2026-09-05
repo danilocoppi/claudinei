@@ -66,12 +66,15 @@ export function TerminalMenu({ project, x, y, onDone }: {
   // E se o binário existe. Item morto seria pior que item nenhum.
   useEffect(() => { void fetchLocalApps().then(setLocalApps).catch(() => setLocalApps({})) }, [])
 
-  // Só busca as ações onde elas podem rodar. Pela rede, o botão abriria um shell na
-  // máquina de OUTRA pessoa — o servidor recusa, e a lista aqui só faria prometer.
+  // Ações aparecem também remoto (decisão 2026-09): elas rodam no SERVIDOR por
+  // definição — "disparar o deploy do celular" é o caso de uso — e a régua de
+  // acesso é a do projeto, a mesma do chat. Diferente dos "abrir em…", que
+  // abririam janela na máquina errada e continuam só locais.
   useEffect(() => {
-    if (!localApps.local) return
-    void fetchActions(project.id).then(setActions).catch(() => setActions([]))
-  }, [localApps.local, project.id])
+    void fetchActions(project.id)
+      .then((a) => setActions(Array.isArray(a) ? a : []))
+      .catch(() => setActions([]))
+  }, [project.id])
 
   const fechaEEntao = (fn: () => void | Promise<unknown>) => () => { onDone(); void fn() }
 
@@ -155,14 +158,18 @@ export function TerminalMenu({ project, x, y, onDone }: {
           <CopyIcon /><span>{t('sidebar.copyPath')}</span>
         </div>
 
-        {/* AÇÕES — comandos que este terminal repete com um clique. Ficam dentro de
-            "nesta máquina" porque é onde elas rodam, e são deste terminal só: o
-            mesmo `npm run deploy` publica coisas diferentes em pastas diferentes. */}
-        {localApps.local && (
+        {/* AÇÕES — comandos que este terminal repete com um clique. São deste
+            terminal só (o mesmo `npm run deploy` publica coisas diferentes em
+            pastas diferentes) e rodam SEMPRE no servidor — remoto, o aviso ao
+            lado do título deixa isso dito antes do clique. */}
+        {(
           <>
             <div className="sess-pop__sep" />
             <div className="sess-pop__eyebrow sess-pop__eyebrow--row">
-              <span>{t('actions.section')}</span>
+              <span>
+                {t('actions.section')}
+                {!localApps.local && <span className="sess-pop__hint"> · {t('actions.remoteHint')}</span>}
+              </span>
               <button className="sess-pop__add" data-testid="action-new" title={t('actions.new')}
                       onClick={() => { setEditingAction(undefined); setPhase('action') }}>＋</button>
             </div>

@@ -196,12 +196,18 @@ describe('rodar a ação', () => {
     expect((await app.inject({ method: 'GET', url: `/api/projects/${projectId}/actions` })).json()).toEqual([])
   })
 
-  /** Rodar é execução de shell: vale a mesma régua do `!comando`. */
-  it('pela rede, não roda', async () => {
+  /**
+   * Pela rede RODA (decisão 2026-09): uma ação executa no servidor por definição
+   * — "disparar o deploy do celular" é o caso de uso — e a régua é o acesso ao
+   * projeto, a mesma do chat (quem tem o projeto já manda a engine rodar qualquer
+   * comando lá). Os "abrir em…" continuam só locais: janela abriria na máquina errada.
+   */
+  it('pela rede, roda igual (o gate é o acesso ao projeto, não o IP)', async () => {
     const a = (await criar({ name: 'Deploy', commands: ['ls'] })).json()
     const r = await app.inject({ method: 'POST', url: `/api/actions/${a.id}/run`, remoteAddress: '10.0.0.9' })
-    expect(r.statusCode).toBe(403)
-    expect(spawned).toHaveLength(0)
+    expect(r.statusCode).toBe(200)
+    expect(r.json().token).toBeTruthy()
+    expect(spawned).toHaveLength(1)
   })
 
   it('ação que não existe não roda nada', async () => {

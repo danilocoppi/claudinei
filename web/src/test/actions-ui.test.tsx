@@ -61,15 +61,25 @@ describe('seção de ações no menu do terminal', () => {
     expect(screen.getByTestId('action-new')).toBeTruthy()
   })
 
-  /** Pela rede, o botão abriria um shell na máquina de outra pessoa. */
-  it('não aparece fora da máquina do servidor', async () => {
+  /**
+   * Remoto a seção CONTINUA (decisão 2026-09): a ação roda no servidor por
+   * definição. O aviso ao lado do título deixa isso dito antes do clique.
+   */
+  it('fora da máquina do servidor aparece igual, com o aviso "rodam no servidor"', async () => {
     vi.mocked(api.fetchLocalApps).mockResolvedValueOnce({
       folder: false, vscode: false, terminal: false, local: false,
     })
     render(<TerminalMenu project={project} x={0} y={0} onDone={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Copiar caminho')).toBeTruthy())
-    expect(screen.queryByTestId('action-new')).toBeNull()
-    expect(api.fetchActions).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Seed')).toBeTruthy())
+    expect(screen.getByTestId('action-new')).toBeTruthy()
+    expect(screen.getByText(/rodam no servidor/)).toBeTruthy()
+    expect(api.fetchActions).toHaveBeenCalled()
+  })
+
+  it('na própria máquina, sem o aviso (rodar "aqui" é o óbvio)', async () => {
+    render(<TerminalMenu project={project} x={0} y={0} onDone={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Seed')).toBeTruthy())
+    expect(screen.queryByText(/rodam no servidor/)).toBeNull()
   })
 
   /**

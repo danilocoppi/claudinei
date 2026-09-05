@@ -235,6 +235,21 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       this.turnSeq++
       this.setStatus('working')
     }
+    // O result PÓSTUMO de um turno interrompido é descartado inteiro.
+    //
+    // Quando o interrupt() fecha o turno de forma antecipada (o result ainda não
+    // chegou), o CLI ainda vai mandar o `error_during_execution` daquele turno —
+    // e ele pode chegar DEPOIS que a fila do orquestrador já entregou a próxima
+    // task nesta sessão. Sem este descarte, o waiter do dispatch/ask capturava o
+    // result velho (vazio) como se fosse a resposta da task recém-entregue, e o
+    // status caía para needs_attention no MEIO do turno novo. O stdout é FIFO:
+    // se o result póstumo existe, ele chega antes do result do turno seguinte —
+    // engolir exatamente um é seguro, e o flag só arma quando o fechamento
+    // antecipado de fato aconteceu (senão o fluxo normal segue intocado).
+    if (evt.kind === 'result' && this.swallowInterruptedResult) {
+      this.swallowInterruptedResult = false
+      return
+    }
     // Um result com task de background ativa NÃO encerra o trabalho: só o turno
     // que a despachou acabou. Marcar needs_attention aqui mostraria o terminal
     // parado — e o filtro "somente ativos" o esconderia — enquanto o subagente
@@ -358,7 +373,14 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     // E só se o turno ainda for o que se mandou parar: esperar as tasks abre uma
     // janela em que a fila entrega a próxima tarefa, e derrubar o `working` DELA
     // seria interromper um trabalho que acabou de começar.
-    if (this.status === 'working' && this.turnSeq === turno) this.setStatus('needs_attention')
+    //
+    // Fechamento ANTECIPADO (o result do turno interrompido ainda não chegou):
+    // arma o descarte do result póstumo — ver handleEvent. Sem isso, o result
+    // atrasado contaminava a task que a fila entrega em seguida.
+    if (this.status === 'working' && this.turnSeq === turno) {
+      this.swallowInterruptedResult = true
+      this.setStatus('needs_attention')
+    }
   }
 
   async stop(): Promise<void> {
@@ -449,6 +471,8 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    * trabalho que acabou de começar.
    */
   private turnSeq = 0
+  /** Armado pelo interrupt() que fechou o turno ANTES do result chegar: o próximo result é o póstumo do turno morto e é descartado (ver handleEvent). */
+  private swallowInterruptedResult = false
 
   private setStatus(s: SessionStatus): void {
     if (this.status === 'dead' || this.status === 'stopped') return

@@ -9,6 +9,7 @@ export const es: typeof en = {
   },
   actions: {
     section: 'Acciones',
+    remoteHint: 'se ejecutan en el servidor',
     new: 'Nueva acción',
     empty: 'Aún no hay acciones',
     newTitle: 'Nueva acción',

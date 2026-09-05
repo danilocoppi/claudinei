@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
-import { isTrustedLocal } from '../auth/plugin.js'
 import { desktopEnv, graphicalEnv, ORIG_LD } from '../localApps.js'
 import type { ActionsStore } from '../actions.js'
 import type { ProjectsService } from '../projects.js'
@@ -167,9 +166,14 @@ export function registerActionRoutes(app: FastifyInstance, deps: ActionsRouteDep
    * terminou publicaria de novo — o pior jeito possível de restaurar uma janela.
    * A decisão é do servidor, e não do cliente conferindo antes de pedir, porque
    * entre a conferência e o pedido o processo pode acabar.
+   *
+   * SEM gate de localhost, de propósito (decisão 2026-09): diferente do "abrir
+   * pasta/editor" — que abriria a janela na máquina errada —, uma ação roda no
+   * servidor POR DEFINIÇÃO ("dispare o deploy daqui do celular" é o caso de uso).
+   * A régua é o acesso ao projeto, a mesma do chat: quem tem o projeto já manda
+   * a engine rodar qualquer comando lá, então este gate não protegia nada a mais.
    */
   app.post('/api/actions/:actionId/run', async (req, reply) => {
-    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
     const alvo = resolver(req, reply, Number((req.params as { actionId: string }).actionId))
     if (!alvo) return reply.code(404).send({ error: 'ação não existe' })
     if (!requireProjectAccess(req, reply, alvo.project.id)) return

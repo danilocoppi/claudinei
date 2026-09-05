@@ -30,8 +30,9 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
   app.get('/api/local-apps', async (req) => {
     const local = isTrustedLocal(req)
     // `local` à parte dos apps: "nenhum app disponível" e "não é esta máquina" são
-    // coisas diferentes, e quem desenha a tela precisa distinguir — o menu de ações
-    // some pelo segundo motivo, não pelo primeiro.
+    // coisas diferentes, e quem desenha a tela precisa distinguir — os itens de
+    // "abrir em…" somem pelo segundo motivo, não pelo primeiro (as Ações não
+    // dependem disto: rodam no servidor por definição e aparecem também remoto).
     return local
       ? { ...availableApps(deps), local }
       : { ...Object.fromEntries(LOCAL_APPS.map((a) => [a, false])), local }

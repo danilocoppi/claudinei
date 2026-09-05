@@ -78,3 +78,41 @@ describe('EngineTabs — encerrar sessão por engine', () => {
     expect(screen.getByText(/turno em andamento/i)).toBeTruthy()
   })
 })
+
+describe('EngineTabs — engine não instalada', () => {
+  // "não instalada" já diz tudo: mostrar "○ sem sessão" junto era redundância
+  // que comia a largura da barra (as três ausentes estouravam o header).
+  it('não instalada e sem sessão → só o selo, sem "sem sessão" nem bolinha', () => {
+    useStore.setState({
+      engines: [CLAUDE, { ...KIMI, available: false }],
+      sessions: { c1: sess('c1', 'claude', 'idle') },
+    })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    const tabs = screen.getAllByRole('tab')
+    const kimiTab = tabs.find((el) => el.textContent?.includes('Kimi Code'))!
+    expect(kimiTab.textContent).toContain('não instalada')
+    expect(kimiTab.textContent).not.toContain('sem sessão')
+    expect(kimiTab.querySelector('.status-dot')).toBeNull()
+  })
+
+  it('instalada sem sessão continua com o "sem sessão" de sempre', () => {
+    useStore.setState({
+      engines: [CLAUDE, KIMI],
+      sessions: { c1: sess('c1', 'claude', 'idle') },
+    })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    const kimiTab = screen.getAllByRole('tab').find((el) => el.textContent?.includes('Kimi Code'))!
+    expect(kimiTab.textContent).toContain('sem sessão')
+    expect(kimiTab.querySelector('.status-dot')).toBeTruthy()
+  })
+
+  it('não instalada mas com sessão VIVA (binário sumiu depois) mantém o status visível', () => {
+    useStore.setState({
+      engines: [CLAUDE, { ...KIMI, available: false }],
+      sessions: { c1: sess('c1', 'claude', 'idle'), k1: sess('k1', 'kimi', 'working') },
+    })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    const kimiTab = screen.getAllByRole('tab').find((el) => el.textContent?.includes('Kimi Code'))!
+    expect(kimiTab.querySelector('.status-dot')).toBeTruthy()
+  })
+})

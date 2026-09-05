@@ -205,6 +205,22 @@ export function createSessionManager(deps: Deps) {
         // stdout da engine — um erro do SQLite aqui viraria uncaughtException.
         try { deps.onEngineUsage?.(engine, event.tokens) } catch {}
       }
+      // Compactação: a conversa encolheu, mas ninguém remede o contexto aqui — o
+      // result do próprio /compact vem com o usage TODO ZERADO (ordem empírica,
+      // capturada da CLI: status compacting → compact_boundary → resumo → result
+      // zerado). Sem invalidar na fronteira, o medidor seguiria exibindo o
+      // tamanho de ANTES — justamente o valor alto que disparou a compactação —
+      // até o próximo turno de verdade. A fronteira chega ANTES do result, então
+      // limpar aqui não corre risco de ser sobrescrita.
+      //
+      // Por que não usar o post_tokens que a fronteira traz: ele conta só as
+      // mensagens da conversa, sem o system prompt/ferramentas que o usage do
+      // result inclui — na captura, post_tokens=2524 contra 21083 medidos no
+      // turno seguinte. Exibi-lo seria trocar um número velho por um otimista.
+      if (event.kind === 'system' && event.subtype === 'compact_boundary') {
+        const entry = live.get(localId)
+        if (entry) entry.contextTokens = undefined
+      }
       if (event.kind === 'result' && typeof event.contextTokens === 'number') {
         const entry = live.get(localId)
         if (entry) {

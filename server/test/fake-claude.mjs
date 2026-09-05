@@ -7,6 +7,10 @@
 //   contém "demorada"  -> responde assistant mas NUNCA emite result (turno só fecha com interrupt)
 //   contém "com-bg"    -> como "demorada", mas antes anuncia uma task de background
 //                         em aberto (reproduz o turno interrompido com shell rodando)
+//   contém "compact-real" -> replica o stream REAL de uma compactação (capturado da
+//                         CLI): status compacting, compact_boundary com pre/post_tokens,
+//                         o resumo, e um result de usage ZERADO. NÃO use "/compact" para
+//                         isto: o auto-compact manda literalmente "/compact" e conta com o eco.
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -68,6 +72,16 @@ rl.on('line', (line) => {
   }
   const text = msg?.message?.content?.[0]?.text ?? ''
   if (text.includes('crash')) process.exit(1)
+  if (text.includes('compact-real')) {
+    // Ordem EMPÍRICA (capturada da CLI real): a fronteira chega ANTES do result,
+    // e o result da compactação vem com usage tudo zero — nenhuma medição nova.
+    out({ type: 'system', subtype: 'status', status: 'compacting', session_id: sid })
+    out({ type: 'system', subtype: 'compact_boundary', session_id: sid, compact_metadata: { trigger: 'manual', pre_tokens: 24333, post_tokens: 2524 } })
+    out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'text', text: 'resumo da conversa' }], isCompactSummary: true } })
+    out({ type: 'result', subtype: 'success', is_error: false, result: '', session_id: sid, num_turns: 0, total_cost_usd: 0,
+          usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 } })
+    return
+  }
   if (text.includes('com-bg')) {
     out({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'bg-1', description: 'servidor de preview' }] })
     out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'trabalhando…' }] } })

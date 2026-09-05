@@ -7,6 +7,15 @@ beforeEach(() => {
 })
 
 describe('store', () => {
+  it('compact_boundary limpa contextTokens: a barra não fica presa no valor pré-compactação', () => {
+    useStore.setState({ sessions: { l1: { localId: 'l1', projectId: 1, status: 'idle', engineSessionId: 'c1', updatedAt: 'x', engine: 'claude', contextTokens: 190_000 } as never } })
+    useStore.getState().applyWsMessage({
+      type: 'session_event', localId: 'l1',
+      event: { kind: 'system', subtype: 'compact_boundary', raw: {} },
+    })
+    expect(useStore.getState().sessions['l1'].contextTokens).toBeUndefined()
+  })
+
   it('session_status atualiza sessão', () => {
     useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l1', status: 'idle', engineSessionId: 'c1' })
     expect(useStore.getState().sessions['l1']).toMatchObject({ status: 'idle', engineSessionId: 'c1' })

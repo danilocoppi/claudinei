@@ -403,8 +403,19 @@ export const useStore = create<State>((set, get) => ({
         const m = /^Set effort level to (\w+)/.exec(event.resultText)
         if (m) set((s) => ({ sessionEffort: { ...s.sessionEffort, [localId]: m[1] } }))
       }
+      if (event.kind === 'system' && event.subtype === 'compact_boundary') {
+        // Compactou: o número que estava na tela virou passado. O result da
+        // compactação não traz medição nova (usage zerado), então sem limpar
+        // aqui a barra ficaria congelada no tamanho pré-compactação até o
+        // próximo turno. Sem dado, o medidor não renderiza — some por um turno
+        // em vez de mentir.
+        set((s) => (s.sessions[localId]
+          ? { sessions: { ...s.sessions, [localId]: { ...s.sessions[localId], contextTokens: undefined } } }
+          : s))
+      }
       if (event.kind === 'result' && typeof event.contextTokens === 'number') {
-        // medidor de contexto: cada result traz o tamanho atual da conversa
+        // medidor de contexto: o usage do result mede o que ENTROU na requisição
+        // do turno — é o tamanho da conversa no instante em que ela foi lida
         set((s) => (s.sessions[localId]
           ? { sessions: { ...s.sessions, [localId]: { ...s.sessions[localId], contextTokens: event.contextTokens } } }
           : s))

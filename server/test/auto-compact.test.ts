@@ -51,6 +51,30 @@ describe('medidor de contexto', () => {
     await waitUntil(() => mgr.get(localId)?.contextTokens === 110)
     await mgr.stopAll()
   })
+
+  it('compact_boundary invalida a medição: o medidor não fica preso no valor pré-compactação', async () => {
+    // A conversa encolheu, mas o result da compactação vem com usage ZERADO (a
+    // CLI não remede nada ali) — sem invalidar na fronteira, o número velho fica
+    // valendo até o próximo turno de verdade, mostrando 100% numa conversa vazia.
+    const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    mgr.send(localId, 'oi')
+    await waitUntil(() => mgr.get(localId)?.contextTokens === 110)
+    mgr.send(localId, 'compact-real')
+    await waitUntil(() => mgr.get(localId)?.contextTokens === undefined)
+    await mgr.stopAll()
+  })
+
+  it('a fronteira chega aos clientes (é dela que a UI limpa a barra)', async () => {
+    const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    mgr.send(localId, 'compact-real')
+    await waitUntil(() => broadcasts.some((b) =>
+      b.type === 'session_event' && b.event?.kind === 'system' && b.event.subtype === 'compact_boundary'))
+    await mgr.stopAll()
+  })
 })
 
 describe('auto-compact por limiar', () => {

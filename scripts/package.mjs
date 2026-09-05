@@ -173,7 +173,12 @@ writeFileSync(pkgConfigPath, JSON.stringify({
     // (warning esperado do pkg), e em runtime só existe UMA fonte: o
     // NODE_PATH apontando pro cache extraído (pkg-runtime.ts).
     ignore: EXTERNAL.flatMap((pkg) => [`../node_modules/${pkg}/**`, `node_modules/${pkg}/**`, `**/node_modules/${pkg}/**`]),
-    targets: ['node24-linux-x64'],
+    // O target TEM que casar com o ABI dos .node copiados acima: eles foram
+    // compilados pelo Node DESTA máquina no `npm install`, então o binário
+    // precisa embutir a MESMA major. Fixar 'node24' rodando sob Node 26 gerava
+    // um binário que subia e morria no dlopen do better-sqlite3:
+    // "compiled against NODE_MODULE_VERSION 147 ... requires 137" (visto rodando).
+    targets: [`node${process.versions.node.split('.')[0]}-linux-x64`],
   },
 }, null, 2))
 const output = join(root, 'release', 'claudinei-linux-x64')

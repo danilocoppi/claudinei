@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Db } from '../db.js'
 import type { Project } from '../projects.js'
-import type { SessionStatus, PermissionMode } from './session.js'
+import type { SessionStatus, PermissionMode, PendingQuestion } from './session.js'
 import type { ClaudeEvent } from './events.js'
 import { getEngine, DEFAULT_ENGINE_ID, type EngineId, type EngineSession, type EngineSessionOptions } from '../engine/index.js'
 import { userEchoEvent } from '../engine/echo.js'
@@ -30,6 +30,8 @@ export interface SessionInfo {
   contextTokens?: number
   /** Janela de contexto (tokens) do modelo que a sessão viva está rodando — o denominador do medidor. */
   contextWindow?: number
+  /** Pergunta (AskUserQuestion) esperando o operador — só sessão VIVA, só memória. Ausente = nenhuma. */
+  pendingQuestion?: PendingQuestion
 }
 
 export interface TerminalLauncherOpts {
@@ -166,13 +168,29 @@ export function createSessionManager(deps: Deps) {
 
   const wire = (localId: string, projectId: number, engine: EngineId, session: EngineSession) => {
     live.set(localId, { session, projectId, engine })
+    // Um lugar só monta o session_status do wire(): cada campo novo do SessionInfo
+    // (hoje, pendingQuestion) entra aqui e chega igual nos três momentos em que
+    // ele publica — mudança de status, init e arranque.
+    const statusMsg = (over: { status?: SessionStatus; engineSessionId?: string | null; detail?: string } = {}) => {
+      const info = infoOf(localId)
+      return {
+        type: 'session_status' as const, localId, projectId,
+        engine: info?.engine ?? engine,
+        status: over.status ?? session.status,
+        engineSessionId: over.engineSessionId !== undefined ? over.engineSessionId : effectiveEngineSessionId(localId, session),
+        detail: over.detail,
+        model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null,
+        backgroundTasks: info?.backgroundTasks ?? [], authExpired: info?.authExpired ?? false,
+        contextWindow: info?.contextWindow,
+        pendingQuestion: info?.pendingQuestion,
+      }
+    }
     session.on('status', (status: SessionStatus) => {
       persist(localId, status, session.sessionId ?? null)
       const detail = status === 'dead'
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
-      const info = infoOf(localId)
-      deps.broadcast({ type: 'session_status', localId, projectId, engine: info?.engine ?? engine, status, engineSessionId: effectiveEngineSessionId(localId, session), detail, model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null, backgroundTasks: info?.backgroundTasks ?? [], authExpired: info?.authExpired ?? false, contextWindow: info?.contextWindow })
+      deps.broadcast(statusMsg({ status, detail }))
       if (status === 'dead' || status === 'stopped') live.delete(localId)
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => deps.onSessionAvailable?.(projectId))
@@ -196,8 +214,7 @@ export function createSessionManager(deps: Deps) {
         // no fim do turno, deixando "Open in terminal" desabilitado no meio.
         if (event.sessionId) {
           persist(localId, session.status, event.sessionId)
-          const infoI = infoOf(localId)
-          deps.broadcast({ type: 'session_status', localId, projectId, engine: infoI?.engine ?? engine, status: session.status, engineSessionId: event.sessionId, model: infoI?.model ?? null, permissionMode: infoI?.permissionMode, effort: infoI?.effort ?? null, backgroundTasks: infoI?.backgroundTasks ?? [], authExpired: infoI?.authExpired ?? false, contextWindow: infoI?.contextWindow })
+          deps.broadcast(statusMsg({ engineSessionId: event.sessionId }))
         }
       }
       if (event.kind === 'result' && event.tokens) {
@@ -252,8 +269,7 @@ export function createSessionManager(deps: Deps) {
       deps.broadcast({ type: 'session_event', localId, event })
     })
     session.start()
-    const info0 = infoOf(localId)
-    deps.broadcast({ type: 'session_status', localId, projectId, engine: info0?.engine ?? engine, status: session.status, engineSessionId: effectiveEngineSessionId(localId, session), model: info0?.model ?? null, permissionMode: info0?.permissionMode, effort: info0?.effort ?? null, backgroundTasks: info0?.backgroundTasks ?? [], authExpired: info0?.authExpired ?? false, contextWindow: info0?.contextWindow })
+    deps.broadcast(statusMsg())
   }
 
   const infoOf = (localId: string): SessionInfo | undefined => {
@@ -274,6 +290,7 @@ export function createSessionManager(deps: Deps) {
       authExpired: liveEntry?.session.authExpired ?? false,
       contextTokens: liveEntry?.contextTokens,
       contextWindow: liveEntry?.contextWindow,
+      pendingQuestion: liveEntry?.session.pendingQuestion,
     }
   }
 
@@ -377,6 +394,22 @@ export function createSessionManager(deps: Deps) {
       const session = live.get(localId)?.session
       if (!session?.completeAuth) throw new Error('esta engine não suporta reautenticação')
       await session.completeAuth(codeOrUrl)
+    },
+
+    /** Responde a pergunta (AskUserQuestion) que a sessão está esperando — só Claude. */
+    answerQuestion(localId: string, answers: Record<string, string>): void {
+      const session = live.get(localId)?.session
+      if (!session) throw new Error(`sessão ${localId} não está ativa`)
+      if (!session.answerQuestion) throw new Error('esta engine não faz perguntas estruturadas')
+      session.answerQuestion(answers)
+    },
+
+    /** Nega a pergunta pendente: o operador vai responder em prosa pela caixa de mensagem. */
+    dismissQuestion(localId: string): void {
+      const session = live.get(localId)?.session
+      if (!session) throw new Error(`sessão ${localId} não está ativa`)
+      if (!session.dismissQuestion) throw new Error('esta engine não faz perguntas estruturadas')
+      session.dismissQuestion()
     },
 
     async stopBackgroundTask(localId: string, taskId: string): Promise<void> {

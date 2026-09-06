@@ -1,6 +1,6 @@
 import type { EventEmitter } from 'node:events'
 import type { ClaudeEvent } from '../claude/events.js'
-import type { SessionStatus, HermesOptions } from '../claude/session.js'
+import type { SessionStatus, HermesOptions, PendingQuestion } from '../claude/session.js'
 
 /** Id de engine — aberto; a validade é "está registrado no registry?", nunca um union fechado. */
 export type EngineId = string
@@ -38,6 +38,14 @@ export interface EngineSession extends EventEmitter {
   /** Fluxo OAuth de reautenticação — só o Claude Code expõe. */
   startAuth?(): Promise<{ manualUrl: string; automaticUrl: string }>
   completeAuth?(codeOrUrl: string): Promise<void>
+  /**
+   * Pergunta (AskUserQuestion) que a engine fez e está esperando o operador —
+   * só o Claude Code tem isso. Estado do processo vivo, publicado no SessionInfo.
+   */
+  readonly pendingQuestion?: PendingQuestion
+  /** Responde a pergunta pendente (`answers` chaveado pelo texto da pergunta) / nega para responder em prosa. */
+  answerQuestion?(answers: Record<string, string>): void
+  dismissQuestion?(): void
   start(): void
   /**
    * `echoToClients`: emite também um evento `user` com o mesmo texto, para a UI

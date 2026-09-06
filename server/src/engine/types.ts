@@ -1,3 +1,4 @@
+import type { BackgroundTask } from '../../../shared/background-tasks.js'
 import type { EventEmitter } from 'node:events'
 import type { ClaudeEvent } from '../claude/events.js'
 import type { SessionStatus, HermesOptions, PendingQuestion } from '../claude/session.js'
@@ -30,10 +31,10 @@ export interface EngineSession extends EventEmitter {
   sessionId?: string
   readonly lastStderr: string
   /**
-   * Subagentes em background ainda rodando. Só o Claude Code tem esse conceito
+   * Tarefas em background ainda rodando (agentes e processos de shell). Só o Claude Code tem esse conceito
    * hoje; nas outras engines fica ausente.
    */
-  readonly backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  readonly backgroundTasks?: BackgroundTask[]
   /** Credencial expirada (só Claude): a UI oferece reautenticar em vez de mais um erro. */
   readonly authExpired?: boolean
   /** Fluxo OAuth de reautenticação — só o Claude Code expõe. */

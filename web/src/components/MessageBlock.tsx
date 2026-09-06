@@ -15,6 +15,7 @@ import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
 import rehypeFilePaths from '../rehypeFilePaths'
 import { MarkdownPre } from './MarkdownPre'
 import { fmtK } from './ContextMeter'
+import { collapseMarkdown, formatEngineMessage } from '../chat/engineMessage'
 
 /**
  * Memoizado, e as props foram desenhadas para o memo VALER.
@@ -175,16 +176,13 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
   const engines = useStore((s) => s.engines)
   const sessions = useStore((s) => s.sessions)
 
-  // O envelope XML do Codex impede o markdown de reconhecer títulos/listas.
-  // Remove só o envelope externo de skills já identificadas como injetadas,
-  // antes de colapsar. O texto original segue intacto para histórico/retag.
-  const displayText = item.fromEngine
-    ? item.text.replace(/^\s*<skills_instructions>([\s\S]*)<\/skills_instructions>/, '$1\n\n').trim()
-    : item.text
+  const displayText = useMemo(() => item.fromEngine ? formatEngineMessage(item.text) : item.text, [item.text, item.fromEngine])
   const lines = displayText.split('\n')
   const overflow = lines.length - COLLAPSE_LINES
   const collapsed = overflow > 0 && !expanded
-  const shown = collapsed ? lines.slice(0, COLLAPSE_LINES).join('\n') + '\n…' : displayText
+  const shown = collapsed
+    ? (item.fromEngine || item.fromSubagent ? collapseMarkdown(lines, COLLAPSE_LINES) : lines.slice(0, COLLAPSE_LINES).join('\n') + '\n…')
+    : displayText
 
   const session = currentLocalId ? sessions[currentLocalId] : undefined
   const engineLabel = item.fromEngine

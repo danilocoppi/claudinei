@@ -151,6 +151,22 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
     await expect(parseRollout(join(tmpdir(), 'nao-existe-de-jeito-nenhum.jsonl'))).resolves.toEqual([])
   })
 
+  it('usa a origem dos content items para plugins/ambiente com role:user, sem classificar pelo XML', async () => {
+    root = mkdtempSync(join(tmpdir(), 'codex-sessions-'))
+    const text = '<recommended_plugins>\n- GitHub\n</recommended_plugins><environment_context>\n<cwd>/projeto</cwd>\n</environment_context>'
+    const withKinds = (kinds: unknown) => ({ ...userMessage(text), payload: {
+      ...userMessage(text).payload, internal_chat_message_metadata_passthrough: { content_item_kinds: kinds },
+    } })
+    const file = writeRollout(root, 'plugins', ['2026', '09', '06'], [
+      withKinds(['plugins.recommendations', 'environments.environment_context']),
+      withKinds(['user.text']), withKinds(['plugins.recommendations', 'user.text']),
+      withKinds([]), withKinds('plugins.recommendations'), withKinds(['unknown.context']), userMessage(text),
+    ])
+    const events = await parseRollout(file)
+    expect(events[0]).toMatchObject({ kind: 'user', fromEngine: true, message: { role: 'user', content: [{ type: 'text', text }] } })
+    for (const event of events.slice(1)) expect(event).not.toHaveProperty('fromEngine')
+  })
+
   it('latestThreadForCwd devolve o thread_id do rollout cujo cwd bate', () => {
     root = mkdtempSync(join(tmpdir(), 'codex-sessions-'))
     writeRollout(root, 'thread-a', ['2026', '01', '01'], [sessionMeta('thread-a', '/tmp/alfa')])

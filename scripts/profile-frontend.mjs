@@ -8,6 +8,7 @@ const { values } = parseArgs({ options: {
   assets: { type: 'string' }, fixtures: { type: 'string' }, output: { type: 'string' },
   session: { type: 'string' }, modes: { type: 'string', default: 'waiting,stream,reduced-motion,glass-off' },
   seconds: { type: 'string', default: '6' }, samples: { type: 'string', default: '1' },
+  'sidebar-faces': { type: 'string', default: 'as-built' },
 } })
 if (!values.assets || !values.fixtures || !values.output) {
   throw new Error('Required: --assets DIR --fixtures GET_RESPONSES.json --output METRICS.json')
@@ -17,7 +18,16 @@ if (!(seconds >= 1 && seconds <= 60 && Number.isInteger(samples) && samples >= 1
   throw new Error('seconds: 1..60; samples: integer 1..10')
 }
 const modes = values.modes.split(',')
-if (modes.some(m => !['waiting', 'stream', 'reduced-motion', 'glass-off'].includes(m))) throw new Error('Unknown mode')
+if (!['as-built', 'show', 'hide'].includes(values['sidebar-faces'])) throw new Error('sidebar-faces: as-built, show or hide')
+const diagnosticCss = {
+  'pause-status': '.engine-tabs .status-dot, .engine-tabs .status-dot::after { animation-play-state: paused !important }',
+  'pause-typing': '.typing span { animation-play-state: paused !important }',
+  'pause-indicators': '.engine-tabs .status-dot, .engine-tabs .status-dot::after, .typing span { animation-play-state: paused !important }',
+  'compacting-pause-spinner': '.compacting__spinner { animation-play-state: paused !important }',
+  'compacting-pause-status': '.engine-tabs .status-dot, .engine-tabs .status-dot::after { animation-play-state: paused !important }',
+  'compacting-pause-indicators': '.engine-tabs .status-dot, .engine-tabs .status-dot::after, .compacting__spinner { animation-play-state: paused !important }',
+}
+if (modes.some(m => !['waiting', 'stream', 'idle', 'compacting', 'reduced-motion', 'glass-off', 'glass-on', 'compacting-glass-on', ...Object.keys(diagnosticCss)].includes(m))) throw new Error('Unknown mode')
 const assets = resolve(values.assets)
 const fixtures = JSON.parse(await readFile(values.fixtures, 'utf8'))
 const sessions = fixtures['/api/sessions']
@@ -45,6 +55,19 @@ try {
   }, samples: [] }
   const processes = async () => Object.fromEntries((await browserCdp.send('SystemInfo.getProcessInfo')).processInfo.map(p => [p.id, p]))
   for (const mode of modes) for (let sample = 1; sample <= samples; sample++) {
+    // Each control keeps the same history. Only the replayed session/preferences
+    // change; no request reaches the installation and nothing is persisted there.
+    const modeFixtures = structuredClone(fixtures)
+    const modeSessions = modeFixtures['/api/sessions']
+    const modeActive = modeSessions.find(s => s.localId === active.localId)
+    modeActive.status = mode === 'idle' ? 'idle' : 'working'
+    delete modeActive.compactingSince
+    if (mode.startsWith('compacting')) modeActive.compactingSince = Date.now() - 173_000
+    const prefs = modeFixtures['/api/prefs'] ??= {}
+    const appearance = prefs.appearance ??= {}
+    if (mode === 'reduced-motion') appearance.reducedMotion = true
+    if (mode === 'glass-off') appearance.glass = 'off'
+    if (mode.endsWith('glass-on')) appearance.glass = 'on'
     const ctx = await browser.newContext({ viewport: results.scenario.viewport, deviceScaleFactor: 1, serviceWorkers: 'block' })
     const page = await ctx.newPage()
     const errors = [], unknownApis = new Set()
@@ -66,7 +89,7 @@ try {
     await page.route('**/*', async route => {
       const path = new URL(route.request().url()).pathname
       if (path.startsWith('/api/')) {
-        if (Object.hasOwn(fixtures, path)) return route.fulfill({ json: fixtures[path] })
+        if (Object.hasOwn(modeFixtures, path)) return route.fulfill({ json: modeFixtures[path] })
         if (path === '/api/local-apps/terminals') return route.fulfill({ json: { options: [], chosen: null } })
         unknownApis.add(path)
         return route.fulfill({ json: [] })
@@ -79,14 +102,18 @@ try {
     })
     await page.routeWebSocket('**/ws', ws => {
       wire = ws
-      ws.send(JSON.stringify({ type: 'sessions_snapshot', sessions }))
+      ws.send(JSON.stringify({ type: 'sessions_snapshot', sessions: modeSessions }))
     })
     await page.goto('http://profile.invalid/')
     await page.locator('.term-card').filter({ has: page.getByText(project.name, { exact: true }) }).click()
     await page.waitForSelector('.chat-scroll .markdown')
     await page.waitForTimeout(1500)
-    if (mode === 'reduced-motion') await page.evaluate(() => document.documentElement.dataset.motion = 'reduced')
-    if (mode === 'glass-off') await page.evaluate(() => document.documentElement.dataset.glass = 'off')
+    // Offline diagnostic control for comparing the temporarily hidden faces
+    // against their restoration. The installed service is never changed.
+    if (values['sidebar-faces'] !== 'as-built') await page.addStyleTag({ content:
+      `.sidebar .agent-face { display: ${values['sidebar-faces'] === 'show' ? 'inline-flex' : 'none'} !important }` })
+    if (diagnosticCss[mode]) await page.addStyleTag({ content: diagnosticCss[mode] })
+    if (mode.startsWith('compacting')) await page.waitForSelector('[data-testid="compacting-indicator"]')
     await page.locator('.chat-scroll').evaluate(e => e.scrollTop = e.scrollHeight)
     if (mode === 'stream') streamTimer = setInterval(() => {
       sent++
@@ -103,13 +130,28 @@ try {
     const afterCalls = await page.evaluate(() => ({ ...window.profileCalls }))
     clearInterval(streamTimer)
     await page.waitForTimeout(350)
-    const animations = await page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running').length)
+    const visual = await page.evaluate(() => ({
+      attributes: { ...document.documentElement.dataset },
+      sidebarFilter: getComputedStyle(document.querySelector('.sidebar')).backdropFilter,
+      faces: [...document.querySelectorAll('.sidebar .agent-face')].map(e => {
+        const r = e.getBoundingClientRect()
+        return { state: e.dataset.face, size: r.width, rendered: r.width > 0 && r.height > 0,
+          onscreen: r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth }
+      }),
+      animations: document.getAnimations().map(a => ({ name: a.animationName, state: a.playState, target: a.effect.target?.className,
+        sampled: a.effect.getKeyframes().every(f => /^steps\(1(?:, end)?\)$/.test(f.easing)), frames: a.effect.getKeyframes().length })),
+      backdropFilters: [...document.querySelectorAll('*')].filter(e => getComputedStyle(e).backdropFilter !== 'none')
+        .map(e => ({ target: e.className, filter: getComputedStyle(e).backdropFilter })),
+      compacting: !!document.querySelector('[data-testid="compacting-indicator"]'),
+      typing: !!document.querySelector('[data-testid="typing-indicator"]'),
+    }))
+    const animations = visual.animations.filter(a => a.state === 'running').length
     if (mode === 'stream') {
       const text = await page.locator('.chat-scroll .markdown').last().textContent()
       if (text !== ' texto'.repeat(sent)) throw new Error(`Lost deltas: ${text?.length} / ${sent * 6}`)
     }
     if (mode === 'reduced-motion' && animations) throw new Error('Reduced motion left active animations')
-    if (mode === 'glass-off' && await page.evaluate(() => [...document.querySelectorAll('*')].some(e => getComputedStyle(e).backdropFilter !== 'none'))) {
+    if (mode === 'glass-off' && (visual.attributes.glass !== 'off' || visual.backdropFilters.length)) {
       throw new Error('Glass off left backdrop filters')
     }
     const row = {
@@ -120,7 +162,7 @@ try {
       styleMs: 1000 * (after.RecalcStyleDuration - before.RecalcStyleDuration),
       processes: Object.values(afterProcesses).map(p => ({ type: p.type, cpuMs: 1000 * (p.cpuTime - (beforeProcesses[p.id]?.cpuTime ?? p.cpuTime)) })),
       scrolls: afterCalls.scroll - beforeCalls.scroll, mutations: afterCalls.mutations - beforeCalls.mutations,
-      animations, sentDeltas: sent, errors, unknownApis: [...unknownApis],
+      animations, visual, sentDeltas: sent, errors, unknownApis: [...unknownApis],
     }
     results.samples.push(row)
     console.log(JSON.stringify(row))

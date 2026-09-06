@@ -131,6 +131,10 @@ rl.on('line', (line) => {
       return
     }
     if (r.subtype === 'stop_task') {
+      if (r.task_id === 'stop-fails') {
+        out({ type: 'control_response', response: { subtype: 'error', request_id: msg.request_id, error: 'task não parou' } })
+        return
+      }
       // Como a CLI real: confirma e anuncia que a task saiu.
       out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {} } })
       out({ type: 'system', subtype: 'task_updated', task_id: r.task_id, patch: { status: 'completed' } })

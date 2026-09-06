@@ -51,6 +51,18 @@ const chegaMaisTexto = () =>
  * impossível — cada pedaço que chegava puxava a barra de volta para o fim.
  */
 describe('ler o que passou enquanto o agente escreve', () => {
+  it('após o result, mantém shell visível como tarefa de background sem subagentes nem indicador de processamento', () => {
+    render(<ChatView />)
+    act(() => useStore.getState().applyWsMessage({ type: 'session_status', localId: 's1', status: 'needs_attention', backgroundTasks: [
+      { id: 'b1', taskType: 'local_bash', description: 'Hardhat local', type: '', prompt: '' },
+    ] }))
+    expect(screen.getByTestId('background-processes')).toBeTruthy()
+    expect(screen.getByText('Hardhat local')).toBeTruthy()
+    expect(screen.queryByTestId('running-subagents')).toBeNull()
+    expect(screen.queryByTestId('typing-indicator')).toBeNull()
+    expect(screen.getByRole('textbox')).toBeTruthy()
+  })
+
   it('streaming e eventos de outra sessão não reprocessam os grupos do histórico', () => {
     const group = vi.spyOn(grouping, 'groupActions')
     render(<ChatView />)

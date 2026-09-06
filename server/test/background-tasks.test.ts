@@ -66,6 +66,75 @@ describe('tasks em background seguram o fim do turno', () => {
     expect(session.status).toBe('needs_attention')
   })
 
+  it('encerra a resposta com Hardhat, DynamoDB e backend em background sem parar os processos', () => {
+    session = ready()
+    feed(session, tasksChanged(['Hardhat', 'DynamoDB', 'Backend'].map((description, i) => ({ task_id: `b${i}`, task_type: 'local_bash', description }))))
+    feed(session, result())
+    expect(session.status).toBe('needs_attention')
+    expect(session.backgroundTasks).toHaveLength(3)
+    expect(session.backgroundTasks.every((task) => task.taskType === 'local_bash')).toBe(true)
+    session.markRead()
+    expect(session.status).toBe('idle')
+    session.send('próxima tarefa')
+    expect(session.status).toBe('working')
+  })
+
+  it('espera pelo agente real e encerra quando ele termina, mesmo com shell ainda ligado e sem outro result', () => {
+    session = ready()
+    feed(session, tasksChanged([
+      { task_id: 'a1', task_type: 'local_agent', description: 'Revisão' },
+      { task_id: 'b1', task_type: 'local_bash', description: 'Servidor' },
+    ]))
+    feed(session, result())
+    expect(session.status).toBe('working')
+    feed(session, { kind: 'system', subtype: 'task_notification', raw: { subtype: 'task_notification', task_id: 'a1', status: 'completed' } })
+    expect(session.status).toBe('needs_attention')
+    expect(session.backgroundTasks.map((task) => task.id)).toEqual(['b1'])
+    // O turno automático da notificação é trabalho novo e continua funcionando.
+    feed(session, { kind: 'system', subtype: 'turn_starting', raw: { subtype: 'turn_starting', mode: 'task-notification' } })
+    expect(session.status).toBe('working')
+    feed(session, result())
+    expect(session.status).toBe('needs_attention')
+  })
+
+  it('esvaziar a lista não encerra uma resposta que ainda está sendo gerada', () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'a1', task_type: 'local_agent' }]))
+    feed(session, tasksChanged([]))
+    expect(session.status).toBe('working')
+    feed(session, result())
+    expect(session.status).toBe('needs_attention')
+  })
+
+  it('conclusão por snapshot basta quando o turno principal já terminou', () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'a1', task_type: 'local_agent' }]))
+    feed(session, result())
+    feed(session, tasksChanged([]))
+    expect(session.status).toBe('needs_attention')
+  })
+
+  it.each(['stopped', 'failed', 'killed'])('remove task com status %s', (status) => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'a1', task_type: 'local_agent' }]))
+    feed(session, result())
+    feed(session, { kind: 'system', subtype: 'task_updated', raw: { subtype: 'task_updated', task_id: 'a1', patch: { status } } })
+    expect(session.backgroundTasks).toEqual([])
+    expect(session.status).toBe('needs_attention')
+  })
+
+  it('a mudança para ambient libera a sessão e atualiza clientes sem mudança de IDs', () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'a1', task_type: 'local_agent', ambient: false }]))
+    feed(session, result())
+    const statuses: string[] = []
+    session.on('status', (s) => statuses.push(s))
+    feed(session, tasksChanged([{ task_id: 'a1', task_type: 'local_agent', ambient: true }]))
+    expect(session.status).toBe('needs_attention')
+    expect(session.backgroundTasks[0].ambient).toBe(true)
+    expect(statuses).toContain('needs_attention')
+  })
+
   it('expõe as tasks ativas com descrição e tipo', () => {
     session = ready()
     feed(session, started('a1', 'Contar de 1 a 5', 'Explore'))
@@ -132,6 +201,24 @@ describe('detalhe da task em background', () => {
  *   { subtype: 'stop_task', task_id }   "Stops a running task."
  */
 describe('parar tasks em background', () => {
+  it('interrupt informa a falha e mantém working se um subagente não parou', async () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'stop-fails', task_type: 'local_agent', description: 'Revisão' }]))
+    feed(session, result())
+    await expect(session.interrupt()).rejects.toThrow('task não parou')
+    expect(session.backgroundTasks).toHaveLength(1)
+    expect(session.status).toBe('working')
+  })
+
+  it('não retira da lista um processo cuja parada falhou', async () => {
+    session = ready()
+    feed(session, tasksChanged([{ task_id: 'stop-fails', task_type: 'local_bash', description: 'Servidor' }]))
+    feed(session, result())
+    await expect(session.stopTask('stop-fails')).rejects.toThrow('task não parou')
+    expect(session.backgroundTasks.map((task) => task.id)).toEqual(['stop-fails'])
+    expect(session.status).toBe('needs_attention')
+  })
+
   const wait = async (fn: () => boolean) => {
     for (let i = 0; i < 60 && !fn(); i++) await new Promise((r) => setTimeout(r, 25))
   }

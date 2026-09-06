@@ -4,6 +4,10 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentEvent } from '../types.js'
 
+// O harness envia estes blocos como role:user. A autoria vem dos metadados,
+// nunca de procurar tags no texto (o operador pode colar exatamente o mesmo XML).
+const ENGINE_USER_CONTENT_KINDS = new Set(['plugins.recommendations', 'environments.environment_context'])
+
 export function sessionsRoot(): string {
   return process.env.CODEX_HOME ? join(process.env.CODEX_HOME, 'sessions') : join(homedir(), '.codex', 'sessions')
 }
@@ -57,7 +61,10 @@ export async function parseRollout(file: string): Promise<AgentEvent[]> {
       const text = (Array.isArray(p.content) ? p.content : []).map((c: any) => c.text ?? '').join('')
       // O rollout também guarda instruções internas (skills, permissões etc.).
       // Preserva o papel original e sinaliza a autoria sem adulterar o raw.
-      const fromEngine = role === 'developer' || role === 'system'
+      const kinds: unknown = p.internal_chat_message_metadata_passthrough?.content_item_kinds
+      const injectedUser = role === 'user' && Array.isArray(kinds) && kinds.length > 0 &&
+        kinds.every((kind) => ENGINE_USER_CONTENT_KINDS.has(kind))
+      const fromEngine = role === 'developer' || role === 'system' || injectedUser
       if (text) events.push({
         kind: role === 'assistant' ? 'assistant' : 'user',
         message: { role, content: [{ type: 'text', text }] },

@@ -11,6 +11,7 @@ import { WsContext } from '../wsContext'
 import { isEditableUserText } from '../chat/history'
 import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
 import { RunningSubagents } from './RunningSubagents'
+import { BackgroundProcesses } from './BackgroundProcesses'
 import { CompactingIndicator } from './CompactingIndicator'
 import { ReauthBanner } from './ReauthBanner'
 import { QuestionPanel } from './QuestionPanel'
@@ -265,6 +266,8 @@ export function ChatView() {
             backgroundTasks={session.backgroundTasks}
             onStopTask={(taskId) => { void stopSubagentTask(session.localId, taskId).catch(() => {}) }}
           />}
+        <BackgroundProcesses tasks={session.backgroundTasks}
+          onStopTask={(taskId) => stopSubagentTask(session.localId, taskId)} />
         {/* Compactando, os pontinhos não dizem nada: é uma espera longa e com
             nome — a linha mostra o que está acontecendo e há quanto tempo. */}
         {session.status === 'working' && !hasStreaming && (

@@ -14,8 +14,10 @@ const CLAUDE: EngineMeta = {
 const html = () => document.documentElement
 
 const stubFetch = () => vi.spyOn(globalThis, 'fetch').mockImplementation(
-  async (_url, init) => new Response(
-    JSON.stringify(init?.method === 'PUT'
+  async (url, init) => new Response(
+    JSON.stringify(String(url).endsWith('/api/local-apps/terminals')
+      ? { options: [], chosen: null }
+      : init?.method === 'PUT'
       ? { appearance: JSON.parse(String(init.body)).appearance }
       : { appearance: DEFAULT_APPEARANCE }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }))
@@ -79,6 +81,7 @@ describe('preview ao vivo', () => {
 
     fireEvent.click(screen.getByTestId('glass-off'))
     expect(html().style.getPropertyValue('--glass-blur')).toBe('0px')
+    expect(html().dataset.glass).toBe('off')
   })
 
   /** Preview ao vivo sem volta atrás vira armadilha. */
@@ -87,8 +90,10 @@ describe('preview ao vivo', () => {
     const onClose = vi.fn()
     render(<AppearancePanel onClose={onClose} />)
     fireEvent.click(screen.getByTestId('theme-light-fun'))
+    fireEvent.click(screen.getByTestId('glass-off'))
     fireEvent.click(screen.getByText(/cancelar/i))
     expect(html().dataset.theme).toBe('dark-fun')
+    expect(html().dataset.glass).toBe('theme')
     expect(onClose).toHaveBeenCalled()
   })
 })
@@ -113,9 +118,11 @@ describe('guardar', () => {
    * continua valendo na tela e o painel avisa que não deu para guardar.
    */
   it('falha ao guardar mantém o visual e avisa', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_u, init) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
       if (init?.method === 'PUT') throw new Error('rede fora')
-      return new Response(JSON.stringify({ appearance: DEFAULT_APPEARANCE }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      return new Response(JSON.stringify(String(url).endsWith('/api/local-apps/terminals')
+        ? { options: [], chosen: null }
+        : { appearance: DEFAULT_APPEARANCE }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     })
     render(<AppearancePanel onClose={() => {}} />)
     fireEvent.click(screen.getByTestId('theme-light-fun'))
@@ -132,6 +139,7 @@ describe('guardar', () => {
     fireEvent.click(screen.getByText(/restaurar/i))
     expect(html().dataset.theme).toBe('dark-fun')
     expect(html().style.getPropertyValue('--glass-blur')).toBe('')
+    expect(html().dataset.glass).toBe('theme')
   })
 })
 

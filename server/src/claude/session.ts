@@ -1,3 +1,4 @@
+import type { BackgroundTask } from '../../../shared/background-tasks.js'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { createLineParser } from './parser.js'
@@ -124,8 +125,10 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    * autoritativa — substituímos, nunca acumulamos. `task_started` chega antes e
    * traz description/subagent_type, que a lista não repete.
    */
-  private bgTasks = new Map<string, { id: string; description: string; type: string; prompt: string }>()
-  private bgMeta = new Map<string, { description: string; type: string; prompt: string }>()
+  private bgTasks = new Map<string, BackgroundTask>()
+  private bgMeta = new Map<string, Omit<BackgroundTask, 'id'>>()
+  /** O result fecha o turno principal; subagentes podem continuar depois dele. */
+  private foregroundTurnActive = false
   /** OAuth do Claude expirado (a CLI respondeu `auth_expired`). Ver detectAuthExpired. */
   private authExpiredFlag = false
   private pendingControls = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
@@ -155,7 +158,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   get authExpired(): boolean { return this.authExpiredFlag }
 
   /** Tasks em background ainda rodando nesta sessão. */
-  get backgroundTasks(): { id: string; description: string; type: string; prompt: string }[] {
+  get backgroundTasks(): BackgroundTask[] {
     return [...this.bgTasks.values()]
   }
 
@@ -277,10 +280,14 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     // Só idle/needs_attention voltam a working: stopped/dead não podem ser
     // ressuscitados por um evento atrasado, e in_terminal é outra visão (o PTY é
     // que manda no status dela).
-    if ((evt.kind === 'assistant' || evt.kind === 'stream') &&
-        (this.status === 'idle' || this.status === 'needs_attention')) {
-      this.turnSeq++
-      this.setStatus('working')
+    const parentId = ('raw' in evt ? evt.raw as { parent_tool_use_id?: string } | undefined : undefined)?.parent_tool_use_id
+    if (!parentId && (evt.kind === 'assistant' || evt.kind === 'stream' ||
+        (evt.kind === 'system' && evt.subtype === 'turn_starting'))) {
+      this.foregroundTurnActive = true
+      if (this.status === 'idle' || this.status === 'needs_attention') {
+        this.turnSeq++
+        this.setStatus('working')
+      }
     }
     // O result PÓSTUMO de um turno interrompido é descartado inteiro.
     //
@@ -303,13 +310,9 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     if (evt.kind === 'result' && this.pending) {
       this.pending = undefined
     }
-    // Um result com task de background ativa NÃO encerra o trabalho: só o turno
-    // que a despachou acabou. Marcar needs_attention aqui mostraria o terminal
-    // parado — e o filtro "somente ativos" o esconderia — enquanto o subagente
-    // ainda trabalha. A lista esvazia sozinha (o CLI avisa) e o result seguinte
-    // fecha normalmente.
-    if (evt.kind === 'result' && this.status === 'working' && this.bgTasks.size === 0) {
-      this.setStatus('needs_attention')
+    if (evt.kind === 'result') {
+      this.foregroundTurnActive = false
+      this.finishIfNoWork()
     }
     this.emit('event', evt)
   }
@@ -327,6 +330,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     this.proc.stdin.write(JSON.stringify(msg) + '\n')
     if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
     this.turnSeq++
+    this.foregroundTurnActive = true
     this.setStatus('working')
   }
 
@@ -475,8 +479,8 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     if (!this.proc || this.status === 'stopped' || this.status === 'dead') return
     // A CLI confirma e anuncia a saída pelo task_updated; o dropBackgroundTask é
     // rede de segurança para o caso de o anúncio não vir.
-    try { await this.sendControl('stop_task', { task_id: taskId }, { allowWorking: true }) }
-    finally { this.dropBackgroundTask(taskId) }
+    await this.sendControl('stop_task', { task_id: taskId }, { allowWorking: true })
+    this.dropBackgroundTask(taskId)
   }
 
   /**
@@ -493,19 +497,11 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       await this.sendControl('interrupt', {}, { allowWorking: true })
     }
     // Uma falha ao parar uma task não pode impedir as outras: são independentes.
-    await Promise.allSettled(pending.map((id) => this.stopTask(id)))
+    const stopped = await Promise.allSettled(pending.map((id) => this.stopTask(id)))
     // O turno acabou porque MANDARAM parar — e é aqui que isso vira estado.
     //
-    // A saída de `working` acontece num lugar só: o `result` do CLI, que é
-    // ignorado enquanto há task de background em aberto (de propósito — o turno
-    // que despachou o subagente acabou, o subagente não). Na interrupção isso
-    // virava armadilha: o `result` chegava com a lista ainda cheia, o status não
-    // mudava, e não vinha outro depois. A sessão ficava "trabalhando" para sempre,
-    // com as três bolinhas girando na tela de quem acabou de mandar parar.
-    //
-    // O destino é `needs_attention`, o MESMO em que o `result` de interrupção já
-    // deixava a sessão quando não havia task pendente: aqui só se garante que ela
-    // chegue lá em todo caso, em vez de ficar pendurada em `working`.
+    // Normalmente result/dropBackgroundTask fecham o trabalho. Este fallback
+    // cobre a interrupção confirmada antes de o result chegar.
     //
     // E só se o turno ainda for o que se mandou parar: esperar as tasks abre uma
     // janela em que a fila entrega a próxima tarefa, e derrubar o `working` DELA
@@ -515,9 +511,12 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     // arma o descarte do result póstumo — ver handleEvent. Sem isso, o result
     // atrasado contaminava a task que a fila entrega em seguida.
     if (this.status === 'working' && this.turnSeq === turno) {
-      this.swallowInterruptedResult = true
-      this.setStatus('needs_attention')
+      this.swallowInterruptedResult = this.foregroundTurnActive
+      this.foregroundTurnActive = false
+      this.finishIfNoWork()
     }
+    const failed = stopped.find((result) => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
   }
 
   async stop(): Promise<void> {
@@ -594,20 +593,31 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   }
 
   private trackBackgroundTasks(raw: unknown): void {
-    const o = raw as { subtype?: string; tasks?: unknown; task_id?: string; description?: string; subagent_type?: string; prompt?: string; patch?: { status?: string } }
+    const o = raw as { subtype?: string; tasks?: unknown; task_id?: string; description?: string; subagent_type?: string; prompt?: string; task_type?: string; ambient?: boolean; status?: string; patch?: { status?: string } }
     if (o?.subtype === 'task_started' && o.task_id) {
-      this.bgMeta.set(o.task_id, { description: o.description ?? '', type: o.subagent_type ?? '', prompt: o.prompt ?? '' })
+      const meta = {
+        description: o.description ?? '', type: o.subagent_type ?? '', prompt: o.prompt ?? '',
+        ...(o.task_type ? { taskType: o.task_type } : {}),
+        ...(o.ambient !== undefined ? { ambient: o.ambient } : {}),
+      }
+      this.bgMeta.set(o.task_id, meta)
+      const task = this.bgTasks.get(o.task_id)
+      if (task) {
+        this.bgTasks.set(o.task_id, { ...task, ...meta })
+        this.finishIfNoWork()
+        this.emit('status', this.status)
+      }
       return
     }
-    if (o?.subtype === 'task_updated' && o.task_id) {
-      const st = o.patch?.status
-      if (st === 'completed' || st === 'failed') this.dropBackgroundTask(o.task_id)
+    if ((o?.subtype === 'task_updated' || o?.subtype === 'task_notification') && o.task_id) {
+      const st = o.patch?.status ?? o.status
+      if (st === 'completed' || st === 'failed' || st === 'stopped' || st === 'killed') this.dropBackgroundTask(o.task_id)
       return
     }
     if (o?.subtype !== 'background_tasks_changed' || !Array.isArray(o.tasks)) return
-    const before = [...this.bgTasks.keys()].join(',')
+    const before = JSON.stringify(this.backgroundTasks)
     this.bgTasks.clear()
-    for (const t of o.tasks as { task_id?: string; description?: string }[]) {
+    for (const t of o.tasks as { task_id?: string; task_type?: string; description?: string; ambient?: boolean }[]) {
       if (!t?.task_id) continue
       const meta = this.bgMeta.get(t.task_id)
       this.bgTasks.set(t.task_id, {
@@ -616,17 +626,28 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
         type: meta?.type ?? '',
         // O prompt só vem no task_started; a lista de mudança não o repete.
         prompt: meta?.prompt ?? '',
+        ...(t.task_type || meta?.taskType ? { taskType: t.task_type ?? meta?.taskType } : {}),
+        ...(t.ambient !== undefined || meta?.ambient !== undefined ? { ambient: t.ambient ?? meta?.ambient } : {}),
       })
     }
     // A UI precisa saber que a composição mudou mesmo quando o status não muda —
     // o canal de status é o que o manager já retransmite para os clientes.
-    if (before !== [...this.bgTasks.keys()].join(',')) this.emit('status', this.status)
+    this.finishIfNoWork()
+    if (before !== JSON.stringify(this.backgroundTasks)) this.emit('status', this.status)
   }
 
   private dropBackgroundTask(id: string): void {
-    if (!this.bgTasks.delete(id)) return
     this.bgMeta.delete(id)
+    if (!this.bgTasks.delete(id)) return
+    this.finishIfNoWork()
     this.emit('status', this.status)
+  }
+
+  private finishIfNoWork(): void {
+    // Servidores de desenvolvimento e outros comandos Bash em background podem
+    // durar indefinidamente. A presença deles não representa um turno pendente.
+    const blocking = this.backgroundTasks.some((task) => task.taskType !== 'local_bash' && !task.ambient)
+    if (this.status === 'working' && !this.foregroundTurnActive && !blocking) this.setStatus('needs_attention')
   }
 
   /**

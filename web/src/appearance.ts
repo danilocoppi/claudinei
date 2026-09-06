@@ -159,6 +159,9 @@ export function applyAppearance(input?: Partial<Appearance> | null, root: HTMLEl
   // sentido quando a coluna é limitada, e CSS não sabe perguntar "isto é none?".
   root.dataset.chatWidth = a.chatWidth
   root.dataset.motion = a.reducedMotion ? 'reduced' : 'full'
+  // O CSS precisa do atributo para remover também filtros com raio fixo.
+  // Só zerar --glass-blur deixa blur(0px) e o desfoque dos cabeçalhos ativos.
+  root.dataset.glass = a.glass
   style.setProperty('--chat-max', find(CHAT_WIDTHS, a.chatWidth, 'full').css!)
 
   /**

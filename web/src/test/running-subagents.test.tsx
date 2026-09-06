@@ -1,6 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { RunningSubagents } from '../components/RunningSubagents'
+import { BackgroundProcesses } from '../components/BackgroundProcesses'
 import type { ChatItem } from '../types'
 
 const agent = (id: string, description: string, type = 'general-purpose', result?: string): ChatItem => ({
@@ -14,7 +15,34 @@ const act = (parentId: string, name: string): ChatItem =>
 
 afterEach(() => cleanup())
 
+describe('processos de shell em background', () => {
+  it('mostra o processo sem spinner ou contagem de subagentes e expõe falha ao parar', async () => {
+    const stop = vi.fn().mockRejectedValue(new Error('Não foi possível parar'))
+    const { container } = render(<BackgroundProcesses tasks={[
+      { id: 'b1', taskType: 'local_bash', description: 'Hardhat', type: '', prompt: '' },
+    ]} onStopTask={stop} />)
+    fireEvent.click(screen.getByText(/1 tarefa em background/))
+    expect(container.querySelector('.subagent__spinner')).toBeNull()
+    expect(container.textContent).not.toMatch(/subagente/i)
+    fireEvent.click(screen.getByRole('button', { name: 'Parar Hardhat' }))
+    expect(stop).toHaveBeenCalledWith('b1')
+    expect((await screen.findByRole('alert')).textContent).toBe('Não foi possível parar')
+    expect(screen.getByText('Hardhat')).toBeTruthy()
+  })
+})
+
 describe('RunningSubagents', () => {
+  it('conta apenas subagentes, excluindo shell e tarefas ambient do snapshot', () => {
+    render(<RunningSubagents items={[]} backgroundTasks={[
+      { id: 'a1', taskType: 'local_agent', description: 'Revisão', type: 'Explore', prompt: '' },
+      { id: 'b1', taskType: 'local_bash', description: 'Hardhat', type: '', prompt: '' },
+      { id: 'a2', taskType: 'local_agent', ambient: true, description: 'Manutenção', type: '', prompt: '' },
+    ]} />)
+    expect(screen.getByText(/1 subagente\b/i)).toBeTruthy()
+    expect(screen.queryByText('Hardhat')).toBeNull()
+    expect(screen.queryByText('Manutenção')).toBeNull()
+  })
+
   it('não renderiza nada sem subagente em execução', () => {
     const { container } = render(<RunningSubagents items={[]} />)
     expect(container.innerHTML).toBe('')

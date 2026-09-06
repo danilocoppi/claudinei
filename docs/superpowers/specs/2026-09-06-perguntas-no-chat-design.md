@@ -131,9 +131,20 @@ em `EngineSession` — só o Claude implementa, como `startAuth`/`completeAuth`.
   a sessão não está viva ou a engine não suporta.
 - Melhoria pontual: os três broadcasts de `session_status` montados à mão em
   `wire()` viram um helper (`statusMsg(localId, session, overrides?)`), para um
-  campo novo não ter que ser copiado em três lugares. Os broadcasts fora do
-  `wire()` (revive, handoff de terminal) não são tocados — ali nunca há
-  pergunta pendente, e um `pendingQuestion` ausente é lido como "nenhuma".
+  campo novo não ter que ser copiado em três lugares (revive passa por aqui
+  também, via `wire()` → `session.start()`).
+- Fora do `wire()`, cada `session_status` montado à mão precisa continuar
+  carregando `pendingQuestion` explicitamente: o store do front não tem
+  fallback (campo ausente é lido como "nenhuma pendência", não como "mantém a
+  anterior") — omitir o campo em qualquer broadcast alcançável com uma
+  AskUserQuestion pendente derruba o painel na cara do operador enquanto a CLI
+  segue bloqueada esperando resposta. `setSessionOptions` é o caso alcançável:
+  o guard de `working` só cobre model/permissionMode, então um PATCH de effort
+  passa (e broadcasta sem o campo) com uma pergunta aberta — bug real, corrigido
+  no wave de revisão final. Os três broadcasts manuais de `openInTerminal`
+  seguem sem o campo, cada um com um comentário explicando por que ali
+  `pendingQuestion` não pode existir (o `stop()` da sessão já zera a pendência
+  antes de resolver, e a entrada já saiu de `live`).
 
 ### `routes/ws.ts`
 Mensagens cliente→servidor `answer_question { localId, answers }` e

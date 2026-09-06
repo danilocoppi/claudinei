@@ -6,6 +6,15 @@ const SESSION = { windowMs: 5 * H, chunkMs: H / 3 }   // 5h, chunks de 20min
 const WEEKLY = { windowMs: 168 * H, chunkMs: H }       // 7d, chunks de 1h
 
 describe('windowFor', () => {
+  it('usa a duração informada pelo provedor para calcular o ritmo', () => {
+    const win = windowFor('session', 60)!
+    expect(win.windowMs).toBe(H)
+    const now = Date.parse('2026-09-06T10:00:00Z')
+    const reset = new Date(now + H / 2).toISOString()
+    expect(expectedPercent(reset, win.windowMs, win.chunkMs, now)).toBeCloseTo(53.333, 2)
+    expect(windowFor('session', 300)).toEqual(SESSION)
+    expect(windowFor('weekly', 10080)).toEqual(WEEKLY)
+  })
   it('session → 5h/20min; weekly → 7d/1h; desconhecido → null', () => {
     expect(windowFor('session')).toEqual(SESSION)
     expect(windowFor('weekly')).toEqual(WEEKLY)

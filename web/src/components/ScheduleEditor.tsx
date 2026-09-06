@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { previewCadence, type Cadence, type Schedule } from '../api'
 import { useStore } from '../store'
 import { defaultCadence, formatRunTimes } from '../cadenceText'
+import { effortsForModel } from '../../../shared/engine-options'
 
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -62,7 +63,7 @@ export function ScheduleEditor({
     .map((e) => ({ label: e.label, items: (e.models ?? []).filter(Boolean) }))
     .filter((g) => g.items.length > 0)
   const effortGroups = chosen
-    .map((e) => ({ label: e.label, items: (e.efforts ?? []).filter(Boolean) }))
+    .map((e) => ({ label: e.label, items: (model ? effortsForModel(e, model) : e.efforts).filter(Boolean) }))
     .filter((g) => g.items.length > 0)
   const grouped = !engine && chosen.length > 1
 
@@ -215,7 +216,7 @@ export function ScheduleEditor({
           </label>
           <label>
             <span>{t('schedules.model')}</span>
-            <select data-testid="sched-model" value={model} onChange={(e) => setModel(e.target.value)}>
+            <select data-testid="sched-model" value={model} onChange={(e) => { setModel(e.target.value); setEffort('') }}>
               <option value="">{t('schedules.keepCurrent')}</option>
               {options(modelGroups)}
             </select>

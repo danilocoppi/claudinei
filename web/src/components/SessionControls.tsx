@@ -6,6 +6,7 @@ import { fetchAutoCompact, putAutoCompact, setSessionOptions, type PermissionMod
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
 import { MODE_KEY, MODE_COLOR } from '../permissionLabels'
+import { effortsForModel } from '../../../shared/engine-options'
 
 /** Chaves i18n dos rótulos de modelo conhecidos (hoje só os do Claude). Modelos
  * sem entrada aqui (ex.: Codex) usam o próprio id como label. */
@@ -18,7 +19,7 @@ export function SessionControls({ session }: { session: SessionInfo }) {
   const effort = useStore((st) => st.sessionEffort[session.localId] ?? session.effort ?? 'auto')
   const engine = useEngineFor(session)
   const models = engine?.models ?? []
-  const efforts = engine?.efforts ?? []
+  const efforts = effortsForModel(engine, session.model)
   const permissions = engine?.permissions ?? []
   // Lista de slash da sessão (protocolo do Claude ou curada de outra engine) — decide
   // se o /effort é enviado como mensagem de chat, sem hardcode por engine.
@@ -85,7 +86,8 @@ export function SessionControls({ session }: { session: SessionInfo }) {
     }
     // persiste para o relaunch (--effort); ultracode é por sessão — a flag de
     // launch não o aceita, então não persistimos (a dica no popover explica)
-    if (level !== 'ultracode') void setSessionOptions(session.localId, { effort: level }).catch(() => {})
+    setError(null)
+    if (level !== 'ultracode') void setSessionOptions(session.localId, { effort: level }).catch((err) => setError((err as Error).message))
     setFlash(true); setTimeout(() => setFlash(false), 1200)
   }
 

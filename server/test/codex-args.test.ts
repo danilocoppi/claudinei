@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { buildExecArgs, buildResumeArgs } from '../src/engine/codex/codex-args.js'
 
 describe('codex args', () => {
+  it.each(['max', 'ultra'])('effort %s chega ao exec e ao resume', (effort) => {
+    for (const args of [buildExecArgs({ effort }), buildResumeArgs('thread', { effort })]) {
+      expect(args).toContain(`model_reasoning_effort="${effort}"`)
+    }
+  })
   it('exec: flags fixas + stdin, sem model/effort', () => {
     const a = buildExecArgs({})
     expect(a[0]).toBe('exec')

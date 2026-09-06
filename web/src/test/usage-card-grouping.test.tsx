@@ -39,6 +39,29 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear() })
  * engine em dois lugares distantes.
  */
 describe('UsageCard — barras agrupadas por engine', () => {
+  const codexLimits = [
+    { kind: 'codex_codex_primary', group: 'session', provider: 'codex', label: null, percent: 19, resetsAt: IN_4H, windowMinutes: 300 },
+    { kind: 'codex_codex_secondary', group: 'weekly', provider: 'codex', label: null, percent: 3, resetsAt: IN_4H, windowMinutes: 10080 },
+  ]
+  it('Codex mostra limites de 5h/semanal e tokens no mesmo bloco', async () => {
+    const { fetchUsage } = await import('../api')
+    vi.mocked(fetchUsage).mockResolvedValueOnce({ limits: codexLimits.map((l) => ({ ...l, severity: 'normal' })), tokens: TOKENS as any })
+    render(<UsageCard />)
+    await waitFor(() => expect(screen.getByText('5h')).toBeTruthy())
+    const block = screen.getByText('Codex').closest('.usage-engine')!
+    expect(block.querySelectorAll('.usage-bar')).toHaveLength(2)
+    expect(block.querySelector('.usage-tokens')).toBeTruthy()
+    expect(block.textContent).toContain('19%')
+    expect(block.textContent).toContain('semanal')
+  })
+  it('modo simples sem Claude não duplica a barra do Codex', async () => {
+    const { fetchUsage } = await import('../api')
+    vi.mocked(fetchUsage).mockResolvedValueOnce({ limits: codexLimits.map((l) => ({ ...l, severity: 'normal' })), tokens: {} })
+    localStorage.removeItem('claudinei.usageAdvanced')
+    render(<UsageCard />)
+    await waitFor(() => expect(screen.getByText('19%')).toBeTruthy())
+    expect(document.querySelectorAll('.usage-bar')).toHaveLength(1)
+  })
   const blocoDoKimi = () =>
     [...document.querySelectorAll('.usage-engine')].find((el) => el.textContent?.includes('Kimi Code'))
 

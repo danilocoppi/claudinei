@@ -2,6 +2,7 @@ import type { Db } from '../db.js'
 import type { SessionInfo } from '../claude/manager.js'
 import type { Project } from '../projects.js'
 import type { Schedule, SchedulesStore } from './store.js'
+import { getEngine } from '../engine/index.js'
 
 /**
  * O que o agendador precisa do gerenciador de sessões — e só isso. A superfície
@@ -45,13 +46,12 @@ export function createScheduler(deps: SchedulerDeps) {
 
   /**
    * A sessão em que este agendamento deve falar. Com engine fixada, é a daquela
-   * engine; sem, a primeira viva do projeto. Devolve também se foi ESTA chamada
-   * que subiu a sessão — é o que decide se o effort vai como flag ou como turno.
+   * engine; sem, a primeira viva do projeto.
    */
-  function resolveSession(s: Schedule): { info: SessionInfo; justStarted: boolean } {
+  function resolveSession(s: Schedule): SessionInfo {
     const mine = manager.list().filter((x) => x.projectId === s.projectId && (!s.engine || x.engine === s.engine))
     const ready = mine.find((x) => READY.has(x.status))
-    if (ready) return { info: ready, justStarted: false }
+    if (ready) return ready
     if (mine.some((x) => BUSY.has(x.status) || x.status === 'in_terminal')) {
       throw new OverlapError('a sessão está ocupada')
     }
@@ -59,27 +59,28 @@ export function createScheduler(deps: SchedulerDeps) {
     // Reviver preserva a conversa; começar do zero perde o contexto que o
     // agendamento pode depender ("continue de onde parou ontem").
     const revivable = mine.find((x) => x.status === 'stopped' || x.status === 'dead')
-    if (revivable) return { info: manager.revive(revivable.localId), justStarted: true }
+    if (revivable) return manager.revive(revivable.localId)
 
     const project = projectOf(s.projectId)
     if (!project) throw new Error('projeto do agendamento não existe mais')
-    return {
-      info: manager.start(project, { engine: s.engine ?? undefined, model: s.model ?? undefined, effort: s.effort ?? undefined }),
-      justStarted: true,
-    }
+    return manager.start(project, { engine: s.engine ?? undefined, model: s.model ?? undefined, effort: s.effort ?? undefined })
   }
 
   /** Sinaliza sobreposição — não é falha do agendamento, é "agora não". */
   class OverlapError extends Error {}
 
-  async function applyOptions(s: Schedule, info: SessionInfo, justStarted: boolean): Promise<void> {
+  async function applyOptions(s: Schedule, info: SessionInfo): Promise<void> {
     if (s.model && s.model !== info.model) await manager.setSessionOptions(info.localId, { model: s.model })
     if (!s.effort || s.effort === info.effort) return
-    if (justStarted) return  // já foi como flag de lançamento
+    // Sessão nova já devolve o effort de lançamento em info. Uma revivida pode
+    // conservar outro valor e precisa receber o override pedido pelo agendamento.
     // Effort não tem control_request: vai como mensagem, e o resultado DELE é
     // esperado e descartado aqui — senão o feed guardaria a resposta do /effort
     // no lugar da resposta da tarefa.
-    await manager.sendAndWait(info.localId, `/effort ${s.effort}`, { timeoutMs })
+    const caps = getEngine(info.engine).capabilities()
+    if (caps.slashSource === 'protocol' || caps.slashCommands.includes('effort')) {
+      await manager.sendAndWait(info.localId, `/effort ${s.effort}`, { timeoutMs })
+    }
     await manager.setSessionOptions(info.localId, { effort: s.effort })
   }
 
@@ -95,8 +96,8 @@ export function createScheduler(deps: SchedulerDeps) {
     const run = store.startRun(s.id, { late: opts.late })
     notify('schedule_run', { scheduleId: s.id, projectId: s.projectId, running: true })
     try {
-      const { info, justStarted } = resolveSession(s)
-      await applyOptions(s, info, justStarted)
+      const info = resolveSession(s)
+      await applyOptions(s, info)
       const text = `[Agendamento: ${s.name} #${run.seq}]: ${s.task}`
       const result = await manager.sendAndWait(info.localId, text, { timeoutMs, wait: s.expectsResult })
       store.finishRun(run.id, {

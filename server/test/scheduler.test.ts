@@ -222,6 +222,27 @@ describe('model e effort', () => {
     expect(store.readContent(s.id, 1)).toContain('[Agendamento')
   })
 
+  it('Codex aplica ultra nas opções, sem mandar /effort como prompt', async () => {
+    const s = store.create(projectId, { ...base, engine: 'codex', effort: 'ultra' })
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [sessionInfo({ engine: 'codex', model: 'gpt-6-astra', effort: 'low' })] })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.options).toEqual([{ localId: 's1', opts: { effort: 'ultra' } }])
+    expect(calls.sent.map((c) => c.text)).toEqual(['[Agendamento: Preços #1]: buscar preços'])
+  })
+
+  it('ao reviver, aplica o effort pedido se difere do persistido', async () => {
+    const s = store.create(projectId, { ...base, engine: 'codex', effort: 'max' })
+    overdue(s.id)
+    const { manager, calls } = fakeManager({
+      sessions: [sessionInfo({ engine: 'codex', status: 'stopped', effort: 'low' })],
+      revive: () => sessionInfo({ engine: 'codex', effort: 'low' }),
+    })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.options).toEqual([{ localId: 's1', opts: { effort: 'max' } }])
+    expect(calls.sent).toHaveLength(1)
+  })
+
   it('quando é a execução que sobe a sessão, o effort vai como flag — sem turno extra', async () => {
     const s = store.create(projectId, { ...base, effort: 'high' })
     overdue(s.id)

@@ -19,6 +19,12 @@ const ADVANCED_KEY = 'claudinei.usageAdvanced'
 
 /** Rótulo: label da API (ex.: Fable) > i18n por kind > o próprio kind. */
 function labelFor(l: UsageLimit, t: TFunction): string {
+  if (l.provider === 'codex') {
+    const window = l.group === 'weekly' ? t('usage.weekly')
+      : l.windowMinutes ? l.windowMinutes % 60 === 0 ? `${l.windowMinutes / 60}h` : `${l.windowMinutes}min`
+        : t('usage.session')
+    return l.label ? `${l.label} · ${window}` : window
+  }
   if (l.label) return l.label
   if (l.kind === 'session') return t('usage.session')
   if (l.kind === 'weekly_all') return t('usage.weeklyAll')
@@ -36,7 +42,7 @@ function labelFor(l: UsageLimit, t: TFunction): string {
  */
 function simpleView(limits: UsageLimit[]): UsageLimit[] {
   const claude = limits.filter((l) => (l.provider ?? 'claude') === 'claude')
-  const head = claude.find((l) => l.group === 'session') ?? claude[0] ?? limits[0]
+  const head = claude.find((l) => l.group === 'session') ?? claude[0]
   const others = new Map<string, UsageLimit>()
   for (const l of limits) {
     const p = l.provider ?? 'claude'
@@ -44,7 +50,7 @@ function simpleView(limits: UsageLimit[]): UsageLimit[] {
     const cur = others.get(p)
     if (!cur || l.percent > cur.percent) others.set(p, l)
   }
-  return [head, ...others.values()].filter(Boolean)
+  return [...(head ? [head] : []), ...others.values()]
 }
 
 function resetText(resetsAt: string, locale: string): string {
@@ -129,7 +135,7 @@ export function UsageCard() {
         </div>
       )}
       {claudeBars.map((l) => {
-        const win = windowFor(l.group)
+        const win = windowFor(l.group, l.windowMinutes)
         const ratio = win ? paceRatio(l.percent, expectedPercent(l.resetsAt, win.windowMs, win.chunkMs, now)) : null
         const color = paceColor(ratio)
         const tip = ratio !== null
@@ -159,7 +165,7 @@ export function UsageCard() {
               {meta?.label ?? id}
             </div>
             {bars.map((l) => {
-              const win = windowFor(l.group)
+              const win = windowFor(l.group, l.windowMinutes)
               const ratio = win ? paceRatio(l.percent, expectedPercent(l.resetsAt, win.windowMs, win.chunkMs, now)) : null
               const color = paceColor(ratio)
               const tip = ratio !== null

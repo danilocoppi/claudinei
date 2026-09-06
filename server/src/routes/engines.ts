@@ -10,8 +10,11 @@ import { binAvailableCached } from '../engine/available.js'
  *  com as NÃO INSTALADAS por último. O sort é estável, então a ordem canônica se
  *  mantém dentro de cada grupo. */
 export function registerEngineRoutes(app: FastifyInstance): void {
-  app.get('/api/engines', async () =>
-    listEngines()
+  app.get('/api/engines', async () => {
+    const engines = listEngines()
+    await Promise.allSettled(engines.map((e) => e.refreshCapabilities?.()))
+    return engines
       .map((e) => ({ id: e.id, available: binAvailableCached(e.bin()), ...e.capabilities() }))
-      .sort((a, b) => Number(a.available === false) - Number(b.available === false)))
+      .sort((a, b) => Number(a.available === false) - Number(b.available === false))
+  })
 }

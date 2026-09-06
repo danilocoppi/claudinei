@@ -12,7 +12,8 @@ Kimi and OpenCode — each one in the context of its own project.
 - **Embedded terminal** (node-pty + xterm.js): opens the **real** Claude Code TUI in the browser — permissions, interactive commands, everything headless mode can't do. Button pinned to the session title; **← Back to chat** revives the web session automatically.
 - **100% local voice transcription**: the chat's 🎤 records and transcribes with **NVIDIA Parakeet v3** on your backend (25 languages, punctuation, ~30× realtime on CPU). Audio never leaves your machine. Text appears live while you speak.
 - **Board & Tasks (hermes MCP)**: agents talk to each other (`ask_agent`), publish to a shared **board** (`post_to_board`) and dispatch **tasks** to one another (`dispatch_task`) with an **automatic queue** — click the ⓘ in the sidebar footer for the full documentation.
-- **Usage card**: the `/usage` bars (session, week, per model) in the sidebar, with **pace coloring** — green if your consumption reaches the reset without maxing out, red if you're burning too fast.
+- **Usage card**: account-limit bars for **Claude, Codex and Kimi** in the sidebar, with reset times and **pace coloring** — green if your consumption reaches the reset without maxing out, red if you're burning too fast. Codex shows the account's quota windows (typically 5 hours and 7 days), alongside tokens accumulated in Claudinei sessions.
+- **Codex models and effort**: the picker reads the installed CLI's catalog, including GPT-6 Astra, and shows the efforts supported by each model (`max` and `ultra` where available). Switching to a model that cannot use the saved effort selects that model's default effort.
 - **Context meter**: a bar in the chat title shows how much of the window the conversation is using — the size comes from the model actually running (1M on the current Opus/Sonnet/Fable, 200k on Haiku), not a fixed guess. It costs nothing: the number rides along in the `usage` every Claude turn already returns.
 - **Per-session ⚙**: hot-swap **model**, **effort** (low→ultracode, persisted) and **permission mode**; **Compact now** frees window space on demand, and admins can set a global **auto-compact** threshold so any Claude session compacts itself once it crosses that share of its window.
 - **Actions**: commands a terminal repeats with one click — name it once (`awsVAEXA` + `npm run deploy`) and it runs in a floating window you can drag, minimize and type into. Survives a page reload: the process lives on the server, so F5 finds the deploy still running instead of starting a second one.
@@ -39,6 +40,8 @@ claudinei/
 ```
 
 The frontend talks to the backend via REST + WebSocket (`/ws` for session events; `/ws/terminal/:id` for the embedded terminal's binary channel). Data lives in `~/.claudinei/` (SQLite, uploads, voice model). Upgrading from an older install? The legacy `~/.termaster/` folder is migrated automatically on first boot.
+
+Codex metadata comes from the official [app-server protocol](https://learn.chatgpt.com/docs/app-server): `model/list`, `config/read`, and `account/rateLimits/read`. These read-only queries reuse the CLI's login, open no conversation, and are cached for 60 seconds. A built-in catalog remains available if the CLI cannot answer. Account-limit bars require a supported account login (API-key-only authentication does not provide ChatGPT plan quotas); missing limits are omitted. Quota percentages describe the entire account, while the token counter covers only turns observed by Claudinei. Refresh the page to reload the model picker after a CLI/catalog update.
 
 ## Installation
 

@@ -1,11 +1,10 @@
 import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, AgentEvent } from '../types.js'
 import { CodexSession } from './codex-session.js'
 import { sessionsRoot, findRollout, parseRollout, latestThreadForCwd } from './rollout.js'
+import { codexMetadata } from './codex-metadata.js'
 
 const CAPABILITIES: EngineCapabilities = {
-  // Lista canônica fixada no de-risk (Task 1). '' = padrão do config do usuário.
-  models: ['', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
-  efforts: ['low', 'medium', 'high', 'xhigh'],
+  ...codexMetadata.catalog(),
   permissions: [], // full-access fixo; sem seletor
   slashSource: 'curated',
   label: 'Codex',
@@ -36,5 +35,6 @@ export const codexEngine: Engine = {
       ? { file, args: ['resume', opts.resumeSessionId, '--dangerously-bypass-approvals-and-sandbox'] }
       : { file, args: ['--dangerously-bypass-approvals-and-sandbox'] }
   },
-  capabilities(): EngineCapabilities { return CAPABILITIES },
+  capabilities(): EngineCapabilities { return { ...CAPABILITIES, ...codexMetadata.catalog() } },
+  refreshCapabilities: () => codexMetadata.refresh(),
 }

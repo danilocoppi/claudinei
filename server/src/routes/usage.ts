@@ -5,7 +5,7 @@ import { requireAdmin } from '../auth/guards.js'
 
 export interface UsageRouteDeps {
   usage: Pick<UsageService, 'getLimits'>
-  /** Limites de plano de outros provedores (hoje o Kimi) — entram na MESMA lista. */
+  /** Limites de plano de outros provedores (Codex, Kimi) — entram na mesma lista. */
   extraUsage?: Array<Pick<UsageService, 'getLimits'>>
   /** Ausente (ex.: testes legados) → tokens devolve {}. */
   engineUsage?: Pick<EngineUsageService, 'all'>

@@ -13,6 +13,8 @@ export interface UsageLimit {
   resetsAt: string
   /** Provedor do limite. Ausente = Claude (default histórico); 'kimi' etc. quando a lista mistura planos. */
   provider?: string
+  /** Duração real da janela, quando fornecida pelo provedor. */
+  windowMinutes?: number
 }
 
 export interface UsageService { getLimits(): Promise<UsageLimit[]> }

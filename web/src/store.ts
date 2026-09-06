@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { CODEX_FALLBACK_CATALOG } from '../../shared/codex-models'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
 import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
@@ -33,8 +34,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
     id: 'codex',
     label: 'Codex',
     icon: OPENAI_ICON,
-    models: ['', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
-    efforts: ['low', 'medium', 'high', 'xhigh'],
+    ...CODEX_FALLBACK_CATALOG,
     permissions: [],
     slashSource: 'curated',
     slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],

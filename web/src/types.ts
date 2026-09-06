@@ -1,3 +1,5 @@
+import type { ModelCatalog } from '../../shared/engine-options'
+
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' | 'stopped' | 'dead' | 'in_terminal'
 
 export type PermissionMode = 'default' | 'auto' | 'acceptEdits' | 'plan' | 'bypassPermissions'
@@ -41,12 +43,10 @@ export interface SessionInfo {
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */
-export interface EngineMeta {
+export interface EngineMeta extends ModelCatalog {
   id: string
   label: string
   icon: string
-  models: string[]
-  efforts: string[]
   permissions: string[]
   slashSource: 'protocol' | 'curated' | 'none'
   slashCommands: string[]

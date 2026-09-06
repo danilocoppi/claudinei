@@ -155,6 +155,7 @@ if (process.argv.includes('--hermes')) {
   // Limites do plano do Kimi (mesma fonte do /status da CLI) na MESMA lista do card.
   const { createKimiUsageService } = await import('./engine/kimi/kimi-usage.js')
   const kimiUsage = createKimiUsageService()
+  const { codexMetadata } = await import('./engine/codex/codex-metadata.js')
   const engineUsage = createEngineUsageService(db)
   // drain nasce do orchestrator, que só existe depois do buildApp — mas o
   // manager (criado agora, antes) precisa poder chamá-lo assim que uma sessão
@@ -209,7 +210,7 @@ if (process.argv.includes('--hermes')) {
     process.exit(1)
   }
   const app = await buildApp({
-    config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage], engineUsage, auth,
+    config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage, codexMetadata], engineUsage, auth,
     insecure: !!cli.insecure,
     behindProxy,
     https: https ?? undefined,

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { codexMetadata } from '../src/engine/codex/codex-metadata.js'
 import { buildApp } from '../src/app.js'
 import { openDb } from '../src/db.js'
 import { loadConfig } from '../src/config.js'
@@ -7,10 +8,12 @@ import '../src/engine/index.js'
 
 let app: Awaited<ReturnType<typeof buildApp>>
 beforeEach(async () => {
+  vi.spyOn(codexMetadata, 'refresh').mockResolvedValue()
   const db = openDb(':memory:')
   const manager = createSessionManager({ db, broadcast: () => {} })
   app = await buildApp({ config: loadConfig({}), db, manager })
 })
+afterEach(() => vi.restoreAllMocks())
 
 describe('GET /api/engines', () => {
   it('lista claude e codex com metadados + capabilities', async () => {
@@ -23,6 +26,8 @@ describe('GET /api/engines', () => {
     expect(byId.claude.models).toContain('fable')
     expect(byId.claude.slashSource).toBe('protocol')
     expect(byId.codex.label).toBeTruthy()
+    expect(codexMetadata.refresh).toHaveBeenCalled()
+    expect(byId.codex.models).toContain('gpt-6-astra')
     expect(byId.codex.efforts).toContain('xhigh')
     expect(byId.codex.permissions).toEqual([])
     expect(byId.codex.slashSource).toBe('curated')

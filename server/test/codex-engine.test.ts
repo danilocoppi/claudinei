@@ -27,7 +27,7 @@ describe('codexEngine', () => {
 
   it('capabilities: efforts do codex, sem permissions, slash curated', () => {
     const c = codexEngine.capabilities()
-    expect(c.efforts).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(c.efforts).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
     expect(c.permissions).toEqual([])
     expect(c.slashSource).toBe('curated')
     expect(c.models.length).toBeGreaterThan(0)

@@ -171,6 +171,7 @@ export interface UsageLimit {
   percent: number; severity: string; resetsAt: string
   /** Ausente = Claude (default histórico); 'kimi' etc. quando a lista mistura planos. */
   provider?: string
+  windowMinutes?: number
 }
 /** Tokens por engine (ex.: Codex — o Claude não reporta tokens aqui). */
 export interface EngineTokens { input: number; cachedInput: number; output: number; reasoning: number; total: number }

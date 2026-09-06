@@ -6,15 +6,14 @@ import type { PermissionMode } from '../claude/session.js'
 import { createProjectsService } from '../projects.js'
 import { createSettingsService } from '../settings.js'
 import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/guards.js'
-import { hasEngine, DEFAULT_ENGINE_ID, getEngine, listEngines } from '../engine/index.js'
+import { hasEngine, DEFAULT_ENGINE_ID, getEngine } from '../engine/index.js'
 
 const PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'plan', 'bypassPermissions'])
 // Níveis persistíveis do effort ('auto' limpa; 'ultracode' é por sessão — o front não persiste).
 // Vão ao argv/config da engine no relaunch, então allowlist estrita — mas
-// aberta à união de todas as engines registradas (cada uma tem seus efforts).
-function isValidEffort(effort: string): boolean {
-  if (effort === 'auto' || effort === 'ultracode') return true
-  return listEngines().some((e) => e.capabilities().efforts.includes(effort))
+// específica da engine: ultra do Codex não é ultracode do Claude.
+function isValidEffort(engine: string, effort: string): boolean {
+  return effort === 'auto' || getEngine(engine).capabilities().efforts.includes(effort)
 }
 /**
  * Máximo de eventos devolvidos pelo histórico/preview (os N mais recentes).
@@ -115,7 +114,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     if (body.permissionMode !== undefined && !PERMISSION_MODES.has(body.permissionMode)) {
       return reply.code(400).send({ error: 'modo de permissão inválido' })
     }
-    if (body.effort !== undefined && !isValidEffort(body.effort)) {
+    if (body.effort !== undefined && !isValidEffort(info.engine, body.effort)) {
       return reply.code(400).send({ error: 'nível de effort inválido' })
     }
     try {

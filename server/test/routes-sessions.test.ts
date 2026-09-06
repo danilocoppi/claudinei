@@ -47,6 +47,37 @@ afterEach(() => {
 })
 
 describe('rotas de sessões', () => {
+  describe('effort por modelo Codex', () => {
+    beforeEach(() => {
+      db.prepare(`INSERT INTO sessions (local_id, project_id, engine, status, model, effort)
+        VALUES ('codex-options', ?, 'codex', 'stopped', 'gpt-6-astra', 'ultra')`).run(projectId)
+    })
+    it('persiste max/ultra para Astra', async () => {
+      for (const effort of ['max', 'ultra']) {
+        const res = await app.inject({ method: 'PATCH', url: '/api/sessions/codex-options/options', payload: { effort } })
+        expect(res.statusCode).toBe(200)
+        expect(res.json().effort).toBe(effort)
+      }
+    })
+    it('trocar para Luna retira o ultra incompatível do banco', async () => {
+      const res = await app.inject({ method: 'PATCH', url: '/api/sessions/codex-options/options', payload: { model: 'gpt-5.6-luna' } })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toMatchObject({ model: 'gpt-5.6-luna', effort: 'medium' })
+      const invalid = await app.inject({ method: 'PATCH', url: '/api/sessions/codex-options/options', payload: { effort: 'ultra' } })
+      expect(invalid.statusCode).toBe(400)
+      expect(invalid.json().error).toContain('não é suportado')
+    })
+    it('valida modelo + effort juntos antes de mudar o modelo', async () => {
+      const res = await app.inject({ method: 'PATCH', url: '/api/sessions/codex-options/options', payload: { model: 'gpt-5.5', effort: 'max' } })
+      expect(res.statusCode).toBe(400)
+      expect(db.prepare('SELECT model FROM sessions WHERE local_id=?').get('codex-options')).toEqual({ model: 'gpt-6-astra' })
+    })
+    it('auto remove o override persistido', async () => {
+      const res = await app.inject({ method: 'PATCH', url: '/api/sessions/codex-options/options', payload: { effort: 'auto' } })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().effort).toBeNull()
+    })
+  })
   it('cria sessão para projeto e lista', async () => {
     const res = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions` })
     expect(res.statusCode).toBe(201)

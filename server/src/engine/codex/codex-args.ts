@@ -1,6 +1,6 @@
 import type { HermesOptions } from '../../claude/session.js'
-
-export const CODEX_EFFORTS = ['low', 'medium', 'high', 'xhigh']
+import { CODEX_EFFORTS } from '../../../../shared/codex-models.js'
+export { CODEX_EFFORTS } from '../../../../shared/codex-models.js'
 
 interface TurnArgs { model?: string; effort?: string; hermes?: HermesOptions }
 

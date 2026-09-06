@@ -3,7 +3,11 @@
 const HOUR = 3_600_000
 
 /** Janela e granularidade por grupo de limite. Grupo desconhecido → sem ritmo. */
-export function windowFor(group: string): { windowMs: number; chunkMs: number } | null {
+export function windowFor(group: string, windowMinutes?: number): { windowMs: number; chunkMs: number } | null {
+  if (windowMinutes !== undefined && Number.isFinite(windowMinutes) && windowMinutes > 0) {
+    const windowMs = windowMinutes * 60_000
+    return { windowMs, chunkMs: windowMs / (windowMinutes <= 300 ? 15 : 168) }
+  }
   if (group === 'session') return { windowMs: 5 * HOUR, chunkMs: HOUR / 3 } // 5h em chunks de 20min
   if (group === 'weekly') return { windowMs: 168 * HOUR, chunkMs: HOUR }    // 7d em chunks de 1h
   return null

@@ -457,6 +457,20 @@ export function createSessionManager(deps: Deps) {
     async setSessionOptions(localId: string, opts: { model?: string; permissionMode?: PermissionMode; effort?: string }): Promise<SessionInfo> {
       const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
       if (!row) throw new Error(`sessão ${localId} não existe`)
+      const catalog = getEngine(row.engine ?? DEFAULT_ENGINE_ID).capabilities()
+      const selectedModel = (opts.model ?? row.model) || catalog.defaultModel || ''
+      const modelOptions = catalog.modelOptions?.[selectedModel]
+      if (modelOptions) {
+        if (opts.effort && opts.effort !== 'auto' && !modelOptions.efforts.includes(opts.effort)) {
+          throw new Error(`effort ${opts.effort} não é suportado por ${selectedModel}`)
+        }
+        // Trocar Astra/ultra por Luna, por exemplo, precisa retirar o override
+        // incompatível do próximo turno E do banco (inclusive no revive).
+        if (opts.model !== undefined && opts.effort === undefined && row.effort
+          && !modelOptions.efforts.includes(row.effort)) {
+          opts = { ...opts, effort: modelOptions.defaultEffort }
+        }
+      }
       const entry = live.get(localId)
       if (entry) {
         // Hot-swap de model/permission exige turno parado (control_request no meio

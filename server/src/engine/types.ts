@@ -1,6 +1,7 @@
 import type { EventEmitter } from 'node:events'
 import type { ClaudeEvent } from '../claude/events.js'
 import type { SessionStatus, HermesOptions, PendingQuestion } from '../claude/session.js'
+import type { ModelCatalog } from '../../../shared/engine-options.js'
 
 /** Id de engine — aberto; a validade é "está registrado no registry?", nunca um union fechado. */
 export type EngineId = string
@@ -64,9 +65,7 @@ export interface EngineSession extends EventEmitter {
   stop(): Promise<void>
 }
 
-export interface EngineCapabilities {
-  models: string[]
-  efforts: string[]
+export interface EngineCapabilities extends ModelCatalog {
   permissions: string[]
   slashSource: 'protocol' | 'curated' | 'none'
   label: string
@@ -100,4 +99,6 @@ export interface Engine {
    */
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }): { file: string; args: string[]; env?: Record<string, string> }
   capabilities(): EngineCapabilities
+  /** Atualiza metadados sem abrir conversa (ex.: model/list do Codex). */
+  refreshCapabilities?(): Promise<void>
 }

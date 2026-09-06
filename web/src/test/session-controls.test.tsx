@@ -4,6 +4,7 @@ import { SessionControls } from '../components/SessionControls'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import type { EngineMeta, SessionInfo } from '../types'
+import { CODEX_FALLBACK_CATALOG } from '../../../shared/codex-models'
 
 const sess = (o: Partial<SessionInfo> = {}): SessionInfo =>
   ({ localId: 's1', projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', model: 'opus', permissionMode: 'bypassPermissions', engine: 'claude', ...o })
@@ -36,6 +37,35 @@ const renderWithWs = (session: SessionInfo, send = vi.fn()) => {
 }
 
 describe('SessionControls', () => {
+  describe('catálogo atual do Codex', () => {
+    beforeEach(() => useStore.setState({ engines: [{ ...CODEX, ...CODEX_FALLBACK_CATALOG }], sessionEffort: {} }))
+    it('Astra oferece max/ultra e envia ultra pelo PATCH, sem mensagem ao agente', async () => {
+      const send = renderWithWs(sess({ engine: 'codex', model: 'gpt-6-astra' }))
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      expect(screen.getByText('gpt-6-astra')).toBeTruthy()
+      expect(screen.getByText('max')).toBeTruthy()
+      fireEvent.click(screen.getByText('ultra'))
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/s1/options',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ effort: 'ultra' }) })))
+      expect(send).not.toHaveBeenCalled()
+    })
+    it.each([
+      ['gpt-5.6-luna', true], ['gpt-5.5', false],
+    ])('%s mostra apenas os efforts que suporta', (model, hasMax) => {
+      renderWithWs(sess({ engine: 'codex', model }))
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      expect(!!screen.queryByText('max')).toBe(hasMax)
+      expect(screen.queryByText('ultra')).toBeNull()
+      expect(screen.getByText('auto (padrão)')).toBeTruthy()
+    })
+    it('Padrão usa os efforts do modelo configurado na CLI', () => {
+      useStore.setState({ engines: [{ ...CODEX, ...CODEX_FALLBACK_CATALOG, defaultModel: 'gpt-5.5' }] })
+      renderWithWs(sess({ engine: 'codex', model: null }))
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      expect(screen.queryByText('max')).toBeNull()
+      expect(screen.queryByText('ultra')).toBeNull()
+    })
+  })
   it('pill discreto (só engrenagem) abre o popover mostrando o modelo atual', () => {
     render(<SessionControls session={sess()} />)
     // o pill não exibe mais o texto do modelo — só a engrenagem

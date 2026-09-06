@@ -36,6 +36,8 @@ export interface SessionInfo {
   contextWindow?: number
   /** Pergunta (AskUserQuestion) esperando você. Ausente = nenhuma. */
   pendingQuestion?: PendingQuestion
+  /** Compactação de contexto em curso: epoch ms do início. Vem no session_status/snapshot só enquanto dura; ausente = não está compactando. */
+  compactingSince?: number
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */

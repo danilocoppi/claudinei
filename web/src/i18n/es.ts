@@ -139,6 +139,7 @@ export const es: typeof en = {
     in_terminal: 'en la terminal',
     in_terminal_working: 'en la terminal — procesando…', in_terminal_waiting: 'en la terminal — esperándote',
     question: 'esperando tu respuesta',
+    compacting: 'compactando el contexto…',
     yourTurn: 'TE TOCA',
   },
   dashboard: {

@@ -359,3 +359,27 @@ describe('displayStatusKey/dotClassOf', () => {
     expect(dotClassOf(sess(undefined))).toBe('status-dot status-in_terminal')
   })
 })
+
+/**
+ * Compactação em curso: a CLI avisa que está resumindo o contexto, o servidor
+ * publica `compactingSince` no session_status (só enquanto dura), e a UI troca
+ * o "trabalhando" genérico por "compactando". Sem fallback, como pendingQuestion:
+ * campo ausente é lido como "terminou".
+ */
+describe('compactação em curso', () => {
+  const sess = (over: object) =>
+    ({ localId: 'l1', projectId: 1, status: 'working', engineSessionId: 'c1', updatedAt: 'x', engine: 'claude', ...over }) as never
+
+  it('session_status carrega compactingSince; o seguinte sem o campo encerra', () => {
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l1', status: 'working', engineSessionId: 'c1', compactingSince: 1000 })
+    expect(useStore.getState().sessions['l1'].compactingSince).toBe(1000)
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l1', status: 'working', engineSessionId: 'c1' })
+    expect(useStore.getState().sessions['l1'].compactingSince).toBeUndefined()
+  })
+
+  it('displayStatusKey: compactando vence "trabalhando", e a pergunta pendente vence tudo', () => {
+    expect(displayStatusKey(sess({ compactingSince: 1 }))).toBe('compacting')
+    expect(displayStatusKey(sess({ compactingSince: 1, pendingQuestion: { toolUseId: 't', questions: [] } }))).toBe('question')
+    expect(displayStatusKey(sess({}))).toBe('working')
+  })
+})

@@ -137,6 +137,7 @@ export const en = {
     in_terminal: 'in terminal',
     in_terminal_working: 'in terminal — working…', in_terminal_waiting: 'in terminal — waiting for you',
     question: 'awaiting your answer',
+    compacting: 'compacting context…',
     yourTurn: 'YOUR TURN',
   },
   dashboard: {

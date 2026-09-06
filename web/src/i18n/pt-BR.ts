@@ -139,6 +139,7 @@ export const ptBR: typeof en = {
     in_terminal: 'no terminal',
     in_terminal_working: 'no terminal — processando…', in_terminal_waiting: 'no terminal — esperando você',
     question: 'aguardando sua resposta',
+    compacting: 'compactando o contexto…',
     yourTurn: 'SUA VEZ',
   },
   dashboard: {

@@ -13,7 +13,7 @@ import { isWaitingForYou } from '../engineSession'
  * componente serve à lista de 30px e ao cartão de 104px sem duas versões para
  * manter em sincronia.
  */
-export type FaceState = 'idle' | 'working' | 'attention' | 'waiting' | 'uploading' | 'sleeping' | 'terminal'
+export type FaceState = 'idle' | 'working' | 'attention' | 'waiting' | 'uploading' | 'sleeping' | 'terminal' | 'compacting'
 
 /** A partir daqui o rosto cabe adereço com texto; abaixo, a tarja vira borrão. */
 const POSTER = 56
@@ -25,6 +25,8 @@ export function faceStateOf(session: SessionInfo | undefined): FaceState {
   // parou e espera resposta — needs_attention e a pergunta pendente. O terminal
   // parado no prompt é o roxo — ele não perguntou nada, só chegou ao fim da linha.
   if (isWaitingForYou(session)) return session.status === 'needs_attention' || session.pendingQuestion ? 'attention' : 'waiting'
+  // Compactar é trabalho, mas de outro gesto: o rosto se espreme em vez de balançar.
+  if (session.compactingSince) return 'compacting'
   if (session.status === 'working') return 'working'
   if (session.status === 'in_terminal') {
     return session.terminalActivity === 'working' ? 'working' : 'terminal'
@@ -48,6 +50,9 @@ function Props({ state, size }: { state: FaceState; size: number }) {
           <span className="agent-face__sparks" aria-hidden="true"><i /><i /><i /></span>
         </>
       )
+    case 'compacting':
+      // Só o anel: o trabalho continua girando, mas sem faíscas — nada está sendo criado, está sendo espremido.
+      return <span className="agent-face__ring" aria-hidden="true" />
     case 'attention':
       return (
         <>

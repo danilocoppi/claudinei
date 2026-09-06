@@ -105,6 +105,8 @@ export function unreadOf(projectId: number, sessions: Record<string, SessionInfo
 export function displayStatusKey(s: SessionInfo): string {
   // O agente perguntou e parou: é o rótulo que importa, não o "trabalhando" do turno aberto.
   if (s.pendingQuestion) return 'question'
+  // Resumindo o contexto: é "trabalhando", mas o operador quer saber que é ISSO — e que demora.
+  if (s.compactingSince) return 'compacting'
   if (s.status === 'in_terminal' && s.terminalActivity && s.terminalActivity !== 'idle') {
     return `in_terminal_${s.terminalActivity}`
   }

@@ -91,7 +91,7 @@ describe('o estado vira expressão', () => {
   })
 
   it('só o estado de terminal ganha a cena', () => {
-    for (const state of ['idle', 'working', 'attention', 'waiting', 'uploading', 'sleeping'] as const) {
+    for (const state of ['idle', 'working', 'attention', 'waiting', 'uploading', 'sleeping', 'compacting'] as const) {
       expect(render(<AgentFace state={state} />).container.querySelector('.agent-face__term'), state).toBeNull()
       cleanup()
     }
@@ -102,6 +102,18 @@ describe('o estado vira expressão', () => {
     expect(faceStateOf(sess({ status: 'in_terminal' }))).toBe('terminal')
     expect(faceStateOf(sess({ status: 'in_terminal', terminalActivity: 'waiting' }))).toBe('waiting')
     expect(faceStateOf(sess({ status: 'in_terminal', terminalActivity: 'working' }))).toBe('working')
+  })
+
+  /** Compactar é um gesto próprio: o rosto se espreme, não "trabalha" como sempre. */
+  it('compactando o contexto tem rosto próprio, e vence "trabalhando"', () => {
+    expect(faceStateOf(sess({ status: 'working', compactingSince: 1 }))).toBe('compacting')
+    // quem perguntou continua vencendo: o amarelo é de quem espera resposta
+    expect(faceStateOf(sess({ status: 'working', compactingSince: 1, pendingQuestion: { toolUseId: 't', questions: [] } }))).toBe('attention')
+  })
+
+  /** O movimento reduzido já desliga a animação de TODO corpo — a regra nova só precisa existir. */
+  it('o rosto que compacta se espreme: regra própria no CSS', () => {
+    expect(css).toMatch(/\[data-face="compacting"\] \.agent-face__body \{ animation: face-squeeze/)
   })
 
   it('sem sessão, o agente dorme', () => {

@@ -373,6 +373,8 @@ export const useStore = create<State>((set, get) => ({
             // Pergunta do agente: SEM fallback para a anterior — o servidor manda o
             // campo sempre que há pergunta; ausente quer dizer que não há mais.
             pendingQuestion: msg.pendingQuestion,
+            // Compactação em curso: mesma regra — o servidor manda enquanto dura.
+            compactingSince: msg.compactingSince,
             // Atividade do TUI só sobrevive à PERMANÊNCIA em in_terminal; na entrada
             // (status anterior não era in_terminal) zera — senão dois in_terminal
             // consecutivos mostrariam atividade velha do terminal anterior.

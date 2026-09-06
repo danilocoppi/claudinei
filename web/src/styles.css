@@ -2360,6 +2360,15 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .agent-face__sparks i:nth-child(2) { left: 47%; width: calc(var(--face) * .048); height: calc(var(--face) * .048); animation-delay: .55s; }
 .agent-face__sparks i:nth-child(3) { left: 72%; width: calc(var(--face) * .058); height: calc(var(--face) * .058); animation-delay: 1.1s; }
 
+/* --- compactando: o corpo se espreme e solta, os olhos apertam, só o anel gira --- */
+[data-face="compacting"] { --face-color: var(--face-working); --face-eye: var(--face-working-eye); }
+[data-face="compacting"] .agent-face__body { animation: face-squeeze 2.4s ease-in-out infinite; }
+[data-face="compacting"] .agent-face__shadow { animation: face-shadow 2.4s ease-in-out infinite; }
+[data-face="compacting"] .agent-face__eye {
+  width: calc(var(--face) * .125); height: calc(var(--face) * .048);
+  border-radius: calc(var(--face) * .029); animation: none;
+}
+
 /* --- esperando: olha pra cima, bate o pé, três pontinhos no ar --- */
 [data-face="waiting"] { --face-color: var(--face-waiting); --face-eye: var(--face-waiting-eye); }
 [data-face="waiting"] .agent-face__body { animation: face-tap 3.2s ease-in-out infinite; }
@@ -2522,6 +2531,11 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   0% { transform: translateY(var(--face)) scale(.3); opacity: 0; }
   25% { opacity: 1; }
   100% { transform: translateY(calc(var(--face) * -.42)) scale(.9); opacity: 0; }
+}
+/* Espreme devagar, segura um instante e solta: o gesto de quem comprime alguma coisa. */
+@keyframes face-squeeze {
+  0%, 100% { transform: scale(1, 1); }
+  40%, 55% { transform: scale(.82, 1.1); }
 }
 @keyframes face-tap {
   0%, 66%, 100% { transform: rotate(0deg); }

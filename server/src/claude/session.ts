@@ -131,6 +131,15 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   private pendingControls = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   /** Pergunta (AskUserQuestion) esperando o operador — ver PendingQuestion. `input` volta inteiro no updatedInput. */
   private pending?: PendingState
+  /**
+   * Instante (epoch ms) em que a CLI começou a compactar o contexto; ausente = não
+   * está compactando. A CLI anuncia `system/status {status:'compacting'}` ao começar
+   * (e repete a cada 30s como batimento) e `{status:null}` ao terminar — medido no
+   * 2.1.261. compact_boundary e result também encerram, como rede.
+   */
+  private compactingSinceMs?: number
+
+  get compactingSince(): number | undefined { return this.compactingSinceMs }
 
   get pendingQuestion(): PendingQuestion | undefined {
     return this.pending ? { toolUseId: this.pending.toolUseId, questions: this.pending.questions } : undefined
@@ -255,6 +264,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       }
     }
     if (evt.kind === 'system') this.trackBackgroundTasks(evt.raw)
+    this.trackCompacting(evt)
     this.detectAuthExpired(evt)
     // A engine pode retomar SOZINHA, sem ninguém mandar mensagem: quando uma task
     // despachada com run_in_background termina, o CLI fecha o turno (result) e
@@ -553,6 +563,34 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    *  - background_tasks_changed: a lista COMPLETA do que roda agora
    *  - task_updated (completed/failed): tira a task na hora
    */
+  /**
+   * Acompanha a compactação em curso. Só `status:'compacting'` liga; só
+   * `status:null`, a fronteira ou o result desligam — `requesting` (início de uma
+   * chamada à API) é ignorado, porque a própria chamada que gera o resumo passa
+   * por ele. Emite 'status' nas bordas para o manager publicar compactingSince.
+   */
+  private trackCompacting(evt: ClaudeEvent): void {
+    if (evt.kind === 'system' && evt.subtype === 'status') {
+      const st = (evt.raw as { status?: unknown } | undefined)?.status
+      if (st === 'compacting') {
+        if (this.compactingSinceMs === undefined) {
+          this.compactingSinceMs = Date.now()
+          this.emit('status', this.status)
+        }
+      } else if (st === null) {
+        this.endCompacting()
+      }
+      return
+    }
+    if ((evt.kind === 'system' && evt.subtype === 'compact_boundary') || evt.kind === 'result') this.endCompacting()
+  }
+
+  private endCompacting(): void {
+    if (this.compactingSinceMs === undefined) return
+    this.compactingSinceMs = undefined
+    this.emit('status', this.status)
+  }
+
   private trackBackgroundTasks(raw: unknown): void {
     const o = raw as { subtype?: string; tasks?: unknown; task_id?: string; description?: string; subagent_type?: string; prompt?: string; patch?: { status?: string } }
     if (o?.subtype === 'task_started' && o.task_id) {

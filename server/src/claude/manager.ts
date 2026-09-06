@@ -32,6 +32,8 @@ export interface SessionInfo {
   contextWindow?: number
   /** Pergunta (AskUserQuestion) esperando o operador — só sessão VIVA, só memória. Ausente = nenhuma. */
   pendingQuestion?: PendingQuestion
+  /** Compactação de contexto em curso: epoch ms do início — só sessão VIVA, só memória. Ausente = não está compactando. */
+  compactingSince?: number
 }
 
 export interface TerminalLauncherOpts {
@@ -183,6 +185,7 @@ export function createSessionManager(deps: Deps) {
         backgroundTasks: info?.backgroundTasks ?? [], authExpired: info?.authExpired ?? false,
         contextWindow: info?.contextWindow,
         pendingQuestion: info?.pendingQuestion,
+        compactingSince: info?.compactingSince,
       }
     }
     session.on('status', (status: SessionStatus) => {
@@ -291,6 +294,7 @@ export function createSessionManager(deps: Deps) {
       contextTokens: liveEntry?.contextTokens,
       contextWindow: liveEntry?.contextWindow,
       pendingQuestion: liveEntry?.session.pendingQuestion,
+      compactingSince: liveEntry?.session.compactingSince,
     }
   }
 
@@ -496,7 +500,7 @@ export function createSessionManager(deps: Deps) {
         type: 'session_status', localId, projectId: row.project_id, engine: info.engine, status: info.status,
         engineSessionId: info.engineSessionId, model: info.model, permissionMode: info.permissionMode, effort: info.effort,
         backgroundTasks: info.backgroundTasks, authExpired: info.authExpired, contextWindow: info.contextWindow,
-        pendingQuestion: info.pendingQuestion,
+        pendingQuestion: info.pendingQuestion, compactingSince: info.compactingSince,
       })
       return info
     },

@@ -54,9 +54,9 @@ function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>):
 }
 
 interface State {
-  authStatus: 'loading' | 'setup' | 'login' | 'ready'
+  authStatus: 'loading' | 'setup' | 'login' | 'ready' | 'locked'
   me: import('./api').Me | null
-  setAuth(status: 'loading' | 'setup' | 'login' | 'ready', me?: import('./api').Me | null): void
+  setAuth(status: 'loading' | 'setup' | 'login' | 'ready' | 'locked', me?: import('./api').Me | null): void
   projects: Project[]
   sessions: Record<string, SessionInfo>
   chat: Record<string, ChatItem[]>
@@ -171,7 +171,18 @@ interface State {
 export const useStore = create<State>((set, get) => ({
   authStatus: 'loading',
   me: null,
-  setAuth: (authStatus, me) => set((s) => ({ authStatus, me: me === undefined ? s.me : me })),
+  setAuth: (requested, me) => set((s) => {
+    const identity = me === undefined ? s.me : me
+    const authStatus = requested === 'ready' && identity?.access?.allowed === false ? 'locked' : requested
+    if (authStatus !== 'locked') return { authStatus, me: identity }
+    // Unmount PTY clients without stopping their server processes. Clearing the
+    // saved windows also prevents an old ActionRun from launching again later.
+    saveRuns([])
+    return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
+      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
+      actionRuns: [], fileViewer: null, fileMenu: null, inlineFile: null, externalLink: null,
+      board: [], tasks: [], schedules: [], editRequest: undefined }
+  }),
   projects: [],
   sessions: {},
   chat: {},

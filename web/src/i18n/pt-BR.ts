@@ -310,6 +310,18 @@ export const ptBR: typeof en = {
     title: 'Uso', advanced: 'Avançado', session: 'Sessão atual', weeklyAll: 'Todos os modelos',
     resets: 'reseta {{when}}', pace: '{{percent}}% usado · ritmo {{ratio}}× do sustentável',
   },
+  accessHours: {
+    limited: 'Acesso limitado', timeZone: 'Fuso horário',
+    hint: 'O acesso é liberado em qualquer janela correspondente. Fora desses horários, terminais, engines, actions e criação de terminais ficam bloqueados. Tarefas existentes continuam rodando.',
+    days: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+    allDays: 'Todos os dias', allDay: 'Dia inteiro (24 horas)', window: 'Janela {{n}}',
+    start: 'Das', end: 'Até', addWindow: 'Adicionar janela de horário', removeWindow: 'Remover janela',
+    overnight: 'Termina no dia seguinte. Os dias selecionados indicam o início.', nextDay: 'dia seguinte',
+    invalid: 'Confira o fuso, selecione pelo menos um dia e informe horários de início e fim diferentes em cada janela.',
+    blocked: 'Fora do seu horário de acesso',
+    blockedHint: 'Terminais, engines, actions e criação de terminais estão bloqueados. O acesso retorna automaticamente nos horários permitidos. Tarefas existentes continuam rodando.',
+    check: 'Verificar acesso novamente',
+  },
   auth: {
     signInTitle: 'Entrar', signIn: 'Entrar',
     setupTitle: 'Criar conta master',

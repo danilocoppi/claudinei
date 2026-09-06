@@ -2,6 +2,7 @@
 // pode ser removido nem rebaixado (senão ninguém mais administra o sistema).
 import type { Db } from '../db.js'
 import { hashPassword } from './passwords.js'
+import { accessStatus, validateAccessHours, type AccessHours, type AccessStatus } from '../../../shared/access-hours.js'
 
 export interface PublicUser {
   id: number
@@ -9,6 +10,7 @@ export interface PublicUser {
   isAdmin: boolean
   projectIds: number[]
   createdAt: string
+  accessHours: AccessHours | null
 }
 
 export interface AuthRow {
@@ -24,6 +26,8 @@ const LOCK_MS = 15 * 60_000
 const MIN_PASSWORD = 8
 
 export function createUsersService(db: Db, now: () => number = Date.now) {
+  const hoursOf = (row: any): AccessHours | null => row.access_hours === null || row.access_hours === undefined
+    ? null : validateAccessHours(JSON.parse(row.access_hours))
   const projectIdsOf = (userId: number): number[] =>
     (db.prepare('SELECT project_id FROM user_projects WHERE user_id=? ORDER BY project_id').all(userId) as Array<{ project_id: number }>)
       .map((r) => r.project_id)
@@ -34,6 +38,7 @@ export function createUsersService(db: Db, now: () => number = Date.now) {
     isAdmin: !!row.is_admin,
     projectIds: projectIdsOf(row.id),
     createdAt: row.created_at,
+    accessHours: hoursOf(row),
   })
 
   const setProjects = (userId: number, ids: number[]): void => {
@@ -52,22 +57,25 @@ export function createUsersService(db: Db, now: () => number = Date.now) {
   return {
     count: () => (db.prepare('SELECT COUNT(*) c FROM users').get() as any).c as number,
 
-    create(input: { username: string; password: string; isAdmin?: boolean; projectIds?: number[] }): PublicUser {
+    create(input: { username: string; password: string; isAdmin?: boolean; projectIds?: number[]; accessHours?: AccessHours | null }): PublicUser {
+      const hours = validateAccessHours(input.accessHours ?? null)
       const username = input.username?.trim()
       if (!username) throw new Error('username_required')
       if (!input.password || input.password.length < MIN_PASSWORD) throw new Error('password_too_short')
-      let r
-      try {
-        r = db.prepare('INSERT INTO users (username, password_hash, is_admin) VALUES (?,?,?)')
-          .run(username, hashPassword(input.password), input.isAdmin ? 1 : 0)
-      } catch (err) {
-        const code = (err as { code?: string })?.code
-        if (code === 'SQLITE_CONSTRAINT_UNIQUE' || String(err).includes('UNIQUE')) throw new Error('username_taken')
-        throw err
-      }
-      const id = Number(r.lastInsertRowid)
-      setProjects(id, input.projectIds ?? [])
-      return toPublic(getRaw(id))
+      return db.transaction(() => {
+        let r
+        try {
+          r = db.prepare('INSERT INTO users (username, password_hash, is_admin, access_hours) VALUES (?,?,?,?)')
+            .run(username, hashPassword(input.password), input.isAdmin ? 1 : 0, hours ? JSON.stringify(hours) : null)
+        } catch (err) {
+          const code = (err as { code?: string })?.code
+          if (code === 'SQLITE_CONSTRAINT_UNIQUE' || String(err).includes('UNIQUE')) throw new Error('username_taken')
+          throw err
+        }
+        const id = Number(r.lastInsertRowid)
+        setProjects(id, input.projectIds ?? [])
+        return toPublic(getRaw(id))
+      })()
     },
 
     list: (): PublicUser[] =>
@@ -84,19 +92,31 @@ export function createUsersService(db: Db, now: () => number = Date.now) {
       return { id: row.id, username: row.username, passwordHash: row.password_hash, isAdmin: !!row.is_admin, tokenVersion: row.token_version }
     },
 
-    update(id: number, patch: { password?: string; isAdmin?: boolean; projectIds?: number[] }): PublicUser {
+    update(id: number, patch: { password?: string; isAdmin?: boolean; projectIds?: number[]; accessHours?: AccessHours | null }): PublicUser {
+      const hours = patch.accessHours === undefined ? undefined : validateAccessHours(patch.accessHours)
+      return db.transaction(() => {
+        const row = getRaw(id)
+        if (!row) throw new Error('user_not_found')
+        if (patch.isAdmin === false) assertNotLastAdmin(id)
+        if (patch.password !== undefined) {
+          if (patch.password.length < MIN_PASSWORD) throw new Error('password_too_short')
+          // senha nova mata os JWTs antigos deste usuário (ver = token_version)
+          db.prepare('UPDATE users SET password_hash=?, token_version=token_version+1 WHERE id=?')
+            .run(hashPassword(patch.password), id)
+        }
+        if (patch.isAdmin !== undefined) db.prepare('UPDATE users SET is_admin=? WHERE id=?').run(patch.isAdmin ? 1 : 0, id)
+        if (patch.projectIds !== undefined) setProjects(id, patch.projectIds)
+        if (hours !== undefined) db.prepare('UPDATE users SET access_hours=? WHERE id=?').run(hours ? JSON.stringify(hours) : null, id)
+        return toPublic(getRaw(id))
+      })()
+    },
+
+    /** Re-evaluated with the server clock, including for already open sockets. */
+    access(id: number, version?: number): AccessStatus {
       const row = getRaw(id)
-      if (!row) throw new Error('user_not_found')
-      if (patch.isAdmin === false) assertNotLastAdmin(id)
-      if (patch.password !== undefined) {
-        if (patch.password.length < MIN_PASSWORD) throw new Error('password_too_short')
-        // senha nova mata os JWTs antigos deste usuário (ver = token_version)
-        db.prepare('UPDATE users SET password_hash=?, token_version=token_version+1 WHERE id=?')
-          .run(hashPassword(patch.password), id)
-      }
-      if (patch.isAdmin !== undefined) db.prepare('UPDATE users SET is_admin=? WHERE id=?').run(patch.isAdmin ? 1 : 0, id)
-      if (patch.projectIds !== undefined) setProjects(id, patch.projectIds)
-      return toPublic(getRaw(id))
+      if (!row || (version !== undefined && row.token_version !== version)) return { allowed: false, serverNow: now(), checkAt: null }
+      try { return accessStatus(hoursOf(row), now()) }
+      catch { return { allowed: false, serverNow: now(), checkAt: null } }
     },
 
     remove(id: number): void {

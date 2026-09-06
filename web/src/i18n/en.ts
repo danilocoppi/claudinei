@@ -307,6 +307,18 @@ export const en = {
     title: 'Usage', advanced: 'Advanced', session: 'Current session', weeklyAll: 'All models',
     resets: 'resets {{when}}', pace: '{{percent}}% used · pace {{ratio}}× sustainable',
   },
+  accessHours: {
+    limited: 'Limited access', timeZone: 'Time zone',
+    hint: 'Access is allowed during any matching window. Outside these hours, terminals, engines, actions and terminal creation are blocked. Existing tasks keep running.',
+    days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    allDays: 'Every day', allDay: 'All day (24 hours)', window: 'Window {{n}}',
+    start: 'From', end: 'Until', addWindow: 'Add time window', removeWindow: 'Remove window',
+    overnight: 'Ends on the following day. Selected weekdays refer to the start.', nextDay: 'following day',
+    invalid: 'Check the time zone, select at least one weekday and enter different start and end times for each window.',
+    blocked: 'Outside your access hours',
+    blockedHint: 'Terminals, engines, actions and terminal creation are locked. Access returns automatically during your allowed hours. Existing tasks keep running.',
+    check: 'Check access again',
+  },
   auth: {
     signInTitle: 'Sign in', signIn: 'Sign in',
     setupTitle: 'Create master account',

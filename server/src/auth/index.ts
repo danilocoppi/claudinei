@@ -7,9 +7,9 @@ import { createTokenService, loadOrCreateSecret } from './tokens.js'
  * Agregado de auth: usuários + tokens sobre um segredo persistido.
  * Sem secretPath (testes), o segredo é aleatório em memória.
  */
-export function createAuthService(opts: { db: Db; secretPath?: string }) {
+export function createAuthService(opts: { db: Db; secretPath?: string; now?: () => number }) {
   const secret = opts.secretPath ? loadOrCreateSecret(opts.secretPath) : randomBytes(32)
-  const users = createUsersService(opts.db)
+  const users = createUsersService(opts.db, opts.now ?? (() => Date.now()))
   const tokens = createTokenService(secret)
   return { users, tokens, configured: () => users.count() > 0 }
 }

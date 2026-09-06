@@ -7,6 +7,19 @@ const okJson = (body: object, status = 200) =>
 afterEach(() => vi.restoreAllMocks())
 
 describe('api de auth', () => {
+  it.each(['projects', 'upload', 'audio'])('bloqueio de horário em %s sinaliza a tela restrita sem encerrar o login', async route => {
+    const denied = vi.fn(), logout = vi.fn()
+    window.addEventListener('claudinei:access-restricted', denied)
+    window.addEventListener('claudinei:unauthorized', logout)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ error: 'access_hours_restricted' }, 403))
+    const { fetchProjects, uploadFile, transcribeAudio } = await import('../api')
+    const request = route === 'projects' ? fetchProjects() : route === 'upload' ? uploadFile(new File(['x'], 'a.txt')) : transcribeAudio(new Blob(['x']))
+    await expect(request).rejects.toThrow('access_hours_restricted')
+    expect(denied).toHaveBeenCalledOnce(); expect(logout).not.toHaveBeenCalled()
+    window.removeEventListener('claudinei:access-restricted', denied)
+    window.removeEventListener('claudinei:unauthorized', logout)
+  })
+
   it('fetchMe devolve setupRequired', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ setupRequired: true }))
     await expect(fetchMe()).resolves.toEqual({ setupRequired: true })

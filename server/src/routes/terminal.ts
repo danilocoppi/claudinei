@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import type { SessionManager } from '../claude/manager.js'
 import type { TerminalManager } from '../terminal/manager.js'
 import { requireProjectAccess } from '../auth/guards.js'
+import { watchSocketAccess } from '../auth/socket-access.js'
 
 export interface TerminalRouteDeps {
   manager: Pick<SessionManager, 'openInTerminal' | 'get'>
@@ -57,11 +58,14 @@ export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRoute
     const { localId } = req.params as { localId: string }
     const token = (req.query as { token?: string }).token ?? ''
     if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
-    if (!deps.terminalManager.attach(localId, socket as unknown as { send(d: string): void; readyState: number }, token)) {
+    const access = watchSocketAccess(socket, req)
+    if (!access.allowed()) return
+    if (!deps.terminalManager.attach(localId, access, token)) {
       socket.close(1008, 'token')
       return
     }
     socket.on('message', (data: Buffer, isBinary: boolean) => {
+      if (!access.allowed()) return
       if (isBinary) {
         deps.terminalManager.write(localId, data.toString('utf8'))
       } else {
@@ -73,6 +77,6 @@ export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRoute
         } catch { /* frame de controle inválido: ignora */ }
       }
     })
-    socket.on('close', () => deps.terminalManager.detach(localId, socket as unknown as { send(d: string): void; readyState: number }))
+    socket.on('close', () => deps.terminalManager.detach(localId, access))
   })
 }

@@ -1,3 +1,4 @@
+import type { BackgroundTask } from '../../shared/background-tasks.js'
 import type { ModelCatalog } from '../../shared/engine-options'
 
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' | 'stopped' | 'dead' | 'in_terminal'
@@ -22,11 +23,10 @@ export interface SessionInfo {
   /** Heurística de atividade do TUI enquanto in_terminal (efêmero, via WS). */
   terminalActivity?: 'working' | 'waiting' | 'idle'
   /**
-   * Subagentes despachados com run_in_background que ainda rodam. Eles seguem
-   * trabalhando DEPOIS que o turno que os despachou fecha — é o que impede a
-   * sessão de parecer parada enquanto ainda há trabalho em curso.
+   * Agentes e processos de shell em background. Processos podem continuar
+   * ligados após o turno sem deixar a sessão em working.
    */
-  backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  backgroundTasks?: BackgroundTask[]
   /**
    * Credencial do Claude expirada. A partir daqui todo turno falha até
    * reautenticar — a UI oferece o login em vez de mostrar mais um erro de API.

@@ -16,6 +16,7 @@ import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
 import { MobileTopbar } from './components/MobileTopbar'
 import { initNotifications } from './notifications'
+import { installIndicatorMotion } from './indicatorMotion'
 
 /**
  * O que não pertence ao carregamento inicial.
@@ -51,6 +52,8 @@ export default function App() {
   const setProjects = useStore((s) => s.setProjects)
   const authStatus = useStore((s) => s.authStatus)
   const setAuth = useStore((s) => s.setAuth)
+
+  useEffect(() => installIndicatorMotion(), [])
 
   useEffect(() => {
     const syncVisibility = () => { document.documentElement.dataset.pageHidden = String(document.hidden) }

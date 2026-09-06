@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { runningSubagents } from '../subagents'
 import { AssistantMarkdown } from './MessageBlock'
 import type { ChatItem } from '../types'
+import { isBackgroundAgent, type BackgroundTask } from '../../../shared/background-tasks'
 
 /**
  * Subagentes em execução, logo acima do indicador de "processando".
@@ -20,7 +21,7 @@ export function RunningSubagents({
 }: {
   items: ChatItem[]
   /** Subagentes de background, vindos do status da sessão (ver nota abaixo). */
-  backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  backgroundTasks?: BackgroundTask[]
   /**
    * Para UM subagente. Só existe para os de background: parar por id usa o
    * `stop_task` do protocolo, que pede um task_id — um subagente de primeiro
@@ -39,7 +40,7 @@ export function RunningSubagents({
   const running = [
     ...fromChat,
     ...backgroundTasks
-      .filter((b) => !seen.has(b.id))
+      .filter((b) => !b.ambient && isBackgroundAgent(b) && !seen.has(b.id))
       .map((b) => ({ id: b.id, description: b.description, type: b.type, prompt: b.prompt, activity: [] as ChatItem[] })),
   ]
   if (running.length === 0) return null

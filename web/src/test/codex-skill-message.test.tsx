@@ -76,4 +76,36 @@ describe('instruções de skills do Codex no chat', () => {
     expect(screen.getByRole('heading', { name: 'Skills' })).toBeTruthy()
     expect(previous[0]).not.toHaveProperty('fromEngine')
   })
+
+  it('formata multi_agent_role e fecha o código da prévia antes das reticências', () => {
+    const text = '<multi_agent_role>You are the **primary agent**.\n\n- Work together\n\n```ts\n' +
+      Array.from({ length: 14 }, (_, i) => `const value${i} = ${i}`).join('\n') + '\n```\n</multi_agent_role>'
+    const { container } = show(applyEvent([], event(text))[0])
+    expect(screen.getByText('by Codex')).toBeTruthy()
+    expect(container.textContent).not.toContain('<multi_agent_role>')
+    expect(container.querySelector('strong')?.textContent).toBe('primary agent')
+    expect(container.querySelector('pre code')?.textContent).not.toContain('…')
+    fireEvent.click(screen.getByRole('button', { name: /mostrar tudo/i }))
+    expect(container.textContent).toContain('const value13 = 13')
+    expect(container.textContent).not.toContain('</multi_agent_role>')
+  })
+
+  it('formata plugins e ambiente de role:user quando a origem foi confirmada pelo servidor', () => {
+    const text = '<recommended_plugins>\nAvailable plugins:\n\n- **GitHub**\n- `Trello`\n</recommended_plugins><environment_context>\n<cwd>/projeto</cwd>\n</environment_context>'
+    const injected = { ...event(text), message: { role: 'user', content: [{ type: 'text', text }] } } as ClaudeEvent
+    const { container } = show(applyEvent([], injected)[0])
+    expect(screen.getByText('by Codex')).toBeTruthy()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(container.textContent).toContain('cwd: /projeto')
+    expect(container.textContent).not.toContain('<recommended_plugins>')
+    expect(container.querySelector('.msg-edit')).toBeNull()
+  })
+
+  it('não cria bloco vazio quando a prévia de multi_agent_role termina na abertura do código', () => {
+    const text = '<multi_agent_role>' + Array.from({ length: 12 }, () => 'Instrução.').join('\n') + '\n```ts\nconst exemplo = true\n```\n</multi_agent_role>'
+    const { container } = show(applyEvent([], event(text))[0])
+    expect(container.querySelector('pre')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /mostrar tudo/i }))
+    expect(container.querySelector('pre code')?.textContent).toContain('const exemplo = true')
+  })
 })

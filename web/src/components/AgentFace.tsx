@@ -100,8 +100,7 @@ function Cena({ state }: { state: FaceState }) {
 
 export function AgentFace({ state, size = 20, title }: { state: FaceState; size?: number; title?: string }) {
   return (
-    <span className="agent-face" data-face={state} data-detail={size < POSTER ? 'compact' : 'poster'}
-          title={title} style={{ ['--face' as string]: `${size}px` }}>
+    <span className="agent-face" data-face={state} title={title} style={{ ['--face' as string]: `${size}px` }}>
       <span className="agent-face__shadow" aria-hidden="true" />
       <Props state={state} size={size} />
       <span className="agent-face__body">

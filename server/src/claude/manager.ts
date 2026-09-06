@@ -1,3 +1,4 @@
+import type { BackgroundTask } from '../../../shared/background-tasks.js'
 import { randomUUID } from 'node:crypto'
 import type { Db } from '../db.js'
 import type { Project } from '../projects.js'
@@ -19,11 +20,11 @@ export interface SessionInfo {
   /** Effort persistido (low..max) ou null = padrão (auto). */
   effort: string | null
   /**
-   * Subagentes despachados com run_in_background que ainda rodam. Vem da sessão
+   * Tarefas despachadas com run_in_background que ainda rodam. Vem da sessão
    * VIVA (não do banco): é estado do processo, não persistido. Ausente/vazio =
    * nada em background.
    */
-  backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
+  backgroundTasks?: BackgroundTask[]
   /** Credencial do Claude expirada: a UI mostra "reautenticar" no lugar do erro cru. */
   authExpired?: boolean
   /** Tamanho do contexto (tokens) do último result da sessão VIVA. Só memória: restaurado pela engine ao retomar ou no próximo turno. */

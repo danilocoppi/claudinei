@@ -375,7 +375,10 @@ body {
   width: var(--sidebar-w, 250px); flex: none; overflow-y: auto;
   padding: calc(14px * var(--density));
   display: flex; flex-direction: column; gap: calc(6px * var(--density));
-  background: var(--surface); backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+  /* A lateral acompanha o fundo estático da página; no mobile ela é opaca.
+     Filtrar toda essa superfície a cada gesto dos rostos custa CPU sem GPU.
+     A translucidez vem de --surface; cartões e overlays mantêm seu vidro. */
+  background: var(--surface);
   border-right: 1px solid var(--border);
 }
 /* Alça de redimensionar a sidebar: tira fina montada SOBRE a borda direita dela
@@ -965,7 +968,13 @@ button.term-card__action--play:hover { color: var(--ok); }
 .compact-summary::before { display: none; }
 /* Compactação em curso: a mesma linha do resumo, mas viva — anel girando no
    lugar da seta de abrir e o relógio correndo. Não abre nada. */
-.compacting .action-group__header { cursor: default; }
+/* Esta faixa ocupa sua própria linha, sobre o fundo do chat. O preenchimento
+   translúcido mantém o acabamento; filtrar o fundo aqui obrigava a recompor a
+   faixa inteira a cada quadro do spinner, inclusive sem aceleração gráfica. */
+.compacting .action-group__header {
+  cursor: default;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
 .compacting__spinner {
   width: 10px; height: 10px; flex: none; border-radius: 50%;
   border: 2px solid var(--border); border-top-color: var(--accent);
@@ -2779,33 +2788,13 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 }
 .chat-entry:focus-within { content-visibility: visible; }
 
-/* Sessão parada não precisa manter dezenas de animações de olhos/sombras
-   e partículas ativas indefinidamente. Os estados de trabalho mantêm seu sinal. */
-.agent-face[data-face="idle"] *, .agent-face[data-face="sleeping"] * { animation: none; }
-
-/* Mesmo um único rosto de 20px mantinha a composição do vidro trabalhando
-   continuamente SEM eventos/JS. Nos indicadores pequenos, uma pose e um pulso
-   discreto comunicam o estado sem seis animações em ritmos diferentes.
-   steps(1, end) + keyframes só de opacidade permitem ao navegador ficar parado
-   entre mudanças; aplicar steps às antigas curvas ainda gerava muitos frames.
-   Os rostos grandes conservam seus gestos. Medição: docs/frontend-performance.md. */
-.agent-face[data-detail="compact"] * { animation: none; }
-.agent-face[data-detail="compact"] .agent-face__sparks,
-.agent-face[data-detail="compact"] .agent-face__ring { display: none; }
-.agent-face[data-detail="compact"]:is([data-face="working"], [data-face="compacting"], [data-face="uploading"]) .agent-face__body,
-.status-working,
-.status-dot--pulse {
-  animation: activity-pulse 1.2s steps(1, end) infinite;
-}
-.typing span {
-  animation: activity-pulse 1.2s steps(1, end) infinite;
-}
-.typing span:nth-child(2) { animation-delay: .15s; }
-.typing span:nth-child(3) { animation-delay: .3s; }
-@keyframes activity-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .55; }
-}
+.background-processes { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-dim); font-size: 13px; }
+.background-processes summary { cursor: pointer; }
+.background-processes ul { list-style: none; margin: 10px 0 0; padding: 0; }
+.background-processes li { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.background-processes li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.background-processes code { font-size: 11px; }
+.background-processes button { padding: 3px 8px; }
 
 /* Estas regras precisam vir depois das animações dos rostos: antes eram
    sobrescritas por seletores de mesma especificidade declarados mais abaixo. */

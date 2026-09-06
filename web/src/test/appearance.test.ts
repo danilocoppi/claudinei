@@ -49,11 +49,15 @@ describe('applyAppearance', () => {
     applyAppearance({ density: 'compact', radius: 'square', glass: 'off', fontUi: 'serif' }, root)
     expect(root.style.getPropertyValue('--density')).toBe('.8')
     expect(root.style.getPropertyValue('--glass-blur')).toBe('0px')
+    expect(root.dataset.glass).toBe('off')
 
     applyAppearance({ density: 'theme', radius: 'theme', glass: 'theme', fontUi: 'theme' }, root)
     for (const token of ['--density', '--radius', '--glass-blur', '--font-ui']) {
       expect(root.style.getPropertyValue(token), token).toBe('')
     }
+    expect(root.dataset.glass).toBe('theme')
+    applyAppearance({ glass: 'on' }, root)
+    expect(root.dataset.glass).toBe('on')
   })
 
   /** Antes o vidro era booleano: um "desligado" explícito não pode virar "do tema". */

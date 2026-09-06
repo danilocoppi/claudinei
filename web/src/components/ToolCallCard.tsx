@@ -9,10 +9,17 @@ type ToolCallItem = Extract<ChatItem, { kind: 'tool_call' }>
 const TOOL_ICON: Record<string, string> = {
   Bash: '💻', Read: '📖', Edit: '✏️', Write: '📝', MultiEdit: '✏️',
   Grep: '🔍', Glob: '🔍', WebFetch: '🌐', WebSearch: '🌐', Task: '🤖',
+  AskUserQuestion: '❔',
 }
 
 function summarize(item: ToolCallItem): string {
   const input = (item.input ?? {}) as Record<string, unknown>
+  // Pergunta ao operador: o resumo é o assunto de cada aba (header), não um comando.
+  if (item.name === 'AskUserQuestion') {
+    const qs = Array.isArray(input.questions) ? (input.questions as { header?: string; question?: string }[]) : []
+    const s = qs.map((q) => q.header || q.question || '').filter(Boolean).join(', ')
+    return s.length > 80 ? s.slice(0, 80) + '…' : s
+  }
   const first = input.command ?? input.file_path ?? input.pattern ?? input.url ?? input.description ?? ''
   const s = String(first)
   return s.length > 80 ? s.slice(0, 80) + '…' : s
@@ -56,7 +63,17 @@ export function ToolCallCard({ item }: { item: ToolCallItem }) {
                 <CopyButton text={String(e.new_string ?? '')} />
               </div>
             ))}
-          {!isEdit && (
+          {item.name === 'AskUserQuestion' && Array.isArray(input.questions) && (
+            <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12.5 }}>
+              {(input.questions as { question?: string; options?: { label?: string }[] }[]).map((q, i) => (
+                <li key={i}>
+                  <strong>{q.question}</strong>
+                  {q.options?.length ? <span style={{ color: 'var(--text-dim)' }}> — {q.options.map((o) => o.label).join(' / ')}</span> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {!isEdit && item.name !== 'AskUserQuestion' && (
             <div className="copy-wrap">
               <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 200, background: 'rgba(0,0,0,.3)', padding: 8, borderRadius: 6 }}>
                 {JSON.stringify(input, null, 2)}

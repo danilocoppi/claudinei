@@ -46,6 +46,21 @@ describe('ToolCallCard', () => {
     expect(screen.getByText('+ novo')).toBeTruthy()
     expect(screen.queryByText(/^- /)).toBeNull()
   })
+
+  it('AskUserQuestion: recolhido resume pelos headers; expandido lista as perguntas e as respostas', () => {
+    render(<ToolCallCard item={{ kind: 'tool_call', id: 't9', name: 'AskUserQuestion',
+      input: { questions: [
+        { question: 'Qual cor você prefere?', header: 'Cor', multiSelect: false, options: [{ label: 'Azul', description: '' }, { label: 'Verde', description: '' }] },
+        { question: 'Quais frutas?', header: 'Frutas', multiSelect: true, options: [{ label: 'Maçã', description: '' }] },
+      ] },
+      result: 'Your questions have been answered: "Qual cor você prefere?"="Azul", "Quais frutas?"="Maçã". You can now continue with these answers in mind.' }} />)
+    expect(screen.getByText('Cor, Frutas')).toBeTruthy()
+    expect(screen.queryByText(/Azul \/ Verde/)).toBeNull()
+    fireEvent.click(screen.getByText(/AskUserQuestion/))
+    expect(screen.getByText('Qual cor você prefere?')).toBeTruthy()
+    expect(screen.getByText(/Azul \/ Verde/)).toBeTruthy()
+    expect(screen.getByText(/"Qual cor você prefere\?"="Azul"/)).toBeTruthy()
+  })
 })
 
 describe('DiffView', () => {

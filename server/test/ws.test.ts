@@ -153,4 +153,49 @@ describe('websocket hub', () => {
     expect(msg.projectName).toBe('BoardProj')
     ws.close()
   })
+
+  const abrirComPergunta = async (ws: WebSocket, msgs: any[]) => {
+    await waitUntil(() => msgs.some((m) => m.type === 'sessions_snapshot'))
+    const post = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'PQ', path: mkdtempSync(join(tmpdir(), 'tm-')) } })
+    const sess = await app.inject({ method: 'POST', url: `/api/projects/${post.json().id}/sessions` })
+    const { localId } = sess.json()
+    await waitUntil(() => msgs.some((m) => m.type === 'session_status' && m.localId === localId && m.status === 'idle'))
+    ws.send(JSON.stringify({ type: 'send_message', localId, text: 'faz-pergunta' }))
+    await waitUntil(() => msgs.some((m) => m.type === 'session_status' && m.localId === localId && m.pendingQuestion))
+    return localId
+  }
+
+  it('answer_question pelo socket responde a pergunta pendente e o turno continua', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+    const msgs: any[] = collect(ws)
+    const localId = await abrirComPergunta(ws, msgs)
+    ws.send(JSON.stringify({ type: 'answer_question', localId, answers: { 'Qual cor você prefere?': 'Azul', 'Quais frutas você gosta?': 'Maçã' } }))
+    await waitUntil(() => msgs.some((m) => m.type === 'session_event' && m.localId === localId && m.event?.kind === 'result' && /"Azul"/.test(m.event.resultText)))
+    const ultimo = msgs.filter((m) => m.type === 'session_status' && m.localId === localId).at(-1)
+    expect(ultimo.status).toBe('needs_attention')
+    expect(ultimo.pendingQuestion).toBeUndefined()
+    ws.close()
+  })
+
+  it('dismiss_question pelo socket nega a pergunta', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+    const msgs: any[] = collect(ws)
+    const localId = await abrirComPergunta(ws, msgs)
+    ws.send(JSON.stringify({ type: 'dismiss_question', localId }))
+    await waitUntil(() => msgs.some((m) => m.type === 'session_event' && m.localId === localId && m.event?.kind === 'result' && /negado/.test(m.event.resultText)))
+    ws.close()
+  })
+
+  it('answer_question sem pergunta pendente devolve erro só ao solicitante', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+    const msgs: any[] = collect(ws)
+    await waitUntil(() => msgs.some((m) => m.type === 'sessions_snapshot'))
+    const post = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'PQ2', path: mkdtempSync(join(tmpdir(), 'tm-')) } })
+    const sess = await app.inject({ method: 'POST', url: `/api/projects/${post.json().id}/sessions` })
+    const { localId } = sess.json()
+    await waitUntil(() => msgs.some((m) => m.type === 'session_status' && m.localId === localId && m.status === 'idle'))
+    ws.send(JSON.stringify({ type: 'answer_question', localId, answers: { x: 'y' } }))
+    await waitUntil(() => msgs.some((m) => m.type === 'error' && /pendente/.test(m.message)))
+    ws.close()
+  })
 })

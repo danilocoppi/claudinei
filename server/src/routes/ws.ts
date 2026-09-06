@@ -121,6 +121,11 @@ export function createWsHub() {
             if (msg.type === 'send_message') deps.manager.send(msg.localId, msg.text)
             else if (msg.type === 'mark_read') deps.manager.markRead(msg.localId)
             else if (msg.type === 'interrupt') void deps.manager.interrupt(msg.localId).catch((err) => socket.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message })))
+            // Pergunta do agente (AskUserQuestion): responder ou dispensar. Ação de
+            // chat como send_message/interrupt — sem payload de volta, o status
+            // seguinte é a confirmação.
+            else if (msg.type === 'answer_question') deps.manager.answerQuestion(msg.localId, msg.answers)
+            else if (msg.type === 'dismiss_question') deps.manager.dismissQuestion(msg.localId)
             /**
              * `!comando` do chat: roda na pasta do terminal e a saída volta só
              * para quem pediu.

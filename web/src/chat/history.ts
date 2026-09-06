@@ -3,6 +3,12 @@ import type { ChatItem } from '../types'
 /** Marcadores que o CLI injeta como mensagem de usuário (ex.: ao interromper o turno). */
 const CLI_MARKER = /^\[Request interrupted/
 
+/** Preâmbulo fixo do resumo que o CLI injeta ao compactar (mesmo texto no stream ao vivo e no transcript). */
+const COMPACT_PREAMBLE = /^This session is being continued from a previous conversation/
+
+/** O texto é o resumo de compactação do CLI? (Redundante com raw.isCompactSummary — cobre quem só tem o texto.) */
+export const isCompactSummary = (text: string): boolean => COMPACT_PREAMBLE.test(text)
+
 /** O texto é um marcador de interrupção do CLI (e não algo digitado pelo usuário)? */
 export const isInterruptMarker = (text: string): boolean => CLI_MARKER.test(text)
 

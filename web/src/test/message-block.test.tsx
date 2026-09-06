@@ -210,3 +210,23 @@ describe('anexo na bolha do usuário vira link de arquivo', () => {
     expect(screen.getByText(new RegExp('veja'))).toBeTruthy()
   })
 })
+
+describe('resumo de compactação', () => {
+  const item = {
+    kind: 'user_text' as const, fromEngine: true, compactSummary: true,
+    text: 'This session is being continued from a previous conversation that ran out of context.\n\nSummary:\n\n1. **Primary Request**: refatorar X',
+  }
+
+  it('começa recolhido como uma linha de ação: título visível, resumo escondido, sem "by"', () => {
+    render(<MessageBlock item={item} currentLocalId="s1" />)
+    expect(screen.getByText('Contexto compactado')).toBeTruthy()
+    expect(screen.queryByText(/Primary Request/)).toBeNull()
+    expect(screen.queryByText(/^by /)).toBeNull()
+  })
+
+  it('expande no clique e mostra o resumo em markdown', () => {
+    render(<MessageBlock item={item} currentLocalId="s1" />)
+    fireEvent.click(screen.getByText('Contexto compactado'))
+    expect(screen.getByText('Primary Request').tagName).toBe('STRONG')
+  })
+})

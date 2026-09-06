@@ -125,6 +125,36 @@ function TextWithFileLinks({ text, projectId, localId }: { text: string; project
 }
 
 /**
+ * Resumo de compactação do CLI ("This session is being continued…"): chega como
+ * mensagem do usuário injetada pela engine, mas é bastidor — não conversa. Vira
+ * uma linha recolhida com a MESMA roupa do grupo de ações (action-group), com o
+ * resumo em markdown só para quem clicar. Sem "by", sem encaminhar, sem editar.
+ */
+function CompactSummaryBlock({ item, currentLocalId }: {
+  item: Extract<ChatItem, { kind: 'user_text' }>
+  currentLocalId?: string
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const lines = item.text.split('\n').length
+  return (
+    <div className={`action-group compact-summary${open ? ' action-group--open' : ''}`} role="note">
+      <div className="action-group__header" onClick={() => setOpen(!open)}>
+        <span>{open ? '▾' : '▸'}</span>
+        <span aria-hidden="true">🗜️</span>
+        <strong>{t('chat.compactSummary')}</strong>
+        <span className="action-group__summary">{t('chat.compactSummaryHint', { n: lines })}</span>
+      </div>
+      {open && (
+        <div className="action-group__body markdown" style={{ lineHeight: 1.6 }}>
+          <AssistantMarkdown text={item.text} currentLocalId={currentLocalId} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * Bolha do lado do usuário. Duas variações sobre a bolha padrão:
  *  - texto MUITO longo (> COLLAPSE_LINES linhas) começa recolhido, com "…" e
  *    botão para expandir/recolher;
@@ -298,6 +328,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
   const { t } = useTranslation()
   switch (item.kind) {
     case 'user_text':
+      if (item.compactSummary) return <CompactSummaryBlock item={item} currentLocalId={currentLocalId} />
       // Marcador que o CLI injeta como "mensagem do usuário" ao interromper o
       // turno — não foi digitado por ninguém: vira um divisor de interrupção,
       // não uma bolha (sem encaminhar/editar).

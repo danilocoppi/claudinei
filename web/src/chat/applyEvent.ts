@@ -1,3 +1,4 @@
+import { isCompactSummary } from './history'
 import type { ChatItem, ClaudeEvent, ContentBlock } from '../types'
 
 function blockToText(content: unknown): string {
@@ -106,6 +107,12 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       // mergeEngineFlags só alcança o caminho de sessão longa).
       const fromEngine = !!(raw?.isMeta || raw?.isCompactSummary || raw?.isSynthetic)
       const marks = { ...(fromSubagent ? { fromSubagent: true as const, parentId: parentId as string } : {}), ...(fromEngine ? { fromEngine } : {}) }
+      // Resumo de compactação: a flag vem nos dois caminhos (ao vivo e transcript);
+      // o preâmbulo fixo é a rede para um raw sem ela. É da engine por definição.
+      const stamp = (it: ChatItem): ChatItem =>
+        it.kind === 'user_text' && (raw?.isCompactSummary === true || isCompactSummary(it.text))
+          ? { ...it, fromEngine: true, compactSummary: true }
+          : it
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
       let next = items
       for (const b of blocks) {
@@ -116,11 +123,11 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
               : it,
           )
         } else if (b.type === 'text' && b.text) {
-          for (const it of classifyUserText(b.text)) next = [...next, { ...it, ...marks }]
+          for (const it of classifyUserText(b.text)) next = [...next, stamp({ ...it, ...marks })]
         }
       }
       if (typeof evt.message.content === 'string' && evt.message.content) {
-        for (const it of classifyUserText(evt.message.content)) next = [...next, { ...it, ...marks }]
+        for (const it of classifyUserText(evt.message.content)) next = [...next, stamp({ ...it, ...marks })]
       }
       return next
     }

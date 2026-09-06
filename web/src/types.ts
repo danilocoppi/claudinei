@@ -87,7 +87,9 @@ export type ClaudeEvent =
 export type ChatItem =
   // fromEngine: conteúdo que aparece do lado do usuário mas foi injetado pela
   // engine/harness (isMeta, resumo de compact) — não foi digitado pelo operador.
-  | { kind: 'user_text'; text: string; fromSubagent?: boolean; parentId?: string; fromEngine?: boolean }
+  // compactSummary: o resumo que o CLI injeta após compactar o contexto — vira
+  // uma linha recolhida (como o grupo de ações), não uma bolha.
+  | { kind: 'user_text'; text: string; fromSubagent?: boolean; parentId?: string; fromEngine?: boolean; compactSummary?: boolean }
   // isApiError: erro interno da API do provedor que o CLI injeta como texto do
   // assistant ("API Error: …") — vira callout de erro, não resposta normal.
   | { kind: 'assistant_text'; text: string; fromSubagent?: boolean; parentId?: string; isApiError?: boolean }

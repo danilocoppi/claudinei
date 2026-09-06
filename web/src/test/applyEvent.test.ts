@@ -158,13 +158,13 @@ describe('mensagens de usuário geradas pela engine (isMeta/isCompactSummary)', 
     expect(items).toEqual([{ kind: 'user_text', text: 'conteúdo injetado pela engine', fromEngine: true }])
   })
 
-  it('user com raw.isCompactSummary vira user_text com fromEngine', () => {
+  it('user com raw.isCompactSummary vira user_text com fromEngine (e compactSummary)', () => {
     const items = applyEvent([], {
       kind: 'user',
       message: { role: 'user', content: 'This session is being continued…' },
       raw: { type: 'user', isCompactSummary: true },
     } as never)
-    expect(items).toEqual([{ kind: 'user_text', text: 'This session is being continued…', fromEngine: true }])
+    expect(items).toEqual([{ kind: 'user_text', text: 'This session is being continued…', fromEngine: true, compactSummary: true }])
   })
 
   // AO VIVO o CLI não manda isMeta: o mesmo conteúdo (skill, harness) chega marcado
@@ -288,5 +288,25 @@ describe('parentId — de QUAL subagente o item veio', () => {
   it('item do agente principal não ganha parentId', () => {
     const out = applyEvent([], assistantEvt([{ type: 'text', text: 'oi' }]))
     expect((out[0] as { parentId?: string }).parentId).toBeUndefined()
+  })
+})
+
+describe('resumo de compactação', () => {
+  const userEvt = (text: string, raw: object = {}): ClaudeEvent =>
+    ({ kind: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, raw }) as ClaudeEvent
+  const PREAMBULO = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request and Intent: …'
+
+  it('isCompactSummary no raw marca o item como resumo de compactação (e da engine)', () => {
+    const out = applyEvent([], userEvt(PREAMBULO, { isCompactSummary: true }))
+    expect(out).toEqual([{ kind: 'user_text', text: PREAMBULO, fromEngine: true, compactSummary: true }])
+  })
+
+  it('sem a flag, o preâmbulo fixo do CLI basta para reconhecer o resumo', () => {
+    const out = applyEvent([], userEvt(PREAMBULO))
+    expect(out).toEqual([{ kind: 'user_text', text: PREAMBULO, fromEngine: true, compactSummary: true }])
+  })
+
+  it('texto comum do usuário não vira resumo', () => {
+    expect(applyEvent([], userEvt('faça X'))).toEqual([{ kind: 'user_text', text: 'faça X' }])
   })
 })

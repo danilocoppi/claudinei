@@ -156,4 +156,54 @@ describe('AskUserQuestion (can_use_tool vindo da CLI)', () => {
     await waitUntil(() => s.status === 'dead')
     expect(s.pendingQuestion).toBeUndefined()
   })
+
+  const askAndWait = async () => {
+    const s = start()
+    await waitUntil(() => s.status === 'idle')
+    s.send('faz-pergunta')
+    await waitUntil(() => s.pendingQuestion !== undefined)
+    return s
+  }
+  const results = (s: ClaudeSession) => {
+    const r: string[] = []
+    s.on('event', (e: ClaudeEvent) => { if (e.kind === 'result') r.push(e.resultText) })
+    return r
+  }
+
+  it('answerQuestion responde à CLI no formato dela: o turno continua com as respostas e a pendência some', async () => {
+    const s = await askAndWait()
+    const rs = results(s)
+    s.answerQuestion({ 'Qual cor você prefere?': 'Azul', 'Quais frutas você gosta?': 'Maçã, Banana' })
+    expect(s.pendingQuestion).toBeUndefined()
+    await waitUntil(() => rs.length === 1)
+    expect(rs[0]).toContain('"Qual cor você prefere?"="Azul"')
+    expect(rs[0]).toContain('"Quais frutas você gosta?"="Maçã, Banana"')
+    expect(s.status).toBe('needs_attention')
+  })
+
+  it('answerQuestion exige resposta não vazia para TODAS as perguntas (a pendência fica)', async () => {
+    const s = await askAndWait()
+    expect(() => s.answerQuestion({ 'Qual cor você prefere?': 'Azul' })).toThrow(/Frutas/)
+    expect(() => s.answerQuestion({ 'Qual cor você prefere?': 'Azul', 'Quais frutas você gosta?': '   ' })).toThrow(/Frutas/)
+    expect(() => s.answerQuestion(null as never)).toThrow(/respostas/)
+    expect(s.pendingQuestion).toBeDefined()
+  })
+
+  it('answerQuestion / dismissQuestion sem pendência lançam', async () => {
+    const s = start()
+    await waitUntil(() => s.status === 'idle')
+    expect(() => s.answerQuestion({ x: 'y' })).toThrow(/pendente/)
+    expect(() => s.dismissQuestion()).toThrow(/pendente/)
+  })
+
+  it('dismissQuestion nega: a CLI recebe o tool_result de erro e o turno fecha normal', async () => {
+    const s = await askAndWait()
+    const rs = results(s)
+    s.dismissQuestion()
+    expect(s.pendingQuestion).toBeUndefined()
+    await waitUntil(() => rs.length === 1)
+    expect(rs[0]).toMatch(/negado/)
+    expect(rs[0]).toMatch(/responder pelo chat/i)
+    expect(s.status).toBe('needs_attention')
+  })
 })

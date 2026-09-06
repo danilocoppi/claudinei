@@ -369,6 +369,42 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     this.respondControl(rid, { behavior: 'allow', updatedInput: input })
   }
 
+  /**
+   * Resposta do operador à pergunta pendente, no formato que a CLI espera:
+   * `answers` chaveado pelo TEXTO da pergunta; múltipla escolha vem como rótulos
+   * separados por ", "; resposta livre é qualquer string. O `input` original
+   * volta inteiro no updatedInput (é assim que a CLI casa pergunta e resposta).
+   */
+  answerQuestion(answers: Record<string, string>): void {
+    const p = this.requirePending()
+    if (!answers || typeof answers !== 'object') throw new Error('respostas ausentes')
+    for (const q of p.questions) {
+      const a = answers[q.question]
+      if (typeof a !== 'string' || !a.trim()) throw new Error(`pergunta sem resposta: ${q.header}`)
+    }
+    this.respondControl(p.requestId, { behavior: 'allow', updatedInput: { ...p.input, answers } })
+    this.pending = undefined
+    this.emit('status', this.status)
+  }
+
+  /**
+   * O operador prefere responder em prosa: nega a tool com uma mensagem que o
+   * modelo lê (medido: vira tool_result is_error e o turno fecha normal), e a
+   * caixa de mensagem faz o resto.
+   */
+  dismissQuestion(): void {
+    const p = this.requirePending()
+    this.respondControl(p.requestId, { behavior: 'deny', message: 'O usuário vai responder pelo chat.' })
+    this.pending = undefined
+    this.emit('status', this.status)
+  }
+
+  private requirePending(): PendingState {
+    if (!this.proc || this.status === 'stopped' || this.status === 'dead') throw new Error(`sessão não aceita resposta no status ${this.status}`)
+    if (!this.pending) throw new Error('nenhuma pergunta pendente')
+    return this.pending
+  }
+
   private respondControl(request_id: string, response: object): void {
     this.proc?.stdin.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id, response } }) + '\n')
   }

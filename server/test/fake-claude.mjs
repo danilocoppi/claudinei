@@ -14,6 +14,9 @@
 //   contém "faz-pergunta" -> AskUserQuestion: tool_use + control_request can_use_tool
 //                         (request_id q-req-1, tool_use_id toolu_q_1) e ESPERA o
 //                         control_response do host (Task 2 trata a resposta).
+//                         control_response allow → tool_result "Your questions have been
+//                         answered: …" + "eco: respostas …" + result; deny → tool_result
+//                         is_error + "eco: negado <message>" + result.
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -42,6 +45,31 @@ const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
   let msg
   try { msg = JSON.parse(line) } catch { return }
+  // Host respondeu à pergunta (ou a outro can_use_tool) — o turno bloqueado segue.
+  if (msg?.type === 'control_response' && pendingQuestion && msg.response?.request_id === pendingQuestion.request_id) {
+    const r = msg.response?.response ?? {}
+    const p = pendingQuestion; pendingQuestion = null
+    const usage = { input_tokens: 10, cache_read_input_tokens: Number(process.env.CLAUDE_FAKE_CTX ?? 100), cache_creation_input_tokens: 0, output_tokens: 5 }
+    if (r.behavior === 'allow') {
+      // Texto EXATO que a CLI real injeta (medido) quando há perguntas; sem
+      // perguntas (pedido-comum) é só um tool_result qualquer.
+      const answers = r.updatedInput?.answers ?? {}
+      const pares = Object.entries(answers).map(([q, a]) => `"${q}"="${a}"`).join(', ')
+      const content = p.questions
+        ? `Your questions have been answered: ${pares}. You can now continue with these answers in mind.`
+        : 'oi'
+      const eco = p.questions ? `eco: respostas ${pares}` : 'eco: permitido'
+      out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content }] } })
+      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
+      out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
+    } else {
+      const eco = `eco: negado ${r.message ?? ''}`.trim()
+      out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content: r.message ?? 'rejected', is_error: true }] } })
+      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
+      out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
+    }
+    return
+  }
   if (msg?.type === 'control_request') {
     const r = msg.request ?? {}
     if (r.subtype === 'interrupt') {

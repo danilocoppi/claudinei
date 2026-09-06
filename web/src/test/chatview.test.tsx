@@ -390,3 +390,29 @@ it('sem pergunta pendente não há painel, e o placeholder de working continua o
   expect(screen.getByPlaceholderText(/processando/i)).toBeTruthy()
   spy.mockRestore()
 })
+
+/**
+ * Compactação em curso: no terminal a CLI mostra "Compacting conversation…" com o
+ * tempo correndo; aqui os três pontinhos genéricos dão lugar a uma linha no estilo
+ * das ações, com o mesmo relógio — não há porcentagem em lugar nenhum, só estado
+ * e tempo decorrido.
+ */
+it('compactando: a linha "Compactando o contexto…" com o tempo toma o lugar dos três pontinhos', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  useStore.setState({ sessions: { a: sess('a', { status: 'working', compactingSince: Date.now() - 14_000 }) }, activeLocalId: 'a', view: 'chat' })
+  render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  const linha = screen.getByTestId('compacting-indicator')
+  expect(linha.textContent).toMatch(/Compactando o contexto…/)
+  expect(linha.textContent).toMatch(/14s/)
+  expect(screen.queryByTestId('typing-indicator')).toBeNull()
+  spy.mockRestore()
+})
+
+it('sem compactação, os três pontinhos continuam como sempre', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  useStore.setState({ sessions: { a: sess('a', { status: 'working' }) }, activeLocalId: 'a', view: 'chat' })
+  render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  expect(screen.getByTestId('typing-indicator')).toBeTruthy()
+  expect(screen.queryByTestId('compacting-indicator')).toBeNull()
+  spy.mockRestore()
+})

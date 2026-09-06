@@ -963,6 +963,14 @@ button.term-card__action--play:hover { color: var(--ok); }
 /* Resumo de compactação: uma coisa só, não uma pilha — sem a moldura "empilhada"
    do grupo recolhido; o corpo aberto é texto corrido, ganha respiro. */
 .compact-summary::before { display: none; }
+/* Compactação em curso: a mesma linha do resumo, mas viva — anel girando no
+   lugar da seta de abrir e o relógio correndo. Não abre nada. */
+.compacting .action-group__header { cursor: default; }
+.compacting__spinner {
+  width: 10px; height: 10px; flex: none; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: face-spin 1s linear infinite;
+}
 .compact-summary .action-group__body { padding: 6px 12px; }
 .sess-pop {
   position:fixed; min-width:220px; border-radius: var(--radius-lg); padding:6px; z-index:61;
@@ -1631,7 +1639,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   .agent-face__arrows i, .agent-face__ring, .agent-face__sparks i,
   .agent-face__dots i, .agent-face__zzz i, .agent-face__halo,
   .agent-face__glow, .agent-face__pill, .sonar i,
-  .agent-face__term-caret, .agent-face__term-glow { animation: none; }
+  .agent-face__term-caret, .agent-face__term-glow, .compacting__spinner { animation: none; }
   /* Parado, o anel fica ACESO: quem desliga animação continua precisando ver
      quem espera. */
   .sonar i:first-child { box-shadow: 0 0 0 3px var(--warn); opacity: .55; }
@@ -2077,7 +2085,8 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 [data-motion="reduced"] .agent-face__pill,
 [data-motion="reduced"] .sonar i,
 [data-motion="reduced"] .agent-face__term-caret,
-[data-motion="reduced"] .agent-face__term-glow { animation: none; }
+[data-motion="reduced"] .agent-face__term-glow,
+[data-motion="reduced"] .compacting__spinner { animation: none; }
 [data-motion="reduced"] .sonar i:first-child { box-shadow: 0 0 0 3px var(--warn); opacity: .55; }
 [data-motion="reduced"] .sonar i:nth-child(2) { display: none; }
 [data-motion="reduced"] .agent-face__halo { opacity: .55; transform: scale(1.18); }

@@ -186,6 +186,7 @@ export const es: typeof en = {
     interrupted: 'Interrumpido por el usuario',
     actionsGroup: '{{count}} acciones',
     compactSummary: 'Contexto compactado', compactSummaryHint: 'resumen de la conversación anterior · {{n}} líneas', compactSummaryFrom: 'de {{tokens}} tokens',
+    compacting: 'Compactando el contexto…', compactingElapsed: 'resumiendo la conversación · {{s}}s',
     showAll: 'mostrar todo (+{{n}} líneas)', collapse: 'contraer',
     taskFrom: 'Tarea de {{from}}', subagentPrompt: 'Instrucción al subagente',
     scheduledFrom: 'Programación: {{name}} · ejecución #{{run}}',

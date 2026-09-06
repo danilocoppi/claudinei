@@ -187,6 +187,7 @@ export const ptBR: typeof en = {
     interrupted: 'Interrompido pelo usuário',
     actionsGroup: '{{count}} ações',
     compactSummary: 'Contexto compactado', compactSummaryHint: 'resumo da conversa anterior · {{n}} linhas', compactSummaryFrom: 'de {{tokens}} tokens',
+    compacting: 'Compactando o contexto…', compactingElapsed: 'resumindo a conversa · {{s}}s',
     showAll: 'mostrar tudo (+{{n}} linhas)', collapse: 'recolher',
     taskFrom: 'Task de {{from}}', subagentPrompt: 'Instrução ao subagente',
     scheduledFrom: 'Agendamento: {{name}} · execução #{{run}}',

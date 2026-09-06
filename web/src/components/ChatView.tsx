@@ -11,6 +11,7 @@ import { WsContext } from '../wsContext'
 import { isEditableUserText } from '../chat/history'
 import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
 import { RunningSubagents } from './RunningSubagents'
+import { CompactingIndicator } from './CompactingIndicator'
 import { ReauthBanner } from './ReauthBanner'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
@@ -237,10 +238,16 @@ export function ChatView() {
             backgroundTasks={session.backgroundTasks}
             onStopTask={(taskId) => { void stopSubagentTask(session.localId, taskId).catch(() => {}) }}
           />}
+        {/* Compactando, os pontinhos não dizem nada: é uma espera longa e com
+            nome — a linha mostra o que está acontecendo e há quanto tempo. */}
         {session.status === 'working' && !streamingText && (
-          <div className="typing" data-testid="typing-indicator" aria-label={t('chat.processing')}>
-            <span /><span /><span />
-          </div>
+          session.compactingSince
+            ? <CompactingIndicator since={session.compactingSince} />
+            : (
+              <div className="typing" data-testid="typing-indicator" aria-label={t('chat.processing')}>
+                <span /><span /><span />
+              </div>
+            )
         )}
         <div ref={bottomRef} />
         </div>

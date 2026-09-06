@@ -22,9 +22,9 @@ const POSTER = 56
 export function faceStateOf(session: SessionInfo | undefined): FaceState {
   if (!session) return 'sleeping'
   // A vez é sua nos dois casos, mas o amarelo é RESERVADO a quem perguntou: o motor
-  // parou e espera resposta. O terminal parado no prompt é o roxo — ele não perguntou
-  // nada, só chegou ao fim da linha.
-  if (isWaitingForYou(session)) return session.status === 'needs_attention' ? 'attention' : 'waiting'
+  // parou e espera resposta — needs_attention e a pergunta pendente. O terminal
+  // parado no prompt é o roxo — ele não perguntou nada, só chegou ao fim da linha.
+  if (isWaitingForYou(session)) return session.status === 'needs_attention' || session.pendingQuestion ? 'attention' : 'waiting'
   if (session.status === 'working') return 'working'
   if (session.status === 'in_terminal') {
     return session.terminalActivity === 'working' ? 'working' : 'terminal'

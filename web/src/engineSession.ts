@@ -102,6 +102,8 @@ export function unreadOf(projectId: number, sessions: Record<string, SessionInfo
  * rótulo básico. Demais status passam direto.
  */
 export function displayStatusKey(s: SessionInfo): string {
+  // O agente perguntou e parou: é o rótulo que importa, não o "trabalhando" do turno aberto.
+  if (s.pendingQuestion) return 'question'
   if (s.status === 'in_terminal' && s.terminalActivity && s.terminalActivity !== 'idle') {
     return `in_terminal_${s.terminalActivity}`
   }
@@ -115,11 +117,14 @@ export function displayStatusKey(s: SessionInfo): string {
  * TUI parado (in_terminal + waiting).
  */
 export function isWaitingForYou(s: SessionInfo): boolean {
-  return s.status === 'needs_attention' || (s.status === 'in_terminal' && s.terminalActivity === 'waiting')
+  // Três caminhos: needs_attention (chat), pergunta pendente (o agente parou e
+  // perguntou — o turno segue `working`, mas quem trava é você) e o TUI parado.
+  return s.status === 'needs_attention' || !!s.pendingQuestion || (s.status === 'in_terminal' && s.terminalActivity === 'waiting')
 }
 
 /** Classe do status-dot: terminal esperando = âmbar (como needs_attention); processando = pulso. */
 export function dotClassOf(s: SessionInfo): string {
+  if (s.pendingQuestion) return 'status-dot status-needs_attention'
   if (s.status === 'in_terminal' && s.terminalActivity === 'waiting') return 'status-dot status-needs_attention'
   if (s.status === 'in_terminal' && s.terminalActivity === 'working') return 'status-dot status-in_terminal status-dot--pulse'
   return `status-dot status-${s.status}`

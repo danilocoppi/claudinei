@@ -136,6 +136,7 @@ export const en = {
     needs_attention: 'waiting for you', stopped: 'finished', dead: 'dead',
     in_terminal: 'in terminal',
     in_terminal_working: 'in terminal — working…', in_terminal_waiting: 'in terminal — waiting for you',
+    question: 'awaiting your answer',
     yourTurn: 'YOUR TURN',
   },
   dashboard: {

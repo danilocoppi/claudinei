@@ -175,8 +175,10 @@ Renderizado no `ChatView` acima da caixa de mensagem (onde fica o
   respondidas → `answer_question`). Na pergunta única, Enter no campo livre
   envia.
 - `answers`: `{ [question.question]: rótulo | "rótulo1, rótulo2" | texto livre }`.
-- Estado local `busy` após enviar; erro do servidor aparece inline; o painel
-  some quando o `session_status` seguinte chega sem pendência.
+- Estado local `busy` após enviar; a confirmação é o `session_status` seguinte
+  sem pendência (o painel some). Sem retorno em 5 s — pergunta já respondida em
+  outra aba, WS caiu — os botões destravam para tentar de novo; não há canal de
+  erro inline.
 - Visual: painel de vidro como o `.reauth`, mas no tom de destaque (`--accent`),
   não de aviso — é um pedido, não um alerta. Linhas de opção de largura total
   (celular), foco visível, semântica nativa de rádio/checkbox.
@@ -202,7 +204,7 @@ onde o painel não existe.
 
 | Situação | Comportamento |
 |---|---|
-| Responder o que já foi respondido (outra aba, clique duplo) | servidor devolve erro; painel mostra inline e some no próximo status |
+| Responder o que já foi respondido (outra aba, clique duplo) | servidor devolve erro ao socket; o painel já sumiu (ou some) pelo status; se nada voltar, os botões destravam em 5 s |
 | Interromper com pergunta aberta | CLI manda `control_cancel_request`; pendência limpa; chat mostra a rejeição como hoje |
 | Stop / processo morre | pendência limpa no fechamento |
 | Restart do servidor | CLI morre junto; nada a restaurar |

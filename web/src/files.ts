@@ -4,6 +4,16 @@
 export type FileKind = 'image' | 'pdf' | 'markdown' | 'code' | 'text' | 'binary'
 export interface ScopeResult { path: string; exists: boolean; inScope: boolean; kind?: FileKind; size?: number }
 
+/**
+ * Chave do cache de resolução (store.fileResolved). Caminho RELATIVO só faz
+ * sentido dentro de um projeto — o mesmo `docs/README.md` existe num e não
+ * noutro —, então a chave carrega o projeto. Absoluto e `~/` são globais.
+ */
+export function resolvedKey(path: string, projectId?: number): string {
+  const absolute = path.startsWith('/') || path.startsWith('~/')
+  return absolute || projectId === undefined ? path : `${projectId}:${path}`
+}
+
 // absoluto (/...) ou ~/... com extensão (1-8 chars alfanum) no fim. O lookbehind
 // (?<!\w) evita casar um "/" no meio de um path relativo (ex.: o "/components" de
 // "src/components/App.tsx") como se fosse o início de um path absoluto novo.

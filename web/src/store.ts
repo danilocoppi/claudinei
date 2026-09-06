@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
 import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
-import type { FileKind, ScopeResult } from './files'
+import { resolvedKey, type FileKind, type ScopeResult } from './files'
 import { applyEvent } from './chat/applyEvent'
 import { notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK } from './slash'
@@ -94,7 +94,8 @@ interface State {
   installPrompt: { prompt(): Promise<void>; userChoice: Promise<unknown> } | null
   /** Cache de resolve de paths detectados no chat (MessageBlock), por path → resultado do `/api/files/resolve`. */
   fileResolved: Record<string, ScopeResult>
-  setFilesResolved(results: ScopeResult[]): void
+  /** Guarda resultados de resolve sob a chave (projeto + caminho) — ver resolvedKey em files.ts. */
+  setFilesResolved(results: ScopeResult[], projectId?: number): void
   setProjects(projects: Project[]): void
   setGroups(groups: Group[]): void
   setSectors(sectors: Sector[]): void
@@ -513,10 +514,10 @@ export const useStore = create<State>((set, get) => ({
 
   clearInstallPrompt: () => set({ installPrompt: null }),
 
-  setFilesResolved: (results) =>
+  setFilesResolved: (results, projectId) =>
     set((s) => {
       const fileResolved = { ...s.fileResolved }
-      for (const r of results) fileResolved[r.path] = r
+      for (const r of results) fileResolved[resolvedKey(r.path, projectId)] = r
       return { fileResolved }
     }),
 }))

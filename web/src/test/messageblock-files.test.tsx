@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import { MessageBlock } from '../components/MessageBlock'
 import { FileOpenMenu } from '../components/FileOpenMenu'
@@ -111,7 +111,8 @@ describe('MessageBlock — paths de arquivo clicáveis', () => {
 
     render(<><MessageBlock item={{ kind: 'assistant_text', text: 'veja [notas.md](notas.md)' }} currentLocalId="s1" /><FileOpenMenu /></>)
 
-    await waitFor(() => expect(Object.keys(useStore.getState().fileResolved)).toContain('notas.md'))
+    // relativo é chaveado pelo projeto (resolvedKey): '7:' + caminho
+    await waitFor(() => expect(Object.keys(useStore.getState().fileResolved)).toContain('7:notas.md'))
     const link = await waitFor(() => {
       const el = document.querySelector('.file-link') as HTMLAnchorElement
       expect(el?.isConnected).toBe(true)
@@ -266,5 +267,62 @@ describe('MessageBlock — path dentro de código inline', () => {
     render(<MessageBlock item={{ kind: 'assistant_text', text: `\`\`\`sh\ncat ${PLAN}\n\`\`\`` }} />)
     await new Promise((r) => setTimeout(r, 20))
     expect(document.querySelector('pre a.file-link')).toBeNull()
+  })
+})
+
+describe('cache de resolução — negativo não é definitivo', () => {
+  const okResolve = (exists: boolean) =>
+    okJson([{ path: 'docs/spec.md', exists, inScope: exists, ...(exists ? { kind: 'markdown', size: 10 } : {}) }])
+
+  beforeEach(() => {
+    useStore.setState({
+      sessions: { s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },
+    })
+  })
+
+  /**
+   * O fluxo real: "vou escrever em docs/spec.md" (arquivo ainda não existe) →
+   * o agente escreve → "escrevi em docs/spec.md". A 2ª mensagem tem de reconsultar.
+   */
+  it('mensagem nova que cita o caminho reconsulta o que estava negativo e vira link', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okResolve(false))
+      .mockResolvedValueOnce(okResolve(true))
+
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'vou escrever em docs/spec.md' }} currentLocalId="s1" />)
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(useStore.getState().fileResolved['7:docs/spec.md']?.exists).toBe(false))
+    expect(document.querySelector('.file-link')).toBeNull()
+
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'escrevi em docs/spec.md' }} currentLocalId="s1" />)
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
+    // as DUAS menções viram link — o cache é compartilhado
+    await waitFor(() => expect(document.querySelectorAll('.file-link').length).toBe(2))
+  })
+
+  it('positivo continua cacheado: a 2ª menção não gera outro POST', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResolve(true))
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'veja docs/spec.md' }} currentLocalId="s1" />)
+    await waitFor(() => expect(document.querySelector('.file-link')).toBeTruthy())
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'de novo docs/spec.md' }} currentLocalId="s1" />)
+    await waitFor(() => expect(document.querySelectorAll('.file-link').length).toBe(2))
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  /** Caminho relativo é do projeto: `docs/spec.md` inexistente no 7 não pode calar o do 9. */
+  it('a chave do cache carrega o projeto para caminhos relativos', async () => {
+    useStore.setState({
+      sessions: {
+        s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never,
+        s2: { localId: 's2', projectId: 9, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never,
+      },
+      fileResolved: { '7:docs/spec.md': { path: 'docs/spec.md', exists: false, inScope: false } },
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResolve(true))
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'aqui docs/spec.md' }} currentLocalId="s2" />)
+    await waitFor(() => expect(document.querySelector('.file-link')).toBeTruthy())
+    // o negativo do projeto 7 segue lá, intacto
+    expect(useStore.getState().fileResolved['7:docs/spec.md'].exists).toBe(false)
+    expect(useStore.getState().fileResolved['9:docs/spec.md'].exists).toBe(true)
   })
 })

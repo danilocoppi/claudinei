@@ -367,3 +367,26 @@ it('engine com CLI não instalada: aba mostra "não instalada" e NÃO oferece o 
   // nenhum botão de iniciar o Codex
   expect(screen.queryByTitle('Iniciar Codex')).toBeNull()
 })
+
+const PENDING = { toolUseId: 'toolu_q_1', questions: [
+  { question: 'Qual cor você prefere?', header: 'Cor', multiSelect: false, options: [{ label: 'Azul', description: 'Cor azul' }] },
+] }
+
+it('pergunta pendente: o painel aparece acima da caixa e o placeholder muda', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  useStore.setState({ sessions: { a: sess('a', { status: 'working', pendingQuestion: PENDING }) }, activeLocalId: 'a', view: 'chat' })
+  render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  expect(screen.getByTestId('question-panel')).toBeTruthy()
+  expect(screen.getByText('Qual cor você prefere?')).toBeTruthy()
+  expect(screen.getByPlaceholderText(/responda acima/i)).toBeTruthy()
+  spy.mockRestore()
+})
+
+it('sem pergunta pendente não há painel, e o placeholder de working continua o de sempre', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  useStore.setState({ sessions: { a: sess('a', { status: 'working' }) }, activeLocalId: 'a', view: 'chat' })
+  render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  expect(screen.queryByTestId('question-panel')).toBeNull()
+  expect(screen.getByPlaceholderText(/processando/i)).toBeTruthy()
+  spy.mockRestore()
+})

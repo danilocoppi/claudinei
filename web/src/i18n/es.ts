@@ -174,6 +174,7 @@ export const es: typeof en = {
     placeholder: 'Mensaje para {{engine}}… (arrastra o pega archivos)',
     placeholderShort: 'Mensaje para {{engine}}…',
     placeholderWorking: 'procesando… lo que envíes ahora se suma al turno actual', placeholderUploading: 'subiendo adjunto…',
+    placeholderQuestion: 'Responde arriba — o escribe aquí para orientar al agente',
     mentionSearch: 'buscar terminal…',
     mentionEmpty: 'ningún terminal con ese nombre',
     processing: 'procesando',

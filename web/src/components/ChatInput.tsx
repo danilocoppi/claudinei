@@ -298,6 +298,9 @@ export function ChatInput({
           rows={1}
           placeholder={
             uploading > 0 ? t('chat.placeholderUploading')
+            // Pergunta pendente ANTES de "working": o turno ainda está aberto
+            // enquanto ela espera, mas o lugar certo pra responder é o painel acima.
+            : session?.pendingQuestion ? t('chat.placeholderQuestion')
             : session?.status === 'working' ? t('chat.placeholderWorking')
             : t(telaEstreita ? 'chat.placeholderShort' : 'chat.placeholder', { engine: engine?.label ?? 'Claude Code' })
           }

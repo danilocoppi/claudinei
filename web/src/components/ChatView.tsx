@@ -12,6 +12,7 @@ import { isEditableUserText } from '../chat/history'
 import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
 import { RunningSubagents } from './RunningSubagents'
 import { ReauthBanner } from './ReauthBanner'
+import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
@@ -262,6 +263,11 @@ export function ChatView() {
           continuar visível enquanto o operador digita e a conversa anda. */}
       {/* Credencial expirada: sem isto a sessão só empilha erros de API e o
           operador precisa lembrar sozinho de rodar /login no terminal. */}
+      {/* Pergunta do agente (AskUserQuestion): o painel mora aqui, acima da caixa,
+          como o diálogo no terminal. Some sozinho quando o status chega sem ela. */}
+      {session.pendingQuestion && session.status !== 'in_terminal' && (
+        <QuestionPanel localId={session.localId} pending={session.pendingQuestion} />
+      )}
       <ReauthBanner localId={session.localId} expired={session.authExpired} />
       <InlineFileView localId={session.localId} />
       {session.status === 'in_terminal' ? (

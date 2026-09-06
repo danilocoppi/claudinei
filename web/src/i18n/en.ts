@@ -172,6 +172,7 @@ export const en = {
     placeholder: 'Message for {{engine}}… (drag or paste files)',
     placeholderShort: 'Message for {{engine}}…',
     placeholderWorking: 'processing… additions you send now join the current turn', placeholderUploading: 'uploading attachment…',
+    placeholderQuestion: 'Answer above — or write here to steer the agent',
     mentionSearch: 'search terminal…',
     mentionEmpty: 'no terminal with that name',
     processing: 'processing',

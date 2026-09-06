@@ -175,6 +175,7 @@ export const ptBR: typeof en = {
     /* Celular: sem a dica de arrastar (que lá nem existe) o campo vazio cabe em UMA linha. */
     placeholderShort: 'Mensagem para o {{engine}}…',
     placeholderWorking: 'processando… adendos enviados agora entram no turno atual', placeholderUploading: 'enviando anexo…',
+    placeholderQuestion: 'Responda acima — ou escreva aqui para orientar o agente',
     mentionSearch: 'buscar terminal…',
     mentionEmpty: 'nenhum terminal com esse nome',
     processing: 'processando',

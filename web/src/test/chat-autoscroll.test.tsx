@@ -4,6 +4,7 @@ import { ChatView } from '../components/ChatView'
 import { useStore } from '../store'
 import { DEFAULT_APPEARANCE } from '../appearance'
 import type { EngineMeta, SessionInfo } from '../types'
+import * as grouping from '../chat/grouping'
 
 const CLAUDE: EngineMeta = {
   id: 'claude', label: 'Claude Code', icon: 'claude', models: [''], efforts: ['auto'],
@@ -50,6 +51,17 @@ const chegaMaisTexto = () =>
  * impossível — cada pedaço que chegava puxava a barra de volta para o fim.
  */
 describe('ler o que passou enquanto o agente escreve', () => {
+  it('streaming e eventos de outra sessão não reprocessam os grupos do histórico', () => {
+    const group = vi.spyOn(grouping, 'groupActions')
+    render(<ChatView />)
+    group.mockClear()
+    act(() => useStore.getState().applyWsMessage({ type: 'session_event', localId: 's1', event: { kind: 'stream', text: 'novo trecho', raw: {} } }))
+    expect(screen.getByTestId('streaming-preview').textContent).toContain('novo trecho')
+    act(() => useStore.getState().applyWsMessage({ type: 'session_event', localId: 'other', event: { kind: 'stream', text: 'outra conversa', raw: {} } }))
+    expect(group).not.toHaveBeenCalled()
+    expect(screen.getByTestId('streaming-preview').textContent).not.toContain('outra conversa')
+  })
+
   it('subir a rolagem solta a tela: o que chega não puxa mais', () => {
     render(<ChatView />)
     posicionar(0)

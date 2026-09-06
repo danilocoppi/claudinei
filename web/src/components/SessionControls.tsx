@@ -57,16 +57,16 @@ export function SessionControls({ session }: { session: SessionInfo }) {
   // trazer), ele é um slash command headless-executável (spike 2026-07-12): envia
   // como mensagem normal e a confirmação volta pelo chat, movendo o ✓ (farejador
   // no store). Decisão dirigida pela lista de slash da sessão — SEM hardcode por engine.
-  // Contexto: /compact manual + limiar do auto-compact. Só Claude — nas outras
-  // engines o "/compact" iria como texto para o MODELO, não para o CLI.
-  const isClaude = session.engine === 'claude'
+  // Capacidade anunciada pela engine: o backend intercepta /compact como operação nativa.
+  const supportsContext = engine?.contextManagement === true
+  const canCompact = ['idle', 'needs_attention'].includes(session.status) && (session.engine !== 'codex' || !!session.engineSessionId)
   const me = useStore((st) => st.me)
   const isAdmin = !me || me.isAdmin !== false
   const [autoCompact, setAutoCompact] = useState<number | null>(null)
   useEffect(() => {
-    if (!open || !isClaude) return
+    if (!open || !supportsContext) return
     fetchAutoCompact().then((r) => setAutoCompact(typeof r.pct === 'number' ? r.pct : null)).catch(() => setAutoCompact(null))
-  }, [open, isClaude])
+  }, [open, supportsContext])
   const compactNow = () => {
     const text = '/compact'
     ws?.send({ type: 'send_message', localId: session.localId, text })
@@ -146,13 +146,13 @@ export function SessionControls({ session }: { session: SessionInfo }) {
               </>
             )}
             {effort === 'ultracode' && <div className="sess-pop__warn">{t('session.effortUltracodeHint')}</div>}
-            {isClaude && (
+            {supportsContext && (
               <>
                 <div className="sess-pop__eyebrow">{t('controls.context')}</div>
-                <div className={`sess-pop__item${busy ? ' sess-pop__item--off' : ''}`}
+                <div className={`sess-pop__item${!canCompact ? ' sess-pop__item--off' : ''}`}
                      data-testid="compact-now"
                      title={busy ? t('controls.workingHint') : t('controls.compactHint')}
-                     onClick={() => { if (!busy) compactNow() }}>
+                     onClick={() => { if (canCompact) compactNow() }}>
                   <span>{t('controls.compactNow')}</span>
                 </div>
                 {isAdmin && autoCompact !== null && (

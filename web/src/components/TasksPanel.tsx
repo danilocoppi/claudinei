@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -36,7 +37,7 @@ function StatusChip({ status }: { status: string }) {
 
 export function TasksPanel() {
   const { t } = useTranslation()
-  const { tasks, setTasks } = useStore()
+  const { tasks, setTasks } = useStore(useShallow((s) => ({ tasks: s.tasks, setTasks: s.setTasks })))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 

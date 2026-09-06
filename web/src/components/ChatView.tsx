@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { fetchHistory, stopSubagentTask } from '../api'
@@ -22,10 +22,36 @@ import { isAtBottom } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 
+const EMPTY_ITEMS: ChatItem[] = []
+
+/** Só este trecho acompanha cada delta; o histórico e os controles não mudaram. */
+function StreamingPreview({ localId }: { localId: string }) {
+  const text = useStore((s) => s.streaming[localId] ?? '')
+  if (!text) return null
+  return (
+    <div data-testid="streaming-preview" style={{ margin: '8px 0', opacity: 0.75 }}>
+      <div className="markdown" style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+        {text}
+        <span className="streaming-cursor" aria-hidden="true" style={{
+          display: 'inline-block', width: 8, height: 14, marginLeft: 2, verticalAlign: 'text-bottom',
+          background: 'var(--text-dim)', animation: 'blink 1s step-start infinite',
+        }} />
+      </div>
+    </div>
+  )
+}
+
 export function ChatView() {
   const { t } = useTranslation()
   const ws = useContext(WsContext)
-  const { activeLocalId, sessions, chat, streaming, projects, setHistory, historyLoadedFor, markHistoryLoaded } = useStore()
+  const activeLocalId = useStore((s) => s.activeLocalId)
+  const session = useStore((s) => activeLocalId ? s.sessions[activeLocalId] : undefined)
+  const project = useStore((s) => s.projects.find((p) => p.id === session?.projectId))
+  const items = useStore((s) => (activeLocalId ? s.chat[activeLocalId] : undefined) ?? EMPTY_ITEMS)
+  const hasStreaming = useStore((s) => !!(activeLocalId && s.streaming[activeLocalId]))
+  const loadedEngineSessionId = useStore((s) => activeLocalId ? s.historyLoadedFor[activeLocalId] : undefined)
+  const setHistory = useStore((s) => s.setHistory)
+  const markHistoryLoaded = useStore((s) => s.markHistoryLoaded)
   const openTerminal = useStore((s) => s.openTerminal)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [handoffDialog, setHandoffDialog] = useState(false)
@@ -35,10 +61,7 @@ export function ChatView() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [following, setFollowing] = useState(true)
 
-  const session = activeLocalId ? sessions[activeLocalId] : undefined
-  const project = session ? projects.find((p) => p.id === session.projectId) : undefined
-  const items = activeLocalId ? (chat[activeLocalId] ?? []) : []
-  const streamingText = activeLocalId ? (streaming[activeLocalId] ?? '') : ''
+  const nodes = useMemo(() => groupActions(items, session?.status === 'working'), [items, session?.status])
 
   // D4: (re)carrega o histórico sempre que a sessão ativa tiver um engineSessionId
   // ainda não carregado — cobre reviver e retorno do terminal, não só abertura inicial.
@@ -48,7 +71,6 @@ export function ChatView() {
   // '(preview)' garante que o histórico real substitua o preview quando o init chegar.
   // Depende só da entrada de historyLoadedFor da sessão ativa (não do objeto inteiro),
   // pra não re-disparar o efeito quando outra sessão termina de carregar o histórico dela.
-  const loadedEngineSessionId = activeLocalId ? historyLoadedFor[activeLocalId] : undefined
   useEffect(() => {
     if (!activeLocalId || !session) return
     const key = session.engineSessionId ?? (session.status === 'starting' ? '(preview)' : null)
@@ -90,8 +112,19 @@ export function ChatView() {
    * dar tempo. Quem solta e prende é a própria rolagem (ver scrollFollow.ts).
    */
   useEffect(() => {
-    if (following) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeLocalId, items.length, streamingText, following])
+    // Streaming não pode reiniciar uma animação de rolagem a cada token.
+    if (following) bottomRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' })
+  }, [activeLocalId, items.length, following])
+
+  useEffect(() => {
+    const content = scrollRef.current?.firstElementChild
+    if (!content || !following) return
+    // Um delta na mesma linha não mudou a altura: não precisa medir/rolar.
+    // ResizeObserver roda depois do layout, sem forçar reflow a cada token.
+    const observer = new ResizeObserver(() => bottomRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' }))
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [activeLocalId, following, !!project])
 
   // Terminal novo é conversa nova: chega-se no fim dela, não preso onde se estava.
   useEffect(() => { setFollowing(true) }, [activeLocalId])
@@ -122,16 +155,14 @@ export function ChatView() {
     openTerminal(handoffPendingFor)
   }, [handoffPendingFor, session?.status, session?.localId])
 
-  if (!session || !project) return <div style={{ padding: 24 }}>{t('chat.select')}</div>
-
   // Open in terminal: disponível em qualquer status ativo, INCLUINDO 'starting' (sessão
   // revivida/--continue esperando a 1ª msg — "ready, send a message"). Com conversa da
   // engine (engineSessionId) o terminal RETOMA (claude --resume / codex resume <thread>);
   // sem id, o backend cai no último thread da pasta (fix do openInTerminal) ou abre uma
   // sessão NOVA (fresh). Só stopped/dead ficam de fora (não há processo para levar).
   const canOpenTerminal =
-    session.status === 'idle' || session.status === 'needs_attention' ||
-    session.status === 'working' || session.status === 'starting'
+    session?.status === 'idle' || session?.status === 'needs_attention' ||
+    session?.status === 'working' || session?.status === 'starting'
 
   const handleOpenTerminal = () => {
     if (!session) return
@@ -140,26 +171,30 @@ export function ChatView() {
   }
 
   // Lápis de editar: só nas últimas 5 mensagens do usuário (não-subagente).
-  const editableIdx = new Set<number>()
-  {
+  const editableIdx = useMemo(() => {
+    const indices = new Set<number>()
     let need = 5
     for (let i = items.length - 1; i >= 0 && need > 0; i--) {
       const it = items[i]
-      if (isEditableUserText(it)) { editableIdx.add(i); need-- }
+      if (isEditableUserText(it)) { indices.add(i); need-- }
     }
-  }
+    return indices
+  }, [items])
   // Editar durante o turno é DESTRUTIVO (interrompe o que está rodando e
   // recomeça da mensagem editada) — o operador pode achar que só vai corrigir
   // uma mensagem enfileirada. Por isso pede confirmação antes.
   // Estável entre renders (só muda com a sessão): é o que permite ao MessageBlock
   // ser memoizado — uma closure nova por render furaria o memo em todos os
   // blocos editáveis. O status é lido na hora, não capturado.
-  const localId = session.localId
+  const localId = session?.localId
   const handleEdit = useCallback((text: string) => {
+    if (!localId) return
     const st = useStore.getState()
     if (st.sessions[localId]?.status === 'working') { setEditConfirm(text); return }
     st.requestEdit(localId, text)
   }, [localId])
+
+  if (!session || !project) return <div style={{ padding: 24 }}>{t('chat.select')}</div>
 
   return (
     <>
@@ -209,27 +244,19 @@ export function ChatView() {
         {/* Sequências de ações (tool_call/thinking) viram um grupo colapsável;
             key pelo índice INICIAL do grupo, estável enquanto a cauda cresce
             no streaming (não perde o estado aberto/fechado do operador). */}
-        {groupActions(items, session.status === 'working').map((node) => {
+        {nodes.map((node) => {
           if (node.kind === 'group') {
-            return <ActionGroup key={`g-${node.start}`} items={node.items} currentLocalId={session.localId} />
+            return <div className="chat-entry" key={`g-${node.start}`}><ActionGroup items={node.items} currentLocalId={session.localId} /></div>
           }
           const item = node.item
           return (
-            <MessageBlock key={node.index} item={item} currentLocalId={session.localId}
-                          editable={editableIdx.has(node.index)} onEdit={handleEdit} />
+            <div className="chat-entry" key={node.index}>
+              <MessageBlock item={item} currentLocalId={session.localId}
+                            editable={editableIdx.has(node.index)} onEdit={handleEdit} />
+            </div>
           )
         })}
-        {streamingText && (
-          <div data-testid="streaming-preview" style={{ margin: '8px 0', opacity: 0.75 }}>
-            <div className="markdown" style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-              {streamingText}
-              <span className="streaming-cursor" aria-hidden="true" style={{
-                display: 'inline-block', width: 8, height: 14, marginLeft: 2, verticalAlign: 'text-bottom',
-                background: 'var(--text-dim)', animation: 'blink 1s step-start infinite',
-              }} />
-            </div>
-          </div>
-        )}
+        <StreamingPreview localId={session.localId} />
         {/* Só com a sessão em `working`: num turno interrompido o tool_call do
             Agent fica sem resultado para sempre, e a faixa afirmaria que há
             subagente trabalhando quando não há mais nada rodando. */}
@@ -240,7 +267,7 @@ export function ChatView() {
           />}
         {/* Compactando, os pontinhos não dizem nada: é uma espera longa e com
             nome — a linha mostra o que está acontecendo e há quanto tempo. */}
-        {session.status === 'working' && !streamingText && (
+        {session.status === 'working' && !hasStreaming && (
           session.compactingSince
             ? <CompactingIndicator since={session.compactingSince} />
             : (

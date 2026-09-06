@@ -25,7 +25,7 @@ const KIMI: EngineMeta = {
 }
 
 const sess = (localId: string, engine: string, contextTokens?: number): SessionInfo =>
-  ({ localId, projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine, contextTokens })
+  ({ localId, projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine, contextTokens, contextWindow: 200000 })
 
 /** A aba (o .engine-tab) que contém aquele texto de rótulo. */
 const abaDe = (rotulo: string): HTMLElement => {

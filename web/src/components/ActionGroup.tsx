@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '../types'
 import { groupSummary } from '../chat/grouping'
@@ -10,7 +10,7 @@ import { MessageBlock } from './MessageBlock'
  * resumo por ferramenta; expandido renderiza os cards individuais normais
  * (cada um continua expansível por conta própria).
  */
-export function ActionGroup({ items, currentLocalId }: {
+export const ActionGroup = memo(function ActionGroup({ items, currentLocalId }: {
   items: { item: ChatItem; index: number }[]
   currentLocalId?: string
 }) {
@@ -33,4 +33,4 @@ export function ActionGroup({ items, currentLocalId }: {
       )}
     </div>
   )
-}
+})

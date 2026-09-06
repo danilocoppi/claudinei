@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -95,7 +96,7 @@ const dragKeyOf = (d: Drag) => `${DRAG_PREFIX[d.kind]}-${d.id}`
 
 export function Sidebar() {
   const { t } = useTranslation()
-  const { projects, sessions, unread, activeLocalId, view, engines, groups, sectors, schedules, openSession, openDashboard, openBoard, openTasks, setProjects, setGroups, setSectors } = useStore()
+  const { projects, sessions, unread, activeLocalId, view, engines, groups, sectors, schedules, openSession, openDashboard, openBoard, openTasks, setProjects, setGroups, setSectors } = useStore(useShallow((s) => ({ projects: s.projects, sessions: s.sessions, unread: s.unread, activeLocalId: s.activeLocalId, view: s.view, engines: s.engines, groups: s.groups, sectors: s.sectors, schedules: s.schedules, openSession: s.openSession, openDashboard: s.openDashboard, openBoard: s.openBoard, openTasks: s.openTasks, setProjects: s.setProjects, setGroups: s.setGroups, setSectors: s.setSectors })))
   // Ícone da engine da sessão (badge ao lado do status) — distingue 1 Claude + 1
   // Codex no mesmo projeto. Não é um hook: `engines` já veio do useStore() acima
   // (subscrito), então isto é só uma busca simples, segura dentro do .map de cards.

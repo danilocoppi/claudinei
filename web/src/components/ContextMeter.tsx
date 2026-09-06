@@ -13,22 +13,14 @@ export const fmtK = (n: number): string => {
   return n < 1000 ? String(n) : `${Math.round(n / 1000)}k`
 }
 
-/**
- * Medidor do contexto, renderizado DENTRO da aba da engine a que ele pertence.
- * O dado é por sessão — o `manager.ts` só o tem para engines cujo parser reporta
- * `usage` (hoje, o Claude) — então solto no header ele parecia um número do
- * terminal inteiro, valendo para as três abas.
- *
- * Duas leituras da mesma grandeza: o trilho ocupa o fio inferior da própria aba
- * (ambiente, comparável entre abas de relance, e não custa largura nenhuma numa
- * barra que rola no celular) e o numeral dá o valor exato. Sem dado — outra
- * engine, ou sessão sem turno desde o boot — não renderiza nada.
- */
+/** Medidor por sessão. Codex usa a janela anunciada pelo protocolo; sem dado,
+ * não assume o tamanho de outra engine. Claude conserva seu fallback legado. */
 export function ContextMeter({ session }: { session: SessionInfo }) {
   const { t } = useTranslation()
   const used = session.contextTokens
   if (used === undefined) return null
-  const janela = session.contextWindow ?? CLAUDE_CONTEXT_WINDOW
+  const janela = session.contextWindow ?? (session.engine === 'claude' ? CLAUDE_CONTEXT_WINDOW : undefined)
+  if (!Number.isFinite(used) || used < 0 || !janela || !Number.isFinite(janela) || janela <= 0) return null
   const pct = Math.min(100, Math.round((used / janela) * 100))
   // Os mesmos degraus do card de uso: aviso na metade do caminho, alerta quando
   // compactar deixa de ser opcional.
@@ -37,7 +29,7 @@ export function ContextMeter({ session }: { session: SessionInfo }) {
     <span
       className={`ctx-meter ctx-meter--${tone}`}
       data-testid="ctx-meter"
-      title={t('chat.ctxTip', { used: fmtK(used), window: fmtK(janela) })}
+      title={t(session.engine === 'codex' ? 'chat.ctxTipCodex' : 'chat.ctxTip', { used: fmtK(used), window: fmtK(janela) })}
     >
       <span className="ctx-meter__pct">{pct}%</span>
       {/* Posicionado contra a .engine-tab (não contra este span): atravessa a aba

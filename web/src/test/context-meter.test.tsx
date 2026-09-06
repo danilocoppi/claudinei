@@ -50,3 +50,18 @@ describe('ContextMeter com janela de 1M', () => {
     expect(screen.getByTestId('ctx-meter').textContent).toContain('50%')
   })
 })
+
+describe('ContextMeter Codex', () => {
+  it('usa a janela reportada pelo Codex', () => {
+    render(<ContextMeter session={{ ...sess(120000, 400000), engine: 'codex' }} />)
+    expect(screen.getByTestId('ctx-meter').textContent).toBe('30%')
+  })
+  it('sem janela do Codex não aplica o fallback do Claude', () => {
+    render(<ContextMeter session={{ ...sess(120000), engine: 'codex' }} />)
+    expect(screen.queryByTestId('ctx-meter')).toBeNull()
+  })
+  it.each([0, -1, NaN, Infinity])('janela inválida %s não produz porcentagem', (window) => {
+    render(<ContextMeter session={{ ...sess(120000, window), engine: 'codex' }} />)
+    expect(screen.queryByTestId('ctx-meter')).toBeNull()
+  })
+})

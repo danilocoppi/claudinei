@@ -7,6 +7,22 @@ beforeEach(() => {
 })
 
 describe('store', () => {
+  it('erros de envio do WebSocket aparecem no chat da sessão correta', () => {
+    useStore.getState().addLocalUserText('a', 'pedido')
+    useStore.getState().applyWsMessage({ type: 'error', localId: 'a', message: 'envio recusado' })
+    expect(useStore.getState().chat.a).toEqual([
+      { kind: 'user_text', text: 'pedido' },
+      { kind: 'command_output', text: 'envio recusado', isError: true },
+    ])
+  })
+
+  it('mensagem pendente perdida na engine tem aviso explícito no chat', () => {
+    useStore.getState().applyWsMessage({ type: 'session_event', localId: 'a', event: {
+      kind: 'system', subtype: 'message_error', raw: { message: 'Mensagem pendente: pedido\nProcesso encerrado.' },
+    } })
+    expect(useStore.getState().chat.a).toEqual([{ kind: 'command_output', text: 'Mensagem pendente: pedido\nProcesso encerrado.', isError: true }])
+  })
+
   it('compact_boundary limpa contextTokens: a barra não fica presa no valor pré-compactação', () => {
     useStore.setState({ sessions: { l1: { localId: 'l1', projectId: 1, status: 'idle', engineSessionId: 'c1', updatedAt: 'x', engine: 'claude', contextTokens: 190_000 } as never } })
     useStore.getState().applyWsMessage({

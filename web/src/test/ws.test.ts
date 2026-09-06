@@ -23,6 +23,40 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('connectWs', () => {
+  const stream = (text: string, localId = 'a') => ({ type: 'session_event', localId, event: { kind: 'stream', text, raw: {} } })
+  const receive = (msg: object) => FakeWS.instances[0].onmessage?.({ data: JSON.stringify(msg) })
+
+  it('agrupa deltas por sessão sem perder texto nem misturar conversas', () => {
+    const received = vi.fn(); connectWs(received)
+    receive(stream('a')); receive(stream('b', 'other')); receive(stream('c'))
+    expect(received).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(250)
+    expect(received.mock.calls.map(([msg]) => msg)).toEqual([stream('ac'), stream('b', 'other')])
+  })
+
+  it('resposta final recebe os deltas antes dela, sem preview reaparecer depois', () => {
+    const received = vi.fn(); connectWs(received)
+    const final = { type: 'session_event', localId: 'a', event: { kind: 'result' } }
+    receive(stream('texto')); receive(final)
+    vi.advanceTimersByTime(500)
+    expect(received.mock.calls.map(([msg]) => msg)).toEqual([stream('texto'), final])
+  })
+
+  it('fechar cancela o lote de renderização pendente', () => {
+    const received = vi.fn(); const connection = connectWs(received)
+    receive(stream('texto')); connection.close(); vi.advanceTimersByTime(500)
+    expect(received).not.toHaveBeenCalled()
+  })
+
+  it('envio expirado durante a desconexão gera erro visível para a sessão', () => {
+    const received = vi.fn(); const connection = connectWs(received)
+    connection.send({ type: 'send_message', localId: 'a', text: 'pedido' })
+    vi.advanceTimersByTime(16000)
+    FakeWS.instances[0].onopen?.()
+    expect(received).toHaveBeenCalledWith(expect.objectContaining({ type: 'error', localId: 'a' }))
+    expect(FakeWS.instances[0].send).not.toHaveBeenCalled()
+  })
+
   it('close() fecha o socket e impede reconexão', () => {
     const conn = connectWs(() => {})
     expect(FakeWS.instances).toHaveLength(1)

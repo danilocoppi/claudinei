@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
@@ -5,7 +6,7 @@ import { fetchBoard } from '../api'
 
 export function BoardPanel() {
   const { t } = useTranslation()
-  const { board, projects, setBoard } = useStore()
+  const { board, projects, setBoard } = useStore(useShallow((s) => ({ board: s.board, projects: s.projects, setBoard: s.setBoard })))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 

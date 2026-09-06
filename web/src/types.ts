@@ -34,7 +34,7 @@ export interface SessionInfo {
   authExpired?: boolean
   /** Tamanho do contexto (tokens) do último result — alimenta o medidor do chat. Só sessão viva; ausente até o 1º turno. */
   contextTokens?: number
-  /** Janela de contexto (tokens) do modelo em uso — o denominador do medidor. Ausente → 200k conservador. */
+  /** Janela de contexto (tokens) do modelo em uso — o denominador do medidor. Ausente → fallback somente para Claude. */
   contextWindow?: number
   /** Pergunta (AskUserQuestion) esperando você. Ausente = nenhuma. */
   pendingQuestion?: PendingQuestion
@@ -44,6 +44,7 @@ export interface SessionInfo {
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */
 export interface EngineMeta extends ModelCatalog {
+  contextManagement?: boolean
   id: string
   label: string
   icon: string
@@ -74,12 +75,13 @@ export interface ApiMessage { role: string; content: ContentBlock[] | string }
 export type ClaudeEvent =
   | { kind: 'init'; sessionId: string; model: string; slashCommands?: string[]; raw: unknown }
   | { kind: 'assistant'; message: ApiMessage; raw: unknown }
-  | { kind: 'user'; message: ApiMessage; raw: unknown }
+  | { kind: 'user'; message: ApiMessage; fromEngine?: boolean; raw: unknown }
   | { kind: 'system'; subtype: string; raw: unknown }
   | { kind: 'result'; subtype: string; isError: boolean; resultText: string; costUsd: number; raw: unknown }
   | { kind: 'raw'; raw: unknown }
   | { kind: 'parse_error'; line: string }
   | { kind: 'stream'; text: string; raw: unknown }
+  | { kind: 'context'; contextTokens?: number; contextWindow?: number; raw: unknown }
 
 /**
  * `parentId`: id do tool_use do Agent que produziu este item — presente só no que

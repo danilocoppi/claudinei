@@ -52,6 +52,16 @@ export default function App() {
   const authStatus = useStore((s) => s.authStatus)
   const setAuth = useStore((s) => s.setAuth)
 
+  useEffect(() => {
+    const syncVisibility = () => { document.documentElement.dataset.pageHidden = String(document.hidden) }
+    syncVisibility()
+    document.addEventListener('visibilitychange', syncVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility)
+      delete document.documentElement.dataset.pageHidden
+    }
+  }, [])
+
   // Gate de boot: /me decide setup (0 usuários) × login × app liberado.
   useEffect(() => {
     fetchMe()

@@ -314,6 +314,8 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     this.emit('event', evt)
   }
 
+  compact(): void { this.send('/compact') }
+
   send(text: string, opts?: { echoToClients?: boolean }): void {
     // Enviar DURANTE 'working' é válido: o CLI incorpora a mensagem no turno
     // em andamento (steering, igual à TUI) — provado empiricamente: o adendo

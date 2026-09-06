@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { primarySessionOf } from '../engineSession'
@@ -5,7 +6,7 @@ import { ProjectCard } from './ProjectCard'
 
 export function Dashboard() {
   const { t } = useTranslation()
-  const { projects, sessions, unread } = useStore()
+  const { projects, sessions, unread } = useStore(useShallow((s) => ({ projects: s.projects, sessions: s.sessions, unread: s.unread })))
 
   // Mesma regra da sidebar: a sessão de maior prioridade de status representa o
   // projeto (1 Claude idle + 1 Codex working → o card mostra working).

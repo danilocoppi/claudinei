@@ -5,6 +5,7 @@ import { codexMetadata } from './codex-metadata.js'
 
 const CAPABILITIES: EngineCapabilities = {
   ...codexMetadata.catalog(),
+  contextManagement: true,
   permissions: [], // full-access fixo; sem seletor
   slashSource: 'curated',
   label: 'Codex',

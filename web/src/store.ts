@@ -22,6 +22,7 @@ const RAIL_KEY = 'claudinei:railMode'
 const BUILTIN_ENGINES: EngineMeta[] = [
   {
     id: 'claude',
+    contextManagement: true,
     label: 'Claude Code',
     icon: CLAUDE_ICON,
     models: ['', 'fable', 'opus', 'sonnet', 'haiku'],
@@ -32,6 +33,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
   },
   {
     id: 'codex',
+    contextManagement: true,
     label: 'Codex',
     icon: OPENAI_ICON,
     ...CODEX_FALLBACK_CATALOG,
@@ -304,7 +306,9 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
 
   applyWsMessage: (msg) => {
-    if (msg.type === 'action_exit') {
+    if (msg.type === 'error' && typeof msg.localId === 'string' && typeof msg.message === 'string') {
+      get().addLocalItem(msg.localId, { kind: 'command_output', text: msg.message, isError: true })
+    } else if (msg.type === 'action_exit') {
       const runs = get().actionRuns
       if (!runs.some((r) => r.actionId === msg.actionId)) return
       // Com "fechar ao terminar" ligado, some sozinha; sem ele, fica aberta com o
@@ -369,7 +373,8 @@ export const useStore = create<State>((set, get) => ({
             backgroundTasks: msg.backgroundTasks ?? s.sessions[msg.localId]?.backgroundTasks ?? [],
             authExpired: msg.authExpired ?? s.sessions[msg.localId]?.authExpired ?? false,
             // Janela do modelo: chega no init (e a cada troca de modelo).
-            contextWindow: msg.contextWindow ?? s.sessions[msg.localId]?.contextWindow,
+            contextTokens: msg.contextTokens,
+            contextWindow: msg.contextWindow,
             // Pergunta do agente: SEM fallback para a anterior — o servidor manda o
             // campo sempre que há pergunta; ausente quer dizer que não há mais.
             pendingQuestion: msg.pendingQuestion,
@@ -431,6 +436,10 @@ export const useStore = create<State>((set, get) => ({
         set((s) => (s.sessions[localId]
           ? { sessions: { ...s.sessions, [localId]: { ...s.sessions[localId], contextTokens: event.contextTokens } } }
           : s))
+      }
+      if (event.kind === 'context') {
+        set((s) => s.sessions[localId] ? { sessions: { ...s.sessions, [localId]: { ...s.sessions[localId], contextTokens: event.contextTokens, contextWindow: event.contextWindow } } } : s)
+        return
       }
       if (event.kind === 'stream') {
         set((s) => ({ streaming: { ...s.streaming, [localId]: (s.streaming[localId] ?? '') + event.text } }))

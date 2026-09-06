@@ -13,6 +13,7 @@ function claudeConfigDir(): string {
 const CAPABILITIES: EngineCapabilities = {
   models: ['', 'fable', 'opus', 'sonnet', 'haiku'],
   efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+  contextManagement: true,
   permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],
   slashSource: 'protocol',
   label: 'Claude Code',

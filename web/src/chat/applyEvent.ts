@@ -105,7 +105,8 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       // {isSynthetic:true}, no histórico {isMeta:true}. Sem os dois, toda skill
       // aparecia como bolha do usuário até o histórico recarregar (o retag de
       // mergeEngineFlags só alcança o caminho de sessão longa).
-      const fromEngine = !!(raw?.isMeta || raw?.isCompactSummary || raw?.isSynthetic)
+      // Codex identifica developer/system no adaptador; as flags raw são do Claude.
+      const fromEngine = !!(evt.fromEngine || raw?.isMeta || raw?.isCompactSummary || raw?.isSynthetic)
       const marks = { ...(fromSubagent ? { fromSubagent: true as const, parentId: parentId as string } : {}), ...(fromEngine ? { fromEngine } : {}) }
       // Resumo de compactação: a flag vem nos dois caminhos (ao vivo e transcript);
       // o preâmbulo fixo é a rede para um raw sem ela. É da engine por definição.
@@ -143,6 +144,9 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       return next
     }
     case 'system': {
+      if (evt.subtype === 'message_error' && typeof (evt.raw as any)?.message === 'string') {
+        return [...items, { kind: 'command_output', text: (evt.raw as any).message, isError: true }]
+      }
       if (evt.subtype !== 'compact_boundary') return items
       // Ao vivo o stream-json manda compact_metadata.pre_tokens; o transcript
       // grava compactMetadata.preTokens (CLI 2.1.261). Os dois caminhos passam aqui.

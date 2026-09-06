@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
@@ -265,7 +266,7 @@ function ScheduleCard({ schedule, onChanged }: { schedule: Schedule; onChanged: 
  */
 export function SchedulesView() {
   const { t } = useTranslation()
-  const { sessions, activeLocalId, projects } = useStore()
+  const { sessions, activeLocalId, projects } = useStore(useShallow((s) => ({ sessions: s.sessions, activeLocalId: s.activeLocalId, projects: s.projects })))
   const openSession = useStore((s) => s.openSession)
   const session = activeLocalId ? sessions[activeLocalId] : undefined
   const project = projects.find((p) => p.id === session?.projectId)

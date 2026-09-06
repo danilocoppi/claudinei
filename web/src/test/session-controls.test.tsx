@@ -11,14 +11,14 @@ const sess = (o: Partial<SessionInfo> = {}): SessionInfo =>
 
 // Espelha as capabilities reais do backend (server/src/engine/{claude,codex}).
 const CLAUDE: EngineMeta = {
-  id: 'claude', label: 'Claude Code', icon: 'claude',
+  contextManagement: true, id: 'claude', label: 'Claude Code', icon: 'claude',
   models: ['', 'fable', 'opus', 'sonnet', 'haiku'],
   efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
   permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],
   slashSource: 'protocol', slashCommands: [],
 }
 const CODEX: EngineMeta = {
-  id: 'codex', label: 'Codex', icon: '◆',
+  contextManagement: true, id: 'codex', label: 'Codex', icon: '◆',
   models: ['', 'gpt-5.6-sol', 'gpt-5.6-terra'],
   efforts: ['low', 'medium', 'high', 'xhigh'],
   permissions: [],
@@ -229,10 +229,10 @@ describe('contexto: compactar agora + auto-compact', () => {
       ? new Response(JSON.stringify({ pct: 70 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       : new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
 
-  it('Compactar agora envia /compact pelo WS e registra no chat local', () => {
+  it.each(['claude', 'codex'])('Compactar agora envia /compact pelo WS e registra no chat local (%s)', (engine) => {
     vi.mocked(globalThis.fetch).mockImplementation((async (u: string) => jsonFor(u)) as never)
     useStore.setState({ chat: {} })
-    const send = renderWithWs(sess())
+    const send = renderWithWs(sess({ engine }))
     fireEvent.click(screen.getByTestId('session-controls-pill'))
     fireEvent.click(screen.getByTestId('compact-now'))
     expect(send).toHaveBeenCalledWith({ type: 'send_message', localId: 's1', text: '/compact' })
@@ -249,8 +249,9 @@ describe('contexto: compactar agora + auto-compact', () => {
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ text: '/compact' }))
   })
 
-  it('seção não existe para engine que não executa /compact headless (codex)', () => {
+  it('seção não existe para engine sem capacidade de compactação', () => {
     vi.mocked(globalThis.fetch).mockImplementation((async (u: string) => jsonFor(u)) as never)
+    useStore.setState({ engines: [{ ...CODEX, contextManagement: false }] })
     render(<SessionControls session={sess({ engine: 'codex' })} />)
     fireEvent.click(screen.getByTestId('session-controls-pill'))
     expect(screen.queryByTestId('compact-now')).toBeNull()

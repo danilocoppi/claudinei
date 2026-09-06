@@ -170,6 +170,7 @@ export const ptBR: typeof en = {
   chat: {
     select: 'Selecione uma sessão.', openInTerminal: 'Abrir no terminal', backToTerminal: 'Voltar ao terminal',
     ctxTip: 'Contexto da conversa: ~{{used}} de {{window}} tokens. Compacte (⚙ → Compactar agora ou /compact) para liberar espaço.',
+    ctxTipCodex: 'Contexto ativo: ~{{used}} de {{window}} tokens. Janela desta sessão informada pelo Codex; pode ser menor que a capacidade máxima do modelo. Compacte (⚙ → Compactar agora ou /compact) para liberar espaço.',
     handoffTitle: 'Abrir no terminal?', handoffWorking: 'O turno em andamento será interrompido para abrir esta conversa no terminal.', handoffUnavailable: 'Disponível quando a sessão estiver ativa.', terminalNoConversation: 'Abrir no terminal fica disponível após a primeira mensagem — ainda não há conversa para abrir.',
     inTerminalNotice: 'Esta sessão está aberta no terminal. Feche a janela do terminal para poder retomar na web.',
     placeholder: 'Mensagem para o {{engine}}… (arraste ou cole arquivos)',
@@ -250,7 +251,7 @@ export const ptBR: typeof en = {
     model: 'Modelo', effort: 'Esforço', permission: 'Permissão', applied: 'aplicado',
     workingHint: 'aguarde o turno atual terminar', title: 'Controles da sessão',
     context: 'Contexto', compactNow: 'Compactar agora', compactHint: 'resume a conversa para liberar espaço na janela de contexto (/compact)',
-    autoCompact: 'Auto-compactar em', autoCompactOff: 'desligado', autoCompactHint: 'compacta sozinho quando o contexto de qualquer sessão Claude passar deste tanto da janela (global)',
+    autoCompact: 'Auto-compactar em', autoCompactOff: 'desligado', autoCompactHint: 'ao fim do turno, compacta sessões Claude e Codex acima deste percentual (global). Desligado mantém a compactação nativa de cada agente.',
   },
   slash: {
     compact: 'resume o contexto para liberar espaço',

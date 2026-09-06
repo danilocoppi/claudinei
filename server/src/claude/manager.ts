@@ -26,7 +26,7 @@ export interface SessionInfo {
   backgroundTasks?: { id: string; description: string; type: string; prompt: string }[]
   /** Credencial do Claude expirada: a UI mostra "reautenticar" no lugar do erro cru. */
   authExpired?: boolean
-  /** Tamanho do contexto (tokens) do último result da sessão VIVA. Só memória: após restart do servidor, volta no próximo turno. */
+  /** Tamanho do contexto (tokens) do último result da sessão VIVA. Só memória: restaurado pela engine ao retomar ou no próximo turno. */
   contextTokens?: number
   /** Janela de contexto (tokens) do modelo que a sessão viva está rodando — o denominador do medidor. */
   contextWindow?: number
@@ -78,8 +78,8 @@ interface Deps {
   /**
    * Limiar do auto-compact em % da janela de contexto (0/ausente = desligado),
    * lido A CADA result — mudar a configuração vale na hora, sem recriar sessão.
-   * Quando o contexto reportado cruza o limiar, o manager envia `/compact` à
-   * sessão (só engines cujo parser reporta contextTokens — hoje, o Claude).
+   * Quando o contexto reportado cruza o limiar, chama a compactação nativa
+   * da engine. A compactação interna do agente continua independente deste limiar.
    */
   autoCompactPct?: () => number
 }
@@ -183,6 +183,7 @@ export function createSessionManager(deps: Deps) {
         detail: over.detail,
         model: info?.model ?? null, permissionMode: info?.permissionMode, effort: info?.effort ?? null,
         backgroundTasks: info?.backgroundTasks ?? [], authExpired: info?.authExpired ?? false,
+        contextTokens: info?.contextTokens,
         contextWindow: info?.contextWindow,
         pendingQuestion: info?.pendingQuestion,
         compactingSince: info?.compactingSince,
@@ -205,7 +206,7 @@ export function createSessionManager(deps: Deps) {
         // tamanho). Vale para o modelo EM USO: trocar de modelo emite novo init,
         // então a janela acompanha — inclusive os 1M do Opus/Sonnet/Fable atuais.
         const entryI = live.get(localId)
-        if (entryI) entryI.contextWindow = contextWindowFor(event.model)
+        if (entryI && engine === 'claude') entryI.contextWindow = contextWindowFor(event.model)
         // O init carrega a lista de slash commands instalados: persiste para o
         // autocomplete do chat ficar disponível já no load (sem esperar a 1ª msg).
         if (Array.isArray(event.slashCommands) && event.slashCommands.length) {
@@ -241,30 +242,39 @@ export function createSessionManager(deps: Deps) {
         const entry = live.get(localId)
         if (entry) entry.contextTokens = undefined
       }
-      if (event.kind === 'result' && typeof event.contextTokens === 'number') {
+      if (event.kind === 'context') {
         const entry = live.get(localId)
         if (entry) {
           entry.contextTokens = event.contextTokens
-          // Auto-compact: cruzou o limiar → envia /compact UMA vez por cruzamento.
+          entry.contextWindow = event.contextWindow
+        }
+      }
+      if (event.kind === 'result') {
+        const entry = live.get(localId)
+        if (entry) {
+          if (typeof event.contextTokens === 'number') entry.contextTokens = event.contextTokens
+          // Auto-compact: UMA operação nativa por cruzamento do limiar.
           // O flag só re-arma quando um result volta abaixo do limiar (o da própria
           // compactação, tipicamente) — se compactar não reduzir o bastante, não
           // entra em loop de /compact atrás de /compact.
           const pct = deps.autoCompactPct?.() ?? 0
-          const janela = entry.contextWindow ?? DEFAULT_CONTEXT_WINDOW
-          const limiar = pct > 0 ? (janela * pct) / 100 : Infinity
-          if (event.contextTokens >= limiar && !entry.autoCompacting) {
+          const janela = entry.contextWindow ?? (engine === 'claude' ? DEFAULT_CONTEXT_WINDOW : undefined)
+          const limiar = pct > 0 && janela ? (janela * pct) / 100 : Infinity
+          const used = entry.contextTokens
+          if (used !== undefined && used >= limiar && !entry.autoCompacting && session.compact && !event.isError && event.subtype !== 'compact' && event.subtype !== 'interrupted') {
             entry.autoCompacting = true
             // Microtask: deixa o status do result assentar antes de abrir o turno
             // de compactação (mesmo adiamento do onSessionAvailable, mesmo motivo).
             queueMicrotask(() => {
               if (live.get(localId) !== entry) return // sessão saiu entre o result e o envio
               try {
-                entry.session.send('/compact')
+                if (!['idle', 'needs_attention'].includes(entry.session.status)) { entry.autoCompacting = false; return }
+                entry.session.compact!()
                 // Eco na UI: sem ele a sessão "trabalha sozinha" sem explicação.
                 deps.broadcast({ type: 'session_event', localId, event: userEchoEvent('/compact') })
               } catch { /* stopped/dead no meio do caminho: nada a compactar */ }
             })
-          } else if (event.contextTokens < limiar) {
+          } else if (used !== undefined && used < limiar) {
             entry.autoCompacting = false
           }
         }
@@ -364,7 +374,11 @@ export function createSessionManager(deps: Deps) {
     send(localId: string, text: string): void {
       const entry = live.get(localId)
       if (!entry) throw new Error(`sessão ${localId} não está ativa`)
-      entry.session.send(text)
+      if (typeof text === 'string' && text.trim() === '/compact') {
+        if (!entry.session.compact) throw new Error('esta engine não oferece compactação no chat')
+        if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new Error('aguarde o turno terminar para compactar')
+        entry.session.compact()
+      } else entry.session.send(text)
     },
 
     markRead(localId: string): void {
@@ -479,7 +493,7 @@ export function createSessionManager(deps: Deps) {
         // e o próprio /effort põe a sessão em working um instante antes do PATCH.
         // Com o guard total, o effort nunca persistia: o PATCH era recusado aqui e o
         // front engolia o erro → refresh voltava ao default.
-        if ((opts.model || opts.permissionMode) && entry.session.status === 'working') {
+        if ((opts.model !== undefined || opts.permissionMode) && entry.session.status === 'working') {
           throw new Error('sessão está trabalhando; aguarde o turno terminar')
         }
         // model !== undefined inclui '' (voltar ao Padrão): as engines turn-based
@@ -513,7 +527,7 @@ export function createSessionManager(deps: Deps) {
       deps.broadcast({
         type: 'session_status', localId, projectId: row.project_id, engine: info.engine, status: info.status,
         engineSessionId: info.engineSessionId, model: info.model, permissionMode: info.permissionMode, effort: info.effort,
-        backgroundTasks: info.backgroundTasks, authExpired: info.authExpired, contextWindow: info.contextWindow,
+        backgroundTasks: info.backgroundTasks, authExpired: info.authExpired, contextTokens: info.contextTokens, contextWindow: info.contextWindow,
         pendingQuestion: info.pendingQuestion, compactingSince: info.compactingSince,
       })
       return info

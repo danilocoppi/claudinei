@@ -49,3 +49,8 @@ export function buildExecArgs(opts: TurnArgs): string[] {
 export function buildResumeArgs(threadId: string, opts: TurnArgs): string[] {
   return ['exec', 'resume', threadId, ...FIXED, ...optionArgs(opts), '-']
 }
+
+/** App Server recebe o mesmo MCP Hermes (segredo só via arquivo). */
+export function buildAppServerArgs(opts: Pick<TurnArgs, 'hermes'>): string[] {
+  return ['app-server', ...optionArgs(opts)]
+}

@@ -38,15 +38,31 @@ export async function parseRollout(file: string): Promise<AgentEvent[]> {
   let text: string
   try { text = await readFile(file, 'utf8') } catch { return [] }
   const events: AgentEvent[] = []
+  let preTokens: number | undefined
   for (const line of text.split('\n')) {
     const s = line.trim(); if (!s) continue
     let o: any; try { o = JSON.parse(s) } catch { continue }
+    if (o.type === 'event_msg' && o.payload?.type === 'token_count') {
+      const n = o.payload.info?.last_token_usage?.total_tokens
+      preTokens = typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined
+    }
+    if (o.type === 'compacted') {
+      events.push({ kind: 'system', subtype: 'compact_boundary', raw: { compact_metadata: { pre_tokens: preTokens } } })
+      preTokens = undefined
+    }
     if (o.type !== 'response_item') continue
     const p = o.payload
     if (p?.type === 'message') {
-      const role = p.role === 'assistant' ? 'assistant' : 'user'
+      const role = p.role ?? 'user'
       const text = (Array.isArray(p.content) ? p.content : []).map((c: any) => c.text ?? '').join('')
-      if (text) events.push({ kind: role === 'assistant' ? 'assistant' : 'user', message: { role, content: [{ type: 'text', text }] } as never, raw: o })
+      // O rollout também guarda instruções internas (skills, permissões etc.).
+      // Preserva o papel original e sinaliza a autoria sem adulterar o raw.
+      const fromEngine = role === 'developer' || role === 'system'
+      if (text) events.push({
+        kind: role === 'assistant' ? 'assistant' : 'user',
+        message: { role, content: [{ type: 'text', text }] },
+        ...(fromEngine ? { fromEngine: true } : {}), raw: o,
+      })
     } else if (p?.type === 'reasoning') {
       const text = p.summary?.map?.((s: any) => s.text ?? '').join('') ?? p.text ?? ''
       if (text) events.push({ kind: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: text }] } as never, raw: o })

@@ -44,8 +44,10 @@ export interface EngineSession extends EventEmitter {
    * só o Claude Code tem isso. Estado do processo vivo, publicado no SessionInfo.
    */
   readonly pendingQuestion?: PendingQuestion
-  /** Epoch ms do início da compactação de contexto em curso (só Claude); ausente = não está compactando. */
+  /** Epoch ms do início da compactação de contexto em curso; ausente = não está compactando. */
   readonly compactingSince?: number
+  /** Compactação nativa; reserva a sessão sincronamente, como send(). */
+  compact?(): void
   /** Responde a pergunta pendente (`answers` chaveado pelo texto da pergunta) / nega para responder em prosa. */
   answerQuestion?(answers: Record<string, string>): void
   dismissQuestion?(): void
@@ -66,6 +68,7 @@ export interface EngineSession extends EventEmitter {
 }
 
 export interface EngineCapabilities extends ModelCatalog {
+  contextManagement?: boolean
   permissions: string[]
   slashSource: 'protocol' | 'curated' | 'none'
   label: string

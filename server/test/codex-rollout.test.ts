@@ -122,6 +122,31 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
     expect((events[0] as any).message.content[0]).toMatchObject({ type: 'text', text: 'depois do lixo' })
   })
 
+  it('identifica instruções developer/system como conteúdo da engine, preservando autoria e texto originais', async () => {
+    root = mkdtempSync(join(tmpdir(), 'codex-sessions-'))
+    const text = '<skills_instructions>\n## Skills\n- **imagegen**: gera imagens\n</skills_instructions>'
+    const injected = ['developer', 'system'].map((role) => ({
+      type: 'response_item', payload: { type: 'message', role, content: [{ type: 'input_text', text }] },
+    }))
+    const file = writeRollout(root, 'skills', ['2026', '09', '06'], [
+      ...injected, userMessage(text), assistantMessage('Vou usar a skill.'),
+    ])
+
+    const events = await parseRollout(file)
+    expect(events).toHaveLength(4)
+    for (const [i, raw] of injected.entries()) {
+      expect(events[i]).toEqual({
+        kind: 'user', fromEngine: true,
+        message: { role: raw.payload.role, content: [{ type: 'text', text }] }, raw,
+      })
+    }
+    // Copiar o mesmo XML como pedido não transforma uma mensagem real em evento.
+    expect(events[2]).toMatchObject({ kind: 'user', message: { role: 'user' } })
+    expect(events[2]).not.toHaveProperty('fromEngine')
+    expect(events[3]).toMatchObject({ kind: 'assistant', message: { role: 'assistant' } })
+    expect(events[3]).not.toHaveProperty('fromEngine')
+  })
+
   it('parseRollout devolve [] quando o arquivo não existe', async () => {
     await expect(parseRollout(join(tmpdir(), 'nao-existe-de-jeito-nenhum.jsonl'))).resolves.toEqual([])
   })
@@ -141,5 +166,24 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
 
     expect(latestThreadForCwd(root, '/tmp/gama')).toBeNull()
     expect(latestThreadForCwd(join(tmpdir(), 'codex-sessions-inexistente'), '/tmp/alfa')).toBeNull()
+  })
+})
+
+describe('compactação no histórico', () => {
+  it('retém a fronteira com a medição anterior ao F5, sem reinjetar o resumo como fala do usuário', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codex-compact-'))
+    try {
+      const file = writeRollout(root, 'compact', ['2026', '09', '06'], [
+        sessionMeta('compact', '/tmp'),
+        userMessage('oi'),
+        { type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 120000 } } } },
+        { type: 'compacted', payload: { message: 'internal summary', replacement_history: [] } },
+        assistantMessage('depois'),
+      ])
+      const events = await parseRollout(file)
+      expect(events).toHaveLength(3)
+      expect(events[1]).toEqual({ kind: 'system', subtype: 'compact_boundary', raw: { compact_metadata: { pre_tokens: 120000 } } })
+      expect(JSON.stringify(events)).not.toContain('internal summary')
+    } finally { rmSync(root, { recursive: true, force: true }) }
   })
 })

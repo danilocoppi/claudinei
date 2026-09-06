@@ -11,6 +11,9 @@
 //                         CLI): status compacting, compact_boundary com pre/post_tokens,
 //                         o resumo, e um result de usage ZERADO. NÃO use "/compact" para
 //                         isto: o auto-compact manda literalmente "/compact" e conta com o eco.
+//   contém "faz-pergunta" -> AskUserQuestion: tool_use + control_request can_use_tool
+//                         (request_id q-req-1, tool_use_id toolu_q_1) e ESPERA o
+//                         control_response do host (Task 2 trata a resposta).
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -19,6 +22,10 @@ import readline from 'node:readline'
 
 const sid = process.env.FAKE_SESSION_ID ?? 'fake-session-0001'
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
+
+// Pergunta (AskUserQuestion) esperando o control_response do host. Replica a CLI
+// real: o turno fica bloqueado até a resposta chegar pelo stdin.
+let pendingQuestion = null
 
 // --slash a,b,c injeta a lista de slash_commands no init (testa a captura)
 const slashArg = process.argv.indexOf('--slash')
@@ -72,6 +79,22 @@ rl.on('line', (line) => {
   }
   const text = msg?.message?.content?.[0]?.text ?? ''
   if (text.includes('crash')) process.exit(1)
+  if (text.includes('faz-pergunta')) {
+    const questions = [
+      { question: 'Qual cor você prefere?', header: 'Cor', multiSelect: false,
+        options: [{ label: 'Azul', description: 'Cor azul' }, { label: 'Verde', description: 'Cor verde' }] },
+      { question: 'Quais frutas você gosta?', header: 'Frutas', multiSelect: true,
+        options: [{ label: 'Maçã', description: 'Maçã' }, { label: 'Banana', description: 'Banana' }] },
+    ]
+    pendingQuestion = { request_id: 'q-req-1', tool_use_id: 'toolu_q_1', questions }
+    // Ordem EMPÍRICA (CLI 2.1.261): primeiro o tool_use no assistant, depois o
+    // control_request com requires_user_interaction — e nada mais até a resposta.
+    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q_1', name: 'AskUserQuestion', input: { questions } }] } })
+    out({ type: 'control_request', request_id: 'q-req-1', request: {
+      subtype: 'can_use_tool', tool_name: 'AskUserQuestion', display_name: 'AskUserQuestion',
+      input: { questions }, tool_use_id: 'toolu_q_1', requires_user_interaction: true } })
+    return
+  }
   if (text.includes('compact-real')) {
     // Ordem EMPÍRICA (capturada da CLI real): a fronteira chega ANTES do result,
     // e o result da compactação vem com usage tudo zero — nenhuma medição nova.

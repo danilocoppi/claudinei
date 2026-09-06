@@ -9,6 +9,18 @@ export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' 
 
 export type PermissionMode = 'default' | 'auto' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
+export interface QuestionOption { label: string; description: string }
+/** Uma pergunta da AskUserQuestion, como a CLI a manda no can_use_tool. */
+export interface Question { question: string; header: string; options: QuestionOption[]; multiSelect: boolean }
+/**
+ * Pergunta que a CLI fez e está esperando resposta. Estado do PROCESSO vivo (a
+ * CLI bloqueia o turno até o control_response): nunca vai ao banco — se o
+ * servidor reinicia, a CLI morre junto e não há o que restaurar.
+ */
+export interface PendingQuestion { toolUseId: string; questions: Question[] }
+/** Estado interno da pendência: o request_id fica aqui (nunca sai da sessão) e o input volta inteiro no updatedInput. */
+interface PendingState { requestId: string; toolUseId: string; input: Record<string, unknown>; questions: Question[] }
+
 /** Config do MCP hermes a injetar na sessão via `--mcp-config` (agente↔agente + mural). */
 export interface HermesOptions {
   /** Executável que roda o MCP hermes (dev: node/process.execPath; empacotado: o binário). */
@@ -65,6 +77,13 @@ export function buildClaudeArgs(opts: {
     '--verbose',
     '--include-partial-messages',
     '--dangerously-skip-permissions',
+    // Sem isto a AskUserQuestion NEM EXISTE para o modelo (medido: fora da lista
+    // de tools do init). Com isto, cada pergunta chega como control_request
+    // can_use_tool no stdout e a CLI espera o control_response no stdin. Não
+    // afeta mais nada: em bypass (e mesmo com set_permission_mode default
+    // pós-init) Bash e afins seguem sem pedir permissão — só chega ao host o
+    // que tem requires_user_interaction.
+    '--permission-prompt-tool', 'stdio',
   ]
   if (opts.resumeSessionId) args.push('--resume', opts.resumeSessionId)
   else if (opts.continueLatest) args.push('--continue')
@@ -110,6 +129,12 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   /** OAuth do Claude expirado (a CLI respondeu `auth_expired`). Ver detectAuthExpired. */
   private authExpiredFlag = false
   private pendingControls = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+  /** Pergunta (AskUserQuestion) esperando o operador — ver PendingQuestion. `input` volta inteiro no updatedInput. */
+  private pending?: PendingState
+
+  get pendingQuestion(): PendingQuestion | undefined {
+    return this.pending ? { toolUseId: this.pending.toolUseId, questions: this.pending.questions } : undefined
+  }
 
   get lastStderr(): string { return this.stderrTail.join('').trim() }
 
@@ -175,6 +200,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     })
     this.proc.stdin.on('error', (err) => this.emit('stderr', String(err)))
     this.proc.on('close', (code) => {
+      this.pending = undefined // a CLI morreu com a pergunta: ninguém mais espera resposta
       for (const [, p] of this.pendingControls) { clearTimeout(p.timer); p.reject(new Error('sessão encerrou')) }
       this.pendingControls.clear()
       this.setStatus(this.stopping ? 'stopped' : 'dead')
@@ -205,6 +231,17 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
           else pending.reject(new Error(raw.response?.error ?? 'controle falhou'))
         }
         return // não vaza como evento de chat
+      }
+      // Sentido CLI → host: a CLI pede algo e BLOQUEIA o turno até a resposta.
+      if (raw?.type === 'control_request') { this.handleControlRequest(raw); return }
+      // A CLI desistiu do pedido (interrupt com pergunta aberta — ela mesma manda
+      // o cancel antes de responder o interrupt; medido). Só descartar.
+      if (raw?.type === 'control_cancel_request') {
+        if (this.pending && raw.request_id === this.pending.requestId) {
+          this.pending = undefined
+          this.emit('status', this.status)
+        }
+        return
       }
     }
     if (evt.kind === 'init') {
@@ -300,6 +337,40 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
 
   markRead(): void {
     if (this.status === 'needs_attention') this.setStatus('idle')
+  }
+
+  /**
+   * Pedido da CLI (can_use_tool). Só um tipo vira interação: a AskUserQuestion,
+   * que fica pendente até answerQuestion/dismissQuestion. Qualquer outro pedido
+   * que exija humano é negado com explicação — o modelo fica sabendo, em vez de
+   * esperar para sempre por uma UI que não existe. Pedidos sem interação são
+   * permitidos, espelhando o bypass (nas sondas, nunca chegaram).
+   */
+  private handleControlRequest(raw: { request_id?: unknown; request?: Record<string, unknown> }): void {
+    const req = raw.request ?? {}
+    const rid = raw.request_id
+    if (req.subtype !== 'can_use_tool' || typeof rid !== 'string') return // outros subtypes seguem ignorados, como antes
+    const input = (req.input ?? {}) as Record<string, unknown>
+    if (req.tool_name === 'AskUserQuestion') {
+      const questions = normalizeQuestions(input.questions)
+      if (questions.length === 0) {
+        this.respondControl(rid, { behavior: 'deny', message: 'AskUserQuestion sem perguntas válidas.' })
+        return
+      }
+      this.pending = { requestId: rid, toolUseId: String(req.tool_use_id ?? ''), input, questions }
+      // Reusa o canal de status: é assim que o manager retransmite o SessionInfo.
+      this.emit('status', this.status)
+      return
+    }
+    if (req.requires_user_interaction) {
+      this.respondControl(rid, { behavior: 'deny', message: `O Claudinei ainda não exibe este pedido (${String(req.tool_name ?? 'desconhecido')}).` })
+      return
+    }
+    this.respondControl(rid, { behavior: 'allow', updatedInput: input })
+  }
+
+  private respondControl(request_id: string, response: object): void {
+    this.proc?.stdin.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id, response } }) + '\n')
   }
 
   private sendControl(subtype: string, payload: object, opts?: { allowWorking?: boolean }): Promise<unknown> {
@@ -481,4 +552,20 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       this.emit('status', s)
     }
   }
+}
+
+/** Só entra o que tem forma de pergunta: sem isso um payload torto viraria um painel vazio na UI. */
+function normalizeQuestions(raw: unknown): Question[] {
+  if (!Array.isArray(raw)) return []
+  const out: Question[] = []
+  for (const q of raw as Record<string, unknown>[]) {
+    if (!q || typeof q.question !== 'string' || !q.question.trim()) continue
+    const options = Array.isArray(q.options)
+      ? (q.options as Record<string, unknown>[])
+          .filter((o) => o && typeof o.label === 'string' && o.label.trim())
+          .map((o) => ({ label: String(o.label), description: typeof o.description === 'string' ? o.description : '' }))
+      : []
+    out.push({ question: q.question, header: typeof q.header === 'string' && q.header ? q.header : q.question.slice(0, 12), options, multiSelect: q.multiSelect === true })
+  }
+  return out
 }

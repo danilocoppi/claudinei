@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { ClaudeSession, buildClaudeArgs } from '../src/claude/session.js'
+import type { ClaudeEvent } from '../src/claude/events.js'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
@@ -24,6 +25,13 @@ describe('buildClaudeArgs', () => {
     const args = buildClaudeArgs({})
     expect(args).toContain('--dangerously-skip-permissions')
     expect(args).not.toContain('--permission-mode')
+  })
+
+  it('liga o prompt de permissão via stdio — sem ele a AskUserQuestion nem existe para o modelo', () => {
+    const args = buildClaudeArgs({})
+    const i = args.indexOf('--permission-prompt-tool')
+    expect(i).toBeGreaterThan(-1)
+    expect(args[i + 1]).toBe('stdio')
   })
 })
 
@@ -115,5 +123,37 @@ describe('interromper encerra o turno', () => {
     await waitUntil(() => s.status === 'idle')
     await s.interrupt()
     expect(s.status).toBe('idle')
+  })
+})
+
+describe('AskUserQuestion (can_use_tool vindo da CLI)', () => {
+  it('a pergunta vira pendência com perguntas + tool_use_id e re-emite status (sem mudar de working)', async () => {
+    const s = start()
+    const statuses: string[] = []
+    s.on('status', (st: string) => statuses.push(st))
+    await waitUntil(() => s.status === 'idle')
+    const antes = statuses.length
+    s.send('faz-pergunta')
+    await waitUntil(() => s.pendingQuestion !== undefined)
+    expect(s.pendingQuestion).toMatchObject({ toolUseId: 'toolu_q_1' })
+    expect(s.pendingQuestion!.questions.map((q) => q.header)).toEqual(['Cor', 'Frutas'])
+    expect(s.pendingQuestion!.questions[0].multiSelect).toBe(false)
+    expect(s.pendingQuestion!.questions[1].multiSelect).toBe(true)
+    expect(s.pendingQuestion!.questions[0].options[0]).toEqual({ label: 'Azul', description: 'Cor azul' })
+    // O status não muda (segue working), mas é re-emitido: é assim que o manager
+    // rebroadcasta o SessionInfo — o mesmo canal do authExpired.
+    expect(s.status).toBe('working')
+    // dois 'working' desde o send(): o do próprio send() e o re-emitido pela pendência
+    expect(statuses.slice(antes).filter((st) => st === 'working').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('morte do processo limpa a pendência', async () => {
+    const s = start()
+    await waitUntil(() => s.status === 'idle')
+    s.send('faz-pergunta')
+    await waitUntil(() => s.pendingQuestion !== undefined)
+    s.send('crash')
+    await waitUntil(() => s.status === 'dead')
+    expect(s.pendingQuestion).toBeUndefined()
   })
 })

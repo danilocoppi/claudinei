@@ -97,7 +97,8 @@ export function unreadOf(projectId: number, sessions: Record<string, SessionInfo
 }
 
 /**
- * Chave i18n de exibição do status: enquanto in_terminal, a heurística do TUI
+ * Chave i18n de exibição do status: pergunta pendente sobrescreve tudo — o
+ * rótulo "pergunta" é prioritário. Enquanto in_terminal, a heurística do TUI
  * (terminalActivity) refina para "processando"/"esperando você"; idle mantém o
  * rótulo básico. Demais status passam direto.
  */
@@ -113,8 +114,8 @@ export function displayStatusKey(s: SessionInfo): string {
 /**
  * A sessão está esperando uma ação SUA? É o único estado em que o gargalo é o
  * operador — os outros são problema da máquina —, e por isso é o único que a UI
- * deixa chamar. Vale por dois caminhos: needs_attention (chat) e a heurística do
- * TUI parado (in_terminal + waiting).
+ * deixa chamar. Vale por três caminhos: needs_attention (chat), pergunta pendente
+ * (o agente parou e perguntou) e a heurística do TUI parado (in_terminal + waiting).
  */
 export function isWaitingForYou(s: SessionInfo): boolean {
   // Três caminhos: needs_attention (chat), pergunta pendente (o agente parou e
@@ -122,7 +123,7 @@ export function isWaitingForYou(s: SessionInfo): boolean {
   return s.status === 'needs_attention' || !!s.pendingQuestion || (s.status === 'in_terminal' && s.terminalActivity === 'waiting')
 }
 
-/** Classe do status-dot: terminal esperando = âmbar (como needs_attention); processando = pulso. */
+/** Classe do status-dot: pergunta pendente ou terminal esperando = âmbar (como needs_attention); processando = pulso. */
 export function dotClassOf(s: SessionInfo): string {
   if (s.pendingQuestion) return 'status-dot status-needs_attention'
   if (s.status === 'in_terminal' && s.terminalActivity === 'waiting') return 'status-dot status-needs_attention'

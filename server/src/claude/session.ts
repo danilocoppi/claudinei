@@ -287,6 +287,12 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       this.swallowInterruptedResult = false
       return
     }
+    // Defensivo, sem gatilho medido: um `result` que fecha o turno com a
+    // AskUserQuestion ainda pendente (aborto/erro não catalogado da CLI) não
+    // pode deixar o painel preso esperando uma resposta que nunca vai chegar.
+    if (evt.kind === 'result' && this.pending) {
+      this.pending = undefined
+    }
     // Um result com task de background ativa NÃO encerra o trabalho: só o turno
     // que a despachou acabou. Marcar needs_attention aqui mostraria o terminal
     // parado — e o filtro "somente ativos" o esconderia — enquanto o subagente
@@ -352,6 +358,14 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     if (req.subtype !== 'can_use_tool' || typeof rid !== 'string') return // outros subtypes seguem ignorados, como antes
     const input = (req.input ?? {}) as Record<string, unknown>
     if (req.tool_name === 'AskUserQuestion') {
+      // Defesa contra um 2º can_use_tool chegando antes do control_response do 1º
+      // (nunca medido, mas o protocolo não impede): sobrescrever `this.pending`
+      // aqui deixaria o request_id do 1º sem resposta pra sempre — a CLI travaria
+      // até Stop/kill. Nega o 2º na hora; a pendência original segue intocada.
+      if (this.pending) {
+        this.respondControl(rid, { behavior: 'deny', message: 'Já há uma pergunta aguardando resposta.' })
+        return
+      }
       const questions = normalizeQuestions(input.questions)
       if (questions.length === 0) {
         this.respondControl(rid, { behavior: 'deny', message: 'AskUserQuestion sem perguntas válidas.' })
@@ -382,7 +396,11 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       const a = answers[q.question]
       if (typeof a !== 'string' || !a.trim()) throw new Error(`pergunta sem resposta: ${q.header}`)
     }
-    this.respondControl(p.requestId, { behavior: 'allow', updatedInput: { ...p.input, answers } })
+    // Só as perguntas que a CLI de fato fez viram chave no updatedInput.answers:
+    // uma chave extra no payload do cliente (bug de UI, adulteração) não pode
+    // vazar para dentro do que a CLI recebe de volta.
+    const filtradas = Object.fromEntries(p.questions.map((q) => [q.question, answers[q.question]]))
+    this.respondControl(p.requestId, { behavior: 'allow', updatedInput: { ...p.input, answers: filtradas } })
     this.pending = undefined
     this.emit('status', this.status)
   }

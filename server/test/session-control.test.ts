@@ -181,6 +181,56 @@ describe('AskUserQuestion (can_use_tool vindo da CLI)', () => {
     expect(s.status).toBe('needs_attention')
   })
 
+  // Minor 4 do review final: só as perguntas que a CLI fez podem virar chave no
+  // updatedInput.answers — uma chave extra do cliente (bug de UI, payload
+  // adulterado) não pode vazar para dentro do que a CLI recebe de volta.
+  it('answerQuestion ignora chaves extras que não são das perguntas feitas', async () => {
+    const s = await askAndWait()
+    const rs = results(s)
+    s.answerQuestion({
+      'Qual cor você prefere?': 'Azul',
+      'Quais frutas você gosta?': 'Maçã, Banana',
+      'chave-extra-do-cliente': 'não devia aparecer',
+    })
+    await waitUntil(() => rs.length === 1)
+    expect(rs[0]).toContain('"Qual cor você prefere?"="Azul"')
+    expect(rs[0]).not.toContain('chave-extra-do-cliente')
+  })
+
+  // Important 2 do review final: um 2º can_use_tool de AskUserQuestion chegando
+  // antes de qualquer control_response para o 1º não pode sobrescrever
+  // `this.pending` — senão o request_id do 1º nunca é respondido e a CLI trava
+  // até Stop/kill. O host deve negar o 2º na hora.
+  it('uma 2ª AskUserQuestion enquanto a 1ª está pendente é negada na hora; a 1ª pendência sobrevive', async () => {
+    const s = start()
+    const events: ClaudeEvent[] = []
+    s.on('event', (e) => events.push(e))
+    await waitUntil(() => s.status === 'idle')
+    s.send('faz-duas-perguntas')
+    await waitUntil(() => s.pendingQuestion !== undefined)
+    expect(s.pendingQuestion!.toolUseId).toBe('toolu_q_1')
+    const textoDe = (e: ClaudeEvent) => e.kind === 'assistant'
+      ? (Array.isArray(e.message.content) ? e.message.content : []).map((b) => (b as { text?: string }).text ?? '').join(' ')
+      : ''
+    // Sincroniza com o eco que o fake manda ao receber o deny automático da 2ª.
+    await waitUntil(() => events.some((e) => textoDe(e).includes('segunda-negada')))
+    // A pendência original não foi tocada: ainda é a 1ª, e ainda dá pra respondê-la.
+    expect(s.pendingQuestion!.toolUseId).toBe('toolu_q_1')
+    s.answerQuestion({ 'Prossegue?': 'Sim' })
+    expect(s.pendingQuestion).toBeUndefined()
+  })
+
+  // Important 3 do review final: defensivo, sem gatilho medido. Um `result`
+  // fechando o turno com a pergunta ainda pendente (aborto/erro não catalogado)
+  // não pode deixar o painel preso esperando uma resposta que nunca vai chegar.
+  it('um result que chega com pergunta pendente limpa a pendência (turno abortado)', async () => {
+    const s = start()
+    await waitUntil(() => s.status === 'idle')
+    s.send('pergunta-abandonada')
+    await waitUntil(() => s.status === 'needs_attention')
+    expect(s.pendingQuestion).toBeUndefined()
+  })
+
   it('answerQuestion exige resposta não vazia para TODAS as perguntas (a pendência fica)', async () => {
     const s = await askAndWait()
     expect(() => s.answerQuestion({ 'Qual cor você prefere?': 'Azul' })).toThrow(/Frutas/)

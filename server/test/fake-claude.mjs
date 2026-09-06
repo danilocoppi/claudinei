@@ -13,10 +13,16 @@
 //                         isto: o auto-compact manda literalmente "/compact" e conta com o eco.
 //   contém "faz-pergunta" -> AskUserQuestion: tool_use + control_request can_use_tool
 //                         (request_id q-req-1, tool_use_id toolu_q_1) e ESPERA o
-//                         control_response do host (Task 2 trata a resposta).
+//                         control_response do host para fechar o turno.
 //                         control_response allow → tool_result "Your questions have been
 //                         answered: …" + "eco: respostas …" + result; deny → tool_result
 //                         is_error + "eco: negado <message>" + result.
+//   contém "faz-duas-perguntas" -> duas AskUserQuestion back-to-back (q-req-1/toolu_q_1 e
+//                         q-req-1b/toolu_q_1b) ANTES de qualquer control_response — testa
+//                         que o host nega a 2ª na hora sem derrubar a 1ª pendência.
+//   contém "pergunta-abandonada" -> AskUserQuestion cujo control_request é seguido
+//                         IMEDIATAMENTE por um result (sem esperar resposta) — simula a
+//                         CLI abortando o turno com a pergunta ainda aberta.
 //   contém "pedido-interativo" -> can_use_tool de ExitPlanMode com requires_user_interaction (espera deny)
 //   contém "pedido-comum"      -> can_use_tool de Bash sem interação (espera allow)
 //   interrupt com pergunta pendente -> control_cancel_request antes do control_response (probe H)
@@ -49,29 +55,44 @@ rl.on('line', (line) => {
   let msg
   try { msg = JSON.parse(line) } catch { return }
   // Host respondeu à pergunta (ou a outro can_use_tool) — o turno bloqueado segue.
-  if (msg?.type === 'control_response' && pendingQuestion && msg.response?.request_id === pendingQuestion.request_id) {
-    const r = msg.response?.response ?? {}
-    const p = pendingQuestion; pendingQuestion = null
-    const usage = { input_tokens: 10, cache_read_input_tokens: Number(process.env.CLAUDE_FAKE_CTX ?? 100), cache_creation_input_tokens: 0, output_tokens: 5 }
-    if (r.behavior === 'allow') {
-      // Texto EXATO que a CLI real injeta (medido) quando há perguntas; sem
-      // perguntas (pedido-comum) é só um tool_result qualquer.
-      const answers = r.updatedInput?.answers ?? {}
-      const pares = Object.entries(answers).map(([q, a]) => `"${q}"="${a}"`).join(', ')
-      const content = p.questions
-        ? `Your questions have been answered: ${pares}. You can now continue with these answers in mind.`
-        : 'oi'
-      const eco = p.questions ? `eco: respostas ${pares}` : 'eco: permitido'
-      out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content }] } })
-      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
-      out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
-    } else {
-      const eco = `eco: negado ${r.message ?? ''}`.trim()
-      out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content: r.message ?? 'rejected', is_error: true }] } })
-      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
-      out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
+  // QUALQUER control_response cai neste bloco e retorna: sem isto, uma resposta
+  // que não bate com `pendingQuestion` (ex.: o deny automático da 2ª pergunta em
+  // faz-duas-perguntas) escorregava para o fallback de texto lá embaixo e virava
+  // um eco/result espúrio, fechando um turno que devia continuar aberto.
+  if (msg?.type === 'control_response') {
+    if (pendingQuestion && msg.response?.request_id === pendingQuestion.request_id) {
+      const r = msg.response?.response ?? {}
+      const p = pendingQuestion; pendingQuestion = null
+      const usage = { input_tokens: 10, cache_read_input_tokens: Number(process.env.CLAUDE_FAKE_CTX ?? 100), cache_creation_input_tokens: 0, output_tokens: 5 }
+      if (r.behavior === 'allow') {
+        // Texto EXATO que a CLI real injeta (medido) quando há perguntas; sem
+        // perguntas (pedido-comum) é só um tool_result qualquer.
+        const answers = r.updatedInput?.answers ?? {}
+        const pares = Object.entries(answers).map(([q, a]) => `"${q}"="${a}"`).join(', ')
+        const content = p.questions
+          ? `Your questions have been answered: ${pares}. You can now continue with these answers in mind.`
+          : 'oi'
+        const eco = p.questions ? `eco: respostas ${pares}` : 'eco: permitido'
+        out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content }] } })
+        out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
+        out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
+      } else {
+        const eco = `eco: negado ${r.message ?? ''}`.trim()
+        out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content: r.message ?? 'rejected', is_error: true }] } })
+        out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
+        out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
+      }
+      return
     }
-    return
+    if (msg.response?.request_id === 'q-req-1b') {
+      // faz-duas-perguntas: deny AUTOMÁTICO que o host manda pra 2ª pergunta (o
+      // fix nega sozinho, sem esperar o cliente). Só eco — ponto de sincronização
+      // pro teste — o turno segue aberto esperando a resposta real da 1ª.
+      const msg2 = msg.response?.response?.message ?? ''
+      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: `eco: segunda-negada ${msg2}`.trim() }] } })
+      return
+    }
+    return // control_response que não bate com nada conhecido: ignora, nunca vira eco/result
   }
   if (msg?.type === 'control_request') {
     const r = msg.request ?? {}
@@ -136,6 +157,43 @@ rl.on('line', (line) => {
     out({ type: 'control_request', request_id: 'q-req-1', request: {
       subtype: 'can_use_tool', tool_name: 'AskUserQuestion', display_name: 'AskUserQuestion',
       input: { questions }, tool_use_id: 'toolu_q_1', requires_user_interaction: true } })
+    return
+  }
+  if (text.includes('faz-duas-perguntas')) {
+    // Regressão (Important 2 do review final): a CLI manda um 2º can_use_tool
+    // antes de qualquer control_response para o 1º — nunca medido no CLI real,
+    // mas o protocolo não impede, e o host precisa negar o 2º na hora em vez de
+    // sobrescrever a pendência (que deixaria o 1º request_id sem resposta pra
+    // sempre). Sufixo "b" só para diferenciar id/request nos asserts.
+    const questions = [
+      { question: 'Prossegue?', header: 'Confirma', multiSelect: false,
+        options: [{ label: 'Sim', description: 'Sim' }, { label: 'Não', description: 'Não' }] },
+    ]
+    pendingQuestion = { request_id: 'q-req-1', tool_use_id: 'toolu_q_1', questions }
+    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q_1', name: 'AskUserQuestion', input: { questions } }] } })
+    out({ type: 'control_request', request_id: 'q-req-1', request: {
+      subtype: 'can_use_tool', tool_name: 'AskUserQuestion', display_name: 'AskUserQuestion',
+      input: { questions }, tool_use_id: 'toolu_q_1', requires_user_interaction: true } })
+    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q_1b', name: 'AskUserQuestion', input: { questions } }] } })
+    out({ type: 'control_request', request_id: 'q-req-1b', request: {
+      subtype: 'can_use_tool', tool_name: 'AskUserQuestion', display_name: 'AskUserQuestion',
+      input: { questions }, tool_use_id: 'toolu_q_1b', requires_user_interaction: true } })
+    return
+  }
+  if (text.includes('pergunta-abandonada')) {
+    // Regressão (Important 3 do review final): defensivo, sem gatilho medido —
+    // simula a CLI fechando o turno com `result` antes do control_response da
+    // AskUserQuestion (aborto/erro não catalogado). A pendência não pode ficar
+    // presa esperando uma resposta que nunca vai chegar.
+    const questions = [
+      { question: 'Confirma?', header: 'Confirma', multiSelect: false,
+        options: [{ label: 'Sim', description: 'Sim' }, { label: 'Não', description: 'Não' }] },
+    ]
+    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_q_ab', name: 'AskUserQuestion', input: { questions } }] } })
+    out({ type: 'control_request', request_id: 'q-req-ab', request: {
+      subtype: 'can_use_tool', tool_name: 'AskUserQuestion', display_name: 'AskUserQuestion',
+      input: { questions }, tool_use_id: 'toolu_q_ab', requires_user_interaction: true } })
+    out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
     return
   }
   if (text.includes('pedido-interativo')) {

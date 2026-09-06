@@ -63,6 +63,32 @@ describe('QuestionPanel', () => {
     expect(send).toHaveBeenCalledWith({ type: 'dismiss_question', localId: 's1' })
   })
 
+  // Minor 5 do review final: `pending.questions` vem da engine — um array vazio
+  // não pode derrubar o componente (guarda defensiva).
+  it('questions vazio não quebra: o painel não renderiza nada', () => {
+    const send = vi.fn()
+    const { container } = render(
+      <WsContext.Provider value={{ send }}>
+        <QuestionPanel localId="s1" pending={{ toolUseId: 'vazio', questions: [] }} />
+      </WsContext.Provider>,
+    )
+    expect(container.firstChild).toBeNull()
+  })
+
+  // Minor 6 do review final: a key das opções usava o rótulo — dois rótulos
+  // iguais colidiam na reconciliação do React (aviso de key duplicada).
+  it('opções com rótulos repetidos não geram aviso de key duplicada no React', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const repetido: PendingQuestion = { toolUseId: 'toolu_dup', questions: [
+      { question: 'Qual?', header: 'Q', multiSelect: false,
+        options: [{ label: 'Repetido', description: 'primeira' }, { label: 'Repetido', description: 'segunda' }] },
+    ] }
+    mount(repetido)
+    const avisoDeKeyDuplicada = spy.mock.calls.some((args) => String(args[0]).includes('same key'))
+    expect(avisoDeKeyDuplicada).toBe(false)
+    spy.mockRestore()
+  })
+
   it('answerOf: livre substitui na simples e soma na múltipla; vazio não conta', () => {
     expect(answerOf(undefined, false)).toBe('')
     expect(answerOf({ picked: new Set(['Azul']), other: '' }, false)).toBe('Azul')

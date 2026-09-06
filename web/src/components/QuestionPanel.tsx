@@ -48,6 +48,9 @@ export function QuestionPanel({ localId, pending }: { localId: string; pending: 
   const qs = pending.questions
   const idx = Math.min(tab, qs.length - 1)
   const q = qs[idx]
+  // Defesa: `questions` vem inteiro da engine (wire data) — um array vazio não
+  // pode derrubar o componente com `q` undefined.
+  if (!q) return null
   const answers = qs.map((qq, i) => answerOf(drafts[i], qq.multiSelect))
   const done = answers.filter(Boolean).length
   const complete = done === qs.length
@@ -98,8 +101,10 @@ export function QuestionPanel({ localId, pending }: { localId: string; pending: 
       )}
       <div className="qpanel__question">{q.question}</div>
       <ul className="qpanel__opts">
-        {q.options.map((o) => (
-          <li key={o.label}>
+        {q.options.map((o, i) => (
+          // key pelo índice: o rótulo vem da engine e duas opções podem repeti-lo
+          // (o.label não é garantidamente único).
+          <li key={i}>
             <label className="qpanel__opt">
               <input type={kind} name={`q-${idx}`} checked={!!d?.picked.has(o.label)} onChange={() => toggle(o.label)} />
               <span>

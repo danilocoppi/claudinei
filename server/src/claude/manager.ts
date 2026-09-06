@@ -486,7 +486,18 @@ export function createSessionManager(deps: Deps) {
           .run(opts.effort === 'auto' ? null : opts.effort, localId)
       }
       const info = infoOf(localId)!
-      deps.broadcast({ type: 'session_status', localId, projectId: row.project_id, engine: info.engine, status: info.status, engineSessionId: info.engineSessionId, model: info.model, permissionMode: info.permissionMode, effort: info.effort })
+      // pendingQuestion (e os outros campos só-memória abaixo) precisam vir aqui:
+      // o guard de `working` acima não cobre effort, então este broadcast é
+      // alcançável com uma AskUserQuestion pendente (operador troca o effort
+      // enquanto uma pergunta está aberta) — e o store não tem fallback: campo
+      // ausente é lido como "nenhuma pendência", derrubando o painel na cara do
+      // operador enquanto a CLI ainda está bloqueada esperando resposta.
+      deps.broadcast({
+        type: 'session_status', localId, projectId: row.project_id, engine: info.engine, status: info.status,
+        engineSessionId: info.engineSessionId, model: info.model, permissionMode: info.permissionMode, effort: info.effort,
+        backgroundTasks: info.backgroundTasks, authExpired: info.authExpired, contextWindow: info.contextWindow,
+        pendingQuestion: info.pendingQuestion,
+      })
       return info
     },
 
@@ -534,6 +545,10 @@ export function createSessionManager(deps: Deps) {
       // Persiste o id recuperado (COALESCE não sobrescreve com null): uma sessão que
       // retomou via fallback passa a conhecer o próprio thread nas próximas aberturas.
       persist(localId, 'in_terminal', resumeId)
+      // Sem pendingQuestion aqui de propósito: `stop()` acima só resolve depois do
+      // 'close' do processo, e o handler desse 'close' já zera `this.pending` ANTES
+      // de resolver (session.ts) — e `live.delete` já tirou a sessão do mapa. Não
+      // há como uma pendência sobreviver até este ponto.
       deps.broadcast({
         type: 'session_status',
         localId,
@@ -570,6 +585,9 @@ export function createSessionManager(deps: Deps) {
               try { latest = getEngine(engineId).latestConversationId(project.path) } catch { latest = null }
               const nextId = latest ?? resumeId
               persist(localId, 'stopped', nextId)
+              // Sem pendingQuestion aqui: a entrada já saiu de `live` antes do
+              // terminal sequer abrir (acima) — não existe sessão viva, única
+              // fonte da pendência, neste ponto.
               deps.broadcast({
                 type: 'session_status',
                 localId,
@@ -583,6 +601,8 @@ export function createSessionManager(deps: Deps) {
         })
       } catch (err) {
         persist(localId, 'stopped', null)
+        // Mesmo motivo do broadcast acima: a entrada já saiu de `live` antes do
+        // launcher ser sequer chamado — sem sessão viva não há pendência.
         deps.broadcast({
           type: 'session_status',
           localId,

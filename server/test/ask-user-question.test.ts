@@ -74,6 +74,19 @@ describe('perguntas do agente (AskUserQuestion) no manager', () => {
     await mgr.stopAll()
   })
 
+  // Important 1 do review final: o guard de `working` em setSessionOptions não
+  // cobre effort (é no-op no processo Claude), então um PATCH de effort passa
+  // com uma pergunta pendente e broadcasta session_status — sem pendingQuestion
+  // nesse broadcast, o store (sem fallback) derruba o painel na cara do
+  // operador enquanto a CLI ainda está bloqueada esperando resposta.
+  it('setSessionOptions (effort) com pergunta pendente: o session_status resultante ainda carrega pendingQuestion', async () => {
+    const { mgr, localId } = await askAndWait()
+    await mgr.setSessionOptions(localId, { effort: 'high' })
+    const ultimo = statusesOf(localId).at(-1)
+    expect(ultimo.pendingQuestion).toMatchObject({ toolUseId: 'toolu_q_1' })
+    await mgr.stopAll()
+  })
+
   it('sessão inexistente / sem pendência → erro claro', async () => {
     const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })
     expect(() => mgr.answerQuestion('nao-existe', { a: 'b' })).toThrow(/não está ativa/)

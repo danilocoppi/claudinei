@@ -205,6 +205,15 @@ export const ptBR: typeof en = {
     engineNotInstalled: 'não instalada',
     engineNotInstalledHint: 'CLI não encontrada no PATH do servidor. Instale',
   },
+  question: {
+    titleOne: 'O agente tem uma pergunta para você',
+    titleMany: 'O agente tem {{count}} perguntas para você',
+    progress: '{{done}} de {{total}} respondidas',
+    other: 'Outra resposta…',
+    otherPlaceholder: 'escreva sua resposta',
+    answerInChat: 'Responder pelo chat',
+    submit: 'Enviar respostas',
+  },
   engineAuth: {
     expired: 'A sessão do Claude expirou — reautentique para continuar.',
     reauth: 'Reautenticar',

@@ -202,6 +202,15 @@ export const en = {
     engineNotInstalled: 'not installed',
     engineNotInstalledHint: 'CLI not found on the server PATH. Install it',
   },
+  question: {
+    titleOne: 'The agent has a question for you',
+    titleMany: 'The agent has {{count}} questions for you',
+    progress: '{{done}} of {{total}} answered',
+    other: 'Something else…',
+    otherPlaceholder: 'type your answer',
+    answerInChat: 'Answer in chat',
+    submit: 'Send answers',
+  },
   engineAuth: {
     expired: 'Your Claude session has expired — sign in again to continue.',
     reauth: 'Re-authenticate',

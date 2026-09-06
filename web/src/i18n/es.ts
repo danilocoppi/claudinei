@@ -204,6 +204,15 @@ export const es: typeof en = {
     engineNotInstalled: 'no instalada',
     engineNotInstalledHint: 'CLI no encontrada en el PATH del servidor. Instálala',
   },
+  question: {
+    titleOne: 'El agente tiene una pregunta para ti',
+    titleMany: 'El agente tiene {{count}} preguntas para ti',
+    progress: '{{done}} de {{total}} respondidas',
+    other: 'Otra respuesta…',
+    otherPlaceholder: 'escribe tu respuesta',
+    answerInChat: 'Responder por el chat',
+    submit: 'Enviar respuestas',
+  },
   engineAuth: {
     expired: 'La sesión de Claude expiró — vuelve a autenticarte para continuar.',
     reauth: 'Reautenticar',

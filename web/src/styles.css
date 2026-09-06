@@ -1678,6 +1678,38 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .reauth__row input { flex: 1; min-width: 0; font-size: 12.5px; }
 .reauth__error { color: var(--err); font-size: 12px; }
 
+/* Pergunta do agente (AskUserQuestion), acima da caixa de mensagem. É um PEDIDO,
+   não um alerta: o tom é o de destaque, não o âmbar de aviso do .reauth. */
+.qpanel {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 8px 20px 0; padding: 12px 14px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  font-size: 13px;
+}
+.qpanel__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.qpanel__title { flex: 1; font-weight: 600; }
+.qpanel__progress { color: var(--text-dim); font-size: 12px; }
+.qpanel__tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.qpanel__tab {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 8px;
+  background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer;
+}
+.qpanel__tab.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.qpanel__tab.done::before { content: '✓ '; }
+.qpanel__question { font-weight: 600; }
+.qpanel__opts { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.qpanel__opt {
+  display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;
+}
+.qpanel__opt:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.qpanel__opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.qpanel__opt > input { margin-top: 3px; flex: none; }
+.qpanel__opt-label { font-weight: 600; }
+.qpanel__opt-desc { color: var(--text-dim); font-size: 12px; }
+.qpanel__free { display: block; width: 100%; min-width: 0; font-size: 12.5px; margin-top: 6px; }
+.qpanel__foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
 /* ⏱ do cartão: "este terminal faz algo sozinho". Discreto por padrão — é um fato,
    não um alerta; âmbar só quando um agendamento vem falhando seguido, e ESTÁTICO,
    porque o anel pulsante é a língua de "esperando você agora". */

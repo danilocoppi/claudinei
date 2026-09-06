@@ -186,7 +186,7 @@ Renderizado no `ChatView` acima da caixa de mensagem (onde fica o
 
 ### "Esperando você"
 - `engineSession.ts`: `isWaitingForYou()` também é verdadeiro com
-  `pendingQuestion`; `statusDotClass` devolve o âmbar de `needs_attention`.
+  `pendingQuestion`; `dotClassOf` devolve o âmbar de `needs_attention`.
   Card da sidebar, aba de engine e `AgentFace` seguem sem mudança própria.
 
 ### Caixa de mensagem
@@ -232,8 +232,9 @@ Web (vitest + RTL):
   notificação dispara só na chegada.
 - `question-panel.test.tsx`: abas; rádio vs. caixa; Enviar travado até completar;
   "Outra resposta…" vira a resposta; `answers` no formato certo (múltipla com
-  `", "`); "Responder pelo chat" manda `dismiss_question`; erro inline.
-- `engineSession`: `isWaitingForYou` e `statusDotClass` com pendência.
+  `", "`); "Responder pelo chat" manda `dismiss_question`; `answerOf` puro
+  (livre substitui na simples, soma na múltipla; vazio não conta).
+- `engineSession`: `isWaitingForYou`, `dotClassOf` e `displayStatusKey` com pendência; `faceStateOf` vira `attention`.
 - `ChatView`: painel só com pendência; placeholder trocado.
 
 ## Fora de escopo (candidatos a seguir)

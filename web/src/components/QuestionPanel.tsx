@@ -23,8 +23,10 @@ export function answerOf(d: Draft | undefined, multi: boolean): string {
 
 /**
  * A pergunta do agente (AskUserQuestion), acima da caixa de mensagem — o mesmo
- * lugar do diálogo no terminal. Abas por pergunta, opções com descrição, uma
- * linha extra para resposta livre, e Enviar só quando todas foram respondidas.
+ * lugar do diálogo no terminal. Três faixas: cabeçalho (título + progresso),
+ * corpo (um passo numerado por pergunta, a pergunta em destaque, opções com
+ * descrição e a linha de resposta livre) e rodapé (Anterior/Próxima à esquerda,
+ * Responder pelo chat/Enviar à direita). Enviar só quando todas foram respondidas.
  *
  * Não há "erro inline": o servidor confirma pelo session_status (a pendência
  * some e o painel com ela). Se nada voltar em 5 s — pergunta já respondida em
@@ -37,7 +39,7 @@ export function QuestionPanel({ localId, pending }: { localId: string; pending: 
   const [drafts, setDrafts] = useState<Record<number, Draft>>({})
   const [busy, setBusy] = useState(false)
 
-  // Pergunta nova (outro toolUseId): rascunhos e aba voltam ao zero.
+  // Pergunta nova (outro toolUseId): rascunhos e passo voltam ao zero.
   useEffect(() => { setTab(0); setDrafts({}); setBusy(false) }, [pending.toolUseId])
   useEffect(() => {
     if (!busy) return
@@ -54,8 +56,11 @@ export function QuestionPanel({ localId, pending }: { localId: string; pending: 
   const answers = qs.map((qq, i) => answerOf(drafts[i], qq.multiSelect))
   const done = answers.filter(Boolean).length
   const complete = done === qs.length
+  const last = idx === qs.length - 1
   const d = drafts[idx]
+  const title = qs.length === 1 ? t('question.titleOne') : t('question.titleMany', { count: qs.length })
 
+  const go = (i: number) => setTab(Math.max(0, Math.min(qs.length - 1, i)))
   const toggle = (label: string) => setDrafts((all) => {
     const cur = all[idx] ?? { picked: new Set<string>(), other: '' }
     const picked = new Set(q.multiSelect ? cur.picked : [])
@@ -80,57 +85,77 @@ export function QuestionPanel({ localId, pending }: { localId: string; pending: 
     setBusy(true)
     ws?.send({ type: 'dismiss_question', localId })
   }
+  // Enter no campo livre: segue para a próxima pergunta; na última, envia.
+  const onFreeEnter = () => { if (last) submit(); else go(idx + 1) }
 
   const kind = q.multiSelect ? 'checkbox' : 'radio'
   return (
-    <div className="qpanel" role="group" data-testid="question-panel"
-         aria-label={qs.length === 1 ? t('question.titleOne') : t('question.titleMany', { count: qs.length })}>
+    <div className="qpanel" role="group" data-testid="question-panel" aria-label={title}>
       <div className="qpanel__head">
-        <span aria-hidden="true">❔</span>
-        <span className="qpanel__title">{qs.length === 1 ? t('question.titleOne') : t('question.titleMany', { count: qs.length })}</span>
+        <span className="qpanel__badge" aria-hidden="true">?</span>
+        <span className="qpanel__title">{title}</span>
         {qs.length > 1 && <span className="qpanel__progress">{t('question.progress', { done, total: qs.length })}</span>}
       </div>
-      {qs.length > 1 && (
-        <div className="qpanel__tabs" role="tablist">
-          {qs.map((qq, i) => (
-            <button key={i} type="button" role="tab" aria-selected={i === idx}
-                    className={`qpanel__tab ${i === idx ? 'active' : ''} ${answers[i] ? 'done' : ''}`}
-                    onClick={() => setTab(i)}>{qq.header}</button>
-          ))}
+      <div className="qpanel__body">
+        {qs.length > 1 && (
+          <div className="qpanel__tabs" role="tablist">
+            {qs.map((qq, i) => (
+              // data-n vira o número do passo via CSS (::before) — e ✓ na respondida —
+              // sem sujar o texto da aba, que é o `header` da pergunta.
+              <button key={i} type="button" role="tab" aria-selected={i === idx} data-n={i + 1}
+                      className={`qpanel__tab ${i === idx ? 'active' : ''} ${answers[i] ? 'done' : ''}`}
+                      onClick={() => go(i)}>{qq.header}</button>
+            ))}
+          </div>
+        )}
+        <div className="qpanel__q">
+          <div className="qpanel__question">{q.question}</div>
+          <div className="qpanel__hint">{q.multiSelect ? t('question.pickMany') : t('question.pickOne')}</div>
         </div>
-      )}
-      <div className="qpanel__question">{q.question}</div>
-      <ul className="qpanel__opts">
-        {q.options.map((o, i) => (
-          // key pelo índice: o rótulo vem da engine e duas opções podem repeti-lo
-          // (o.label não é garantidamente único).
-          <li key={i}>
+        <ul className="qpanel__opts">
+          {q.options.map((o, i) => (
+            // key pelo índice: o rótulo vem da engine e duas opções podem repeti-lo
+            // (o.label não é garantidamente único).
+            <li key={i}>
+              <label className="qpanel__opt">
+                <input type={kind} name={`q-${idx}`} checked={!!d?.picked.has(o.label)} onChange={() => toggle(o.label)} />
+                <span>
+                  <span className="qpanel__opt-label">{o.label}</span>
+                  {o.description && <div className="qpanel__opt-desc">{o.description}</div>}
+                </span>
+              </label>
+            </li>
+          ))}
+          <li>
             <label className="qpanel__opt">
-              <input type={kind} name={`q-${idx}`} checked={!!d?.picked.has(o.label)} onChange={() => toggle(o.label)} />
-              <span>
-                <span className="qpanel__opt-label">{o.label}</span>
-                {o.description && <div className="qpanel__opt-desc">{o.description}</div>}
+              <input type={kind} name={`q-${idx}`} checked={!!d?.picked.has(OTHER)} onChange={() => toggle(OTHER)} />
+              <span style={{ flex: 1 }}>
+                <span className="qpanel__opt-label">{t('question.other')}</span>
+                {d?.picked.has(OTHER) && (
+                  <input className="qpanel__free" autoFocus value={d.other} placeholder={t('question.otherPlaceholder')}
+                         onChange={(e) => setOther(e.target.value)}
+                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onFreeEnter() } }} />
+                )}
               </span>
             </label>
           </li>
-        ))}
-        <li>
-          <label className="qpanel__opt">
-            <input type={kind} name={`q-${idx}`} checked={!!d?.picked.has(OTHER)} onChange={() => toggle(OTHER)} />
-            <span style={{ flex: 1 }}>
-              <span className="qpanel__opt-label">{t('question.other')}</span>
-              {d?.picked.has(OTHER) && (
-                <input className="qpanel__free" autoFocus value={d.other} placeholder={t('question.otherPlaceholder')}
-                       onChange={(e) => setOther(e.target.value)}
-                       onKeyDown={(e) => { if (e.key === 'Enter' && qs.length === 1) { e.preventDefault(); submit() } }} />
-              )}
-            </span>
-          </label>
-        </li>
-      </ul>
+        </ul>
+      </div>
       <div className="qpanel__foot">
-        <button type="button" className="ghost" disabled={busy} onClick={dismiss}>{t('question.answerInChat')}</button>
-        <button type="button" disabled={!complete || busy} onClick={submit}>{t('question.submit')}</button>
+        {qs.length > 1 && (
+          <div className="qpanel__nav">
+            <button type="button" className="ghost qpanel__navbtn" disabled={idx === 0} onClick={() => go(idx - 1)}>
+              <span aria-hidden="true">‹</span> {t('question.prev')}
+            </button>
+            <button type="button" className="ghost qpanel__navbtn" disabled={last} onClick={() => go(idx + 1)}>
+              {t('question.next')} <span aria-hidden="true">›</span>
+            </button>
+          </div>
+        )}
+        <div className="qpanel__actions">
+          <button type="button" className="ghost" disabled={busy} onClick={dismiss}>{t('question.answerInChat')}</button>
+          <button type="button" disabled={!complete || busy} onClick={submit}>{t('question.submit')}</button>
+        </div>
       </div>
     </div>
   )

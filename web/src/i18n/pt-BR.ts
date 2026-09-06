@@ -214,6 +214,10 @@ export const ptBR: typeof en = {
     otherPlaceholder: 'escreva sua resposta',
     answerInChat: 'Responder pelo chat',
     submit: 'Enviar respostas',
+    prev: 'Anterior',
+    next: 'Próxima',
+    pickOne: 'Escolha uma opção',
+    pickMany: 'Marque todas que se aplicam',
   },
   engineAuth: {
     expired: 'A sessão do Claude expirou — reautentique para continuar.',

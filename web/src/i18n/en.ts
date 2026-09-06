@@ -211,6 +211,10 @@ export const en = {
     otherPlaceholder: 'type your answer',
     answerInChat: 'Answer in chat',
     submit: 'Send answers',
+    prev: 'Previous',
+    next: 'Next',
+    pickOne: 'Pick one option',
+    pickMany: 'Check all that apply',
   },
   engineAuth: {
     expired: 'Your Claude session has expired — sign in again to continue.',

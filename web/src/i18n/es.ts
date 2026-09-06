@@ -213,6 +213,10 @@ export const es: typeof en = {
     otherPlaceholder: 'escribe tu respuesta',
     answerInChat: 'Responder por el chat',
     submit: 'Enviar respuestas',
+    prev: 'Anterior',
+    next: 'Siguiente',
+    pickOne: 'Elige una opción',
+    pickMany: 'Marca todas las que apliquen',
   },
   engineAuth: {
     expired: 'La sesión de Claude expiró — vuelve a autenticarte para continuar.',

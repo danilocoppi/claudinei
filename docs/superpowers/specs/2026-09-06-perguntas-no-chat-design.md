@@ -174,17 +174,21 @@ nenhum teste existente manda.
 
 ### `QuestionPanel` (novo, `web/src/components/QuestionPanel.tsx`)
 Renderizado no `ChatView` acima da caixa de mensagem (onde fica o
-`ReauthBanner`), só enquanto `session.pendingQuestion` existe.
-- Cabeçalho: "O agente tem uma pergunta para você" / "… N perguntas …", e abas
-  com o `header` de cada pergunta (✓ nas respondidas). Uma pergunta = sem abas.
-- Corpo: o texto da pergunta; opções como linhas selecionáveis (rótulo forte,
-  descrição discreta) — rádio ou caixa conforme `multiSelect`; a linha extra
-  **"Outra resposta…"** abre um campo de texto. Na simples, o texto substitui a
-  escolha; na múltipla, soma-se às marcadas.
-- Rodapé: **"Responder pelo chat"** (secundário → `dismiss_question`) e
-  **"Enviar respostas"** (primário, habilitado só com todas as perguntas
-  respondidas → `answer_question`). Na pergunta única, Enter no campo livre
-  envia.
+`ReauthBanner`), só enquanto `session.pendingQuestion` existe. Três faixas:
+- Cabeçalho (faixa tingida): selo "?", "O agente tem uma pergunta para você" /
+  "… N perguntas …" e, com várias, a pílula "X de N respondidas".
+- Corpo: com várias perguntas, um passo numerado por pergunta (o `header`; ✓
+  toma o lugar do número na respondida; o ativo é preenchido). A pergunta em
+  destaque (régua na cor de destaque, tipo maior) com a dica "Escolha uma
+  opção" / "Marque todas que se aplicam"; opções como linhas selecionáveis
+  (rótulo forte, descrição discreta) — rádio ou caixa conforme `multiSelect`;
+  a linha extra **"Outra resposta…"** abre um campo de texto. Na simples, o
+  texto substitui a escolha; na múltipla, soma-se às marcadas.
+- Rodapé: à esquerda, com várias perguntas, **"‹ Anterior"** / **"Próxima ›"**
+  (travados na primeira/última); à direita **"Responder pelo chat"**
+  (secundário → `dismiss_question`) e **"Enviar respostas"** (primário,
+  habilitado só com todas as perguntas respondidas → `answer_question`).
+  Enter no campo livre avança para a próxima pergunta; na última, envia.
 - `answers`: `{ [question.question]: rótulo | "rótulo1, rótulo2" | texto livre }`.
 - Estado local `busy` após enviar; a confirmação é o `session_status` seguinte
   sem pendência (o painel some). Sem retorno em 5 s — pergunta já respondida em
@@ -245,6 +249,8 @@ Web (vitest + RTL):
   "Outra resposta…" vira a resposta; `answers` no formato certo (múltipla com
   `", "`); "Responder pelo chat" manda `dismiss_question`; `answerOf` puro
   (livre substitui na simples, soma na múltipla; vazio não conta).
+  Anterior/Próxima com limites; Enter no campo livre avança e, na última, envia;
+  dica "Escolha uma opção" / "Marque todas que se aplicam".
 - `engineSession`: `isWaitingForYou`, `dotClassOf` e `displayStatusKey` com pendência; `faceStateOf` vira `attention`.
 - `ChatView`: painel só com pendência; placeholder trocado.
 

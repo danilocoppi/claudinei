@@ -89,6 +89,51 @@ describe('QuestionPanel', () => {
     spy.mockRestore()
   })
 
+  it('várias perguntas: Anterior/Próxima navegam e travam nas pontas', () => {
+    mount(DUAS)
+    const anterior = () => screen.getByRole('button', { name: /anterior/i }) as HTMLButtonElement
+    const proxima = () => screen.getByRole('button', { name: /próxima/i }) as HTMLButtonElement
+    expect(anterior().disabled).toBe(true)
+    expect(proxima().disabled).toBe(false)
+    expect(screen.getByText('Qual cor você prefere?')).toBeTruthy()
+    fireEvent.click(proxima())
+    expect(screen.getByText('Quais frutas você gosta?')).toBeTruthy()
+    expect(screen.getAllByRole('tab')[1].getAttribute('aria-selected')).toBe('true')
+    expect(proxima().disabled).toBe(true)
+    expect(anterior().disabled).toBe(false)
+    fireEvent.click(anterior())
+    expect(screen.getByText('Qual cor você prefere?')).toBeTruthy()
+  })
+
+  it('uma pergunta: sem Anterior/Próxima', () => {
+    mount(UMA)
+    expect(screen.queryByRole('button', { name: /anterior/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /próxima/i })).toBeNull()
+  })
+
+  it('Enter no campo livre avança para a próxima pergunta; na última, envia', () => {
+    const send = mount(DUAS)
+    fireEvent.click(screen.getByLabelText(/outra resposta/i))
+    const campo1 = screen.getByPlaceholderText(/escreva sua resposta/i)
+    fireEvent.change(campo1, { target: { value: 'Roxo' } })
+    fireEvent.keyDown(campo1, { key: 'Enter' })
+    expect(send).not.toHaveBeenCalled()
+    expect(screen.getByText('Quais frutas você gosta?')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText(/outra resposta/i))
+    const campo2 = screen.getByPlaceholderText(/escreva sua resposta/i)
+    fireEvent.change(campo2, { target: { value: 'Uva' } })
+    fireEvent.keyDown(campo2, { key: 'Enter' })
+    expect(send).toHaveBeenCalledWith({ type: 'answer_question', localId: 's1',
+      answers: { 'Qual cor você prefere?': 'Roxo', 'Quais frutas você gosta?': 'Uva' } })
+  })
+
+  it('a dica sob a pergunta diz se é escolha única ou múltipla', () => {
+    mount(DUAS)
+    expect(screen.getByText('Escolha uma opção')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /próxima/i }))
+    expect(screen.getByText('Marque todas que se aplicam')).toBeTruthy()
+  })
+
   it('answerOf: livre substitui na simples e soma na múltipla; vazio não conta', () => {
     expect(answerOf(undefined, false)).toBe('')
     expect(answerOf({ picked: new Set(['Azul']), other: '' }, false)).toBe('Azul')

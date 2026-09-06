@@ -206,4 +206,31 @@ describe('AskUserQuestion (can_use_tool vindo da CLI)', () => {
     expect(rs[0]).toMatch(/responder pelo chat/i)
     expect(s.status).toBe('needs_attention')
   })
+
+  it('interrupt com pergunta aberta: a CLI cancela (control_cancel_request) e a pendência some', async () => {
+    const s = await askAndWait()
+    await s.interrupt()
+    await waitUntil(() => s.pendingQuestion === undefined)
+    expect(s.status).toBe('needs_attention')
+  })
+
+  it('pedido interativo de OUTRA tool é negado com explicação — o modelo fica sabendo', async () => {
+    const s = start()
+    const rs = results(s)
+    await waitUntil(() => s.status === 'idle')
+    s.send('pedido-interativo')
+    await waitUntil(() => rs.length === 1)
+    expect(rs[0]).toMatch(/negado/)
+    expect(rs[0]).toMatch(/ainda não exibe este pedido \(ExitPlanMode\)/)
+    expect(s.pendingQuestion).toBeUndefined()
+  })
+
+  it('pedido sem interação é permitido (espelha o bypass)', async () => {
+    const s = start()
+    const rs = results(s)
+    await waitUntil(() => s.status === 'idle')
+    s.send('pedido-comum')
+    await waitUntil(() => rs.length === 1)
+    expect(rs[0]).toBe('eco: permitido')
+  })
 })

@@ -17,6 +17,9 @@
 //                         control_response allow → tool_result "Your questions have been
 //                         answered: …" + "eco: respostas …" + result; deny → tool_result
 //                         is_error + "eco: negado <message>" + result.
+//   contém "pedido-interativo" -> can_use_tool de ExitPlanMode com requires_user_interaction (espera deny)
+//   contém "pedido-comum"      -> can_use_tool de Bash sem interação (espera allow)
+//   interrupt com pergunta pendente -> control_cancel_request antes do control_response (probe H)
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -73,6 +76,18 @@ rl.on('line', (line) => {
   if (msg?.type === 'control_request') {
     const r = msg.request ?? {}
     if (r.subtype === 'interrupt') {
+      if (pendingQuestion) {
+        // Ordem EMPÍRICA (probe H): a CLI cancela o pedido pendente ANTES de
+        // responder o interrupt, e o tool_result de rejeição vem depois.
+        const p = pendingQuestion; pendingQuestion = null
+        out({ type: 'control_cancel_request', request_id: p.request_id })
+        out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: { still_queued: [] } } })
+        out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, is_error: true,
+          content: "The user doesn't want to proceed with this tool use. The tool use was rejected. STOP what you are doing and wait for the user to tell you how to proceed." }] } })
+        out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] } })
+        out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
+        return
+      }
       out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {} } })
       out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
       return
@@ -121,6 +136,20 @@ rl.on('line', (line) => {
     out({ type: 'control_request', request_id: 'q-req-1', request: {
       subtype: 'can_use_tool', tool_name: 'AskUserQuestion', display_name: 'AskUserQuestion',
       input: { questions }, tool_use_id: 'toolu_q_1', requires_user_interaction: true } })
+    return
+  }
+  if (text.includes('pedido-interativo')) {
+    // Outro pedido que exige humano (ex.: aprovação de plano): o host deve NEGAR com explicação.
+    pendingQuestion = { request_id: 'q-req-2', tool_use_id: 'toolu_q_2' }
+    out({ type: 'control_request', request_id: 'q-req-2', request: {
+      subtype: 'can_use_tool', tool_name: 'ExitPlanMode', input: { plan: 'x' }, tool_use_id: 'toolu_q_2', requires_user_interaction: true } })
+    return
+  }
+  if (text.includes('pedido-comum')) {
+    // Pedido sem interação (nunca chega na CLI real em bypass; defensivo): o host permite.
+    pendingQuestion = { request_id: 'q-req-3', tool_use_id: 'toolu_q_3' }
+    out({ type: 'control_request', request_id: 'q-req-3', request: {
+      subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'echo oi' }, tool_use_id: 'toolu_q_3' } })
     return
   }
   if (text.includes('compact-real')) {

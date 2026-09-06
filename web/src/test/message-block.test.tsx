@@ -229,4 +229,20 @@ describe('resumo de compactação', () => {
     fireEvent.click(screen.getByText('Contexto compactado'))
     expect(screen.getByText('Primary Request').tagName).toBe('STRONG')
   })
+
+  /** Só o tamanho de ANTES: o de depois que a CLI informa não conta o system prompt e soaria otimista. */
+  it('com o tamanho anterior, a dica diz de quantos tokens o contexto veio', () => {
+    render(<MessageBlock item={{ ...item, preTokens: 143838 }} currentLocalId="s1" />)
+    expect(screen.getByText(/de 144k tokens/)).toBeTruthy()
+  })
+
+  it('sem o tamanho, a dica não inventa número', () => {
+    render(<MessageBlock item={item} currentLocalId="s1" />)
+    expect(screen.queryByText(/tokens/)).toBeNull()
+  })
+
+  it('a fronteira solta (compactação sem resumo depois) não desenha nada', () => {
+    const { container } = render(<MessageBlock item={{ kind: 'compact_boundary', preTokens: 5 }} currentLocalId="s1" />)
+    expect(container.innerHTML).toBe('')
+  })
 })

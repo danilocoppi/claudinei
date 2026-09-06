@@ -91,7 +91,15 @@ export type ChatItem =
   // engine/harness (isMeta, resumo de compact) — não foi digitado pelo operador.
   // compactSummary: o resumo que o CLI injeta após compactar o contexto — vira
   // uma linha recolhida (como o grupo de ações), não uma bolha.
-  | { kind: 'user_text'; text: string; fromSubagent?: boolean; parentId?: string; fromEngine?: boolean; compactSummary?: boolean }
+  // preTokens: tamanho do contexto ANTES da compactação, herdado da fronteira
+  // (compact_boundary) que antecede o resumo — só o de antes é honesto de mostrar.
+  | { kind: 'user_text'; text: string; fromSubagent?: boolean; parentId?: string; fromEngine?: boolean; compactSummary?: boolean; preTokens?: number }
+  /**
+   * Fronteira de compactação (system/compact_boundary), provisória: nasce com o
+   * tamanho anterior do contexto e é absorvida pelo resumo que vem logo depois.
+   * Se ficar solta (compactação sem resumo), não desenha nada.
+   */
+  | { kind: 'compact_boundary'; preTokens?: number; fromSubagent?: boolean; parentId?: string }
   // isApiError: erro interno da API do provedor que o CLI injeta como texto do
   // assistant ("API Error: …") — vira callout de erro, não resposta normal.
   | { kind: 'assistant_text'; text: string; fromSubagent?: boolean; parentId?: string; isApiError?: boolean }

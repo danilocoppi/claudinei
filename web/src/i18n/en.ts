@@ -183,7 +183,7 @@ export const en = {
     toFoot: 'Jump to latest',
     interrupted: 'Interrupted by the user',
     actionsGroup: '{{count}} actions',
-    compactSummary: 'Context compacted', compactSummaryHint: 'summary of the earlier conversation · {{n}} lines',
+    compactSummary: 'Context compacted', compactSummaryHint: 'summary of the earlier conversation · {{n}} lines', compactSummaryFrom: 'from {{tokens}} tokens',
     showAll: 'show all (+{{n}} lines)', collapse: 'collapse',
     taskFrom: 'Task from {{from}}', subagentPrompt: 'Instruction to subagent',
     scheduledFrom: 'Schedule: {{name}} · run #{{run}}',

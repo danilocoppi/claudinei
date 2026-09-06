@@ -14,6 +14,7 @@ import { extractCandidatePaths, kindOfPath, resolveFiles, resolvedKey, splitCand
 import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
 import rehypeFilePaths from '../rehypeFilePaths'
 import { MarkdownPre } from './MarkdownPre'
+import { fmtK } from './ContextMeter'
 
 /**
  * Memoizado, e as props foram desenhadas para o memo VALER.
@@ -143,7 +144,10 @@ function CompactSummaryBlock({ item, currentLocalId }: {
         <span>{open ? '▾' : '▸'}</span>
         <span aria-hidden="true">🗜️</span>
         <strong>{t('chat.compactSummary')}</strong>
-        <span className="action-group__summary">{t('chat.compactSummaryHint', { n: lines })}</span>
+        <span className="action-group__summary">
+          {t('chat.compactSummaryHint', { n: lines })}
+          {item.preTokens !== undefined && ` · ${t('chat.compactSummaryFrom', { tokens: fmtK(item.preTokens) })}`}
+        </span>
       </div>
       {open && (
         <div className="action-group__body markdown" style={{ lineHeight: 1.6 }}>
@@ -388,6 +392,9 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
           </div>
         </div>
       )
+    case 'compact_boundary':
+      // Provisória: o resumo que vem logo depois a absorve. Solta, não há o que mostrar.
+      return null
     case 'system_note':
       return (
         <div style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: 12, margin: '8px 0' }}>

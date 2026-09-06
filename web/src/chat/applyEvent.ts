@@ -115,6 +115,17 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
           : it
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
       let next = items
+      // O resumo absorve a fronteira imediatamente anterior (e o preTokens dela):
+      // a fronteira sozinha não tem o que mostrar, e o resumo sem ela não sabe o tamanho.
+      const push = (it: ChatItem) => {
+        const stamped = stamp(it)
+        const prev = next[next.length - 1]
+        if (stamped.kind === 'user_text' && stamped.compactSummary && prev?.kind === 'compact_boundary') {
+          next = [...next.slice(0, -1), prev.preTokens !== undefined ? { ...stamped, preTokens: prev.preTokens } : stamped]
+        } else {
+          next = [...next, stamped]
+        }
+      }
       for (const b of blocks) {
         if (b.type === 'tool_result' && b.tool_use_id) {
           next = next.map((it) =>
@@ -123,13 +134,21 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
               : it,
           )
         } else if (b.type === 'text' && b.text) {
-          for (const it of classifyUserText(b.text)) next = [...next, stamp({ ...it, ...marks })]
+          for (const it of classifyUserText(b.text)) push({ ...it, ...marks })
         }
       }
       if (typeof evt.message.content === 'string' && evt.message.content) {
-        for (const it of classifyUserText(evt.message.content)) next = [...next, stamp({ ...it, ...marks })]
+        for (const it of classifyUserText(evt.message.content)) push({ ...it, ...marks })
       }
       return next
+    }
+    case 'system': {
+      if (evt.subtype !== 'compact_boundary') return items
+      // Ao vivo o stream-json manda compact_metadata.pre_tokens; o transcript
+      // grava compactMetadata.preTokens (CLI 2.1.261). Os dois caminhos passam aqui.
+      const raw = evt.raw as { compact_metadata?: { pre_tokens?: unknown }; compactMetadata?: { preTokens?: unknown } } | undefined
+      const pre = raw?.compact_metadata?.pre_tokens ?? raw?.compactMetadata?.preTokens
+      return [...items, typeof pre === 'number' ? { kind: 'compact_boundary', preTokens: pre } : { kind: 'compact_boundary' }]
     }
     default:
       return items

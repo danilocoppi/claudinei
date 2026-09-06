@@ -8,7 +8,7 @@ import type { SessionInfo } from '../types'
  */
 export const CLAUDE_CONTEXT_WINDOW = 200_000
 
-const fmtK = (n: number): string => {
+export const fmtK = (n: number): string => {
   if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(1)}M` // 1M não vira "1000k"
   return n < 1000 ? String(n) : `${Math.round(n / 1000)}k`
 }

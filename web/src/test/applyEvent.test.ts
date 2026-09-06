@@ -310,3 +310,45 @@ describe('resumo de compactação', () => {
     expect(applyEvent([], userEvt('faça X'))).toEqual([{ kind: 'user_text', text: 'faça X' }])
   })
 })
+
+/**
+ * A fronteira de compactação (system/compact_boundary) chega ANTES do resumo e é
+ * a única que sabe o tamanho do contexto de antes. Ela vira um item provisório
+ * que o resumo seguinte absorve — assim a linha "Contexto compactado" pode dizer
+ * de quantos tokens veio. Ao vivo o campo é compact_metadata.pre_tokens; no
+ * transcript, compactMetadata.preTokens (medido no CLI 2.1.261).
+ */
+describe('fronteira de compactação alimenta o resumo', () => {
+  const userEvt = (text: string, raw: object = {}): ClaudeEvent =>
+    ({ kind: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, raw }) as ClaudeEvent
+  const boundary = (raw: object): ClaudeEvent => ({ kind: 'system', subtype: 'compact_boundary', raw }) as ClaudeEvent
+  const PREAMBULO = 'This session is being continued from a previous conversation that ran out of context.\n\nSummary:\n1. …'
+
+  it('ao vivo: compact_metadata.pre_tokens vira preTokens do resumo seguinte', () => {
+    const afterBoundary = applyEvent([], boundary({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 143838, post_tokens: 6313 } }))
+    expect(afterBoundary).toEqual([{ kind: 'compact_boundary', preTokens: 143838 }])
+    const out = applyEvent(afterBoundary, userEvt(PREAMBULO, { isCompactSummary: true }))
+    expect(out).toEqual([{ kind: 'user_text', text: PREAMBULO, fromEngine: true, compactSummary: true, preTokens: 143838 }])
+  })
+
+  it('no transcript: compactMetadata.preTokens', () => {
+    const out = applyEvent([], boundary({ type: 'system', subtype: 'compact_boundary', compactMetadata: { trigger: 'auto', preTokens: 99000 } }))
+    expect(out).toEqual([{ kind: 'compact_boundary', preTokens: 99000 }])
+  })
+
+  it('fronteira sem tamanho ainda é absorvida pelo resumo, que fica sem preTokens', () => {
+    const out = applyEvent(applyEvent([], boundary({})), userEvt(PREAMBULO, { isCompactSummary: true }))
+    expect(out).toEqual([{ kind: 'user_text', text: PREAMBULO, fromEngine: true, compactSummary: true }])
+  })
+
+  it('resumo sem fronteira antes segue normal, e um texto comum não absorve a fronteira', () => {
+    expect(applyEvent([], userEvt(PREAMBULO, { isCompactSummary: true })))
+      .toEqual([{ kind: 'user_text', text: PREAMBULO, fromEngine: true, compactSummary: true }])
+    const out = applyEvent(applyEvent([], boundary({})), userEvt('faça X'))
+    expect(out).toEqual([{ kind: 'compact_boundary' }, { kind: 'user_text', text: 'faça X' }])
+  })
+
+  it('outros eventos system seguem ignorados', () => {
+    expect(applyEvent([], { kind: 'system', subtype: 'status', raw: { status: 'compacting' } } as ClaudeEvent)).toEqual([])
+  })
+})

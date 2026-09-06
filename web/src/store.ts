@@ -4,7 +4,7 @@ import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import type { FileKind, ScopeResult } from './files'
 import { applyEvent } from './chat/applyEvent'
-import { notifySessionChange } from './notifications'
+import { notifyQuestion, notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
@@ -329,9 +329,15 @@ export const useStore = create<State>((set, get) => ({
       }))
     } else if (msg.type === 'session_status') {
       const prev = get().sessions[msg.localId]?.status
-      const projectId = get().sessions[msg.localId]?.projectId
+      // Prefere o projectId do próprio broadcast: numa sessão nova (1º session_status
+      // dela) ainda não há entrada no store, e sem isso o aviso de pergunta cairia no
+      // "projeto" genérico mesmo a mensagem trazendo o projeto certo.
+      const projectId = msg.projectId ?? get().sessions[msg.localId]?.projectId
       const projectName = get().projects.find((p) => p.id === projectId)?.name ?? 'projeto'
       notifySessionChange(projectName, msg.status, prev)
+      // Pergunta nova (não havia, agora há): avisa uma vez. Os rebroadcasts do
+      // mesmo status com a mesma pergunta não repetem o aviso.
+      if (msg.pendingQuestion && !get().sessions[msg.localId]?.pendingQuestion) notifyQuestion(projectName)
       // Turno terminou (working → descanso): invalida o histórico carregado da
       // sessão para o ChatView rebuscar do TRANSCRIPT. O stream ao vivo não traz
       // flags como isMeta/isCompactSummary (injeções da engine) — o transcript
@@ -363,6 +369,9 @@ export const useStore = create<State>((set, get) => ({
             authExpired: msg.authExpired ?? s.sessions[msg.localId]?.authExpired ?? false,
             // Janela do modelo: chega no init (e a cada troca de modelo).
             contextWindow: msg.contextWindow ?? s.sessions[msg.localId]?.contextWindow,
+            // Pergunta do agente: SEM fallback para a anterior — o servidor manda o
+            // campo sempre que há pergunta; ausente quer dizer que não há mais.
+            pendingQuestion: msg.pendingQuestion,
             // Atividade do TUI só sobrevive à PERMANÊNCIA em in_terminal; na entrada
             // (status anterior não era in_terminal) zera — senão dois in_terminal
             // consecutivos mostrariam atividade velha do terminal anterior.

@@ -224,7 +224,7 @@ export const ptBR: typeof en = {
     empty: 'Nenhuma tarefa despachada ainda. Um agente pode delegar tarefas com a ferramenta dispatch_task.',
     queued: 'na fila', inProgress: 'em andamento', completed: 'concluída', failed: 'falhou', operator: 'operador',
   },
-  notify: { needsAttention: 'terminou e aguarda você', died: 'sessão morreu' },
+  notify: { needsAttention: 'terminou e aguarda você', died: 'sessão morreu', question: 'tem uma pergunta para você' },
   perm: {
     manual: 'Manual', auto: 'Auto', acceptEdits: 'Aceitar edições', plan: 'Plano', bypass: 'Pular permissões',
   },

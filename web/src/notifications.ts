@@ -36,3 +36,11 @@ export function notifySessionChange(projectName: string, status: SessionStatus, 
     new Notification(`Claudinei · ${projectName}`, { body: title })
   }
 }
+
+/** O agente fez uma pergunta e parou: é o caso mais "esperando você" que existe. */
+export function notifyQuestion(projectName: string): void {
+  beep()
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(`Claudinei · ${projectName}`, { body: i18n.t('notify.question') })
+  }
+}

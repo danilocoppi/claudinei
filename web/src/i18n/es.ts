@@ -223,7 +223,7 @@ export const es: typeof en = {
     empty: 'Aún no se han despachado tareas. Un agente puede delegar con la herramienta dispatch_task.',
     queued: 'en cola', inProgress: 'en curso', completed: 'completada', failed: 'falló', operator: 'operador',
   },
-  notify: { needsAttention: 'terminó y te espera', died: 'la sesión murió' },
+  notify: { needsAttention: 'terminó y te espera', died: 'la sesión murió', question: 'tiene una pregunta para ti' },
   perm: {
     manual: 'Manual', auto: 'Auto', acceptEdits: 'Aceptar ediciones', plan: 'Plan', bypass: 'Omitir permisos',
   },

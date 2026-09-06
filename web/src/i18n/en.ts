@@ -221,7 +221,7 @@ export const en = {
     empty: 'No tasks dispatched yet. An agent can delegate with the dispatch_task tool.',
     queued: 'queued', inProgress: 'in progress', completed: 'done', failed: 'failed', operator: 'operator',
   },
-  notify: { needsAttention: 'finished and awaits you', died: 'session died' },
+  notify: { needsAttention: 'finished and awaits you', died: 'session died', question: 'has a question for you' },
   perm: {
     manual: 'Manual', auto: 'Auto', acceptEdits: 'Accept edits', plan: 'Plan', bypass: 'Skip permissions',
   },

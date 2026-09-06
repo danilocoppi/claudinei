@@ -34,6 +34,8 @@ export interface SessionInfo {
   contextTokens?: number
   /** Janela de contexto (tokens) do modelo em uso — o denominador do medidor. Ausente → 200k conservador. */
   contextWindow?: number
+  /** Pergunta (AskUserQuestion) esperando você. Ausente = nenhuma. */
+  pendingQuestion?: PendingQuestion
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */
@@ -58,6 +60,12 @@ export interface ContentBlock {
   tool_use_id?: string; content?: unknown
   is_error?: boolean
 }
+
+export interface QuestionOption { label: string; description: string }
+/** Uma pergunta da AskUserQuestion, como a CLI a manda. */
+export interface Question { question: string; header: string; options: QuestionOption[]; multiSelect: boolean }
+/** Pergunta que o agente fez e está esperando resposta. Estado do processo vivo: vem no session_status/snapshot, nunca do histórico. */
+export interface PendingQuestion { toolUseId: string; questions: Question[] }
 
 export interface ApiMessage { role: string; content: ContentBlock[] | string }
 

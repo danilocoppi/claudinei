@@ -10,7 +10,7 @@ import type { ChatItem } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
 import { WsContext } from '../wsContext'
-import { extractCandidatePaths, kindOfPath, resolveFiles, splitCandidatePaths } from '../files'
+import { extractCandidatePaths, kindOfPath, resolveFiles, resolvedKey, splitCandidatePaths } from '../files'
 import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
 import rehypeFilePaths from '../rehypeFilePaths'
 import { MarkdownPre } from './MarkdownPre'
@@ -44,21 +44,40 @@ export const MessageBlock = memo(function MessageBlock({ item, currentLocalId, e
 /** Mensagens acima disso colapsam: mostra as primeiras linhas + botão de expandir. */
 const COLLAPSE_LINES = 13
 
+/** Chaves com resolve em voo: um histórico com 50 menções ao mesmo caminho dispara 1 POST, não 50. */
+const resolveInFlight = new Set<string>()
+
 /**
- * Resolve (uma vez por path, via cache do store) candidatos contra o escopo do
- * projeto. A dep é a lista SERIALIZADA: um array novo a cada render re-dispararia
- * o efeito para sempre.
+ * Resolve candidatos contra o escopo do projeto, via cache do store. A dep é a
+ * lista SERIALIZADA: um array novo a cada render re-dispararia o efeito para sempre.
+ *
+ * Resultado NEGATIVO não é definitivo: o agente diz "vou escrever em X", escreve
+ * X e anuncia "escrevi em X" — com o `exists: false` da primeira menção cacheado
+ * para sempre, a última nunca virava link (aconteceu). Cada mensagem NOVA que
+ * cita um caminho reconsulta os que estavam negativos; positivo segue cacheado
+ * (se o arquivo sumir depois, o clique já mostra o erro amigável).
  */
 function useResolveFileCandidates(candidates: string[], projectId?: number): void {
   const setFilesResolved = useStore((s) => s.setFilesResolved)
   const key = candidates.join('\u0000')
   useEffect(() => {
-    const pending = key ? key.split('\u0000').filter((p) => !(p in useStore.getState().fileResolved)) : []
+    const cache = useStore.getState().fileResolved
+    const pending = key
+      ? key.split('\u0000').filter((p) => {
+          const k = resolvedKey(p, projectId)
+          if (resolveInFlight.has(k)) return false
+          const cached = cache[k]
+          return !cached || !cached.exists
+        })
+      : []
     if (pending.length === 0) return
+    const keys = pending.map((p) => resolvedKey(p, projectId))
+    for (const k of keys) resolveInFlight.add(k)
     let cancelled = false
     resolveFiles(pending, projectId)
-      .then((results) => { if (!cancelled) setFilesResolved(results) })
+      .then((results) => { if (!cancelled) setFilesResolved(results, projectId) })
       .catch(() => { /* falha de resolve: paths ficam como texto puro (degrade silencioso) */ })
+      .finally(() => { for (const k of keys) resolveInFlight.delete(k) })
     return () => { cancelled = true }
   }, [key, projectId, setFilesResolved])
 }
@@ -82,7 +101,7 @@ function TextWithFileLinks({ text, projectId, localId }: { text: string; project
   return (
     <div style={{ whiteSpace: 'pre-wrap' }}>
       {segments.map((seg, i) => {
-        const resolved = seg.path ? fileResolved[seg.path] : undefined
+        const resolved = seg.path ? fileResolved[resolvedKey(seg.path, projectId)] : undefined
         // Só vira link quando o servidor confirma que existe e está no escopo —
         // mesma regra do texto do assistente (nada de link quebrado na prosa).
         if (!seg.path || !resolved?.exists || !resolved.inScope || !resolved.kind) return seg.text
@@ -403,7 +422,7 @@ export function AssistantMarkdown({ text, currentLocalId }: { text: string; curr
       // pra uma página nova em vez de abrir o FileViewerModal.
       const fileTarget = dataFile ?? (href && !isWebHref(href) ? normalizeHref(href) : undefined)
       if (fileTarget) {
-        const resolved = fileResolved[fileTarget]
+        const resolved = fileResolved[resolvedKey(fileTarget, projectId)]
         const confirmed = resolved?.exists && resolved.inScope && resolved.kind
         // Path detectado em TEXTO puro (data-file): só vira link quando confirmado
         // (sem links quebrados no meio da prosa).

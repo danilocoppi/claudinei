@@ -100,3 +100,15 @@ describe('fileContentUrl', () => {
     expect(fileContentUrl('/tmp/a b.md')).toBe('/api/files/content?path=%2Ftmp%2Fa%20b.md')
   })
 })
+
+import { resolvedKey } from '../files'
+describe('resolvedKey (chave do cache de resolução)', () => {
+  it('relativo carrega o projeto; absoluto e ~/ são globais', () => {
+    expect(resolvedKey('docs/spec.md', 7)).toBe('7:docs/spec.md')
+    expect(resolvedKey('/home/u/a.png', 7)).toBe('/home/u/a.png')
+    expect(resolvedKey('~/notas.md', 7)).toBe('~/notas.md')
+  })
+  it('sem projeto, relativo fica como está (não há contra o que resolver)', () => {
+    expect(resolvedKey('docs/spec.md')).toBe('docs/spec.md')
+  })
+})

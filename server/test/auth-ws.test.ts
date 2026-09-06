@@ -200,4 +200,18 @@ describe('comandos do WS respeitam RBAC', () => {
     await expect(err).resolves.toMatchObject({ type: 'error', message: 'forbidden' })
     anaWs.close()
   })
+
+  // Minor 8 do review final: a guarda por projeto (mesmo bloco do send_message
+  // acima) roda ANTES do dispatch por `msg.type` em routes/ws.ts — cobre
+  // answer_question/dismiss_question igual a qualquer outro comando.
+  it('answer_question em sessão de projeto alheio → erro forbidden', async () => {
+    const start = await app.inject({ method: 'POST', url: `/api/projects/${p2.id}/sessions`, headers: { cookie: await loginCookie('root') }, payload: {} })
+    const localId = start.json().localId
+    const anaWs = openWs(await loginCookie('ana'))
+    await opened(anaWs); await nextMsg(anaWs)
+    const err = nextMsg(anaWs)
+    anaWs.send(JSON.stringify({ type: 'answer_question', localId, answers: { x: 'y' } }))
+    await expect(err).resolves.toMatchObject({ type: 'error', message: 'forbidden' })
+    anaWs.close()
+  })
 })

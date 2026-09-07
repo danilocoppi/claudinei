@@ -56,7 +56,13 @@ export function connectWs(
       }
       queue = []
     }
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      if (event?.code === 1008 && event.reason === 'access_hours') {
+        queue = []; streams.clear(); clearTimeout(streamTimer); closed = true
+        window.dispatchEvent(new Event('claudinei:access-restricted'))
+        return
+      }
+      if (event?.code === 1008) window.dispatchEvent(new Event('claudinei:check-access'))
       flushStreams()
       if (!closed) reconnectTimer = setTimeout(open, 2000)
     }
@@ -65,6 +71,7 @@ export function connectWs(
 
   return {
     send(msg: object) {
+      if (closed) return
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
       else queue.push({ msg, ts: Date.now() })
     },

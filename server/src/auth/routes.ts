@@ -4,6 +4,7 @@ import type { AuthService } from './index.js'
 import { COOKIE_NAME, cookieOpts, isTrustedLocal } from './plugin.js'
 import { requireAdmin } from './guards.js'
 import { verifyPassword, verifyPasswordAsync, fakeVerifyAsync } from './passwords.js'
+import type { AccessHours } from '../../../shared/access-hours.js'
 
 export interface AuthRouteDeps {
   auth: AuthService
@@ -85,7 +86,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     }
     auth.users.clearFailures(row.id)
     setAuthCookie(reply, row.id)
-    return auth.users.get(row.id)
+    return { ...auth.users.get(row.id), access: auth.users.access(row.id) }
   })
 
   app.post('/api/auth/logout', async (_req, reply) => {
@@ -97,7 +98,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     if (auth.users.count() === 0) return { setupRequired: true }
     const u = req.authUser
     if (!u || u.kind !== 'user') return reply.code(401).send({ error: 'unauthorized' })
-    return { setupRequired: false, id: u.id, username: u.username, isAdmin: u.isAdmin, projectIds: u.projectIds }
+    return { setupRequired: false, id: u.id, username: u.username, isAdmin: u.isAdmin, projectIds: u.projectIds,
+      accessHours: auth.users.get(u.id)!.accessHours, access: auth.users.access(u.id) }
   })
 
   app.post('/api/auth/password', async (req, reply) => {
@@ -128,12 +130,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
 
   app.post('/api/auth/users', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    const body = (req.body ?? {}) as { username?: string; password?: string; isAdmin?: boolean; projectIds?: number[] }
+    const body = (req.body ?? {}) as { username?: string; password?: string; isAdmin?: boolean; projectIds?: number[]; accessHours?: AccessHours | null }
     if (!body.username || !body.password) return reply.code(400).send({ error: 'username_and_password_required' })
     try {
       return reply.code(201).send(auth.users.create({
         username: body.username, password: body.password,
         isAdmin: !!body.isAdmin, projectIds: body.projectIds ?? [],
+        accessHours: body.accessHours,
       }))
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message })
@@ -143,7 +146,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   app.patch('/api/auth/users/:id', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
     const id = Number((req.params as { id: string }).id)
-    const body = (req.body ?? {}) as { password?: string; isAdmin?: boolean; projectIds?: number[] }
+    const body = (req.body ?? {}) as { password?: string; isAdmin?: boolean; projectIds?: number[]; accessHours?: AccessHours | null }
     try {
       const user = auth.users.update(id, body)
       deps.onUserInvalidated?.(id) // WS dele reconecta com as permissões novas

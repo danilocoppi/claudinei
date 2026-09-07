@@ -8,6 +8,7 @@ import { isAllowedOrigin } from './terminal.js'
 import { runShell } from '../shell.js'
 import { createProjectsService, type ProjectsService } from '../projects.js'
 import type { Db } from '../db.js'
+import { watchSocketAccess } from '../auth/socket-access.js'
 
 interface Client {
   ws: WebSocket
@@ -15,6 +16,7 @@ interface Client {
   user?: AuthUser
   /** Conectou da máquina do servidor? É o que libera o `!comando` (ver abaixo). */
   local: boolean
+  access: ReturnType<typeof watchSocketAccess>
 }
 
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024
@@ -43,7 +45,7 @@ export function createWsHub() {
   async function runShellFor(client: Client, localId: unknown, command: unknown): Promise<void> {
     if (typeof localId !== 'string' || typeof command !== 'string') return
     const responde = (output: string, isError: boolean) =>
-      client.ws.send(JSON.stringify({ type: 'shell_result', localId, command, output, isError }))
+      client.access.send(JSON.stringify({ type: 'shell_result', localId, command, output, isError }))
 
     if (!client.local) return responde('o comando só roda da máquina do servidor', true)
     const info = mgr?.get(localId)
@@ -62,13 +64,13 @@ export function createWsHub() {
     broadcast(msg: object): void {
       const data = JSON.stringify(msg)
       for (const c of clients) {
-        if (c.ws.readyState !== c.ws.OPEN || !canSee(c.user, msg)) continue
+        if (c.ws.readyState !== c.ws.OPEN || !c.access.allowed() || !canSee(c.user, msg)) continue
         // Backpressure: cliente que parou de ler (laptop suspenso, aba
         // congelada) acumula buffer no servidor durante streaming intenso —
         // acima do teto, derruba a conexão; ele reconecta e ressincroniza
         // pelo snapshot em vez de segurar memória indefinidamente.
         if (c.ws.bufferedAmount > MAX_BUFFERED_BYTES) { c.ws.close(1013, 'backpressure'); continue }
-        c.ws.send(data)
+        c.access.send(data)
       }
     },
 
@@ -93,13 +95,16 @@ export function createWsHub() {
         if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
         // A autenticação aconteceu no hook onRequest (401 aborta o upgrade);
         // aqui só capturamos QUEM conectou para filtrar broadcasts.
-        const client: Client = { ws: socket, user: req.authUser, local: isTrustedLocal(req) }
+        const access = watchSocketAccess(socket, req)
+        if (!access.allowed()) return
+        const client: Client = { ws: socket, user: req.authUser, local: isTrustedLocal(req), access }
         clients.add(client)
         const sessions = deps.manager.list().filter((s) =>
           !client.user || client.user.kind !== 'user' || canAccessProject(client.user, s.projectId))
-        socket.send(JSON.stringify({ type: 'sessions_snapshot', sessions }))
+        access.send(JSON.stringify({ type: 'sessions_snapshot', sessions }))
         socket.on('close', () => clients.delete(client))
         socket.on('message', (data) => {
+          if (!access.allowed()) return
           let msg: any
           try { msg = JSON.parse(data.toString()) } catch { return }
           // `null`, número e string são JSON VÁLIDO: sem esta guarda o handler
@@ -114,13 +119,13 @@ export function createWsHub() {
               // better-sqlite3 lançar no bind — fora do try isso derrubava o processo.
               const info = deps.manager.get(msg.localId)
               if (!info || !u.projectIds.includes(info.projectId)) {
-                socket.send(JSON.stringify({ type: 'error', localId: msg.localId, message: 'forbidden' }))
+                access.send(JSON.stringify({ type: 'error', localId: msg.localId, message: 'forbidden' }))
                 return
               }
             }
             if (msg.type === 'send_message') deps.manager.send(msg.localId, msg.text)
             else if (msg.type === 'mark_read') deps.manager.markRead(msg.localId)
-            else if (msg.type === 'interrupt') void deps.manager.interrupt(msg.localId).catch((err) => socket.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message })))
+            else if (msg.type === 'interrupt') void deps.manager.interrupt(msg.localId).catch((err) => access.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message })))
             // Pergunta do agente (AskUserQuestion): responder ou dispensar. Ação de
             // chat como send_message/interrupt — sem payload de volta, o status
             // seguinte é a confirmação.
@@ -138,7 +143,7 @@ export function createWsHub() {
              */
             else if (msg.type === 'shell') runShellFor(client, msg.localId, msg.command)
           } catch (err) {
-            socket.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message }))
+            access.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message }))
           }
         })
       })

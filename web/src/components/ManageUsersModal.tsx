@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { createUser, deleteUser, fetchUsers, revokeAllSessions, updateUser, type AdminUser } from '../api'
 import { ConfirmDialog } from './ConfirmDialog'
+import { AccessHoursEditor } from './AccessHoursEditor'
+import { validateAccessHours, type AccessHours } from '../../../shared/access-hours'
 
-interface Draft { id?: number; username: string; password: string; isAdmin: boolean; projectIds: number[] }
-const EMPTY: Draft = { username: '', password: '', isAdmin: false, projectIds: [] }
+interface Draft { id?: number; username: string; password: string; isAdmin: boolean; projectIds: number[]; accessHours: AccessHours | null }
+const EMPTY: Draft = { username: '', password: '', isAdmin: false, projectIds: [], accessHours: null }
 
 export function ManageUsersModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
@@ -25,19 +27,22 @@ export function ManageUsersModal({ onClose }: { onClose: () => void }) {
     if (!draft) return
     setError('')
     try {
+      const accessHours = validateAccessHours(draft.accessHours)
       if (draft.id) {
         await updateUser(draft.id, {
           ...(draft.password ? { password: draft.password } : {}),
           isAdmin: draft.isAdmin,
           projectIds: draft.projectIds,
+          accessHours,
         })
       } else {
-        await createUser(draft)
+        await createUser({ ...draft, accessHours })
       }
       setDraft(null)
       await reload()
     } catch (e) {
-      setError((e as Error).message)
+      const message = (e as Error).message
+      setError(message.startsWith('invalid_access_') ? t('accessHours.invalid') : message)
     }
   }
 
@@ -58,13 +63,14 @@ export function ManageUsersModal({ onClose }: { onClose: () => void }) {
           {users.map((u) => (
             <li key={u.id}>
               <span className="users-list__name">{u.username}</span>
+              {u.accessHours && <span className="users-list__badge">{t('accessHours.limited')}</span>}
               {u.isAdmin
                 ? <span className="users-list__badge">{t('auth.adminBadge')}</span>
                 : <span className="users-list__projects">
                     {u.projectIds.map((id) => projects.find((p) => p.id === id)?.name ?? `#${id}`).join(', ') || t('auth.noTerminals')}
                   </span>}
               <span className="users-list__actions">
-                <button className="ghost" onClick={() => setDraft({ id: u.id, username: u.username, password: '', isAdmin: u.isAdmin, projectIds: u.projectIds })}>{t('common.edit')}</button>
+                <button className="ghost" onClick={() => setDraft({ id: u.id, username: u.username, password: '', isAdmin: u.isAdmin, projectIds: u.projectIds, accessHours: u.accessHours ?? null })}>{t('common.edit')}</button>
                 <button className="ghost" onClick={() => setConfirmDelete(u)}>{t('common.delete')}</button>
               </span>
             </li>
@@ -130,6 +136,7 @@ export function ManageUsersModal({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             )}
+            <AccessHoursEditor value={draft.accessHours} onChange={accessHours => setDraft({ ...draft, accessHours })} />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button type="button" className="ghost" onClick={() => setDraft(null)}>{t('common.cancel')}</button>
               <button onClick={() => void save()} disabled={!draft.id && (!draft.username || !draft.password)}>{t('common.save')}</button>

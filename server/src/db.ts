@@ -67,6 +67,9 @@ export function openDb(path: string): Db {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA)
+  // NULL preserves unrestricted access for existing installations.
+  const userColumns = db.prepare('PRAGMA table_info(users)').all() as { name: string }[]
+  if (!userColumns.some(c => c.name === 'access_hours')) db.exec('ALTER TABLE users ADD COLUMN access_hours TEXT')
   try { db.exec(`ALTER TABLE sessions ADD COLUMN skip_permissions INTEGER NOT NULL DEFAULT 1`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE sessions ADD COLUMN continue_latest INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }

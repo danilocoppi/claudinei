@@ -1,5 +1,10 @@
 import type { ClaudeEvent, EngineMeta, PermissionMode, Project, SessionInfo } from './types'
 import type { IconBody } from './icons'
+import type { AccessHours, AccessStatus } from '../../shared/access-hours'
+
+const reportAccessRestriction = (status: number, error: unknown) => {
+  if (status === 403 && error === 'access_hours_restricted') window.dispatchEvent(new Event('claudinei:access-restricted'))
+}
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = init?.body ? { 'Content-Type': 'application/json' } : undefined
@@ -11,6 +16,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
       window.dispatchEvent(new Event('claudinei:unauthorized'))
     }
     const body = await res.json().catch(() => ({ error: res.statusText }))
+    reportAccessRestriction(res.status, body.error)
     const err = new Error(body.error ?? res.statusText) as Error & { status?: number; retryAfterMs?: number }
     err.status = res.status
     if (typeof body.retryAfterMs === 'number') err.retryAfterMs = body.retryAfterMs
@@ -161,6 +167,7 @@ export async function transcribeAudio(wav: Blob): Promise<{ text: string }> {
     // fetch cru (corpo binário), mas o 401 recebe o mesmo tratamento do req():
     // sessão expirada/revogada → volta à tela de login (o App escuta).
     if (res.status === 401) window.dispatchEvent(new Event('claudinei:unauthorized'))
+    reportAccessRestriction(res.status, (data as { error?: string }).error)
     throw new Error((data as { error?: string }).error ?? `transcrição falhou (${res.status})`)
   }
   return data as { text: string }
@@ -189,21 +196,24 @@ export const uploadFile = async (file: File, name?: string): Promise<{ path: str
     // fetch cru (multipart), mas o 401 recebe o mesmo tratamento do req().
     if (res.status === 401) window.dispatchEvent(new Event('claudinei:unauthorized'))
     const body = await res.json().catch(() => ({ error: res.statusText }))
+    reportAccessRestriction(res.status, body.error)
     throw new Error(body.error ?? res.statusText)
   }
   return res.json()
 }
 
 export interface Me {
+  accessHours?: AccessHours | null
+  access?: AccessStatus
   setupRequired: boolean
   id?: number
   username?: string
   isAdmin?: boolean
   projectIds?: number[]
 }
-export interface AdminUser { id: number; username: string; isAdmin: boolean; projectIds: number[]; createdAt: string }
+export interface AdminUser { id: number; username: string; isAdmin: boolean; projectIds: number[]; createdAt: string; accessHours?: AccessHours | null }
 
-export const fetchMe = () => req<Me>('/api/auth/me')
+export const fetchMe = (signal?: AbortSignal) => req<Me>('/api/auth/me', signal ? { signal } : undefined)
 export const login = (username: string, password: string) =>
   req<Me>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) })
 export const setupMaster = (username: string, password: string) =>
@@ -212,9 +222,9 @@ export const logout = () => req<void>('/api/auth/logout', { method: 'POST' })
 export const changePassword = (currentPassword: string, newPassword: string) =>
   req<void>('/api/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) })
 export const fetchUsers = () => req<AdminUser[]>('/api/auth/users')
-export const createUser = (input: { username: string; password: string; isAdmin?: boolean; projectIds?: number[] }) =>
+export const createUser = (input: { username: string; password: string; isAdmin?: boolean; projectIds?: number[]; accessHours?: AccessHours | null }) =>
   req<AdminUser>('/api/auth/users', { method: 'POST', body: JSON.stringify(input) })
-export const updateUser = (id: number, patch: { password?: string; isAdmin?: boolean; projectIds?: number[] }) =>
+export const updateUser = (id: number, patch: { password?: string; isAdmin?: boolean; projectIds?: number[]; accessHours?: AccessHours | null }) =>
   req<AdminUser>(`/api/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
 export const deleteUser = (id: number) => req<void>(`/api/auth/users/${id}`, { method: 'DELETE' })
 export const revokeAllSessions = () => req<void>('/api/auth/revoke-all', { method: 'POST' })

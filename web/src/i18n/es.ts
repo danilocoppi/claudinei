@@ -309,6 +309,18 @@ export const es: typeof en = {
     title: 'Uso', advanced: 'Avanzado', session: 'Sesión actual', weeklyAll: 'Todos los modelos',
     resets: 'reinicia {{when}}', pace: '{{percent}}% usado · ritmo {{ratio}}× sostenible',
   },
+  accessHours: {
+    limited: 'Acceso limitado', timeZone: 'Zona horaria',
+    hint: 'El acceso se permite durante cualquiera de las franjas indicadas. Fuera de ellas se bloquean terminales, motores, acciones y creación de terminales. Las tareas existentes siguen ejecutándose.',
+    days: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'],
+    allDays: 'Todos los días', allDay: 'Todo el día (24 horas)', window: 'Franja {{n}}',
+    start: 'Desde', end: 'Hasta', addWindow: 'Añadir franja horaria', removeWindow: 'Quitar franja',
+    overnight: 'Termina al día siguiente. Los días seleccionados indican el inicio.', nextDay: 'día siguiente',
+    invalid: 'Comprueba la zona horaria, selecciona al menos un día y utiliza horas de inicio y fin distintas en cada franja.',
+    blocked: 'Fuera de tu horario de acceso',
+    blockedHint: 'Terminales, motores, acciones y creación de terminales están bloqueados. El acceso vuelve automáticamente en los horarios permitidos. Las tareas existentes siguen ejecutándose.',
+    check: 'Comprobar acceso de nuevo',
+  },
   auth: {
     signInTitle: 'Iniciar sesión', signIn: 'Iniciar sesión',
     setupTitle: 'Crear cuenta maestra',

@@ -12,6 +12,9 @@ export type AuthUser =
 declare module 'fastify' {
   interface FastifyRequest {
     authUser?: AuthUser
+    /** Live authorization: server clock and current policy, never JWT-cached. */
+    accessAllowed?: () => boolean
+    accessHoursGuarded?: boolean
     /**
      * Há um proxy reverso na frente? Fixo por processo (--behind-proxy), decorado
      * no request. Quando true, `isTrustedLocal` deixa de tratar loopback como
@@ -217,6 +220,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
           const u = deps.auth.users.get(id)
           if (u) {
             req.authUser = { kind: 'user', id: u.id, username: u.username, isAdmin: u.isAdmin, projectIds: u.projectIds }
+            req.accessAllowed = () => deps.auth.users.access(id, ver).allowed
             // Sliding refresh: usuário ativo além da metade da validade do
             // token ganha um cookie novo (mesmo TTL) — só o token de SERVIÇO
             // (ramo acima, sub === 'service') fica de fora disso.
@@ -232,9 +236,19 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
     }
 
     if (!guarded || PUBLIC.has(`${req.method} ${path}`)) return
+    req.accessHoursGuarded = true
     if (!req.authUser) return reply.code(401).send({ error: 'unauthorized' })
+    if (req.accessAllowed && !req.accessAllowed()) {
+      return reply.code(403).send({ error: 'access_hours_restricted' })
+    }
     if (req.authUser.kind === 'service' && !SERVICE_PREFIXES.some((p) => path.startsWith(p))) {
       return reply.code(403).send({ error: 'service_token_scope' })
+    }
+  })
+  // A slow request body must not keep an authorization from before the cutoff.
+  app.addHook('preHandler', async (req, reply) => {
+    if (req.accessHoursGuarded && req.accessAllowed && !req.accessAllowed()) {
+      return reply.code(403).send({ error: 'access_hours_restricted' })
     }
   })
 }

@@ -17,6 +17,9 @@ import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
 import { MobileTopbar } from './components/MobileTopbar'
 import { initNotifications } from './notifications'
 import { installIndicatorMotion } from './indicatorMotion'
+import { useAccessHours } from './useAccessHours'
+import { AccessLocked } from './components/AccessLocked'
+import './access-hours.css'
 
 /**
  * O que não pertence ao carregamento inicial.
@@ -52,6 +55,7 @@ export default function App() {
   const setProjects = useStore((s) => s.setProjects)
   const authStatus = useStore((s) => s.authStatus)
   const setAuth = useStore((s) => s.setAuth)
+  useAccessHours()
 
   useEffect(() => installIndicatorMotion(), [])
 
@@ -146,6 +150,7 @@ export default function App() {
   })
 
   if (authStatus === 'loading') return null
+  if (authStatus === 'locked') return <AccessLocked />
   if (authStatus === 'setup' || authStatus === 'login') {
     return <AuthScreen mode={authStatus} onDone={(me) => setAuth('ready', me)} />
   }

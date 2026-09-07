@@ -6,7 +6,7 @@ class FakeWS {
   static OPEN = 1
   readyState = 0
   onopen?: () => void
-  onclose?: () => void
+  onclose?: (event?: { code: number; reason: string }) => void
   onmessage?: (e: { data: string }) => void
   closed = false
   constructor(public url: string) { FakeWS.instances.push(this) }
@@ -25,6 +25,32 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 describe('connectWs', () => {
   const stream = (text: string, localId = 'a') => ({ type: 'session_event', localId, event: { kind: 'stream', text, raw: {} } })
   const receive = (msg: object) => FakeWS.instances[0].onmessage?.({ data: JSON.stringify(msg) })
+
+  it('descarta mensagens e deltas pendentes ao bloquear por horário, sem reconectar ou reenviar', () => {
+    const denied = vi.fn(), received = vi.fn()
+    window.addEventListener('claudinei:access-restricted', denied)
+    const conn = connectWs(received)
+    conn.send({ type: 'send_message', text: 'pending' })
+    receive(stream('private'))
+    FakeWS.instances[0].onclose?.({ code: 1008, reason: 'access_hours' })
+    conn.send({ type: 'send_message', text: 'outside' })
+    vi.advanceTimersByTime(30_000)
+    expect(denied).toHaveBeenCalledOnce()
+    expect(received).not.toHaveBeenCalled()
+    expect(FakeWS.instances).toHaveLength(1)
+    expect(FakeWS.instances[0].send).not.toHaveBeenCalled()
+    window.removeEventListener('claudinei:access-restricted', denied)
+  })
+
+  it('revalida acesso quando o administrador altera as permissões', () => {
+    const check = vi.fn()
+    window.addEventListener('claudinei:check-access', check)
+    const conn = connectWs(() => {})
+    FakeWS.instances[0].onclose?.({ code: 1008, reason: 'revoked' })
+    expect(check).toHaveBeenCalledOnce()
+    conn.close()
+    window.removeEventListener('claudinei:check-access', check)
+  })
 
   it('agrupa deltas por sessão sem perder texto nem misturar conversas', () => {
     const received = vi.fn(); connectWs(received)

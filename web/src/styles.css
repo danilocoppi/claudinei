@@ -2788,7 +2788,7 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 }
 .chat-entry:focus-within { content-visibility: visible; }
 
-.background-processes { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-dim); font-size: 13px; }
+.background-processes { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-dim); font-size: 13px; }
 .background-processes summary { cursor: pointer; }
 .background-processes ul { list-style: none; margin: 10px 0 0; padding: 0; }
 .background-processes li { display: flex; align-items: center; gap: 10px; margin-top: 8px; }

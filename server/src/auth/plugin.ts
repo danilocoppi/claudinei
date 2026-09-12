@@ -87,6 +87,17 @@ const PUBLIC = new Set([
   'GET /api/auth/me',
 ])
 
+/**
+ * Leitura da prévia renderizada de HTML: autorizada pelo token do próprio
+ * caminho, não pelo cookie. Tem de ficar fora do gate porque o iframe `sandbox`
+ * que exibe a página tem origem opaca — o navegador não manda cookie nos
+ * subrecursos dele, então exigir sessão aqui deixaria toda página sem CSS e sem
+ * imagem. Só GET, e o token é curto e confinado a uma raiz (files/preview.ts).
+ */
+const PREVIEW_PREFIX = '/api/files/preview/'
+const isPreviewRead = (method: string, path: string) =>
+  method === 'GET' && path.startsWith(PREVIEW_PREFIX)
+
 // Escopo do token de serviço: só as APIs que o hermes MCP consome
 // (list/ask/board em /api/hermes/*; dispatch/list_tasks em /api/orchestrator/*).
 const SERVICE_PREFIXES = ['/api/hermes/', '/api/orchestrator/']
@@ -152,7 +163,10 @@ export function registerSecurityHeaders(app: FastifyInstance, secureTransport: b
    * serve HTTP trancaria o navegador fora de uma instalação local.
    */
   app.addHook('onSend', async (_req, reply, payload) => {
-    reply.header('X-Frame-Options', 'DENY')
+    // Só se a rota não tiver decidido: a prévia de HTML responde SAMEORIGIN
+    // porque o visualizador PRECISA embuti-la num iframe (que é justamente o que
+    // a isola). Em todo o resto do app vale DENY.
+    if (!reply.getHeader('X-Frame-Options')) reply.header('X-Frame-Options', 'DENY')
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'no-referrer')
     if (secureTransport) {
@@ -235,7 +249,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
       }
     }
 
-    if (!guarded || PUBLIC.has(`${req.method} ${path}`)) return
+    if (!guarded || PUBLIC.has(`${req.method} ${path}`) || isPreviewRead(req.method, path)) return
     req.accessHoursGuarded = true
     if (!req.authUser) return reply.code(401).send({ error: 'unauthorized' })
     if (req.accessAllowed && !req.accessAllowed()) {

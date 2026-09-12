@@ -353,6 +353,8 @@ export const ptBR: typeof en = {
     revealInFolder: 'Abrir na pasta',
     resizeHint: 'Arraste para ajustar a altura; duplo clique restaura', forbidden: 'Sem permissão para acessar este arquivo.',
     loading: 'Carregando…', openTitle: 'Ver arquivo',
+    tabPage: 'Página', tabSource: 'Fonte',
+    previewFailed: 'Não foi possível montar a prévia da página.',
   },
 }
 export default ptBR

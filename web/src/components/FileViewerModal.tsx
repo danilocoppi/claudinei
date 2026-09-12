@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import type { FileKind } from '../files'
-import { fileContentUrl, langOfPath } from '../files'
+import { createFilePreview, fileContentUrl, isHtmlPath, langOfPath } from '../files'
 import { useStore } from '../store'
 import type { Components } from 'react-markdown'
 import { MarkdownPre } from './MarkdownPre'
@@ -64,7 +64,7 @@ export function FileViewerModal() {
           </button>
         </div>
         <div style={{ padding: 18, overflow: 'auto', flex: 1 }}>
-          <FileBody kind={kind} url={url} name={name} />
+          <FileBody kind={kind} url={url} name={name} path={path} projectId={projectId} />
         </div>
       </div>
     </div>,
@@ -75,8 +75,15 @@ export function FileViewerModal() {
 /** Corpo do preview por tipo — compartilhado entre o modal e o painel inline
  * (InlineFileView). `compact`: dentro do painel dockado, o PDF não pode exigir
  * 70vh de altura mínima (o painel tem ~40vh). */
-export function FileBody({ kind, url, name, compact }: { kind: FileKind; url: string; name: string; compact?: boolean }) {
+export function FileBody({ kind, url, name, compact, path, projectId }: {
+  kind: FileKind; url: string; name: string; compact?: boolean; path?: string; projectId?: number
+}) {
   const { t } = useTranslation()
+
+  // HTML: o fonte sozinho não responde "como ficou a página".
+  if (kind === 'code' && path && isHtmlPath(name)) {
+    return <HtmlBody url={url} name={name} path={path} projectId={projectId} compact={compact} />
+  }
 
   if (kind === 'image') {
     return <img src={url} alt={name} style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
@@ -93,6 +100,78 @@ export function FileBody({ kind, url, name, compact }: { kind: FileKind; url: st
     )
   }
   return <TextBody kind={kind} url={url} name={name} />
+}
+
+type PreviewState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ok'; url: string }
+
+/**
+ * As duas leituras de um HTML, com a página por padrão — quem abre um `.html`
+ * quer ver o que ele virou; o fonte fica a um clique.
+ *
+ * A página vai para um iframe `sandbox` SEM `allow-same-origin`. Isso é o que
+ * separa "ver um arquivo" de "executá-lo dentro do Claudinei": na origem opaca o
+ * script da página não enxerga o cookie de sessão, o storage nem o documento de
+ * fora, e a API que roda comandos fica fora do alcance. `allow-scripts` fica
+ * porque página de verdade usa script (a galeria que motivou isto monta as
+ * imagens em JS) — e sem same-origin ele continua preso.
+ *
+ * O iframe fica MONTADO enquanto se olha o fonte, só escondido: remontar
+ * recarregaria a página do zero e jogaria fora rolagem e estado interno dela.
+ */
+function HtmlBody({ url, name, path, projectId, compact }: {
+  url: string; name: string; path: string; projectId?: number; compact?: boolean
+}) {
+  const { t } = useTranslation()
+  const [view, setView] = useState<'page' | 'source'>('page')
+  const [preview, setPreview] = useState<PreviewState>({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    setView('page')
+    setPreview({ status: 'loading' })
+    createFilePreview(path, projectId)
+      .then((r) => { if (!cancelled) setPreview({ status: 'ok', url: r.url }) })
+      .catch(() => { if (!cancelled) setPreview({ status: 'error' }) })
+    return () => { cancelled = true }
+  }, [path, projectId])
+
+  const aba = (qual: 'page' | 'source', rotulo: string) => (
+    <button
+      type="button" className="html-view__tab" aria-pressed={view === qual}
+      onClick={() => setView(qual)}
+    >
+      {rotulo}
+    </button>
+  )
+
+  return (
+    <div className="html-view">
+      <div className="html-view__tabs">
+        {aba('page', t('fileViewer.tabPage'))}
+        {aba('source', t('fileViewer.tabSource'))}
+      </div>
+      {preview.status === 'ok' && (
+        <iframe
+          key={preview.url}
+          src={preview.url}
+          title={name}
+          sandbox="allow-scripts"
+          className="html-view__frame"
+          style={{ display: view === 'page' ? 'block' : 'none', minHeight: compact ? 220 : '70vh' }}
+        />
+      )}
+      {view === 'page' && preview.status === 'loading' && (
+        <div style={{ color: 'var(--text-dim)' }}>{t('fileViewer.loading')}</div>
+      )}
+      {view === 'page' && preview.status === 'error' && (
+        <div style={{ color: 'var(--err)' }}>{t('fileViewer.previewFailed')}</div>
+      )}
+      {view === 'source' && <TextBody kind="code" url={url} name={name} />}
+    </div>
+  )
 }
 
 type TextState =

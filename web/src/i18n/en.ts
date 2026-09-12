@@ -350,6 +350,8 @@ export const en = {
     revealInFolder: 'Reveal in folder',
     resizeHint: 'Drag to adjust the height; double-click to reset', forbidden: 'You do not have permission to access this file.',
     loading: 'Loading…', openTitle: 'View file',
+    tabPage: 'Page', tabSource: 'Source',
+    previewFailed: 'Could not render the page preview.',
   },
 }
 export default en

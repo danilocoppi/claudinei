@@ -352,6 +352,8 @@ export const es: typeof en = {
     revealInFolder: 'Abrir en la carpeta',
     resizeHint: 'Arrastra para ajustar la altura; doble clic restaura', forbidden: 'Sin permiso para acceder a este archivo.',
     loading: 'Cargando…', openTitle: 'Ver archivo',
+    tabPage: 'Página', tabSource: 'Fuente',
+    previewFailed: 'No se pudo generar la vista previa de la página.',
   },
 }
 export default es

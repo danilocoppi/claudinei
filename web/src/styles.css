@@ -2807,3 +2807,18 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 html[data-page-hidden="true"] *,
 html[data-page-hidden="true"] *::before,
 html[data-page-hidden="true"] *::after { animation-play-state: paused !important; }
+
+/* Visualizador de HTML: alternância entre o fonte e a página renderizada.
+   O quadro fica branco de propósito — é um documento externo, escrito para
+   fundo claro, e herdar o tema do app o deixaria ilegível. */
+.html-view { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; }
+.html-view__tabs { display: flex; gap: 6px; flex: none; }
+.html-view__tab {
+  padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 12px;
+  background: color-mix(in srgb, var(--ink) calc(18% * var(--ink-k)), transparent);
+  border: 1px solid var(--border); color: var(--text-dim);
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.html-view__tab:hover { background: color-mix(in srgb, var(--ink) calc(26% * var(--ink-k)), transparent); }
+.html-view__tab[aria-pressed="true"] { background: var(--surface-strong); border-color: var(--accent); color: var(--text); }
+.html-view__frame { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: var(--radius-sm); background: white; }

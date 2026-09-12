@@ -558,6 +558,23 @@ For a tool that is effectively *shell as a service*, the calmest option is not a
 public port at all: **Tailscale/WireGuard** gives you remote access without
 exposing anything to the internet.
 
+### Rendered HTML previews
+
+Clicking an `.html` file opens the rendered **Page**, with **Source** one click
+away. The page runs inside a `sandbox`ed iframe **without** `allow-same-origin`:
+its scripts land on an opaque origin, so they can't read the session cookie or
+storage, can't touch the app's DOM, and `connect-src 'none'` stops them from
+calling anything with `fetch`/XHR. Scripts still run, which is what makes a real
+page (galleries, filters) look like itself.
+
+An opaque origin also sends no cookie — so the CSS and images that page loads
+can't authenticate the usual way. The viewer mints a **capability URL** instead:
+`/api/files/preview/<random token>/<real path>`, mirroring the real directory
+layout so relative `src`/`href` resolve on their own. It is read-only, expires in
+**10 minutes**, is confined to the project the file belongs to, and is the single
+route served without a session. It grants nothing new: whoever minted it could
+already read those files.
+
 ## Tests
 
 ```bash
@@ -602,6 +619,7 @@ Tests do **not** need the native node-pty (fake PTY), the real Claude (`fake-cla
 7. **Board** and **Tasks** in the sidebar show agent collaboration — the **ⓘ** next to "Terminal Interaction" explains everything with examples.
 8. The **Usage** card shows your plan limits in real time (color = pace: green = sustainable until reset).
 9. Repeating the same commands in a terminal? The **⋮** menu has **Actions** — register them once, run with a click. And a message starting with **`!`** (`!git status`) runs right there instead of going to the agent.
+10. Any file path in the chat is clickable: images, PDFs, Markdown and highlighted code open in the viewer. An **.html** file opens as the **rendered page**, with its **source** one click away.
 
 ## Troubleshooting
 

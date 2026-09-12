@@ -91,7 +91,7 @@ export function InlineFileView({ localId }: { localId: string }) {
         </button>
       </div>
       <div className="inline-file__body">
-        <FileBody kind={kind} url={url} name={name} compact />
+        <FileBody kind={kind} url={url} name={name} path={path} projectId={projectId} compact />
       </div>
     </div>
   )

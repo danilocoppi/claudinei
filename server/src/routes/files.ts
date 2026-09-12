@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { spawn } from 'node:child_process'
-import { createReadStream } from 'node:fs'
+import { createReadStream, realpathSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { basename, dirname, extname } from 'node:path'
+import { basename, dirname, extname, sep } from 'node:path'
 import { canAccessProject } from '../auth/guards.js'
 import { isTrustedLocal } from '../auth/plugin.js'
+import { createPreviewStore, pathFromPreviewUrl, previewUrl, type PreviewStore } from '../files/preview.js'
 import { resolveInScope } from '../files/scope.js'
 import type { ProjectsService } from '../projects.js'
 
@@ -13,6 +14,52 @@ const MIME: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp',
   '.ico': 'image/x-icon', '.pdf': 'application/pdf',
+}
+
+// Tipos que uma página puxa por conta própria. Fora desta lista vai
+// `application/octet-stream`: adivinhar tipo é justamente o que o `nosniff` veio
+// impedir, e um tipo errado aqui só faria o navegador executar o que não devia.
+const PREVIEW_MIME: Record<string, string> = {
+  ...MIME,
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  '.webmanifest': 'application/manifest+json',
+}
+
+const HTML_EXT = new Set(['.html', '.htm', '.xhtml'])
+export const isHtmlFile = (p: string) => HTML_EXT.has(extname(p).toLowerCase())
+
+/**
+ * A política do documento renderizado.
+ *
+ * `sandbox` vale mesmo se alguém abrir a URL direto numa aba, onde o atributo do
+ * iframe não existiria: sem `allow-same-origin`, a página fica numa origem opaca
+ * e não alcança cookie, storage nem a API do Claudinei. `allow-scripts` fica
+ * porque página real usa script — a galeria que motivou isto monta os `src` em
+ * JS, e sem ele o operador veria uma casca vazia. `connect-src 'none'` é o
+ * contrapeso: script roda, mas não faz fetch — então não consegue LER o projeto
+ * pelo próprio token e mandar para fora.
+ */
+const PREVIEW_CSP = ["sandbox allow-scripts", "connect-src 'none'", "form-action 'none'"].join('; ')
+
+/**
+ * Raiz que o token libera. O projeto inteiro quando o arquivo está dentro dele —
+ * é preciso: `../fotos/p.png` sai do diretório do HTML, e travar no diretório
+ * deixaria a página sem imagem. Fora de projeto (admin abrindo caminho solto),
+ * fica só a pasta do arquivo.
+ */
+function previewRoot(real: string, project: { id: number; path: string } | null): string {
+  if (project) {
+    try {
+      const raiz = realpathSync(project.path)
+      if (real === raiz || real.startsWith(raiz + sep)) return raiz
+    } catch { /* projeto sumiu do disco: cai na pasta do arquivo */ }
+  }
+  return dirname(real)
 }
 
 /**
@@ -53,8 +100,10 @@ function projectFor(req: FastifyRequest, projects: ProjectsService, projectId?: 
 
 export function registerFileRoutes(
   app: FastifyInstance,
-  deps: { projects: ProjectsService; revealInFolder?: (dir: string) => void },
+  deps: { projects: ProjectsService; revealInFolder?: (dir: string) => void; previews?: PreviewStore },
 ): void {
+  const previews = deps.previews ?? createPreviewStore()
+
   // Abre o gerenciador de arquivos na pasta do arquivo. O caminho NUNCA vai cru
   // para o SO: passa pelo mesmo resolveInScope das outras rotas, então o
   // parâmetro não vira "abra qualquer pasta da máquina".
@@ -123,5 +172,59 @@ export function registerFileRoutes(
     reply.header('Content-Type', 'text/plain; charset=utf-8')
     reply.header('Content-Security-Policy', 'sandbox')
     return reply.send(buf)
+  })
+
+  /**
+   * Emite a URL da prévia RENDERIZADA de um HTML (o "ver a página", ao lado do
+   * "ver o fonte"). Autorização idêntica à da rota de conteúdo — o token não dá
+   * acesso novo a ninguém, só transporta o que o requisitante já tinha para um
+   * contexto onde o cookie não chega.
+   */
+  app.post('/api/files/preview', async (req, reply) => {
+    const body = req.body as { path?: unknown; projectId?: number }
+    const raw = typeof body?.path === 'string' ? body.path : ''
+    if (!raw) return reply.code(400).send({ error: 'path required' })
+    const project = projectFor(req, deps.projects, body?.projectId)
+    const r = resolveInScope(raw, project, isAdminReq(req))
+    if (!r.exists) return reply.code(404).send({ error: 'not found' })
+    if (!r.inScope) return reply.code(403).send({ error: 'forbidden' })
+    const real = r.real!
+    // Só HTML: é o único tipo que precisa de documento próprio para ser visto, e
+    // cada extensão a mais aqui alarga uma rota que responde sem cookie.
+    if (!isHtmlFile(real)) return reply.code(415).send({ error: 'not html' })
+    return { url: previewUrl(previews.issue(previewRoot(real, project)), real) }
+  })
+
+  /**
+   * Serve a página e tudo que ela puxa. Pública de propósito (ver files/preview.ts):
+   * quem autoriza é o token do caminho, porque o iframe sandbox não manda cookie.
+   */
+  app.get('/api/files/preview/:token/*', async (req, reply) => {
+    const p = req.params as Record<string, string>
+    // 404 para tudo — token inválido, fora da raiz, diretório: nada aqui deve
+    // servir de oráculo sobre o que existe no disco do servidor.
+    const semNada = () => reply.code(404).send({ error: 'not found' })
+    const grant = previews.resolve(p.token)
+    if (!grant) return semNada()
+    const pedido = pathFromPreviewUrl(p['*'] ?? '')
+    if (!pedido) return semNada()
+    let real: string
+    let st: ReturnType<typeof statSync>
+    try { real = realpathSync(pedido); st = statSync(real) } catch { return semNada() }
+    if (!st.isFile()) return semNada()
+    if (real !== grant.root && !real.startsWith(grant.root + sep)) return semNada()
+
+    reply.header('X-Content-Type-Options', 'nosniff')
+    reply.header('Cache-Control', 'no-store')
+    if (isHtmlFile(real)) {
+      reply.header('Content-Type', 'text/html; charset=utf-8')
+      reply.header('Content-Security-Policy', PREVIEW_CSP)
+      // O app inteiro responde DENY; aqui o visualizador PRECISA embutir.
+      reply.header('X-Frame-Options', 'SAMEORIGIN')
+    } else {
+      reply.header('Content-Type', PREVIEW_MIME[extname(real).toLowerCase()] ?? 'application/octet-stream')
+      reply.header('Content-Security-Policy', 'sandbox')
+    }
+    return reply.send(createReadStream(real))
   })
 }

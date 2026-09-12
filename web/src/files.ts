@@ -102,6 +102,26 @@ export const resolveFiles = (paths: string[], projectId?: number) =>
 export const fileContentUrl = (path: string, projectId?: number): string =>
   `/api/files/content?path=${encodeURIComponent(path)}${projectId ? `&projectId=${projectId}` : ''}`
 
+/**
+ * HTML tem duas leituras: o fonte e a página. `kindOfPath` devolve 'code' para
+ * ele (está certo — o fonte É código), então quem precisa da distinção pergunta
+ * aqui.
+ */
+export const isHtmlPath = (path: string): boolean => /\.(x?html?)$/i.test(path)
+
+/**
+ * Pede ao servidor a URL da prévia RENDERIZADA de um HTML.
+ *
+ * Não é o content URL com outro tipo: a página precisa de uma URL que espelhe a
+ * hierarquia do disco, senão todo `src`/`href` relativo dela aponta para o
+ * lugar errado. Quem explica o desenho por inteiro é server/src/files/preview.ts.
+ */
+export const createFilePreview = (path: string, projectId?: number) =>
+  req<{ url: string }>('/api/files/preview', {
+    method: 'POST',
+    body: JSON.stringify(projectId ? { path, projectId } : { path }),
+  })
+
 // Palpite de tipo por extensão (espelha o kindOf do servidor) — usado quando o
 // resolve ainda não confirmou o path mas o clique precisa abrir o modal mesmo assim
 // (o backend revalida e o modal mostra o erro amigável se não existir/sem acesso).

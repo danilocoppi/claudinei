@@ -571,9 +571,14 @@ An opaque origin also sends no cookie — so the CSS and images that page loads
 can't authenticate the usual way. The viewer mints a **capability URL** instead:
 `/api/files/preview/<random token>/<real path>`, mirroring the real directory
 layout so relative `src`/`href` resolve on their own. It is read-only, expires in
-**10 minutes**, is confined to the project the file belongs to, and is the single
-route served without a session. It grants nothing new: whoever minted it could
-already read those files.
+**10 minutes**, is confined to the project the file belongs to, is bound to the
+address that requested it, and is the single route served without a session. It
+grants nothing new: whoever minted it could already read those files.
+
+Since that token rides in the URL, every subresource is pinned to the serving
+origin — otherwise a single `<img src="https://elsewhere/?t=…">` would carry the
+capability away. Practical consequence: **a page that pulls CSS, fonts or
+scripts from a CDN renders without them.** Local assets are unaffected.
 
 ## Tests
 

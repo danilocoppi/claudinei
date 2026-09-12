@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { parseFromTail } from '../../tail.js'
 import type { AgentEvent } from '../types.js'
 import type { ApiMessage, ContentBlock } from '../../claude/events.js'
 import { kimiHomeFor } from './kimi-home.js'
@@ -48,10 +49,16 @@ const assistant = (content: ContentBlock[], raw: unknown): AgentEvent =>
 const user = (content: ContentBlock[], raw: unknown): AgentEvent =>
   ({ kind: 'user', message: { role: 'user', content } as ApiMessage, raw })
 
-/** Normaliza um wire.jsonl (agente `main`) para AgentEvent[]. */
-export async function parseWire(file: string): Promise<AgentEvent[]> {
-  let text: string
-  try { text = await readFile(file, 'utf8') } catch { return [] }
+/**
+ * Normaliza um wire.jsonl (agente `main`) para AgentEvent[]. Lê pela cauda pelo
+ * mesmo motivo das outras engines: a tela usa os últimos eventos, e um log longo
+ * demais fazia a leitura inteira falhar e virar "conversa vazia" (src/tail.ts).
+ */
+export function parseWire(file: string): Promise<AgentEvent[]> {
+  return parseFromTail(file, parseWireText)
+}
+
+export function parseWireText(text: string): AgentEvent[] {
   const events: AgentEvent[] = []
   for (const line of text.split('\n')) {
     const s = line.trim(); if (!s) continue

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { parseFromTail } from './tail.js'
 import { classifyLine } from './claude/parser.js'
 import type { ClaudeEvent } from './claude/events.js'
 
@@ -41,12 +41,15 @@ export function latestTranscriptId(claudeConfigDir: string, projectPath: string)
   return best?.id ?? null
 }
 
-// Async: o transcript pode passar de 30 MB — a leitura síncrona congelava o
-// event loop inteiro (WS/PTYs de todos) a cada carga de histórico.
-export async function readTranscript(claudeConfigDir: string, projectPath: string, engineSessionId: string): Promise<ClaudeEvent[]> {
-  const file = transcriptPath(claudeConfigDir, projectPath, engineSessionId)
-  let text: string
-  try { text = await readFile(file, 'utf8') } catch { return [] }
+// Async e pela CAUDA: o transcript passa de 200 MB numa sessão longa, e quem
+// carrega o histórico quer os últimos 300 eventos, não o arquivo. Ler tudo
+// também quebrava de vez acima de 2 GiB, devolvendo "conversa vazia" (o Codex
+// chegou lá primeiro — ver src/tail.ts).
+export function readTranscript(claudeConfigDir: string, projectPath: string, engineSessionId: string): Promise<ClaudeEvent[]> {
+  return parseFromTail(transcriptPath(claudeConfigDir, projectPath, engineSessionId), parseTranscriptText)
+}
+
+export function parseTranscriptText(text: string): ClaudeEvent[] {
   const events: ClaudeEvent[] = []
   for (const line of text.split('\n')) {
     const evt = classifyLine(line)

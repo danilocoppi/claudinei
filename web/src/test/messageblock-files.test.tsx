@@ -20,6 +20,26 @@ const clickAndChoosePopup = (link: Element) => {
 }
 
 describe('MessageBlock — paths de arquivo clicáveis', () => {
+  it('base repetida confirmada pelo servidor mantém o texto e abre no projeto da conversa', async () => {
+    const path = 'backend/docs/plano-correcoes-2026-09-16.md'
+    useStore.setState({
+      sessions: { s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },
+    })
+    const openFile = vi.fn()
+    useStore.setState({ openFile })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      okJson([{ path, exists: true, inScope: true, kind: 'markdown', size: 10 }]),
+    )
+
+    render(<><MessageBlock item={{ kind: 'assistant_text', text: `Mapa pronto: **\`${path}\`** (1.263 linhas, 80 itens).` }} currentLocalId="s1" /><FileOpenMenu /></>)
+    const link = await screen.findByRole('link', { name: path })
+    expect(link.classList.contains('file-link')).toBe(true)
+    expect(link.closest('strong')).toBeTruthy()
+    expect(link.closest('code')).toBeTruthy()
+    clickAndChoosePopup(link)
+    expect(openFile).toHaveBeenCalledWith(path, 'markdown', 7)
+  })
+
   it('path confirmado (exists+inScope) vira .file-link clicável e abre o FileViewerModal', async () => {
     useStore.setState({
       sessions: { s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },

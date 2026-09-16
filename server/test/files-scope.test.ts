@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync, realpathSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { resolveInScope, kindOf } from '../src/files/scope.js'
 
@@ -34,6 +34,58 @@ describe('resolveInScope', () => {
     const r = resolveInScope('a.txt', proj, false)
     expect(r).toMatchObject({ exists: true, inScope: true })
     expect(r.real).toBe(realpathSync(join(proj.path, 'a.txt')))
+  })
+  it.each(['proj/a.txt', './proj/a.txt'])('remove a base repetida em %s quando o original não existe', (path) => {
+    expect(resolveInScope(path, proj, false)).toEqual({
+      path, exists: true, inScope: true, kind: 'text', size: 5,
+      real: realpathSync(join(proj.path, 'a.txt')),
+    })
+  })
+  it('reconhece vários componentes completos da base, incluindo projeto em subpasta', () => {
+    const backend = { id: 2, path: join(proj.path, 'backend') }
+    mkdirSync(join(backend.path, 'docs'), { recursive: true })
+    const file = join(backend.path, 'docs', 'plano.md')
+    writeFileSync(file, '# Plano')
+    for (const path of ['backend/docs/plano.md', 'proj/backend/docs/plano.md', `${basename(root)}/proj/backend/docs/plano.md`]) {
+      expect(resolveInScope(path, backend, false)).toMatchObject({
+        path, exists: true, inScope: true, kind: 'markdown', real: realpathSync(file),
+      })
+    }
+  })
+  it('mantém prioridade do caminho original quando a pasta repetida realmente existe', () => {
+    mkdirSync(join(proj.path, 'proj'))
+    const original = join(proj.path, 'proj', 'a.txt')
+    writeFileSync(original, 'outro arquivo')
+    expect(resolveInScope('proj/a.txt', proj, false).real).toBe(realpathSync(original))
+  })
+  it('não troca um diretório existente por um arquivo ao remover a base', () => {
+    mkdirSync(join(proj.path, 'proj', 'a.txt'), { recursive: true })
+    expect(resolveInScope('proj/a.txt', proj, false)).toEqual({ path: 'proj/a.txt', exists: false, inScope: false })
+  })
+  it.each(['roj/a.txt', 'proj-extra/a.txt', 'alheio/proj/a.txt', 'proj/nope.txt', 'proj/../proj/a.txt'])('não adivinha outro arquivo para %s', (path) => {
+    expect(resolveInScope(path, proj, false)).toEqual({ path, exists: false, inScope: false })
+  })
+  it('não reinterpreta caminhos absolutos como relativos', () => {
+    const path = join(proj.path, 'proj', 'a.txt')
+    expect(resolveInScope(path, proj, true)).toEqual({ path, exists: false, inScope: false })
+  })
+  it('base repetida sem projeto não resolve, mesmo para admin', () => {
+    expect(resolveInScope('proj/a.txt', null, true)).toEqual({ path: 'proj/a.txt', exists: false, inScope: false })
+  })
+  it.each([false, true])('a alternativa não segue symlink para fora da base (admin=%s)', (admin) => {
+    symlinkSync(join(root, 'secret', 'k.txt'), join(proj.path, 'link.txt'))
+    expect(resolveInScope('proj/link.txt', proj, admin)).toEqual({ path: 'proj/link.txt', exists: false, inScope: false })
+  })
+  it('permite symlink da alternativa que continua dentro da raiz real do projeto', () => {
+    symlinkSync(join(proj.path, 'a.txt'), join(proj.path, 'link.txt'))
+    const alias = join(root, 'alias')
+    symlinkSync(proj.path, alias)
+    expect(resolveInScope('alias/link.txt', { id: 1, path: alias }, false).real).toBe(realpathSync(join(proj.path, 'a.txt')))
+  })
+  it('não tenta a alternativa quando o original existe, mas está fora do escopo', () => {
+    symlinkSync(join(root, 'secret'), join(proj.path, 'proj'))
+    writeFileSync(join(proj.path, 'k.txt'), 'interno')
+    expect(resolveInScope('proj/k.txt', proj, false)).toEqual({ path: 'proj/k.txt', exists: false, inScope: false })
   })
   it('fora do projeto (não-admin) → responde como inexistente (sem oráculo de existência)', () => {
     const r = resolveInScope(join(root, 'secret', 'k.txt'), proj, false)

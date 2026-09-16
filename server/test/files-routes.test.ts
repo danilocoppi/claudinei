@@ -8,7 +8,7 @@ import { COOKIE_NAME } from '../src/auth/plugin.js'
 import { createProjectsService } from '../src/projects.js'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 let app: Awaited<ReturnType<typeof buildApp>>
 let projectId: number
@@ -31,6 +31,20 @@ beforeEach(async () => {
 })
 
 describe('POST /api/files/resolve', () => {
+  it('base repetida: confirma o path escrito no chat e abre seu conteúdo pelo mesmo path', async () => {
+    const path = `${basename(projectPath)}/sub/b.md`
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/resolve', payload: { paths: [path], projectId },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([{ path, exists: true, inScope: true, kind: 'markdown', size: 4 }])
+    const content = await app.inject({
+      method: 'GET', url: `/api/files/content?path=${encodeURIComponent(path)}&projectId=${projectId}`,
+    })
+    expect(content.statusCode).toBe(200)
+    expect(content.body).toBe('# oi')
+  })
+
   it('path relativo dentro do projeto resolve com inScope:true', async () => {
     const res = await app.inject({
       method: 'POST',

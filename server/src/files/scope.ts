@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from 'node:fs'
-import { resolve, sep, extname } from 'node:path'
+import { resolve, sep, extname, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 
 export type FileKind = 'image' | 'pdf' | 'markdown' | 'code' | 'text' | 'binary'
@@ -29,22 +29,52 @@ function toAbsolute(raw: string, projectPath: string | null): string | null {
   return resolve(projectPath, p)
 }
 
+// Ex.: projeto /repo/backend + backend/docs/plano.md → /repo/backend/docs/plano.md.
+// Só considera componentes completos, usando a maior sobreposição entre o fim
+// da base e o começo do relativo. Absolutos, ~ e traversal mantêm seu significado.
+function withoutRepeatedBase(raw: string, projectPath: string): string | null {
+  const p = raw.trim()
+  if (isAbsolute(p) || p === '~' || p.startsWith('~/')) return null
+  const parts = p.split(sep).filter((part) => part && part !== '.')
+  if (parts.includes('..')) return null
+  const base = resolve(projectPath).split(sep).filter(Boolean)
+  for (let count = Math.min(base.length, parts.length - 1); count > 0; count--) {
+    if (base.slice(-count).every((part, i) => part === parts[i])) {
+      return resolve(projectPath, ...parts.slice(count))
+    }
+  }
+  return null
+}
+
 /**
  * Resolve um path pedido e decide se está no ESCOPO permitido. Fonte única de verdade
- * de segurança (usada por resolve e content). Usa realpath (segue symlink) e checa que
+ * de segurança (usada por todas as rotas de arquivo). Usa realpath (segue symlink) e checa que
  * o arquivo real está sob a raiz real do projeto — barra traversal e symlink pra fora.
  *
  * Quando inScope é true, `real` traz o realpath do arquivo (pós-symlink) para que rotas
  * futuras (ex.: content) possam ler o arquivo direto sem re-derivar/normalizar o path.
  */
 export function resolveInScope(raw: string, project: { id: number; path: string } | null, isAdmin: boolean): ScopeResult {
+  const missing: ScopeResult = { path: raw, exists: false, inScope: false }
   const abs = toAbsolute(raw, project?.path ?? null)
-  if (!abs) return { path: raw, exists: false, inScope: false }
+  if (!abs) return missing
   let realFile: string
   let st: ReturnType<typeof statSync>
-  try { realFile = realpathSync(abs); st = statSync(realFile) } catch { return { path: raw, exists: false, inScope: false } }
-  if (!st.isFile()) return { path: raw, exists: isAdmin, inScope: false }
-  let inScope = isAdmin
+  let removedBase = false
+  try { realFile = realpathSync(abs); st = statSync(realFile) } catch (err) {
+    // Arquivos/diretórios existentes e erros de acesso não autorizam trocar o
+    // alvo. A alternativa só é tentada quando o caminho original não existe.
+    const code = (err as NodeJS.ErrnoException).code
+    if (!project || (code !== 'ENOENT' && code !== 'ENOTDIR')) return missing
+    const alternative = withoutRepeatedBase(raw, project.path)
+    if (!alternative) return missing
+    try { realFile = realpathSync(alternative); st = statSync(realFile) } catch { return missing }
+    removedBase = true
+  }
+  if (!st.isFile()) return { path: raw, exists: isAdmin && !removedBase, inScope: false }
+  // A base removida é uma inferência: só vale dentro da raiz real do projeto,
+  // inclusive para admin. Caminhos explícitos mantêm as permissões anteriores.
+  let inScope = isAdmin && !removedBase
   if (!inScope && project) {
     try {
       const realRoot = realpathSync(project.path)
@@ -54,7 +84,7 @@ export function resolveInScope(raw: string, project: { id: number; path: string 
   // Não-admin fora do escopo responde como "não existe": exists:true aqui (e o
   // 404-vs-403 derivado dele) seria um oráculo de existência de arquivos
   // arbitrários do SO para quem só tem acesso a um projeto.
-  if (!inScope && !isAdmin) return { path: raw, exists: false, inScope: false }
+  if (!inScope) return missing
   return {
     path: raw,
     exists: true,

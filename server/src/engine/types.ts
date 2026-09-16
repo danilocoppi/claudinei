@@ -89,6 +89,14 @@ export interface Engine {
   readHistory(projectPath: string, engineSessionId: string): AgentEvent[] | Promise<AgentEvent[]>
   latestConversationId(projectPath: string): string | null
   /**
+   * Descarta o cache interno de `latestConversationId` desta pasta (opcional).
+   * O manager chama antes de resolver o thread na ABERTURA e na SAÍDA do
+   * terminal — são os momentos em que o storage da engine acabou de mudar
+   * (o TUI cria/atualiza sessões lá), e um id cacheado apontaria para uma
+   * conversa anterior ao terminal.
+   */
+  invalidateLatestConversation?(projectPath: string): void
+  /**
    * Uma conversa específica ainda existe no storage da engine?
    *
    * Opcional: engine que não implementa faz o manager confiar no id do banco

@@ -38,12 +38,12 @@ describe('openCodeEngine', () => {
   it('readHistory sem sessão → []', async () => {
     await expect(openCodeEngine.readHistory('/nao/existe', 'ses_nada')).resolves.toEqual([])
   })
-  it('latestConversationId: nunca lança e é idempotente (cache) para projeto inexistente', () => {
+  it('latestConversationId: nunca lança e é rápida para projeto inexistente', () => {
     expect(() => openCodeEngine.latestConversationId('/nao/existe')).not.toThrow()
     const first = openCodeEngine.latestConversationId('/nao/existe')
     expect(first).toBeNull()
-    // 2ª chamada idêntica deve bater no cache e continuar devolvendo null rapidamente,
-    // sem lançar mesmo se o db do opencode não existir no ambiente de teste.
+    // Null NÃO é cacheado (de propósito: sessão de terminal pode nascer logo em
+    // seguida), mas repetir a consulta sem db continua rápido e sem lançar.
     const start = Date.now()
     const second = openCodeEngine.latestConversationId('/nao/existe')
     expect(second).toBeNull()
@@ -71,21 +71,29 @@ describe('openCodeEngine', () => {
   describe('latestConversationId (sqlite, determinístico)', () => {
     afterEach(() => { delete process.env.XDG_DATA_HOME })
 
-    function makeOpenCodeDb(rows: Array<{ id: string; directory: string; timeCreated: number }>): string {
+    type Row = { id: string; directory: string; timeCreated: number; timeUpdated?: number; parentId?: string | null }
+
+    function makeOpenCodeDb(rows: Row[] = []): { dataHome: string; dbPath: string; add: (more: Row[]) => void } {
       const dataHome = mkdtempSync(join(tmpdir(), 'oc-xdg-'))
       const dbDir = join(dataHome, 'opencode')
       mkdirSync(dbDir, { recursive: true })
-      const db = new Database(join(dbDir, 'opencode.db'))
-      db.exec('CREATE TABLE session (id TEXT, directory TEXT, time_created INTEGER)')
-      const insert = db.prepare('INSERT INTO session (id, directory, time_created) VALUES (?, ?, ?)')
-      for (const r of rows) insert.run(r.id, r.directory, r.timeCreated)
+      const dbPath = join(dbDir, 'opencode.db')
+      const db = new Database(dbPath)
+      db.exec('CREATE TABLE session (id TEXT, directory TEXT, time_created INTEGER, time_updated INTEGER, parent_id TEXT)')
       db.close()
-      return dataHome
+      const add = (more: Row[]) => {
+        const d = new Database(dbPath)
+        const insert = d.prepare('INSERT INTO session (id, directory, time_created, time_updated, parent_id) VALUES (?, ?, ?, ?, ?)')
+        for (const r of more) insert.run(r.id, r.directory, r.timeCreated, r.timeUpdated ?? r.timeCreated, r.parentId ?? null)
+        d.close()
+      }
+      add(rows)
+      return { dataHome, dbPath, add }
     }
 
     it('devolve o id da sessão MAIS RECENTE do directory (não subprocesso)', () => {
       const dir = '/oc-test/most-recent-project'
-      const dataHome = makeOpenCodeDb([
+      const { dataHome } = makeOpenCodeDb([
         { id: 'ses_old', directory: dir, timeCreated: 1000 },
         { id: 'ses_new', directory: dir, timeCreated: 2000 },
       ])
@@ -96,9 +104,68 @@ describe('openCodeEngine', () => {
     it('directory sem sessão no db devolve null', () => {
       const dirWithSession = '/oc-test/has-session'
       const dirWithout = '/oc-test/no-session-at-all'
-      const dataHome = makeOpenCodeDb([{ id: 'ses_x', directory: dirWithSession, timeCreated: 1 }])
+      const { dataHome } = makeOpenCodeDb([{ id: 'ses_x', directory: dirWithSession, timeCreated: 1 }])
       process.env.XDG_DATA_HOME = dataHome
       expect(openCodeEngine.latestConversationId(dirWithout)).toBeNull()
+    })
+
+    it('ignora sessões FILHAS de subagentes (parent_id) — devolve a conversa principal', () => {
+      // Reproduz o bug relatado: o TUI cria subagentes no MESMO directory com
+      // time_created mais novo; o chat trazia o transcript do subagente.
+      const dir = '/oc-test/subagent-children'
+      const { dataHome } = makeOpenCodeDb([
+        { id: 'ses_main', directory: dir, timeCreated: 1000, timeUpdated: 5000 },
+        { id: 'ses_child_1', directory: dir, timeCreated: 2000, timeUpdated: 6000, parentId: 'ses_main' },
+        { id: 'ses_child_2', directory: dir, timeCreated: 3000, timeUpdated: 7000, parentId: 'ses_main' },
+      ])
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_main')
+    })
+
+    it('sessão RETOMADA no TUI vence por time_updated (não pela criação mais nova)', () => {
+      // Retomar uma conversa antiga no terminal não muda o time_created dela;
+      // ordenar por criação devolveria uma sessão mais nova que ficou parada.
+      const dir = '/oc-test/resumed-wins'
+      const { dataHome } = makeOpenCodeDb([
+        { id: 'ses_resumed', directory: dir, timeCreated: 1000, timeUpdated: 9000 },
+        { id: 'ses_newer_idle', directory: dir, timeCreated: 2000, timeUpdated: 3000 },
+      ])
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_resumed')
+    })
+
+    it('null NÃO é cacheado: sessão criada logo depois aparece sem esperar o TTL', () => {
+      // Terminal aberto antes da 1ª mensagem (TUI só cria a sessão ao conversar):
+      // cachear o null deixaria o histórico vazio por até 30 s depois de existir.
+      const dir = '/oc-test/null-not-cached'
+      const { dataHome, add } = makeOpenCodeDb()
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir)).toBeNull()
+      add([{ id: 'ses_from_tui', directory: dir, timeCreated: 1000 }])
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_from_tui')
+    })
+
+    it('invalidateLatestConversation descarta o id positivo em cache (saída do terminal)', () => {
+      const dir = '/oc-test/invalidate-cache'
+      const { dataHome, add } = makeOpenCodeDb([{ id: 'ses_before', directory: dir, timeCreated: 1000 }])
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_before')
+      add([{ id: 'ses_after_tui', directory: dir, timeCreated: 2000 }])
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_before') // ainda em cache (TTL)
+      openCodeEngine.invalidateLatestConversation?.(dir)
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_after_tui')
+    })
+
+    it('schema antigo (sem parent_id/time_updated) degrada para a consulta original', () => {
+      const dir = '/oc-test/old-schema'
+      const dataHome = mkdtempSync(join(tmpdir(), 'oc-xdg-'))
+      mkdirSync(join(dataHome, 'opencode'), { recursive: true })
+      const db = new Database(join(dataHome, 'opencode', 'opencode.db'))
+      db.exec('CREATE TABLE session (id TEXT, directory TEXT, time_created INTEGER)')
+      db.prepare('INSERT INTO session VALUES (?, ?, ?)').run('ses_legacy', dir, 1)
+      db.close()
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_legacy')
     })
   })
 })

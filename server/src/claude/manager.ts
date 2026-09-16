@@ -557,7 +557,13 @@ export function createSessionManager(deps: Deps) {
       // então cai para o último thread real da pasta, ou fresh.
       let resumeId: string | null = resolveResume(engineId, project.path, localId, row.claude_session_id ?? null)
       if (!resumeId) {
-        try { resumeId = getEngine(engineId).latestConversationId(project.path) } catch { resumeId = null }
+        try {
+          const eng = getEngine(engineId)
+          // O storage da engine muda fora do Claudinei (TUI cria sessão só na 1ª
+          // mensagem): sem invalidar o cache, retomaríamos um id de até 30 s atrás.
+          eng.invalidateLatestConversation?.(project.path)
+          resumeId = eng.latestConversationId(project.path)
+        } catch { resumeId = null }
       }
       // Defesa: o id vai como argv — exige começar com alfanumérico (barra flags
       // "-x") e só chars seguros.
@@ -614,8 +620,17 @@ export function createSessionManager(deps: Deps) {
               // web voltaria sem o que aconteceu lá. Re-resolve o último thread
               // da pasta e persiste: o histórico do chat passa a refletir o
               // terminal assim que a UI recarrega pela troca de engineSessionId.
+              // (OpenCode continua no MESMO id — quem força a rebusca lá é a
+              // invalidação do historyLoadedFor na volta do terminal, no web.)
               let latest: string | null = null
-              try { latest = getEngine(engineId).latestConversationId(project.path) } catch { latest = null }
+              try {
+                const eng = getEngine(engineId)
+                // O TUI ACABOU de gravar no storage da engine: sem invalidar o
+                // cache (OpenCode cacheia por 30 s), releríamos o id de antes do
+                // terminal e o chat não veria o que foi conversado lá.
+                eng.invalidateLatestConversation?.(project.path)
+                latest = eng.latestConversationId(project.path)
+              } catch { latest = null }
               const nextId = latest ?? resumeId
               persist(localId, 'stopped', nextId)
               // Sem pendingQuestion aqui: a entrada já saiu de `live` antes do

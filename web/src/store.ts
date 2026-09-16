@@ -358,7 +358,16 @@ export const useStore = create<State>((set, get) => ({
       // sessão para o ChatView rebuscar do TRANSCRIPT. O stream ao vivo não traz
       // flags como isMeta/isCompactSummary (injeções da engine) — o transcript
       // traz; a rebusca retagueia as bolhas "by <engine>" sem precisar de reload.
-      if (prev === 'working' && ['idle', 'needs_attention', 'stopped'].includes(msg.status)) {
+      //
+      // Volta do terminal (in_terminal → qualquer outro): o TUI GRAVA na conversa
+      // sem passar pelo stream, e engines como OpenCode/Codex continuam no MESMO
+      // engineSessionId (só o Claude bifurca o transcript). Sem invalidar aqui, o
+      // ChatView julgaria o histórico atualizado (key === historyLoadedFor) e o
+      // que foi conversado no terminal nunca apareceria no chat.
+      if (
+        (prev === 'working' && ['idle', 'needs_attention', 'stopped'].includes(msg.status)) ||
+        (prev === 'in_terminal' && msg.status !== 'in_terminal')
+      ) {
         set((s) => {
           if (!(msg.localId in s.historyLoadedFor)) return s
           const { [msg.localId]: _gone, ...rest } = s.historyLoadedFor

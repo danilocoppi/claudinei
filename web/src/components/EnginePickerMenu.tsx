@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { EngineMeta } from '../types'
 import { EngineIcon } from './EngineIcon'
+import { ViewportPopover } from './ViewportPopover'
 
 /**
  * Popover "qual engine?" usado onde Reviver antes reanimava direto a última
@@ -19,7 +20,7 @@ export function EnginePickerMenu({ engines, x, y, onPick, onClose }: {
   const { t } = useTranslation()
   return createPortal(
     <div className="sess-pop__overlay" onClick={onClose}>
-      <div className="sess-pop glass" style={{ left: x, top: y, minWidth: 170 }} onClick={(e) => e.stopPropagation()}>
+      <ViewportPopover x={x} y={y} minWidth={170}>
         <div className="sess-pop__eyebrow">{t('session.engine')}</div>
         {engines.map((e) => {
           const missing = e.available === false
@@ -35,7 +36,7 @@ export function EnginePickerMenu({ engines, x, y, onPick, onClose }: {
             </div>
           )
         })}
-      </div>
+      </ViewportPopover>
     </div>,
     document.body,
   )

@@ -200,6 +200,39 @@ it('sessão nova em starting (sem engineSessionId) busca e mostra o preview da c
   spy.mockRestore()
 })
 
+it('sessão vinda do terminal SEM id (stopped) busca o preview — o TUI conversou sem o Claudinei capturar o id', async () => {
+  const previewEvents: ClaudeEvent[] = [
+    { kind: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'conversa do terminal' }] }, raw: {} },
+  ]
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse(previewEvents)))
+  useStore.setState({
+    sessions: { a: sess('a', { status: 'stopped', engineSessionId: null, engine: 'opencode' }) },
+    activeLocalId: 'a', view: 'chat',
+  })
+  render(<ChatView />)
+  expect(await screen.findByText(/conversa do terminal/)).toBeTruthy()
+  expect(spy).toHaveBeenCalledWith('/api/sessions/a/history', expect.anything())
+  spy.mockRestore()
+})
+
+it('volta do terminal com o MESMO engineSessionId rebusca o histórico (OpenCode continua no mesmo id)', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  useStore.setState({
+    sessions: { a: sess('a', { status: 'in_terminal', engineSessionId: 'c', engine: 'opencode' }) },
+    historyLoadedFor: { a: 'c' }, // já carregado ANTES de abrir o terminal
+    activeLocalId: 'a', view: 'chat',
+  })
+  render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+  await new Promise((r) => setTimeout(r, 0))
+  expect(spy).not.toHaveBeenCalledWith('/api/sessions/a/history', expect.anything())
+  // terminal fecha: mesmo id, status mudou — o store invalida e o ChatView rebusca
+  act(() => {
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 'a', status: 'stopped', engineSessionId: 'c' })
+  })
+  await vi.waitFor(() => expect(spy).toHaveBeenCalledWith('/api/sessions/a/history', expect.anything()))
+  spy.mockRestore()
+})
+
 describe('abas de engine no header (engine-tabs)', () => {
   it('mostra uma aba por engine registrada; a aba da engine da sessão aberta fica ativa', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))

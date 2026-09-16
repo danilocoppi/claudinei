@@ -365,8 +365,8 @@ export function Sidebar() {
                       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                       setMenuFor({
                         p,
-                        x: Math.max(8, Math.min(r.left, window.innerWidth - 210)),
-                        y: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - 360)),
+                        x: r.left,
+                        y: r.bottom + 4,
                       })
                     }}>
               <MoreIcon size={13} />

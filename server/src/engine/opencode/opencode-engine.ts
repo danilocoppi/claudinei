@@ -37,13 +37,31 @@ function listModels(): string[] {
 
 // latestConversationId agora lê direto do SQLite do opencode (read-only, sem
 // subprocesso) — cacheia por projectPath para não reabrir o db a cada recarga
-// de histórico.
+// de histórico. Só resultados POSITIVOS entram no cache: o null é o estado
+// transitório de um terminal que ainda não criou sessão, e cacheá-lo deixaria
+// o histórico/preview vazio por até 30 s DEPOIS de a conversa existir.
 const LATEST_CONVERSATION_CACHE_TTL = 30_000
-const latestConversationIdCache = new Map<string, { at: number; value: string | null }>()
+const latestConversationIdCache = new Map<string, { at: number; value: string }>()
 
 function opencodeDbPath(): string {
   const dataHome = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
   return join(dataHome, 'opencode', 'opencode.db')
+}
+
+/** "Última conversa da pasta" no db do opencode, degradando graciosamente se o schema mudar. */
+function queryLatestConversation(db: Database.Database, projectPath: string): string | null {
+  // O schema do opencode evolui entre versões: só referencia a coluna quando ela
+  // existe — um id aproximado ainda é melhor que preview nenhum.
+  const cols = new Set((db.prepare('PRAGMA table_info(session)').all() as { name?: string }[]).map((c) => c?.name))
+  // Subagentes criam sessões FILHAS (parent_id) no MESMO directory: sem filtrar,
+  // a "última conversa" vira o transcript de um subagente em vez do que o
+  // operador conversou no terminal — e o chat web mostrava a conversa errada.
+  const where = cols.has('parent_id') ? 'directory = ? AND parent_id IS NULL' : 'directory = ?'
+  // time_updated, não time_created: retomar uma sessão no TUI não muda a data de
+  // criação dela, e é ela (a recém-usada) que o terminal/chat deve reencontrar.
+  const order = cols.has('time_updated') ? 'COALESCE(time_updated, time_created)' : 'time_created'
+  const row = db.prepare(`SELECT id FROM session WHERE ${where} ORDER BY ${order} DESC LIMIT 1`).get(projectPath) as { id?: string } | undefined
+  return row?.id ?? null
 }
 
 /** Normaliza um `opencode export <id>` ({info, messages}) para AgentEvent[]. */
@@ -93,13 +111,13 @@ export const openCodeEngine: Engine = {
     let result: string | null = null
     try {
       const db = new Database(opencodeDbPath(), { readonly: true, fileMustExist: true })
-      try {
-        const row = db.prepare('SELECT id FROM session WHERE directory = ? ORDER BY time_created DESC LIMIT 1').get(projectPath) as { id?: string } | undefined
-        result = row?.id ?? null
-      } finally { db.close() }
+      try { result = queryLatestConversation(db, projectPath) } finally { db.close() }
     } catch { result = null } // db ausente/schema mudou/lock → sem preview (degradação graciosa)
-    latestConversationIdCache.set(projectPath, { at: Date.now(), value: result })
+    if (result) latestConversationIdCache.set(projectPath, { at: Date.now(), value: result })
     return result
+  },
+  invalidateLatestConversation(projectPath: string): void {
+    latestConversationIdCache.delete(projectPath)
   },
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {
     const file = opts.bin ?? bin()

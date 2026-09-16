@@ -264,6 +264,26 @@ describe('rebusca de histórico no fim do turno', () => {
     useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l9', status: 'idle', engineSessionId: 'c9' })
     expect(useStore.getState().historyLoadedFor).toEqual({ l9: 'c9' })
   })
+
+  it('in_terminal → stopped invalida MESMO com o mesmo engineSessionId (OpenCode continua no mesmo id)', () => {
+    // O TUI grava na conversa sem passar pelo stream; sem invalidar, o ChatView
+    // julgaria o histórico atualizado e o terminal nunca apareceria no chat.
+    useStore.setState({
+      sessions: { t2: { localId: 't2', projectId: 1, status: 'in_terminal', engineSessionId: 'c2', updatedAt: 'x', engine: 'opencode' } as never },
+      historyLoadedFor: { t2: 'c2', outra: 'cX' },
+    })
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 't2', status: 'stopped', engineSessionId: 'c2' })
+    expect(useStore.getState().historyLoadedFor).toEqual({ outra: 'cX' })
+  })
+
+  it('in_terminal → in_terminal (rebroadcast) NÃO invalida', () => {
+    useStore.setState({
+      sessions: { t3: { localId: 't3', projectId: 1, status: 'in_terminal', engineSessionId: 'c3', updatedAt: 'x', engine: 'opencode' } as never },
+      historyLoadedFor: { t3: 'c3' },
+    })
+    useStore.getState().applyWsMessage({ type: 'session_status', localId: 't3', status: 'in_terminal', engineSessionId: 'c3' })
+    expect(useStore.getState().historyLoadedFor).toEqual({ t3: 'c3' })
+  })
 })
 
 describe('resyncOnReconnect (I8: WS caiu e voltou — servidor não faz replay)', () => {

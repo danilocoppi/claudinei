@@ -108,7 +108,10 @@ export function SessionControls({ session }: { session: SessionInfo }) {
       </button>
       {open && createPortal(
         <div className="sess-pop__overlay" onClick={() => setOpen(false)}>
-          <div className="sess-pop glass" style={{ bottom: pos.bottom, right: pos.right }} onClick={(e) => e.stopPropagation()}>
+          <div className="sess-pop glass" style={{
+            bottom: pos.bottom, right: pos.right,
+            maxHeight: `calc(100dvh - ${pos.bottom + 8}px)`, overflowY: 'auto',
+          }} onClick={(e) => e.stopPropagation()}>
             <div className="sess-pop__eyebrow">
               {t('controls.model')}
               {busy && <span className="sess-pop__hint"> · {t('controls.workingHint')}</span>}

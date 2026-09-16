@@ -70,11 +70,16 @@ export function ChatView() {
   // mensagem), busca mesmo assim: o backend devolve o PREVIEW da conversa que o
   // --continue vai retomar, para o operador se contextualizar. A chave sentinela
   // '(preview)' garante que o histórico real substitua o preview quando o init chegar.
+  // O preview também vale em in_terminal/stopped SEM id: o TUI pode ter conversado
+  // sem o Claudinei capturar o id da sessão (terminal aberto antes da 1ª mensagem,
+  // restart do servidor com a sessão no terminal) — quem decide se há algo para
+  // mostrar é o servidor (continue_latest + última conversa da pasta).
   // Depende só da entrada de historyLoadedFor da sessão ativa (não do objeto inteiro),
   // pra não re-disparar o efeito quando outra sessão termina de carregar o histórico dela.
   useEffect(() => {
     if (!activeLocalId || !session) return
-    const key = session.engineSessionId ?? (session.status === 'starting' ? '(preview)' : null)
+    const key = session.engineSessionId
+      ?? (['starting', 'in_terminal', 'stopped'].includes(session.status) ? '(preview)' : null)
     if (!key || loadedEngineSessionId === key) return
     fetchHistory(activeLocalId).then((events) => {
       if (events.length > 0 || key !== '(preview)') {

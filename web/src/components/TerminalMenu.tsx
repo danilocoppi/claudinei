@@ -13,6 +13,7 @@ import { NewProjectModal } from './NewProjectModal'
 import { ActionEditor } from './ActionEditor'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { Project } from '../types'
+import { ViewportPopover } from './ViewportPopover'
 
 /** Abrir no desktop, na ordem em que aparecem no menu. */
 const LOCAL_ACTIONS: { id: LocalApp; Icon: typeof FolderIcon; label: string }[] = [
@@ -138,7 +139,7 @@ export function TerminalMenu({ project, x, y, onDone }: {
 
   return createPortal(
     <div className="sess-pop__overlay" onClick={onDone}>
-      <div className="sess-pop glass" style={{ left: x, top: y, minWidth: 190 }} onClick={(e) => e.stopPropagation()}>
+      <ViewportPopover x={x} y={y} minWidth={190}>
         <div className="sess-pop__item" onClick={() => setPhase('edit')}>
           <EditIcon /><span>{t('sidebar.editTerminal')}</span>
         </div>
@@ -264,7 +265,7 @@ export function TerminalMenu({ project, x, y, onDone }: {
              onClick={() => { setDeleteError(''); setPhase('delete') }}>
           <TrashIcon /><span>{t('sidebar.deleteTerminal')}</span>
         </div>
-      </div>
+      </ViewportPopover>
     </div>,
     document.body,
   )

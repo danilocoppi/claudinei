@@ -221,7 +221,7 @@ export function registerFileRoutes(
     // Só HTML: é o único tipo que precisa de documento próprio para ser visto, e
     // cada extensão a mais aqui alarga uma rota que responde sem cookie.
     if (!isHtmlFile(real)) return reply.code(415).send({ error: 'not html' })
-    return { url: previewUrl(previews.issue(previewRoot(real, project), req.socket.remoteAddress), real) }
+    return { url: previewUrl(previews.issue(previewRoot(real, project), req.socket.remoteAddress, req.accessAllowed), real) }
   })
 
   /**

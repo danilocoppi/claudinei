@@ -23,11 +23,13 @@ export interface PreviewGrant {
    * pediu, o token vazado não serve para mais ninguém.
    */
   client?: string
+  /** Revalida o horário e a sessão de quem emitiu, mesmo sem cookie no iframe. */
+  allowed?: () => boolean
   expiresAt: number
 }
 
 export interface PreviewStore {
-  issue(root: string, client?: string): string
+  issue(root: string, client?: string, allowed?: () => boolean): string
   resolve(token: string, client?: string): PreviewGrant | null
   size(): number
 }
@@ -52,11 +54,11 @@ export function createPreviewStore(opts?: {
   }
 
   return {
-    issue(root, client) {
+    issue(root, client, allowed) {
       const t = now()
       limpar(t) // sem isso, cada prévia aberta ficaria para sempre na memória do processo
       const token = makeToken()
-      grants.set(token, { root, client, expiresAt: t + ttl })
+      grants.set(token, { root, client, allowed, expiresAt: t + ttl })
       return token
     },
     resolve(token, client) {
@@ -65,6 +67,7 @@ export function createPreviewStore(opts?: {
       if (g.expiresAt <= now()) { grants.delete(token); return null }
       // Só compara quando a concessão nasceu com dono — não inventa dono.
       if (g.client && g.client !== client) return null
+      if (g.allowed && !g.allowed()) { grants.delete(token); return null }
       return g
     },
     size: () => grants.size,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { NewProjectModal } from '../components/NewProjectModal'
+import { useStore } from '../store'
 
 beforeEach(() => {
   vi.spyOn(globalThis, 'fetch').mockImplementation((url: any, init: any) => {
@@ -54,6 +55,29 @@ describe('NewProjectModal', () => {
     // o modal pai continua aberto (onClose NÃO foi chamado) e o nome preservado
     expect(onClose).not.toHaveBeenCalled()
     expect((screen.getByPlaceholderText('Nome do projeto') as HTMLInputElement).value).toBe('Preservar')
+  })
+
+  it('pasta que já tem terminal: avisa, mas deixa criar', async () => {
+    useStore.setState({ projects: [{ id: 9, name: 'Existente', path: '/home/u', color: '#fff', icon: '📁' } as any] })
+    render(<NewProjectModal onClose={() => {}} />)
+    fireEvent.change(screen.getByPlaceholderText('Nome do projeto'), { target: { value: 'Segundo' } })
+    fireEvent.click(screen.getByText('Escolher pasta…'))
+    await waitFor(() => screen.getByText('Selecionar esta pasta'))
+    fireEvent.click(screen.getByText('Selecionar esta pasta'))
+    await waitFor(() => screen.getByText(/já tem um terminal/i))
+    // Aviso, não erro: o botão continua ativo.
+    expect((screen.getByText('Criar') as HTMLButtonElement).disabled).toBe(false)
+    useStore.setState({ projects: [] })
+  })
+
+  it('pasta livre não mostra aviso nenhum', async () => {
+    useStore.setState({ projects: [{ id: 9, name: 'Outro', path: '/outro/lugar', color: '#fff', icon: '📁' } as any] })
+    render(<NewProjectModal onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Escolher pasta…'))
+    await waitFor(() => screen.getByText('Selecionar esta pasta'))
+    fireEvent.click(screen.getByText('Selecionar esta pasta'))
+    expect(screen.queryByText(/já tem um terminal/i)).toBeNull()
+    useStore.setState({ projects: [] })
   })
 
   it('modo edição: pré-preenche, trava o path e salva via PATCH', async () => {

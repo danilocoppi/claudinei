@@ -154,6 +154,7 @@ export const es: typeof en = {
   modal: {
     newProject: 'Nuevo proyecto', editTerminal: 'Editar terminal',
     namePlaceholder: 'Nombre del proyecto', choosePath: 'Elegir carpeta…', previewTag: 'vista previa',
+    sharedPathWarning: 'Esta carpeta ya tiene un terminal. El nuevo empieza en una conversación nueva, con contexto separado.',
   },
   folder: { title: 'Elegir carpeta', empty: 'Sin subcarpetas.', select: 'Seleccionar esta carpeta', up: 'Subir' },
   session: {
@@ -169,6 +170,8 @@ export const es: typeof en = {
   },
   chat: {
     select: 'Selecciona una sesión.', openInTerminal: 'Abrir en la terminal', backToTerminal: 'Volver a la terminal',
+    sharedPath: 'carpeta compartida',
+    sharedPathTitle: 'Otro terminal apunta a esta misma carpeta. Las conversaciones son separadas; los archivos, no.',
     ctxTip: 'Contexto de la conversación: ~{{used}} de {{window}} tokens. Compacta (⚙ → Compactar ahora o /compact) para liberar espacio.',
     ctxTipCodex: 'Contexto activo: ~{{used}} de {{window}} tokens. Ventana de esta sesión informada por Codex; puede ser menor que la capacidad máxima del modelo. Compacta (⚙ → Compactar ahora o /compact) para liberar espacio.',
     handoffTitle: '¿Abrir en la terminal?', handoffWorking: 'El turno en curso se detendrá para abrir esta conversación en la terminal.', handoffUnavailable: 'Disponible cuando la sesión esté activa.', terminalNoConversation: 'Abrir en la terminal está disponible tras el primer mensaje — aún no hay conversación para abrir.',

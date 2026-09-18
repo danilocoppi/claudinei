@@ -20,6 +20,10 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
   const [error, setError] = useState('')
   const [showFolder, setShowFolder] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
+  // O banco não recusa mais pasta repetida (dois terminais na mesma pasta são
+  // dois projetos). Quem cria duplicata por engano descobre aqui, e quem quer de
+  // propósito só segue em frente.
+  const pastaJaUsada = useStore((s) => !editProject && !!path && s.projects.some((p) => p.path === path))
 
   const submit = async () => {
     try {
@@ -59,6 +63,9 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
             <ProjectPreviewCard name={name} icon={icon} color={color} />
           </div>
 
+          {pastaJaUsada && (
+            <span style={{ color: 'var(--warn)', fontSize: 13 }}>{t('modal.sharedPathWarning')}</span>
+          )}
           {error && <span style={{ color: 'var(--err)' }}>{error}</span>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button className="ghost" onClick={onClose}>{t('common.cancel')}</button>

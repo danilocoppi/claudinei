@@ -449,3 +449,24 @@ it('sem compactação, os três pontinhos continuam como sempre', async () => {
   expect(screen.queryByTestId('compacting-indicator')).toBeNull()
   spy.mockRestore()
 })
+
+// Duas entradas da sidebar podem apontar para a mesma pasta: o nome do terminal
+// deixa de ser suficiente para o operador saber onde está.
+it('mostra o indicador quando outro terminal aponta para a mesma pasta', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  useStore.setState({ projects: [
+    { id: 1, name: 'P', path: '/tmp/juntos', color: '#fff', icon: '📁' },
+    { id: 2, name: 'Vizinho', path: '/tmp/juntos', color: '#fff', icon: '📁' },
+  ] })
+  render(<ChatView />)
+  expect(await screen.findByTestId('shared-path')).toBeTruthy()
+  spy.mockRestore()
+})
+
+it('pasta com um terminal só não mostra indicador', async () => {
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  render(<ChatView />) // o beforeEach deixa um projeto só
+  await screen.findByText('P')
+  expect(screen.queryByTestId('shared-path')).toBeNull()
+  spy.mockRestore()
+})

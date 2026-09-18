@@ -7,6 +7,7 @@ import type { ClaudeEvent } from './events.js'
 import { getEngine, DEFAULT_ENGINE_ID, type EngineId, type EngineSession, type EngineSessionOptions } from '../engine/index.js'
 import { userEchoEvent } from '../engine/echo.js'
 import { contextWindowFor, DEFAULT_CONTEXT_WINDOW } from './context-window.js'
+import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '../project-threads.js'
 
 export interface SessionInfo {
   localId: string
@@ -157,6 +158,13 @@ export function createSessionManager(deps: Deps) {
     deps.db.prepare(
       `UPDATE sessions SET status=?, claude_session_id=COALESCE(?, claude_session_id), updated_at=datetime('now') WHERE local_id=?`,
     ).run(status, engineSessionId, localId)
+    // Único lugar que grava um id de conversa em `sessions` (o UPDATE ... = NULL
+    // de resolveResume só descarta id fantasma), e por isso o único lugar de onde
+    // a posse do thread precisa sair. Vai para project_threads porque a linha da
+    // sessão não sobrevive: a limpeza mantém só 5 finalizadas por projeto.
+    if (!engineSessionId) return
+    const row = deps.db.prepare('SELECT project_id, engine FROM sessions WHERE local_id=?').get(localId) as any
+    if (row) recordThread(deps.db, row.project_id, row.engine ?? DEFAULT_ENGINE_ID, engineSessionId)
   }
 
   // O id efetivo: o do processo vivo, ou — enquanto ele ainda não emitiu o
@@ -562,7 +570,9 @@ export function createSessionManager(deps: Deps) {
           // O storage da engine muda fora do Claudinei (TUI cria sessão só na 1ª
           // mensagem): sem invalidar o cache, retomaríamos um id de até 30 s atrás.
           eng.invalidateLatestConversation?.(project.path)
-          resumeId = eng.latestConversationId(project.path)
+          // Sem o exclude, "a última conversa desta pasta" seria a do terminal
+          // vizinho — que é justamente o caso em que ele acabou de conversar.
+          resumeId = eng.latestConversationId(project.path, foreignThreadIds(deps.db, row.project_id, engineId))
         } catch { resumeId = null }
       }
       // Defesa: o id vai como argv — exige começar com alfanumérico (barra flags
@@ -629,8 +639,11 @@ export function createSessionManager(deps: Deps) {
                 // cache (OpenCode cacheia por 30 s), releríamos o id de antes do
                 // terminal e o chat não veria o que foi conversado lá.
                 eng.invalidateLatestConversation?.(project.path)
-                latest = eng.latestConversationId(project.path)
+                latest = eng.latestConversationId(project.path, foreignThreadIds(deps.db, row.project_id, engineId))
               } catch { latest = null }
+              // `?? resumeId`: nada achado significa "não sei", não "adote o que
+              // apareceu". Era aqui que o id do vizinho entrava no banco de forma
+              // permanente — os outros pontos só mostravam conversa alheia.
               const nextId = latest ?? resumeId
               persist(localId, 'stopped', nextId)
               // Sem pendingQuestion aqui: a entrada já saiu de `live` antes do

@@ -26,8 +26,8 @@ export const codexEngine: Engine = {
     const file = findRollout(sessionsRoot(), threadId)
     return file ? parseRollout(file) : []
   },
-  latestConversationId(projectPath: string): string | null {
-    return latestThreadForCwd(sessionsRoot(), projectPath)
+  latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {
+    return latestThreadForCwd(sessionsRoot(), projectPath, exclude)
   },
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {
     const file = opts.bin ?? process.env.CLAUDINEI_CODEX_BIN ?? 'codex'

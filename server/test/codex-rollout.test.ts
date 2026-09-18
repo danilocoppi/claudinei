@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { sessionsRoot, findRollout, parseRollout, latestThreadForCwd } from '../src/engine/codex/rollout.js'
@@ -174,6 +174,20 @@ describe('findRollout / parseRollout / latestThreadForCwd', () => {
 
     expect(latestThreadForCwd(root, '/tmp/beta')).toBe('thread-b')
     expect(latestThreadForCwd(root, '/tmp/alfa')).toBe('thread-a')
+  })
+
+  it('latestThreadForCwd pula os threads excluídos (conversa do terminal vizinho)', () => {
+    root = mkdtempSync(join(tmpdir(), 'codex-sessions-'))
+    const meu = writeRollout(root, 'thread-meu', ['2026', '01', '01'], [sessionMeta('thread-meu', '/tmp/juntos')])
+    const alheio = writeRollout(root, 'thread-alheio', ['2026', '01', '02'], [sessionMeta('thread-alheio', '/tmp/juntos')])
+    // A varredura ordena por mtime, não pela data do nome — fixar os dois é o que
+    // torna o caso determinístico.
+    utimesSync(meu, new Date(1000000), new Date(1000000))
+    utimesSync(alheio, new Date(2000000), new Date(2000000))
+
+    expect(latestThreadForCwd(root, '/tmp/juntos')).toBe('thread-alheio')
+    expect(latestThreadForCwd(root, '/tmp/juntos', new Set(['thread-alheio']))).toBe('thread-meu')
+    expect(latestThreadForCwd(root, '/tmp/juntos', new Set(['thread-alheio', 'thread-meu']))).toBeNull()
   })
 
   it('latestThreadForCwd devolve null quando nenhum cwd bate ou o dir não existe', () => {

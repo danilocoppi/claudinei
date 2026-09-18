@@ -27,15 +27,18 @@ export function transcriptExists(claudeConfigDir: string, projectPath: string, e
  * Id (basename sem .jsonl) do transcript mais recente da pasta do projeto —
  * é a conversa que `claude --continue` vai retomar. Null se não houver nenhum.
  */
-export function latestTranscriptId(claudeConfigDir: string, projectPath: string): string | null {
+export function latestTranscriptId(claudeConfigDir: string, projectPath: string, exclude?: ReadonlySet<string>): string | null {
   const dir = join(claudeConfigDir, 'projects', encodeCwd(projectPath))
   if (!existsSync(dir)) return null
   let best: { id: string; mtime: number } | null = null
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.jsonl')) continue
+    const id = name.slice(0, -'.jsonl'.length)
+    // Conversa de outro terminal da mesma pasta: não é candidata.
+    if (exclude?.has(id)) continue
     try {
       const mtime = statSync(join(dir, name)).mtimeMs
-      if (!best || mtime > best.mtime) best = { id: name.slice(0, -'.jsonl'.length), mtime }
+      if (!best || mtime > best.mtime) best = { id, mtime }
     } catch { /* arquivo sumiu no meio: ignora */ }
   }
   return best?.id ?? null

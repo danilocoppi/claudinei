@@ -101,6 +101,46 @@ describe('openCodeEngine', () => {
       expect(openCodeEngine.latestConversationId(dir)).toBe('ses_new')
     })
 
+    it('pula as sessões excluídas (conversa do terminal vizinho)', () => {
+      const dir = '/oc-test/exclude-basico'
+      const { dataHome } = makeOpenCodeDb([
+        { id: 'ses_meu', directory: dir, timeCreated: 1000 },
+        { id: 'ses_alheio', directory: dir, timeCreated: 2000 },
+      ])
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_alheio')
+      expect(openCodeEngine.latestConversationId(dir, new Set(['ses_alheio']))).toBe('ses_meu')
+      // O LIMIT 1 tem que valer para o que SOBROU: excluir tudo é conversa nova.
+      expect(openCodeEngine.latestConversationId(dir, new Set(['ses_meu', 'ses_alheio']))).toBeNull()
+    })
+
+    // Sem o exclude na chave, a primeira resposta cacheada valeria para a
+    // pergunta seguinte — que é outra pergunta.
+    it('o exclude entra na chave do cache: duas perguntas não se atropelam', () => {
+      const dir = '/oc-test/exclude-cache'
+      const { dataHome } = makeOpenCodeDb([
+        { id: 'ses_a', directory: dir, timeCreated: 2000 },
+        { id: 'ses_b', directory: dir, timeCreated: 1000 },
+      ])
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_a')
+      expect(openCodeEngine.latestConversationId(dir, new Set(['ses_a']))).toBe('ses_b')
+      expect(openCodeEngine.latestConversationId(dir)).toBe('ses_a')
+    })
+
+    it('invalidar a pasta limpa também as respostas com exclude', () => {
+      const dir = '/oc-test/exclude-invalidacao'
+      const { dataHome, add } = makeOpenCodeDb([
+        { id: 'ses_a', directory: dir, timeCreated: 2000 },
+        { id: 'ses_b', directory: dir, timeCreated: 1000 },
+      ])
+      process.env.XDG_DATA_HOME = dataHome
+      expect(openCodeEngine.latestConversationId(dir, new Set(['ses_a']))).toBe('ses_b')
+      add([{ id: 'ses_c', directory: dir, timeCreated: 3000 }])
+      openCodeEngine.invalidateLatestConversation?.(dir)
+      expect(openCodeEngine.latestConversationId(dir, new Set(['ses_a']))).toBe('ses_c')
+    })
+
     it('directory sem sessão no db devolve null', () => {
       const dirWithSession = '/oc-test/has-session'
       const dirWithout = '/oc-test/no-session-at-all'

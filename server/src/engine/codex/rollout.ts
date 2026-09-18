@@ -101,13 +101,18 @@ function readFirstLine(file: string): string | null {
   } catch { return null } finally { closeSync(fd) }
 }
 
-export function latestThreadForCwd(root: string, cwd: string): string | null {
+export function latestThreadForCwd(root: string, cwd: string, exclude?: ReadonlySet<string>): string | null {
   for (const file of allRollouts(root)) {
     const first = readFirstLine(file)
     if (!first) continue
     try {
       const o = JSON.parse(first)
-      if (o?.type === 'session_meta' && o.payload?.cwd === cwd) return o.payload.id ?? null
+      if (o?.type === 'session_meta' && o.payload?.cwd === cwd) {
+        const id = o.payload.id ?? null
+        // Thread do vizinho: segue procurando, em vez de devolver o 1º achado.
+        if (id && exclude?.has(id)) continue
+        return id
+      }
     } catch { /* ignora */ }
   }
   return null

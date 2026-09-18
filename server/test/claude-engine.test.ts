@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { claudeEngine } from '../src/engine/claude-engine.js'
+import { encodeCwd } from '../src/history.js'
 import { getEngine, hasEngine } from '../src/engine/index.js'
 
 describe('claudeEngine', () => {
@@ -38,5 +42,27 @@ describe('claudeEngine', () => {
 
   it('latestConversationId inexistente devolve null', () => {
     expect(claudeEngine.latestConversationId('/nao/existe/xyz')).toBeNull()
+  })
+
+  // A engine repassa o exclude: é o que impede um terminal de retomar a conversa
+  // do outro terminal da MESMA pasta.
+  it('latestConversationId descarta os ids excluídos', () => {
+    const cfg = mkdtempSync(join(tmpdir(), 'cfg-eng-'))
+    const proj = '/tmp/proj-claude-engine'
+    const dir = join(cfg, 'projects', encodeCwd(proj))
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'minha.jsonl'), '{}')
+    writeFileSync(join(dir, 'alheia.jsonl'), '{}')
+    utimesSync(join(dir, 'minha.jsonl'), new Date(1000000), new Date(1000000))
+    utimesSync(join(dir, 'alheia.jsonl'), new Date(2000000), new Date(2000000))
+    const antes = process.env.CLAUDE_CONFIG_DIR
+    process.env.CLAUDE_CONFIG_DIR = cfg
+    try {
+      expect(claudeEngine.latestConversationId(proj)).toBe('alheia')
+      expect(claudeEngine.latestConversationId(proj, new Set(['alheia']))).toBe('minha')
+    } finally {
+      if (antes === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = antes
+    }
   })
 })

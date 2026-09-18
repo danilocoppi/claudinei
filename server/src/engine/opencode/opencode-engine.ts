@@ -49,19 +49,35 @@ function opencodeDbPath(): string {
 }
 
 /** "Última conversa da pasta" no db do opencode, degradando graciosamente se o schema mudar. */
-function queryLatestConversation(db: Database.Database, projectPath: string): string | null {
+function queryLatestConversation(db: Database.Database, projectPath: string, exclude?: ReadonlySet<string>): string | null {
   // O schema do opencode evolui entre versões: só referencia a coluna quando ela
   // existe — um id aproximado ainda é melhor que preview nenhum.
   const cols = new Set((db.prepare('PRAGMA table_info(session)').all() as { name?: string }[]).map((c) => c?.name))
   // Subagentes criam sessões FILHAS (parent_id) no MESMO directory: sem filtrar,
   // a "última conversa" vira o transcript de um subagente em vez do que o
   // operador conversou no terminal — e o chat web mostrava a conversa errada.
-  const where = cols.has('parent_id') ? 'directory = ? AND parent_id IS NULL' : 'directory = ?'
+  const where = [cols.has('parent_id') ? 'directory = ? AND parent_id IS NULL' : 'directory = ?']
+  const params: unknown[] = [projectPath]
+  // As conversas do terminal vizinho saem no SQL, não em JS: o LIMIT 1 tem que
+  // valer para o que SOBROU, não para o que foi descartado depois.
+  if (exclude && exclude.size) {
+    where.push(`id NOT IN (${[...exclude].map(() => '?').join(', ')})`)
+    params.push(...exclude)
+  }
   // time_updated, não time_created: retomar uma sessão no TUI não muda a data de
   // criação dela, e é ela (a recém-usada) que o terminal/chat deve reencontrar.
   const order = cols.has('time_updated') ? 'COALESCE(time_updated, time_created)' : 'time_created'
-  const row = db.prepare(`SELECT id FROM session WHERE ${where} ORDER BY ${order} DESC LIMIT 1`).get(projectPath) as { id?: string } | undefined
+  const row = db.prepare(`SELECT id FROM session WHERE ${where.join(' AND ')} ORDER BY ${order} DESC LIMIT 1`).get(...params) as { id?: string } | undefined
   return row?.id ?? null
+}
+
+/**
+ * Chave do cache. O `exclude` entra nela porque "a última da pasta" e "a última
+ * da pasta que não seja a do vizinho" são perguntas DIFERENTES — com a mesma
+ * chave, a resposta de uma valeria pela outra por até 30 s.
+ */
+function cacheKey(projectPath: string, exclude?: ReadonlySet<string>): string {
+  return exclude && exclude.size ? `${projectPath}\u0000${[...exclude].sort().join(',')}` : projectPath
 }
 
 /** Normaliza um `opencode export <id>` ({info, messages}) para AgentEvent[]. */
@@ -100,24 +116,29 @@ export const openCodeEngine: Engine = {
       return parseExport(stdout)
     } catch { return [] }
   },
-  latestConversationId(projectPath: string): string | null {
+  latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {
     // Lê direto do SQLite do opencode (read-only, sem subprocesso). Antes rodava
     // `opencode session list` + até 12 `opencode export` SÍNCRONOS dentro do
     // handler HTTP de histórico — pior caso ~56s congelando o servidor INTEIRO
     // (todos os WS/PTYs, multi-usuário exposto). Cache por projectPath evita
     // reabrir o db a cada recarga de histórico.
-    const cached = latestConversationIdCache.get(projectPath)
+    const key = cacheKey(projectPath, exclude)
+    const cached = latestConversationIdCache.get(key)
     if (cached && Date.now() - cached.at < LATEST_CONVERSATION_CACHE_TTL) return cached.value
     let result: string | null = null
     try {
       const db = new Database(opencodeDbPath(), { readonly: true, fileMustExist: true })
-      try { result = queryLatestConversation(db, projectPath) } finally { db.close() }
+      try { result = queryLatestConversation(db, projectPath, exclude) } finally { db.close() }
     } catch { result = null } // db ausente/schema mudou/lock → sem preview (degradação graciosa)
-    if (result) latestConversationIdCache.set(projectPath, { at: Date.now(), value: result })
+    if (result) latestConversationIdCache.set(key, { at: Date.now(), value: result })
     return result
   },
   invalidateLatestConversation(projectPath: string): void {
-    latestConversationIdCache.delete(projectPath)
+    // Uma pasta tem várias entradas agora (uma por conjunto de exclusões): quem
+    // invalida quer dizer "esta pasta mudou", e todas elas ficaram velhas juntas.
+    for (const k of latestConversationIdCache.keys()) {
+      if (k === projectPath || k.startsWith(`${projectPath}\u0000`)) latestConversationIdCache.delete(k)
+    }
   },
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {
     const file = opts.bin ?? bin()

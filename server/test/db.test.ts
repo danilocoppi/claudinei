@@ -13,10 +13,12 @@ describe('openDb', () => {
     expect(names).toContain('tasks')
   })
 
-  it('path de projeto é único', () => {
+  // O UNIQUE saiu de propósito: dois terminais na mesma pasta são dois projetos.
+  // Quem impede duplicata acidental é o aviso do modal, não o banco.
+  it('aceita duas entradas com o mesmo path', () => {
     const db = openDb(':memory:')
     const ins = db.prepare(`INSERT INTO projects (name, path, color, icon) VALUES (?, ?, ?, ?)`)
     ins.run('A', '/tmp/a', '#fff', '📁')
-    expect(() => ins.run('B', '/tmp/a', '#fff', '📁')).toThrow()
+    expect(() => ins.run('B', '/tmp/a', '#fff', '📁')).not.toThrow()
   })
 })

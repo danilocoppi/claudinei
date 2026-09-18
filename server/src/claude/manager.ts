@@ -154,6 +154,24 @@ export function createSessionManager(deps: Deps) {
     return candidate
   }
 
+  /**
+   * A conversa PRÓPRIA deste terminal, para usar no lugar do `--continue` quando
+   * a pasta é compartilhada.
+   *
+   * Não passa por `resolveResume` porque aqui a sessão pode nem existir ainda no
+   * banco (é chamada de dentro do `start`, antes do INSERT) — e não haveria linha
+   * para o UPDATE de descarte. As duas defesas que importam continuam: formato,
+   * porque o id vai virar argv; e existência, porque um transcript que sumiu faz
+   * o `--resume` morrer com "No conversation found".
+   */
+  const ownResume = (projectId: number, engineId: EngineId, projectPath: string): string | undefined => {
+    const own = ownLatestThread(deps.db, projectId, engineId)
+    if (!own || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(own)) return undefined
+    const eng = getEngine(engineId)
+    if (eng.conversationExists && !eng.conversationExists(projectPath, own)) return undefined
+    return own
+  }
+
   const persist = (localId: string, status: SessionStatus, engineSessionId: string | null) => {
     deps.db.prepare(
       `UPDATE sessions SET status=?, claude_session_id=COALESCE(?, claude_session_id), updated_at=datetime('now') WHERE local_id=?`,
@@ -359,6 +377,16 @@ export function createSessionManager(deps: Deps) {
         `SELECT 1 FROM sessions WHERE project_id=? AND engine=? AND status='in_terminal' LIMIT 1`,
       ).get(project.id, engine)
       if (inTerm) throw new Error(`projeto ${project.name} tem uma sessão aberta no terminal`)
+      // Em pasta compartilhada não existe "--continue desta pasta": a conversa
+      // mais recente pode ser a do vizinho, e não há flag que saiba excluí-la. A
+      // regra é uniforme para todos os cards da pasta, sem card privilegiado —
+      // privilegiar o mais antigo não funcionaria, porque assim que o vizinho
+      // conversa é a conversa DELE que o --continue traria.
+      const shared = isSharedPath(deps.db, project.id)
+      const continueLatest = shared ? false : !!opts?.continueLatest
+      const sharedResume = shared && opts?.continueLatest
+        ? ownResume(project.id, engine, project.path)
+        : undefined
       const permissionMode = opts?.permissionMode ?? 'bypassPermissions'
       const model = opts?.model || undefined
       const localId = randomUUID()
@@ -367,15 +395,19 @@ export function createSessionManager(deps: Deps) {
       // órfã no banco. O construtor é inerte — nada spawna até wire()→start().
       const session = makeSession(engine, {
         projectPath: project.path,
-        continueLatest: opts?.continueLatest,
+        resumeSessionId: sharedResume,
+        continueLatest: shared ? false : opts?.continueLatest,
         permissionMode,
         model,
         effort: opts?.effort,
         hermes: deps.hermes ? { ...deps.hermes, projectId: project.id, engine } : undefined,
       })
+      // O id vai no INSERT (e não só quando a engine anunciar): é o que faz o
+      // effectiveEngineSessionId conhecê-lo de imediato, e com ele a prévia do
+      // chat mostra a conversa retomada antes da primeira mensagem.
       deps.db.prepare(
-        `INSERT INTO sessions (local_id, project_id, engine, status, permission_mode, model, continue_latest, effort) VALUES (?, ?, ?, 'starting', ?, ?, ?, ?)`,
-      ).run(localId, project.id, engine, permissionMode, model ?? null, opts?.continueLatest ? 1 : 0, opts?.effort ?? null)
+        `INSERT INTO sessions (local_id, project_id, engine, status, permission_mode, model, continue_latest, effort, claude_session_id) VALUES (?, ?, ?, 'starting', ?, ?, ?, ?, ?)`,
+      ).run(localId, project.id, engine, permissionMode, model ?? null, continueLatest ? 1 : 0, opts?.effort ?? null, sharedResume ?? null)
       wire(localId, project.id, engine, session)
       return infoOf(localId)!
     },
@@ -461,14 +493,21 @@ export function createSessionManager(deps: Deps) {
       if (!project) throw new Error(`projeto da sessão não existe mais`)
       // Fantasma (transcript sumiu) é descartado aqui também: sem isto, reviver o
       // chat caía no mesmo "No conversation found" do terminal.
-      const reviveResume = resolveResume(engine, project.path, localId, row.claude_session_id ?? null)
+      let reviveResume = resolveResume(engine, project.path, localId, row.claude_session_id ?? null)
+      // Sem conversa própria para retomar (--resume), preserva a intenção
+      // original: sessão nascida com --continue revive continuando a última
+      // conversa da pasta — não uma conversa nova em branco.
+      let reviveContinue: boolean | undefined = reviveResume ? undefined : row.continue_latest !== 0
+      if (!reviveResume && isSharedPath(deps.db, row.project_id)) {
+        // Em pasta compartilhada, "a última da pasta" é uma resposta errada:
+        // tenta o thread deste projeto e, sem ele, abre conversa nova.
+        reviveResume = ownResume(row.project_id, engine, project.path) ?? null
+        reviveContinue = false
+      }
       wire(localId, row.project_id, engine, makeSession(engine, {
         projectPath: project.path,
         resumeSessionId: reviveResume ?? undefined,
-        // Sem conversa própria para retomar (--resume), preserva a intenção
-        // original: sessão nascida com --continue revive continuando a última
-        // conversa da pasta — não uma conversa nova em branco.
-        continueLatest: reviveResume ? undefined : row.continue_latest !== 0,
+        continueLatest: reviveContinue,
         permissionMode: (row.permission_mode ?? 'bypassPermissions') as PermissionMode,
         model: row.model ?? undefined,
         effort: row.effort ?? undefined,

@@ -160,3 +160,73 @@ describe('regressão: pasta com um terminal só', () => {
     expect(idNoBanco(s.localId)).toBe('conv-do-tui')
   })
 })
+
+describe('continuar conversa em pasta compartilhada', () => {
+  it('nenhum dos dois cards recebe --continue', () => {
+    const mgr = makeManager()
+    mgr.start(a, { engine: 'fake', continueLatest: true })
+    mgr.start(b, { engine: 'fake', continueLatest: true })
+    expect(abertas.map((o) => o.continueLatest)).toEqual([false, false])
+  })
+
+  it('sem thread próprio, o card nasce em conversa nova', () => {
+    const mgr = makeManager()
+    // A conversa que existe na pasta é do vizinho.
+    storage.push('conv-do-b')
+    const s = mgr.start(a, { engine: 'fake', continueLatest: true })
+    expect(abertas[0].resumeSessionId).toBeUndefined()
+    expect(idNoBanco(s.localId)).toBeNull()
+  })
+
+  it('com thread próprio, retoma o SEU por id', async () => {
+    const mgr = makeManager()
+    const primeira = mgr.start(a, { engine: 'fake' })
+    db.prepare(`UPDATE sessions SET claude_session_id='conv-a' WHERE local_id=?`).run(primeira.localId)
+    await mgr.openInTerminal(primeira.localId) // passa por persist → registra a posse
+    storage.push('conv-a')
+    exits[0]() // fecha o terminal: a sessão volta a 'stopped'
+    // E o vizinho conversou DEPOIS: na pasta, a mais recente é a dele.
+    storage.push('conv-do-b')
+    db.prepare(`INSERT INTO project_threads (project_id, engine, thread_id, seq) VALUES (?, 'fake', 'conv-do-b', 99)`).run(b.id)
+
+    const s = mgr.start(a, { engine: 'fake', continueLatest: true })
+    expect(abertas.at(-1)!.resumeSessionId).toBe('conv-a')
+    // Gravado já no INSERT: sem isso o chat ficaria vazio até a 1ª mensagem.
+    expect(idNoBanco(s.localId)).toBe('conv-a')
+  })
+
+  it('revive sem id próprio retoma o thread do projeto, nunca a última da pasta', async () => {
+    const mgr = makeManager()
+    const s = mgr.start(a, { engine: 'fake' })
+    db.prepare(`UPDATE sessions SET claude_session_id='conv-a' WHERE local_id=?`).run(s.localId)
+    await mgr.openInTerminal(s.localId)
+    storage.push('conv-a')
+    storage.push('conv-do-b')
+    // A linha perdeu o id (servidor antigo, turno que não gravou), mas a POSSE
+    // ficou registrada: é para isso que project_threads existe.
+    db.prepare(`UPDATE sessions SET claude_session_id=NULL, status='stopped', continue_latest=1 WHERE local_id=?`).run(s.localId)
+
+    abertas = []
+    mgr.revive(s.localId)
+    expect(abertas[0].resumeSessionId).toBe('conv-a')
+    expect(abertas[0].continueLatest).toBe(false)
+  })
+})
+
+describe('regressão: continuar conversa em pasta com um terminal só', () => {
+  it('start ainda pede --continue à engine', () => {
+    const mgr = makeManager()
+    mgr.start(sozinho, { engine: 'fake', continueLatest: true })
+    expect(abertas[0].continueLatest).toBe(true)
+    expect(abertas[0].resumeSessionId).toBeUndefined()
+  })
+
+  it('revive sem id próprio ainda preserva a intenção de continuar', async () => {
+    const mgr = makeManager()
+    const s = mgr.start(sozinho, { engine: 'fake', continueLatest: true })
+    await mgr.stop(s.localId)
+    abertas = []
+    mgr.revive(s.localId)
+    expect(abertas[0].continueLatest).toBe(true)
+  })
+})

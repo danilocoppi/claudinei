@@ -47,6 +47,21 @@ describe('latestTranscriptId', () => {
     expect(latestTranscriptId(cfgDir, projPath)).toBe('recente')
   })
 
+  it('pula os ids excluídos: a conversa do terminal vizinho não conta', () => {
+    const cfgDir = mkdtempSync(join(tmpdir(), 'cfg-'))
+    const projPath = '/tmp/pasta-compartilhada'
+    const dir = join(cfgDir, 'projects', encodeCwd(projPath))
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'minha.jsonl'), '{}')
+    writeFileSync(join(dir, 'do-vizinho.jsonl'), '{}')
+    utimesSync(join(dir, 'minha.jsonl'), new Date(1000000), new Date(1000000))
+    utimesSync(join(dir, 'do-vizinho.jsonl'), new Date(2000000), new Date(2000000))
+    expect(latestTranscriptId(cfgDir, projPath)).toBe('do-vizinho')
+    expect(latestTranscriptId(cfgDir, projPath, new Set(['do-vizinho']))).toBe('minha')
+    // Excluir tudo é "abra conversa nova", não "devolva a do vizinho".
+    expect(latestTranscriptId(cfgDir, projPath, new Set(['do-vizinho', 'minha']))).toBeNull()
+  })
+
   it('pasta sem transcripts (ou inexistente) retorna null', () => {
     const cfgDir = mkdtempSync(join(tmpdir(), 'cfg-'))
     expect(latestTranscriptId(cfgDir, '/tmp/sem-nada')).toBeNull()

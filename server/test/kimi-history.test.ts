@@ -41,6 +41,14 @@ describe('índice de sessões', () => {
     expect(latestSessionId(PROJ)).toBe('session_3')
   })
 
+  it('latestSessionId pula as sessões excluídas', () => {
+    seed('session_1', PROJ, [])
+    seed('session_2', PROJ, [])
+    expect(latestSessionId(PROJ)).toBe('session_2')
+    expect(latestSessionId(PROJ, new Set(['session_2']))).toBe('session_1')
+    expect(latestSessionId(PROJ, new Set(['session_1', 'session_2']))).toBeNull()
+  })
+
   it('sem índice (ou sem sessão da pasta) → null', () => {
     expect(latestSessionId(PROJ)).toBeNull()
     seed('session_x', OTHER, [])

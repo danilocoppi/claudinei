@@ -48,8 +48,8 @@ export const claudeEngine: Engine = {
     return readTranscript(claudeConfigDir(), projectPath, engineSessionId)
   },
 
-  latestConversationId(projectPath: string): string | null {
-    return latestTranscriptId(claudeConfigDir(), projectPath)
+  latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {
+    return latestTranscriptId(claudeConfigDir(), projectPath, exclude)
   },
 
   conversationExists(projectPath: string, id: string): boolean {

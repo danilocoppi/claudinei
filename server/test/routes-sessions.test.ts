@@ -357,6 +357,54 @@ describe('preview de conversa anterior (sessão nova com --continue, antes do in
   })
 })
 
+describe('preview em pasta compartilhada (dois terminais, uma pasta)', () => {
+  it('mostra o thread PRÓPRIO, e vazio para quem ainda não tem', async () => {
+    const { mkdirSync, writeFileSync, utimesSync } = await import('node:fs')
+    const cfgDir = mkdtempSync(join(tmpdir(), 'cfg-'))
+    const projPath = mkdtempSync(join(tmpdir(), 'tm-juntos-'))
+    const dir = join(cfgDir, 'projects', projPath.replace(/[^a-zA-Z0-9]/g, '-'))
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'sid-minha.jsonl'),
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"a minha conversa"}]}}\n')
+    writeFileSync(join(dir, 'sid-alheia.jsonl'),
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"a conversa do vizinho"}]}}\n')
+    // A do vizinho é a MAIS RECENTE da pasta — exatamente o que o --continue
+    // traria, e o que esta rota não pode mais mostrar.
+    utimesSync(join(dir, 'sid-minha.jsonl'), new Date(1000000), new Date(1000000))
+    utimesSync(join(dir, 'sid-alheia.jsonl'), new Date(2000000), new Date(2000000))
+
+    process.env.CLAUDE_CONFIG_DIR = cfgDir
+    const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: () => {} })
+    const app2 = await buildApp({ config: loadConfig({ CLAUDE_CONFIG_DIR: cfgDir }), db, manager: mgr })
+    const criar = async (name: string) =>
+      (await app2.inject({ method: 'POST', url: '/api/projects', payload: { name, path: projPath } })).json().id
+    const meu = await criar('Meu')
+    const vizinho = await criar('Vizinho')
+
+    const posse = db.prepare(`INSERT INTO project_threads (project_id, engine, thread_id, seq) VALUES (?, 'claude', ?, ?)`)
+    posse.run(meu, 'sid-minha', 1)
+    posse.run(vizinho, 'sid-alheia', 2)
+
+    db.prepare(
+      `INSERT INTO sessions (local_id, project_id, engine, status, continue_latest) VALUES ('compart-1', ?, 'claude', 'starting', 1)`,
+    ).run(meu)
+    const h = await app2.inject({ method: 'GET', url: '/api/sessions/compart-1/history' })
+    expect(h.statusCode).toBe(200)
+    expect(JSON.stringify(h.json())).toContain('a minha conversa')
+    expect(JSON.stringify(h.json())).not.toContain('do vizinho')
+
+    // Card sem thread próprio não herda a conversa alheia: vazio é a resposta honesta.
+    const terceiro = await criar('Terceiro')
+    db.prepare(
+      `INSERT INTO sessions (local_id, project_id, engine, status, continue_latest) VALUES ('compart-2', ?, 'claude', 'starting', 1)`,
+    ).run(terceiro)
+    const h2 = await app2.inject({ method: 'GET', url: '/api/sessions/compart-2/history' })
+    expect(h2.json()).toEqual([])
+
+    await app2.close()
+  })
+})
+
 describe('limite de eventos do histórico (transcripts gigantes não travam o navegador)', () => {
   it('preview devolve no máximo HISTORY_EVENT_LIMIT eventos, os mais recentes', async () => {
     const { mkdirSync, writeFileSync } = await import('node:fs')

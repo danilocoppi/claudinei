@@ -36,8 +36,8 @@ export const kimiEngine: Engine = {
     return readHistory(projectPath, sessionId)
   },
 
-  latestConversationId(projectPath: string): string | null {
-    return latestSessionId(projectPath)
+  latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {
+    return latestSessionId(projectPath, exclude)
   },
 
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {

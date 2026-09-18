@@ -87,7 +87,16 @@ export interface Engine {
   createSession(opts: EngineSessionOptions): EngineSession
   /** Pode ser assíncrono: históricos grandes (transcript de 30 MB, `opencode export`) não podem bloquear o event loop. */
   readHistory(projectPath: string, engineSessionId: string): AgentEvent[] | Promise<AgentEvent[]>
-  latestConversationId(projectPath: string): string | null
+  /**
+   * O id da conversa mais recente desta pasta, no storage da engine.
+   *
+   * `exclude` são conversas que pertencem a OUTRO terminal da mesma pasta. Duas
+   * entradas da sidebar podem apontar para o mesmo diretório, e o storage da
+   * engine é indexado por diretório: sem descartar os ids alheios, cada terminal
+   * retomaria a conversa do vizinho. Quem chama sem o parâmetro — e toda pasta
+   * com um único terminal — vê o comportamento de sempre.
+   */
+  latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null
   /**
    * Descarta o cache interno de `latestConversationId` desta pasta (opcional).
    * O manager chama antes de resolver o thread na ABERTURA e na SAÍDA do

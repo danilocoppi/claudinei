@@ -152,6 +152,7 @@ export const en = {
   modal: {
     newProject: 'New project', editTerminal: 'Edit terminal',
     namePlaceholder: 'Project name', choosePath: 'Choose folder…', previewTag: 'preview',
+    sharedPathWarning: 'This folder already has a terminal. The new one starts a fresh conversation, with separate context.',
   },
   folder: { title: 'Choose folder', empty: 'No subfolders.', select: 'Select this folder', up: 'Up' },
   session: {
@@ -167,6 +168,8 @@ export const en = {
   },
   chat: {
     select: 'Select a session.', openInTerminal: 'Open in terminal', backToTerminal: 'Back to the terminal',
+    sharedPath: 'shared folder',
+    sharedPathTitle: 'Another terminal points at this same folder. The conversations are separate; the files are not.',
     ctxTip: 'Conversation context: ~{{used}} of {{window}} tokens. Compact (⚙ → Compact now or /compact) to free space.',
     ctxTipCodex: 'Active context: ~{{used}} of {{window}} tokens. Session window reported by Codex; it may be smaller than the model’s maximum capacity. Compact (⚙ → Compact now or /compact) to free space.',
     handoffTitle: 'Open in terminal?', handoffWorking: 'The turn in progress will be stopped to open this conversation in the terminal.', handoffUnavailable: 'Available when the session is active.', terminalNoConversation: 'Open in terminal is available after the first message — no conversation to open yet.',

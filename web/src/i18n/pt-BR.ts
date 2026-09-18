@@ -154,6 +154,7 @@ export const ptBR: typeof en = {
   modal: {
     newProject: 'Novo projeto', editTerminal: 'Editar terminal',
     namePlaceholder: 'Nome do projeto', choosePath: 'Escolher pasta…', previewTag: 'pré-visualização',
+    sharedPathWarning: 'Esta pasta já tem um terminal. O novo começa em uma conversa nova, com contexto separado.',
   },
   folder: { title: 'Escolher pasta', empty: 'Nenhuma subpasta.', select: 'Selecionar esta pasta', up: 'Subir' },
   session: {
@@ -169,6 +170,8 @@ export const ptBR: typeof en = {
   },
   chat: {
     select: 'Selecione uma sessão.', openInTerminal: 'Abrir no terminal', backToTerminal: 'Voltar ao terminal',
+    sharedPath: 'pasta compartilhada',
+    sharedPathTitle: 'Outro terminal aponta para esta mesma pasta. As conversas são separadas; os arquivos, não.',
     ctxTip: 'Contexto da conversa: ~{{used}} de {{window}} tokens. Compacte (⚙ → Compactar agora ou /compact) para liberar espaço.',
     ctxTipCodex: 'Contexto ativo: ~{{used}} de {{window}} tokens. Janela desta sessão informada pelo Codex; pode ser menor que a capacidade máxima do modelo. Compacte (⚙ → Compactar agora ou /compact) para liberar espaço.',
     handoffTitle: 'Abrir no terminal?', handoffWorking: 'O turno em andamento será interrompido para abrir esta conversa no terminal.', handoffUnavailable: 'Disponível quando a sessão estiver ativa.', terminalNoConversation: 'Abrir no terminal fica disponível após a primeira mensagem — ainda não há conversa para abrir.',

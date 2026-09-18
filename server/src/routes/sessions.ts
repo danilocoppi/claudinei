@@ -7,6 +7,7 @@ import { createProjectsService } from '../projects.js'
 import { createSettingsService } from '../settings.js'
 import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/guards.js'
 import { hasEngine, DEFAULT_ENGINE_ID, getEngine } from '../engine/index.js'
+import { ownLatestThread, isSharedPath } from '../project-threads.js'
 
 const PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'plan', 'bypassPermissions'])
 // Níveis persistíveis do effort ('auto' limpa; 'ultracode' é por sessão — o front não persiste).
@@ -195,10 +196,15 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     if (!info.engineSessionId) {
       // Preview: sessão iniciada com --continue ainda não emitiu o init (só vem
       // com a 1ª mensagem), mas o operador precisa se contextualizar. Mostra a
-      // conversa que o --continue vai retomar (conversa mais recente da pasta).
+      // conversa que a sessão vai DE FATO retomar.
       const row = deps.db.prepare('SELECT continue_latest FROM sessions WHERE local_id=?').get(localId) as any
       if (!row?.continue_latest) return []
-      const prev = engine.latestConversationId(project.path)
+      // Em pasta compartilhada, "a mais recente da pasta" pode ser a do terminal
+      // vizinho — e a sessão não vai retomá-la. Sem conversa própria, vazio é a
+      // resposta honesta.
+      const prev = isSharedPath(deps.db, info.projectId)
+        ? ownLatestThread(deps.db, info.projectId, info.engine)
+        : engine.latestConversationId(project.path)
       return prev ? (await engine.readHistory(project.path, prev)).slice(-HISTORY_EVENT_LIMIT) : []
     }
     return (await engine.readHistory(project.path, info.engineSessionId)).slice(-HISTORY_EVENT_LIMIT)

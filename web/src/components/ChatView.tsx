@@ -48,6 +48,9 @@ export function ChatView() {
   const activeLocalId = useStore((s) => s.activeLocalId)
   const session = useStore((s) => activeLocalId ? s.sessions[activeLocalId] : undefined)
   const project = useStore((s) => s.projects.find((p) => p.id === session?.projectId))
+  // Contagem, não `filter`: um selector que devolve array novo re-renderiza o
+  // chat a cada atualização do store.
+  const pastaCompartilhada = useStore((s) => s.projects.filter((p) => p.path === project?.path).length > 1)
   const items = useStore((s) => (activeLocalId ? s.chat[activeLocalId] : undefined) ?? EMPTY_ITEMS)
   const hasStreaming = useStore((s) => !!(activeLocalId && s.streaming[activeLocalId]))
   const loadedEngineSessionId = useStore((s) => activeLocalId ? s.historyLoadedFor[activeLocalId] : undefined)
@@ -221,6 +224,11 @@ export function ChatView() {
         <span className="chat-header__project">
           <Icon value={project.icon} size={20} />
           <strong>{project.name}</strong>
+          {pastaCompartilhada && (
+            <span className="chat-header__shared" data-testid="shared-path" title={t('chat.sharedPathTitle')}>
+              ⫽ {t('chat.sharedPath')}
+            </span>
+          )}
         </span>
         <EngineTabs projectId={session.projectId} activeLocalId={session.localId} />
         {session.status === 'dead' && session.detail && (

@@ -1011,6 +1011,9 @@ button.term-card__action--play:hover { color: var(--ok); }
    enchia. Quem cede espaço é a barra, que já rola (ver .engine-tabs). */
 .chat-header > .ghost { flex: none; }
 .chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Discreto de propósito: é orientação, não alerta — a pasta compartilhada foi
+   pedida pelo operador. */
+.chat-header__shared { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
 .chat-header__more { padding:5px; line-height:0; color:var(--text-dim); }
 .chat-header__more:hover { color:var(--text); }
 /* Fronteira entre o que é preferência de quem entrou e o que é da máquina. */

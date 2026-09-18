@@ -28,10 +28,13 @@ function readIndex(home: string): IndexEntry[] {
 }
 
 /** Última conversa desta pasta (a que o "abrir no terminal" retoma). */
-export function latestSessionId(projectPath: string): string | null {
+export function latestSessionId(projectPath: string, exclude?: ReadonlySet<string>): string | null {
   const entries = readIndex(kimiHomeFor(projectPath))
   for (let i = entries.length - 1; i >= 0; i--) {
-    if (entries[i].workDir === projectPath) return entries[i].sessionId
+    if (entries[i].workDir !== projectPath) continue
+    // Conversa de outro terminal da mesma pasta: continua andando para trás.
+    if (exclude?.has(entries[i].sessionId)) continue
+    return entries[i].sessionId
   }
   return null
 }

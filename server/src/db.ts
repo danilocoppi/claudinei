@@ -8,7 +8,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
-  path TEXT NOT NULL UNIQUE,
+  path TEXT NOT NULL,
   color TEXT NOT NULL DEFAULT '#7c5cff',
   icon TEXT NOT NULL DEFAULT '📁',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -60,6 +60,92 @@ CREATE TABLE IF NOT EXISTS user_projects (
   PRIMARY KEY (user_id, project_id)
 );
 `
+
+/**
+ * Índices ÚNICOS sobre `projects.path` que vieram de restrição de coluna
+ * (`origin = 'u'`).
+ *
+ * A detecção é pelo estado real do schema porque os bancos existentes não
+ * registram quais migrações já rodaram: um contador introduzido agora teria que
+ * adivinhar o passado. Perguntar ao SQLite acerta nos três estados do parque —
+ * banco antigo, banco já migrado e instalação nova.
+ */
+function indicesUnicosDePath(db: Db): string[] {
+  const list = db.prepare(`PRAGMA index_list(projects)`).all() as { name: string; origin: string }[]
+  const achados: string[] = []
+  for (const idx of list) {
+    // Só 'u' (restrição de coluna): um CREATE UNIQUE INDEX avulso apareceria como
+    // 'c' e não existe neste projeto — se um dia existir, um DROP INDEX resolve,
+    // sem recriar tabela.
+    if (idx.origin !== 'u') continue
+    const cols = (db.prepare(`PRAGMA index_info('${idx.name.replace(/'/g, "''")}')`).all() as { name: string | null }[]).map((c) => c.name)
+    if (cols.length === 1 && cols[0] === 'path') achados.push(idx.name)
+  }
+  return achados
+}
+
+/**
+ * Remove o `UNIQUE` de `projects.path` — é o que libera dois terminais na mesma
+ * pasta.
+ *
+ * Diferente das outras migrações do arquivo, esta não cabe num
+ * `try { ALTER TABLE } catch {}`: no SQLite, tirar uma restrição exige recriar a
+ * tabela, e uma queda no meio das cinco instruções deixaria a instalação SEM a
+ * tabela `projects`. Daí a transação, a conferência e a cópia de segurança.
+ */
+function migrarPathNaoUnico(db: Db, dbPath: string): void {
+  if (indicesUnicosDePath(db).length === 0) return // já migrado, ou instalação nova
+
+  // Primeira migração destrutiva do projeto, rodando em máquinas que não podemos
+  // inspecionar. VACUUM INTO dá uma cópia consistente sem parar nada e sem
+  // depender do estado do WAL; custa o tamanho do banco em disco, uma vez na vida
+  // da instalação, e é o único caminho de volta que existe remotamente.
+  if (dbPath !== ':memory:') {
+    const bak = `${dbPath}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    db.exec(`VACUUM INTO '${bak.replace(/'/g, "''")}'`)
+  }
+
+  const ddl = (db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'`).get() as { sql?: string } | undefined)?.sql
+  if (!ddl) throw new Error('projects sem DDL em sqlite_master')
+  // O DDL e as colunas VÊM DO BANCO: as adicionadas por ALTER TABLE (sort_order,
+  // group_id, sector_id e as que vierem depois) já estão lá. Uma lista fixa aqui
+  // apagaria calada a próxima coluna que alguém escrever, e `SELECT *` quebraria
+  // se a ordem das colunas divergisse entre máquinas.
+  const novoDdl = ddl
+    // `"projects"` entre as alternativas não é paranoia: o próprio
+    // ALTER TABLE ... RENAME reescreve o DDL com o nome citado, e um banco que já
+    // passou por uma recriação guarda `CREATE TABLE "projects"` (medido).
+    .replace(/CREATE\s+TABLE\s+(?:"projects"|'projects'|\[projects\]|projects)/i, 'CREATE TABLE projects_new')
+    .replace(/(\bpath\b[^,)]*?)\s+UNIQUE\b/i, '$1')
+  const cols = (db.prepare(`PRAGMA table_info(projects)`).all() as { name: string }[]).map((c) => `"${c.name}"`).join(', ')
+
+  // FORA da transação: dentro, este PRAGMA é no-op silencioso — e sem ele o DROP
+  // abaixo dispararia o ON DELETE CASCADE das sete tabelas que apontam para
+  // projects, levando embora sessões, mural, tarefas, agendamentos e ações.
+  db.pragma('foreign_keys = OFF')
+  try {
+    db.exec('BEGIN')
+    try {
+      db.exec(novoDdl)
+      db.exec(`INSERT INTO projects_new (${cols}) SELECT ${cols} FROM projects`)
+      db.exec('DROP TABLE projects')
+      db.exec('ALTER TABLE projects_new RENAME TO projects')
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path)`)
+      // Confere o que a substituição no DDL de fato produziu. Se o UNIQUE
+      // sobreviveu (DDL escrito de outra forma numa instalação que não conhecemos),
+      // aborta com o banco intacto em vez de deixar um meio-caminho.
+      if (indicesUnicosDePath(db).length > 0) throw new Error('o UNIQUE de projects.path sobreviveu à recriação')
+      const violacoes = db.prepare('PRAGMA foreign_key_check').all()
+      if (violacoes.length > 0) throw new Error(`foreign_key_check acusou ${violacoes.length} violação(ões)`)
+      db.exec('COMMIT')
+    } catch (err) {
+      db.exec('ROLLBACK')
+      throw err
+    }
+  } finally {
+    db.pragma('foreign_keys = ON')
+  }
+}
 
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -184,6 +270,44 @@ export function openDb(path: string): Db {
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
 
+  // De quem é cada conversa. Existe porque as SESSÕES não servem de memória de
+  // posse: a limpeza automática guarda só as 5 últimas finalizadas por projeto
+  // (manager.ts), então o id de uma conversa antiga desaparece do banco enquanto
+  // a conversa segue no disco da engine — pronta para ser confundida com a do
+  // terminal vizinho da mesma pasta.
+  //
+  // `seq` ordena, não `seen_at`: `datetime('now')` tem resolução de um segundo e
+  // dois registros no mesmo segundo empatariam, deixando "meu último thread"
+  // indefinido (e o teste disso intermitente). `seen_at` fica para leitura humana.
+  db.exec(`CREATE TABLE IF NOT EXISTS project_threads (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    engine     TEXT NOT NULL,
+    thread_id  TEXT NOT NULL,
+    seq        INTEGER NOT NULL,
+    seen_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (project_id, engine, thread_id)
+  )`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_threads_own ON project_threads(project_id, engine, seq DESC)`)
+
+  // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
+  // caminho continua existindo (é como se sabe que a pasta é compartilhada).
+  // Recriado aqui a cada boot porque o DROP TABLE da migração leva os índices
+  // de projects embora.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path)`)
+
   db.exec(`UPDATE tasks SET status = CASE status WHEN 'em_andamento' THEN 'in_progress' WHEN 'concluida' THEN 'completed' WHEN 'falhou' THEN 'failed' ELSE status END`)
+
+  // Depois de TODAS as alterações de coluna de projects — antes delas, a cópia
+  // levaria os dados sem sort_order/group_id/sector_id.
+  //
+  // Falhar aqui NÃO derruba o boot: o rollback já devolveu o banco íntegro, e
+  // tirar o Claudinei do ar de um usuário remoto por causa de uma funcionalidade
+  // opcional seria pior que não tê-la. O sintoma visível é a pasta repetida
+  // continuar recusada.
+  try {
+    migrarPathNaoUnico(db, path)
+  } catch (err) {
+    console.error('[claudinei] MIGRAÇÃO projects.path FALHOU — dois terminais na mesma pasta seguem indisponíveis:', err)
+  }
   return db
 }

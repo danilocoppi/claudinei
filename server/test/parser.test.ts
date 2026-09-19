@@ -104,20 +104,37 @@ describe('createLineParser', () => {
   })
 })
 
-describe('contextTokens do result (medidor de contexto)', () => {
-  it('soma input + cache lido + cache criado do usage', () => {
+describe('contextTokens (medidor de contexto)', () => {
+  // MEDIDO na CLI 2.1.274 (turno com 5 chamadas Bash): o usage do result soma
+  // TODAS as requisições do turno — 182.557 tokens — enquanto a conversa tinha
+  // 34.449. Quem sabe o tamanho do contexto é cada mensagem `assistant`: o
+  // usage dela é o que entrou NAQUELA requisição, ou seja, a conversa inteira.
+  it('a mensagem assistant carrega o contexto: input + cache lido + cache criado do usage dela', () => {
     const e = classifyLine(JSON.stringify({
-      type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0,
-      usage: { input_tokens: 18, cache_read_input_tokens: 43776, cache_creation_input_tokens: 9022, output_tokens: 177 },
+      type: 'assistant',
+      message: {
+        role: 'assistant', content: [{ type: 'text', text: 'oi' }],
+        usage: { input_tokens: 2, cache_read_input_tokens: 24318, cache_creation_input_tokens: 4730, output_tokens: 8 },
+      },
     })) as any
-    expect(e.kind).toBe('result')
-    expect(e.contextTokens).toBe(18 + 43776 + 9022)
+    expect(e.kind).toBe('assistant')
+    expect(e.contextTokens).toBe(2 + 24318 + 4730)
   })
 
-  it('sem usage (ou usage vazio) → undefined, não zero', () => {
-    const sem = classifyLine(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok' })) as any
-    expect(sem.contextTokens).toBeUndefined()
-    const vazio = classifyLine(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', usage: {} })) as any
-    expect(vazio.contextTokens).toBeUndefined()
+  it('assistant sem usage → undefined, não zero', () => {
+    const e = classifyLine(JSON.stringify({
+      type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'oi' }] },
+    })) as any
+    expect(e.kind).toBe('assistant')
+    expect(e.contextTokens).toBeUndefined()
+  })
+
+  it('o result NÃO dita o contexto: a soma do turno inteiro não pode virar medição', () => {
+    const e = classifyLine(JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0,
+      usage: { input_tokens: 4, cache_read_input_tokens: 37225, cache_creation_input_tokens: 16141, output_tokens: 349 },
+    })) as any
+    expect(e.kind).toBe('result')
+    expect(e.contextTokens).toBeUndefined()
   })
 })

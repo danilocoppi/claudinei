@@ -35,7 +35,7 @@ beforeEach(() => {
   project = createProjectsService(db).create({ name: 'P1', path: mkdtempSync(join(tmpdir(), 'tm-')) })
   broadcasts = []
 })
-afterEach(() => { delete process.env.CLAUDE_FAKE_CTX })
+afterEach(() => { delete process.env.CLAUDE_FAKE_CTX; delete process.env.CLAUDE_FAKE_WINDOW })
 
 const ecos = () => broadcasts.filter((b) =>
   b.type === 'session_event' && b.event?.kind === 'result' && /^eco: /.test(b.event.resultText ?? ''))
@@ -157,6 +157,66 @@ describe('janela de contexto por modelo (existem modelos de 1M)', () => {
     await waitUntil(() => ecos().length >= 1)
     await new Promise((r) => setTimeout(r, 300))
     expect(ecos().some((b) => b.event.resultText === 'eco: /compact')).toBe(false)
+    await mgr.stopAll()
+  })
+})
+
+describe('a soma do turno não é o contexto (o usage do result engana)', () => {
+  // MEDIDO na CLI 2.1.274: num turno com 5 chamadas Bash, o usage do result
+  // soma 182.557 tokens enquanto a conversa tem 34.449. Confiar nele fazia o
+  // medidor inflar e o auto-compact disparar com a janela quase vazia — de onde
+  // vinha o "compactou e parou no meio da tarefa".
+  it('o medidor mostra o contexto da última assistant, não a soma do result', async () => {
+    process.env.CLAUDE_FAKE_CTX = '100000' // assistant: 100.010 | result: 300.030
+    const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    mgr.send(localId, 'oi')
+    await waitUntil(() => ecos().length >= 1)
+    expect(mgr.get(localId)?.contextTokens).toBe(100_010)
+    await mgr.stopAll()
+  })
+
+  it('a soma do result não dispara o auto-compact', async () => {
+    // Janela 200k, limiar 60% = 120k. Contexto real 100.010 (não compacta);
+    // a soma do turno, 300.030, compactaria — e é exatamente o que acontecia.
+    process.env.CLAUDE_FAKE_CTX = '100000'
+    const mgr = createSessionManager({
+      db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m),
+      autoCompactPct: () => 60,
+    })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    mgr.send(localId, 'oi')
+    await waitUntil(() => ecos().length >= 1)
+    await new Promise((r) => setTimeout(r, 300))
+    expect(ecos().some((b) => b.event.resultText === 'eco: /compact')).toBe(false)
+    await mgr.stopAll()
+  })
+})
+
+describe('subagente não conta no medidor', () => {
+  it('a conversa do subagente (menor) não derruba a medição do turno principal', async () => {
+    process.env.CLAUDE_FAKE_CTX = '100000'
+    const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    mgr.send(localId, 'com-subagente')
+    await waitUntil(() => ecos().length >= 1)
+    expect(mgr.get(localId)?.contextTokens).toBe(100_010)
+    await mgr.stopAll()
+  })
+})
+
+describe('a janela vem da CLI quando ela a informa', () => {
+  it('modelo que o Claudinei não reconhece: a janela do modelUsage vale mais que o conservador de 200k', async () => {
+    process.env.CLAUDE_FAKE_WINDOW = '1000000'
+    const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })
+    const { localId } = mgr.start(project, { model: 'mimir-9' })
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    expect(mgr.get(localId)?.contextWindow).toBe(200_000) // antes do 1º turno, só o nome
+    mgr.send(localId, 'oi')
+    await waitUntil(() => mgr.get(localId)?.contextWindow === 1_000_000)
     await mgr.stopAll()
   })
 })

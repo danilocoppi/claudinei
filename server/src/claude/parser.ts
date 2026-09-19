@@ -1,10 +1,16 @@
 import type { ClaudeEvent } from './events.js'
 
 /**
- * Tamanho do CONTEXTO da conversa (tokens) a partir do `usage` do result: a soma
- * de tudo que entrou na última requisição do turno — novo + cache lido + cache
- * criado. É o número que o medidor da UI mostra e que o auto-compact compara com
- * a janela. Ausente/malformado → undefined (o medidor simplesmente não aparece).
+ * Tamanho do CONTEXTO da conversa (tokens) a partir do `usage` de UMA mensagem
+ * `assistant`: novo + cache lido + cache criado é exatamente o que entrou
+ * naquela requisição, isto é, a conversa inteira até ali. É o número que o
+ * medidor da UI mostra e que o auto-compact compara com a janela.
+ * Ausente/malformado → undefined (o medidor simplesmente não aparece).
+ *
+ * NÃO use o usage do `result`: ele SOMA todas as requisições do turno. Medido na
+ * CLI 2.1.274, um turno com 5 chamadas Bash fecha com 182.557 ali, contra 34.449
+ * de conversa real — 5,3x. Quanto mais ferramentas o turno usa, mais inflado; o
+ * auto-compact que confiasse nisso dispararia com a janela quase vazia.
  */
 function contextTokensOf(usage: unknown): number | undefined {
   if (!usage || typeof usage !== 'object') return undefined
@@ -31,7 +37,7 @@ export function classifyLine(line: string): ClaudeEvent | null {
       }
       return { kind: 'system', subtype: obj.subtype ?? 'unknown', raw: obj }
     case 'assistant':
-      return { kind: 'assistant', message: obj.message, raw: obj }
+      return { kind: 'assistant', message: obj.message, raw: obj, contextTokens: contextTokensOf(obj.message?.usage) }
     case 'user':
       return { kind: 'user', message: obj.message, raw: obj }
     case 'result':
@@ -42,7 +48,6 @@ export function classifyLine(line: string): ClaudeEvent | null {
         resultText: typeof obj.result === 'string' ? obj.result : '',
         costUsd: typeof obj.total_cost_usd === 'number' ? obj.total_cost_usd : 0,
         raw: obj,
-        contextTokens: contextTokensOf(obj.usage),
       }
     case 'stream_event':
       if (obj.event?.type === 'content_block_delta' && obj.event.delta?.type === 'text_delta') {

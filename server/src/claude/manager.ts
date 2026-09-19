@@ -6,7 +6,7 @@ import type { SessionStatus, PermissionMode, PendingQuestion } from './session.j
 import type { ClaudeEvent } from './events.js'
 import { getEngine, DEFAULT_ENGINE_ID, type EngineId, type EngineSession, type EngineSessionOptions } from '../engine/index.js'
 import { userEchoEvent } from '../engine/echo.js'
-import { contextWindowFor, DEFAULT_CONTEXT_WINDOW } from './context-window.js'
+import { contextWindowFor, windowFromModelUsage, DEFAULT_CONTEXT_WINDOW } from './context-window.js'
 import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '../project-threads.js'
 
 export interface SessionInfo {
@@ -126,7 +126,7 @@ function waitForResult(session: EngineSession, timeoutMs: number): Promise<strin
 }
 
 export function createSessionManager(deps: Deps) {
-  const live = new Map<string, { session: EngineSession; projectId: number; engine: EngineId; contextTokens?: number; contextWindow?: number; autoCompacting?: boolean }>()
+  const live = new Map<string, { session: EngineSession; projectId: number; engine: EngineId; contextTokens?: number; contextWindow?: number; autoCompacting?: boolean; initModel?: string }>()
   // Resolve a sessão pela engine (registry) — ou, em teste, pelo override sessionFactory.
   const makeSession = (engineId: EngineId, opts: EngineSessionOptions): EngineSession =>
     deps.sessionFactory ? deps.sessionFactory(opts) : getEngine(engineId).createSession(opts)
@@ -233,7 +233,10 @@ export function createSessionManager(deps: Deps) {
         // tamanho). Vale para o modelo EM USO: trocar de modelo emite novo init,
         // então a janela acompanha — inclusive os 1M do Opus/Sonnet/Fable atuais.
         const entryI = live.get(localId)
-        if (entryI && engine === 'claude') entryI.contextWindow = contextWindowFor(event.model)
+        if (entryI && engine === 'claude') {
+          entryI.initModel = event.model
+          entryI.contextWindow = contextWindowFor(event.model)
+        }
         // O init carrega a lista de slash commands instalados: persiste para o
         // autocomplete do chat ficar disponível já no load (sem esperar a 1ª msg).
         if (Array.isArray(event.slashCommands) && event.slashCommands.length) {
@@ -269,6 +272,19 @@ export function createSessionManager(deps: Deps) {
         const entry = live.get(localId)
         if (entry) entry.contextTokens = undefined
       }
+      // Quem sabe o tamanho do contexto é a mensagem `assistant`: o usage dela é o
+      // que entrou naquela requisição — a conversa inteira até ali. O usage do
+      // `result` NÃO serve: ele soma as requisições do turno (medido: 182.557
+      // contra 34.449 reais num turno de 5 ferramentas), e era o que fazia o
+      // auto-compact disparar com a janela quase vazia.
+      //
+      // Subagente não conta: a conversa dele é outra, e menor — deixá-la entrar
+      // faria o medidor pular para baixo no meio do turno principal.
+      if (event.kind === 'assistant' && typeof event.contextTokens === 'number') {
+        const deSubagente = !!(event.raw as { parent_tool_use_id?: string } | undefined)?.parent_tool_use_id
+        const entry = live.get(localId)
+        if (entry && !deSubagente) entry.contextTokens = event.contextTokens
+      }
       if (event.kind === 'context') {
         const entry = live.get(localId)
         if (entry) {
@@ -279,7 +295,10 @@ export function createSessionManager(deps: Deps) {
       if (event.kind === 'result') {
         const entry = live.get(localId)
         if (entry) {
-          if (typeof event.contextTokens === 'number') entry.contextTokens = event.contextTokens
+          // A janela que a CLI informa no result manda: o nome do modelo é só o
+          // palpite de arranque, e um modelo novo cairia nos 200k conservadores.
+          const janelaDaCli = windowFromModelUsage((event.raw as { modelUsage?: unknown } | undefined)?.modelUsage, entry.initModel)
+          if (janelaDaCli) entry.contextWindow = janelaDaCli
           // Auto-compact: UMA operação nativa por cruzamento do limiar.
           // O flag só re-arma quando um result volta abaixo do limiar (o da própria
           // compactação, tipicamente) — se compactar não reduzir o bastante, não

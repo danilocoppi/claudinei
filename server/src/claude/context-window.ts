@@ -37,3 +37,23 @@ export function contextWindowFor(model: string | null | undefined): number {
   if (m.includes('haiku')) return DEFAULT_CONTEXT_WINDOW
   return LONG_CONTEXT.some((re) => re.test(m)) ? LONG_CONTEXT_WINDOW : DEFAULT_CONTEXT_WINDOW
 }
+
+/**
+ * Janela que a própria CLI reporta no `modelUsage` do result — dado autoritativo
+ * (medido: `claude-opus-5` → 1.000.000), melhor que reconhecer o nome do modelo.
+ * O mapa costuma trazer também o modelo auxiliar (haiku, 200k), então a busca é
+ * pelo modelo DA SESSÃO: chave exata, ou `canonicalModel` quando a chave veio
+ * com a data. Sem correspondência → undefined, e quem decide é `contextWindowFor`.
+ */
+export function windowFromModelUsage(modelUsage: unknown, model: string | null | undefined): number | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object' || !model) return undefined
+  const mapa = modelUsage as Record<string, { contextWindow?: unknown; canonicalModel?: unknown } | undefined>
+  const janela = (e: { contextWindow?: unknown } | undefined) =>
+    typeof e?.contextWindow === 'number' && e.contextWindow > 0 ? e.contextWindow : undefined
+  const direta = janela(mapa[model])
+  if (direta) return direta
+  for (const entrada of Object.values(mapa)) {
+    if (entrada?.canonicalModel === model) return janela(entrada)
+  }
+  return undefined
+}

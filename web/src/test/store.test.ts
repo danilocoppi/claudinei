@@ -32,6 +32,26 @@ describe('store', () => {
     expect(useStore.getState().sessions['l1'].contextTokens).toBeUndefined()
   })
 
+  it('o medidor acompanha as mensagens assistant do turno, não o result', () => {
+    // O usage do result soma as requisições do turno (medido: 182.557 contra
+    // 34.449 de conversa real); o da assistant é o tamanho da conversa.
+    useStore.setState({ sessions: { l1: { localId: 'l1', projectId: 1, status: 'working', engineSessionId: 'c1', updatedAt: 'x', engine: 'claude' } as never } })
+    const ev = (event: object) => useStore.getState().applyWsMessage({ type: 'session_event', localId: 'l1', event } as never)
+    ev({ kind: 'assistant', message: { role: 'assistant', content: [] }, contextTokens: 34_449, raw: {} })
+    expect(useStore.getState().sessions['l1'].contextTokens).toBe(34_449)
+    ev({ kind: 'result', subtype: 'success', isError: false, resultText: 'ok', costUsd: 0, contextTokens: 182_557, raw: {} })
+    expect(useStore.getState().sessions['l1'].contextTokens).toBe(34_449)
+  })
+
+  it('assistant de subagente não mexe no medidor: a conversa dele é outra', () => {
+    useStore.setState({ sessions: { l1: { localId: 'l1', projectId: 1, status: 'working', engineSessionId: 'c1', updatedAt: 'x', engine: 'claude', contextTokens: 34_449 } as never } })
+    useStore.getState().applyWsMessage({
+      type: 'session_event', localId: 'l1',
+      event: { kind: 'assistant', message: { role: 'assistant', content: [] }, contextTokens: 900, raw: { parent_tool_use_id: 'toolu_1' } },
+    } as never)
+    expect(useStore.getState().sessions['l1'].contextTokens).toBe(34_449)
+  })
+
   it('session_status atualiza sessão', () => {
     useStore.getState().applyWsMessage({ type: 'session_status', localId: 'l1', status: 'idle', engineSessionId: 'c1' })
     expect(useStore.getState().sessions['l1']).toMatchObject({ status: 'idle', engineSessionId: 'c1' })

@@ -74,7 +74,7 @@ export interface ApiMessage { role: string; content: ContentBlock[] | string }
 
 export type ClaudeEvent =
   | { kind: 'init'; sessionId: string; model: string; slashCommands?: string[]; raw: unknown }
-  | { kind: 'assistant'; message: ApiMessage; raw: unknown }
+  | { kind: 'assistant'; message: ApiMessage; raw: unknown; contextTokens?: number }
   | { kind: 'user'; message: ApiMessage; fromEngine?: boolean; raw: unknown }
   | { kind: 'system'; subtype: string; raw: unknown }
   | { kind: 'result'; subtype: string; isError: boolean; resultText: string; costUsd: number; raw: unknown }

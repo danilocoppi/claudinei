@@ -50,6 +50,31 @@ const modelArg = process.argv.indexOf('--model')
 const model = modelArg !== -1 ? (process.argv[modelArg + 1] ?? 'fake-model') : 'fake-model'
 out({ type: 'system', subtype: 'init', session_id: sid, model, cwd: process.cwd(), tools: [], slash_commands, pkgExecPath: process.env.PKG_EXECPATH ?? null })
 
+// O usage como a CLI REAL o reporta (medido na 2.1.274):
+//  - em cada mensagem `assistant`: o que entrou NAQUELA requisição = a conversa
+//    inteira até ali. É a medição do contexto.
+//  - no `result`: a SOMA de todas as requisições do turno. Aqui, três vezes o
+//    contexto, para que qualquer código que confunda os dois apareça no teste.
+const ctxUsage = () => ({
+  input_tokens: 10,
+  cache_read_input_tokens: Number(process.env.CLAUDE_FAKE_CTX ?? 100),
+  cache_creation_input_tokens: 0,
+  output_tokens: 5,
+})
+const turnUsage = () => {
+  const u = ctxUsage()
+  return { ...u, input_tokens: u.input_tokens * 3, cache_read_input_tokens: u.cache_read_input_tokens * 3, output_tokens: u.output_tokens * 3 }
+}
+// modelUsage do result: a CLI informa ali a janela real de cada modelo do turno.
+// CLAUDE_FAKE_WINDOW liga a informação (e o haiku auxiliar entra junto, como no
+// real, para nenhum código pegar "a maior janela do mapa" por descuido).
+const modelUsage = () => process.env.CLAUDE_FAKE_WINDOW
+  ? {
+      'claude-haiku-4-5-20251001': { contextWindow: 200000, canonicalModel: 'claude-haiku-4-5' },
+      [model]: { contextWindow: Number(process.env.CLAUDE_FAKE_WINDOW), canonicalModel: model },
+    }
+  : undefined
+
 const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
   let msg
@@ -63,7 +88,6 @@ rl.on('line', (line) => {
     if (pendingQuestion && msg.response?.request_id === pendingQuestion.request_id) {
       const r = msg.response?.response ?? {}
       const p = pendingQuestion; pendingQuestion = null
-      const usage = { input_tokens: 10, cache_read_input_tokens: Number(process.env.CLAUDE_FAKE_CTX ?? 100), cache_creation_input_tokens: 0, output_tokens: 5 }
       if (r.behavior === 'allow') {
         // Texto EXATO que a CLI real injeta (medido) quando há perguntas; sem
         // perguntas (pedido-comum) é só um tool_result qualquer.
@@ -74,13 +98,13 @@ rl.on('line', (line) => {
           : 'oi'
         const eco = p.questions ? `eco: respostas ${pares}` : 'eco: permitido'
         out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content }] } })
-        out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
-        out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
+        out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }], usage: ctxUsage() } })
+        out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage: turnUsage() })
       } else {
         const eco = `eco: negado ${r.message ?? ''}`.trim()
         out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: p.tool_use_id, content: r.message ?? 'rejected', is_error: true }] } })
-        out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }] } })
-        out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage })
+        out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: eco }], usage: ctxUsage() } })
+        out({ type: 'result', subtype: 'success', is_error: false, result: eco, session_id: sid, num_turns: 1, total_cost_usd: 0, usage: turnUsage() })
       }
       return
     }
@@ -235,16 +259,22 @@ rl.on('line', (line) => {
     return
   }
   const respond = () => {
+    if (text.includes('com-subagente')) {
+      // Ordem real: a mensagem do subagente chega DEPOIS da do turno principal,
+      // marcada com parent_tool_use_id, e com a conversa dele (menor) no usage.
+      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'delegando' }], usage: ctxUsage() } })
+      out({ type: 'assistant', session_id: sid, parent_tool_use_id: 'toolu_task_1', message: { role: 'assistant', content: [{ type: 'text', text: 'subagente' }], usage: { input_tokens: 1, cache_read_input_tokens: 899, cache_creation_input_tokens: 0, output_tokens: 2 } } })
+      out({ type: 'result', subtype: 'success', is_error: false, result: `eco: ${text}`, session_id: sid, num_turns: 1, total_cost_usd: 0, usage: turnUsage(), modelUsage: modelUsage() })
+      return
+    }
     if (text.includes('use-tool')) {
       out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_fake_1', name: 'Bash', input: { command: 'echo oi' } }] } })
       out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_fake_1', content: 'oi' }] } })
     }
-    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${text}` }] } })
+    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${text}` }], usage: ctxUsage() } })
     out({
       type: 'result', subtype: 'success', is_error: false, result: `eco: ${text}`, session_id: sid, num_turns: 1, total_cost_usd: 0,
-      // usage como o claude real: alimenta o medidor de contexto (input + caches).
-      // CLAUDE_FAKE_CTX simula uma conversa grande (teste do auto-compact).
-      usage: { input_tokens: 10, cache_read_input_tokens: Number(process.env.CLAUDE_FAKE_CTX ?? 100), cache_creation_input_tokens: 0, output_tokens: 5 },
+      usage: turnUsage(), modelUsage: modelUsage(),
     })
   }
   if (text.includes('devagar')) setTimeout(respond, 300)

@@ -450,9 +450,12 @@ export const useStore = create<State>((set, get) => ({
           ? { sessions: { ...s.sessions, [localId]: { ...s.sessions[localId], contextTokens: undefined } } }
           : s))
       }
-      if (event.kind === 'result' && typeof event.contextTokens === 'number') {
-        // medidor de contexto: o usage do result mede o que ENTROU na requisição
-        // do turno — é o tamanho da conversa no instante em que ela foi lida
+      if (event.kind === 'assistant' && typeof event.contextTokens === 'number'
+          && !(event.raw as { parent_tool_use_id?: string } | undefined)?.parent_tool_use_id) {
+        // Medidor de contexto: o usage de cada mensagem `assistant` é o que ENTROU
+        // naquela requisição — o tamanho da conversa no instante em que foi lida.
+        // O usage do result NÃO serve: soma as requisições do turno inteiro.
+        // Subagente fica fora: a conversa dele é outra, e menor.
         set((s) => (s.sessions[localId]
           ? { sessions: { ...s.sessions, [localId]: { ...s.sessions[localId], contextTokens: event.contextTokens } } }
           : s))

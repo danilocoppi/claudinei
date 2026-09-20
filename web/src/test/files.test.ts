@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { extractCandidatePaths, resolveFiles, fileContentUrl } from '../files'
+import { extractCandidatePaths, resolveFiles, fileContentUrl, fetchTextFile, saveFileContent } from '../files'
 
 const okJson = (body: object, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -110,5 +110,47 @@ describe('resolvedKey (chave do cache de resolução)', () => {
   })
   it('sem projeto, relativo fica como está (não há contra o que resolver)', () => {
     expect(resolvedKey('docs/spec.md')).toBe('docs/spec.md')
+  })
+})
+
+describe('fetchTextFile', () => {
+  it('sucesso: devolve texto e hash do header', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('# oi', {
+      status: 200, headers: { 'X-Content-Hash': 'abc123' },
+    }))
+    expect(await fetchTextFile('/api/files/content?path=a.md')).toEqual({ ok: true, text: '# oi', hash: 'abc123' })
+  })
+
+  it('sem o header: hash null (o arquivo fica só de leitura)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('texto', { status: 200 }))
+    expect(await fetchTextFile('/api/files/content?path=a.md')).toEqual({ ok: true, text: 'texto', hash: null })
+  })
+
+  it('erro HTTP: devolve o código', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 413 }))
+    expect(await fetchTextFile('/api/files/content?path=a.md')).toEqual({ ok: false, code: 413 })
+  })
+
+  it('falha de rede: código 0', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+    expect(await fetchTextFile('/api/files/content?path=a.md')).toEqual({ ok: false, code: 0 })
+  })
+})
+
+describe('saveFileContent', () => {
+  it('manda path, projeto, conteúdo e baseHash, e devolve o hash novo', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ hash: 'novo' }))
+    const r = await saveFileContent({ path: 'doc.md', projectId: 3, content: 'texto', baseHash: 'velho' })
+    expect(r).toEqual({ hash: 'novo' })
+    const [url, init] = spy.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/files/write')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ path: 'doc.md', projectId: 3, content: 'texto', baseHash: 'velho' })
+  })
+
+  it('409 vira Error com a mensagem stale', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ error: 'stale' }, 409))
+    await expect(saveFileContent({ path: 'doc.md', projectId: 3, content: 'x', baseHash: 'v' }))
+      .rejects.toThrow('stale')
   })
 })

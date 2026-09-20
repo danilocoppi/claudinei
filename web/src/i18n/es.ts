@@ -357,6 +357,13 @@ export const es: typeof en = {
     loading: 'Cargando…', openTitle: 'Ver archivo',
     tabPage: 'Página', tabSource: 'Fuente',
     previewFailed: 'No se pudo generar la vista previa de la página.',
+    edit: 'Editar', save: 'Guardar', stopEditing: 'Listo',
+    unsaved: 'Cambios sin guardar',
+    staleFile: 'Este archivo cambió en el disco desde que lo abriste.',
+    reload: 'Recargar', saveFailed: 'No se pudo guardar el archivo.',
+    discardTitle: '¿Descartar cambios?',
+    discardBody: 'Editaste este archivo y no lo guardaste. Cerrar ahora descarta lo que escribiste.',
+    discard: 'Descartar',
   },
 }
 export default es

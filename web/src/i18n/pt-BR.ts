@@ -358,6 +358,13 @@ export const ptBR: typeof en = {
     loading: 'Carregando…', openTitle: 'Ver arquivo',
     tabPage: 'Página', tabSource: 'Fonte',
     previewFailed: 'Não foi possível montar a prévia da página.',
+    edit: 'Editar', save: 'Salvar', stopEditing: 'Concluir',
+    unsaved: 'Alterações não salvas',
+    staleFile: 'Este arquivo mudou no disco desde que você abriu.',
+    reload: 'Recarregar', saveFailed: 'Não foi possível salvar o arquivo.',
+    discardTitle: 'Descartar alterações?',
+    discardBody: 'Você editou este arquivo e ainda não salvou. Fechar agora descarta o que você escreveu.',
+    discard: 'Descartar',
   },
 }
 export default ptBR

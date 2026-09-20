@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, sep } from 'node:path'
 import { canAccessProject } from '../auth/guards.js'
 import { isTrustedLocal } from '../auth/plugin.js'
+import { hashContent } from '../files/hash.js'
 import { createPreviewStore, pathFromPreviewUrl, previewUrl, type PreviewStore } from '../files/preview.js'
 import { resolveInScope } from '../files/scope.js'
 import type { ProjectsService } from '../projects.js'
@@ -200,6 +201,10 @@ export function registerFileRoutes(
     const buf = await readFile(real)
     reply.header('Content-Type', 'text/plain; charset=utf-8')
     reply.header('Content-Security-Policy', 'sandbox')
+    // A identidade do que está sendo lido. Quem for editar devolve este valor
+    // na gravação; se o disco tiver mudado no meio, o servidor recusa em vez de
+    // apagar o que o agente escreveu.
+    reply.header('X-Content-Hash', hashContent(buf))
     return reply.send(buf)
   })
 

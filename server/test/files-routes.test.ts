@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { createHash } from 'node:crypto'
 import { buildApp } from '../src/app.js'
 import { openDb, type Db } from '../src/db.js'
 import { loadConfig } from '../src/config.js'
@@ -6,7 +7,7 @@ import { createSessionManager } from '../src/claude/manager.js'
 import { createAuthService, type AuthService } from '../src/auth/index.js'
 import { COOKIE_NAME } from '../src/auth/plugin.js'
 import { createProjectsService } from '../src/projects.js'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
@@ -191,5 +192,23 @@ describe('GET /api/files/content — fora de escopo (RBAC)', () => {
       cookies: anaCookie,
     })
     expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('GET /api/files/content — hash do conteúdo', () => {
+  it('texto vem com X-Content-Hash igual ao sha256 dos bytes do arquivo', async () => {
+    const res = await app.inject({
+      method: 'GET', url: `/api/files/content?path=a.txt&projectId=${projectId}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const esperado = createHash('sha256').update(readFileSync(join(projectPath, 'a.txt'))).digest('hex')
+    expect(res.headers['x-content-hash']).toBe(esperado)
+  })
+
+  it('o hash acompanha o arquivo: muda o conteúdo, muda o header', async () => {
+    const antes = await app.inject({ method: 'GET', url: `/api/files/content?path=a.txt&projectId=${projectId}` })
+    writeFileSync(join(projectPath, 'a.txt'), 'outro conteúdo')
+    const depois = await app.inject({ method: 'GET', url: `/api/files/content?path=a.txt&projectId=${projectId}` })
+    expect(depois.headers['x-content-hash']).not.toBe(antes.headers['x-content-hash'])
   })
 })

@@ -355,6 +355,13 @@ export const en = {
     loading: 'Loading…', openTitle: 'View file',
     tabPage: 'Page', tabSource: 'Source',
     previewFailed: 'Could not render the page preview.',
+    edit: 'Edit', save: 'Save', stopEditing: 'Done',
+    unsaved: 'Unsaved changes',
+    staleFile: 'This file changed on disk since you opened it.',
+    reload: 'Reload', saveFailed: 'Could not save the file.',
+    discardTitle: 'Discard changes?',
+    discardBody: 'You edited this file and have not saved. Closing now discards what you wrote.',
+    discard: 'Discard',
   },
 }
 export default en

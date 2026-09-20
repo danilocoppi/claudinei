@@ -100,3 +100,34 @@ describe('InlineFileView — redimensionar (arrastar a alça)', () => {
     expect(parseFloat(localStorage.getItem('claudinei:inlineFileFrac')!)).toBeCloseTo(0.42, 2)
   })
 })
+
+describe('InlineFileView — fechar com edição pendente', () => {
+  const abrir = () => useStore.setState({
+    inlineFile: { localId: 's1', path: '/tmp/proj/nota.md', kind: 'markdown', projectId: 7 },
+    fileEditDirty: true,
+  })
+
+  it('o ✕ com alteração não salva pede confirmação e não fecha', async () => {
+    abrir()
+    render(<InlineFileView localId="s1" />)
+    fireEvent.click(screen.getByLabelText('Fechar'))
+    expect(await screen.findByText(/Descartar alterações/i)).toBeTruthy()
+    expect(useStore.getState().inlineFile).not.toBeNull()
+  })
+
+  it('confirmando o descarte, fecha', async () => {
+    abrir()
+    render(<InlineFileView localId="s1" />)
+    fireEvent.click(screen.getByLabelText('Fechar'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Descartar' }))
+    await waitFor(() => expect(useStore.getState().inlineFile).toBeNull())
+  })
+
+  it('sem alteração pendente, o ✕ fecha direto', () => {
+    abrir()
+    useStore.setState({ fileEditDirty: false })
+    render(<InlineFileView localId="s1" />)
+    fireEvent.click(screen.getByLabelText('Fechar'))
+    expect(useStore.getState().inlineFile).toBeNull()
+  })
+})

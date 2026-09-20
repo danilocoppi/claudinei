@@ -47,6 +47,24 @@ function withoutRepeatedBase(raw: string, projectPath: string): string | null {
 }
 
 /**
+ * O arquivo (realpath já resolvido) está dentro da raiz real do projeto?
+ *
+ * É a regra que a ESCRITA exige e a leitura não: admin lê qualquer caminho
+ * absoluto do disco, mas ninguém grava fora do projeto. Compara realpath com
+ * realpath para que symlink não sirva de porta dos fundos, e exige o separador
+ * depois da raiz para que `/proj-x` não passe por dentro de `/proj`.
+ */
+export function isUnderProjectRoot(real: string, project: { path: string } | null): boolean {
+  if (!project) return false
+  try {
+    const raiz = realpathSync(project.path)
+    return real === raiz || real.startsWith(raiz + sep)
+  } catch {
+    return false
+  }
+}
+
+/**
  * Resolve um path pedido e decide se está no ESCOPO permitido. Fonte única de verdade
  * de segurança (usada por todas as rotas de arquivo). Usa realpath (segue symlink) e checa que
  * o arquivo real está sob a raiz real do projeto — barra traversal e symlink pra fora.
@@ -75,12 +93,7 @@ export function resolveInScope(raw: string, project: { id: number; path: string 
   // A base removida é uma inferência: só vale dentro da raiz real do projeto,
   // inclusive para admin. Caminhos explícitos mantêm as permissões anteriores.
   let inScope = isAdmin && !removedBase
-  if (!inScope && project) {
-    try {
-      const realRoot = realpathSync(project.path)
-      inScope = realFile === realRoot || realFile.startsWith(realRoot + sep)
-    } catch { inScope = false }
-  }
+  if (!inScope && project) inScope = isUnderProjectRoot(realFile, project)
   // Não-admin fora do escopo responde como "não existe": exists:true aqui (e o
   // 404-vs-403 derivado dele) seria um oráculo de existência de arquivos
   // arbitrários do SO para quem só tem acesso a um projeto.

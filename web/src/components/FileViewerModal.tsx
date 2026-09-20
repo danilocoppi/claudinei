@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import type { FileKind } from '../files'
-import { createFilePreview, fileContentUrl, isHtmlPath, langOfPath } from '../files'
+import { createFilePreview, fileContentUrl, isHtmlPath } from '../files'
 import { useStore } from '../store'
-import type { Components } from 'react-markdown'
-import { MarkdownPre } from './MarkdownPre'
+import { ConfirmDialog } from './ConfirmDialog'
+import { TextDocument } from './TextDocument'
 
 /** Modal de preview de arquivo (por tipo), aberto via `store.openFile`. Sem props:
  * lê `fileViewer` direto do store, então pode ser montado uma única vez (App.tsx)
@@ -17,14 +14,20 @@ import { MarkdownPre } from './MarkdownPre'
 export function FileViewerModal() {
   const fileViewer = useStore((s) => s.fileViewer)
   const closeFile = useStore((s) => s.closeFile)
+  const sujo = useStore((s) => s.fileEditDirty)
+  const [confirmando, setConfirmando] = useState(false)
   const { t } = useTranslation()
+
+  // Fechar com edição pendente jogaria fora o que o operador escreveu, sem
+  // aviso e sem desfazer — o editor não guarda rascunho em lugar nenhum.
+  const tentarFechar = () => { if (sujo) setConfirmando(true); else closeFile() }
 
   useEffect(() => {
     if (!fileViewer) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeFile() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') tentarFechar() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [fileViewer, closeFile])
+  }, [fileViewer, closeFile, sujo])
 
   if (!fileViewer) return null
   const { path, kind, projectId } = fileViewer
@@ -32,7 +35,7 @@ export function FileViewerModal() {
   const name = path.split('/').pop() || path
 
   return createPortal(
-    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeFile() }}>
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) tentarFechar() }}>
       <div
         data-testid="file-viewer-panel"
         style={{
@@ -57,7 +60,7 @@ export function FileViewerModal() {
           </div>
           <button
             type="button" className="ghost" aria-label={t('fileViewer.close')} title={t('fileViewer.close')}
-            onClick={closeFile}
+            onClick={tentarFechar}
             style={{ flex: 'none', padding: '7px 10px' }}
           >
             ✕
@@ -67,6 +70,15 @@ export function FileViewerModal() {
           <FileBody kind={kind} url={url} name={name} path={path} projectId={projectId} />
         </div>
       </div>
+      {confirmando && (
+        <ConfirmDialog
+          title={t('fileViewer.discardTitle')}
+          message={t('fileViewer.discardBody')}
+          confirmLabel={t('fileViewer.discard')}
+          onConfirm={() => { setConfirmando(false); closeFile() }}
+          onClose={() => setConfirmando(false)}
+        />
+      )}
     </div>,
     document.body,
   )
@@ -99,7 +111,7 @@ export function FileBody({ kind, url, name, compact, path, projectId }: {
       </div>
     )
   }
-  return <TextBody kind={kind} url={url} name={name} />
+  return <TextDocument kind={kind} url={url} name={name} path={path ?? name} projectId={projectId} />
 }
 
 type PreviewState =
@@ -138,6 +150,14 @@ function HtmlBody({ url, name, path, projectId, compact }: {
     return () => { cancelled = true }
   }, [path, projectId])
 
+  // Salvou o fonte → a página tem de mostrar o que foi gravado; a prévia é
+  // emitida de novo porque o token anterior aponta para o conteúdo antigo.
+  const recarregarPagina = () => {
+    createFilePreview(path, projectId)
+      .then((r) => setPreview({ status: 'ok', url: r.url }))
+      .catch(() => setPreview({ status: 'error' }))
+  }
+
   const aba = (qual: 'page' | 'source', rotulo: string) => (
     <button
       type="button" className="html-view__tab" aria-pressed={view === qual}
@@ -169,93 +189,9 @@ function HtmlBody({ url, name, path, projectId, compact }: {
       {view === 'page' && preview.status === 'error' && (
         <div style={{ color: 'var(--err)' }}>{t('fileViewer.previewFailed')}</div>
       )}
-      {view === 'source' && <TextBody kind="code" url={url} name={name} />}
+      {view === 'source' && (
+        <TextDocument kind="code" url={url} name={name} path={path} projectId={projectId} onSaved={recarregarPagina} />
+      )}
     </div>
-  )
-}
-
-type TextState =
-  | { status: 'loading' }
-  | { status: 'error'; code: number }
-  | { status: 'ok'; text: string }
-
-function TextBody({ kind, url, name }: { kind: FileKind; url: string; name: string }) {
-  const { t } = useTranslation()
-  const openExternalLink = useStore((s) => s.openExternalLink)
-  const [state, setState] = useState<TextState>({ status: 'loading' })
-  // Links do markdown visualizado também passam pela confirmação de link externo.
-  const mdComponents: Components = {
-    pre: MarkdownPre,
-    a: ({ href, children }) => (
-      href && !href.startsWith('#')
-        ? <a href={href} rel="noreferrer" onClick={(e) => { e.preventDefault(); openExternalLink(href) }}>{children}</a>
-        : <a href={href}>{children}</a>
-    ),
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    setState({ status: 'loading' })
-    fetch(url)
-      .then(async (res) => {
-        if (cancelled) return
-        if (!res.ok) { setState({ status: 'error', code: res.status }); return }
-        const text = await res.text()
-        if (cancelled) return
-        setState({ status: 'ok', text })
-      })
-      .catch(() => { if (!cancelled) setState({ status: 'error', code: 0 }) })
-    return () => { cancelled = true }
-  }, [url])
-
-  if (state.status === 'loading') {
-    return <div style={{ color: 'var(--text-dim)' }}>{t('fileViewer.loading')}</div>
-  }
-
-  if (state.status === 'error') {
-    if (state.code === 403) return <div style={{ color: 'var(--err)' }}>{t('fileViewer.forbidden')}</div>
-    if (state.code === 413) {
-      return (
-        <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>
-          <p>{t('fileViewer.tooLarge')}</p>
-          <a href={url} download style={{ color: 'var(--accent)' }}>{t('fileViewer.download')}</a>
-        </div>
-      )
-    }
-    // 404 e qualquer outro erro (0 = falha de rede) caem no mesmo aviso genérico.
-    return <div style={{ color: 'var(--err)' }}>{t('fileViewer.notFound')}</div>
-  }
-
-  if (kind === 'markdown') {
-    return (
-      <div className="markdown" style={{ lineHeight: 1.6 }}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={mdComponents}>
-          {state.text}
-        </ReactMarkdown>
-      </div>
-    )
-  }
-
-  // Código: colore com o MESMO pipeline do chat (fence markdown → rehypeHighlight,
-  // sem innerHTML). Fence maior que qualquer sequência de ``` do arquivo (não
-  // quebra em arquivos que contêm markdown); cap de 300KB — acima disso o
-  // highlight travaria a UI e cai no <pre> puro.
-  const lang = kind === 'code' ? langOfPath(name) : null
-  if (lang && state.text.length <= 300_000) {
-    const runs = state.text.match(/`{3,}/g)
-    const fence = '`'.repeat(Math.max(3, ...(runs?.map((r) => r.length + 1) ?? [0])))
-    return (
-      <div className="markdown code-preview" style={{ lineHeight: 1.55 }}>
-        <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={{ pre: MarkdownPre }}>
-          {`${fence}${lang}\n${state.text}\n${fence}`}
-        </ReactMarkdown>
-      </div>
-    )
-  }
-
-  return (
-    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: 'monospace', fontSize: 13 }}>
-      {state.text}
-    </pre>
   )
 }

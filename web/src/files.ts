@@ -152,3 +152,25 @@ export function kindOfPath(path: string): FileKind {
   if (TEXT_EXT.has(ext) || ext === '') return 'text'
   return 'binary'
 }
+
+export type TextFetch = { ok: true; text: string; hash: string | null } | { ok: false; code: number }
+
+/**
+ * Lê um arquivo de texto trazendo junto o hash do conteúdo — é ele que a
+ * gravação devolve ao servidor para provar que está editando a versão que leu.
+ * Sem o header (servidor antigo, resposta de cache), `hash` é null e a UI
+ * mantém o arquivo só em leitura, em vez de arriscar sobrescrever às cegas.
+ */
+export async function fetchTextFile(url: string): Promise<TextFetch> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return { ok: false, code: res.status }
+    return { ok: true, text: await res.text(), hash: res.headers.get('X-Content-Hash') }
+  } catch {
+    return { ok: false, code: 0 }
+  }
+}
+
+/** Grava o arquivo. Lança Error('stale') quando o disco mudou desde a leitura. */
+export const saveFileContent = (args: { path: string; projectId: number; content: string; baseHash: string }) =>
+  req<{ hash: string }>('/api/files/write', { method: 'POST', body: JSON.stringify(args) })

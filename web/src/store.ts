@@ -86,6 +86,8 @@ interface State {
   tasks: Task[]
   /** Arquivo aberto no FileViewerModal (path detectado/resolvido no chat), ou null se fechado. */
   fileViewer: { path: string; kind: FileKind; projectId?: number } | null
+  /** Há edição não salva num documento aberto? O modal consulta antes de fechar. */
+  fileEditDirty: boolean
   /** Menu de contexto do link de arquivo (escolha popup × inline), na posição do clique. */
   fileMenu: { x: number; y: number; path: string; kind: FileKind; projectId?: number; localId?: string } | null
   /** Arquivo aberto INLINE (painel dockado acima do input do chat), por sessão. */
@@ -158,6 +160,7 @@ interface State {
   openTasks(): void
   openFile(path: string, kind: FileKind, projectId?: number): void
   closeFile(): void
+  setFileEditDirty(v: boolean): void
   openFileMenu(menu: { x: number; y: number; path: string; kind: FileKind; projectId?: number; localId?: string }): void
   closeFileMenu(): void
   openFileInline(localId: string, path: string, kind: FileKind, projectId?: number): void
@@ -180,7 +183,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileMenu: null, inlineFile: null, externalLink: null,
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -202,6 +205,7 @@ export const useStore = create<State>((set, get) => ({
   board: [],
   tasks: [],
   fileViewer: null,
+  fileEditDirty: false,
   fileMenu: null,
   inlineFile: null,
   fileResolved: {},
@@ -540,6 +544,8 @@ export const useStore = create<State>((set, get) => ({
   openFile: (path, kind, projectId) => set({ fileViewer: { path, kind, projectId } }),
 
   closeFile: () => set({ fileViewer: null }),
+
+  setFileEditDirty: (v) => set({ fileEditDirty: v }),
 
   openFileMenu: (menu) => set({ fileMenu: menu }),
 

@@ -95,3 +95,80 @@ describe('POST /api/files/write — RBAC', () => {
     expect(readFileSync(join(alheio, 'doc.md'), 'utf8')).toBe('# alheio\n')
   })
 })
+
+describe('POST /api/files/write — recusas', () => {
+  it('arquivo inexistente → 404 (a rota não cria arquivo)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'novo.md', projectId, content: 'oi', baseHash: hashContent('') },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('arquivo binário → 415 e nada é gravado', async () => {
+    const png = join(projectPath, 'pic.png')
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    writeFileSync(png, bytes)
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'pic.png', projectId, content: 'texto', baseHash: hashDe(png) },
+    })
+    expect(res.statusCode).toBe(415)
+    expect(readFileSync(png)).toEqual(bytes)
+  })
+
+  it('conteúdo acima do teto de 2 MB → 413 nosso (não o genérico do Fastify) e nada é gravado', async () => {
+    const alvo = join(projectPath, 'doc.md')
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: 'x'.repeat(2 * 1024 * 1024 + 1), baseHash: hashDe(alvo) },
+    })
+    expect(res.statusCode).toBe(413)
+    expect(res.json()).toMatchObject({ error: 'too_large' })
+    expect(readFileSync(alvo, 'utf8')).toBe('# antes\n')
+  })
+
+  // O limite de corpo padrão do Fastify é 1 MiB: sem afrouxá-lo nesta rota, um
+  // documento que a LEITURA entrega (teto de 2 MB) não poderia ser salvo de
+  // volta, e o operador veria só um erro sem explicação.
+  it('arquivo grande, mas dentro do teto de leitura, é gravado', async () => {
+    const alvo = join(projectPath, 'doc.md')
+    const grande = 'x'.repeat(1_500_000)
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: grande, baseHash: hashDe(alvo) },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(readFileSync(alvo, 'utf8')).toBe(grande)
+  })
+})
+
+describe('POST /api/files/write — o agente mexeu no arquivo', () => {
+  it('baseHash velho → 409 e o arquivo continua como o agente deixou', async () => {
+    const alvo = join(projectPath, 'doc.md')
+    const velho = hashDe(alvo)
+    writeFileSync(alvo, '# o agente reescreveu\n')
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: '# minha versão\n', baseHash: velho },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'stale' })
+    expect(readFileSync(alvo, 'utf8')).toBe('# o agente reescreveu\n')
+  })
+
+  it('o hash devolvido serve de baseHash para a gravação seguinte', async () => {
+    const alvo = join(projectPath, 'doc.md')
+    const primeira = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: 'um\n', baseHash: hashDe(alvo) },
+    })
+    expect(primeira.statusCode).toBe(200)
+    const segunda = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: 'dois\n', baseHash: primeira.json().hash },
+    })
+    expect(segunda.statusCode).toBe(200)
+    expect(readFileSync(alvo, 'utf8')).toBe('dois\n')
+  })
+})

@@ -218,7 +218,12 @@ export function registerFileRoutes(
    * realpath é que vale). Um clique perdido não pode alcançar ~/.ssh nem o
    * banco do próprio Claudinei.
    */
-  app.post('/api/files/write', async (req, reply) => {
+  // O limite de corpo padrão do Fastify é 1 MiB — menos que o teto de LEITURA,
+  // então sem isto um documento entregue pela rota de conteúdo não poderia ser
+  // salvo de volta. A folga de 6x cobre o pior caso do JSON, em que cada
+  // caractere de controle vira `\uXXXX`; o teto que vale de verdade é o
+  // TEXT_CAP conferido em bytes lá embaixo, com erro explicável.
+  app.post('/api/files/write', { bodyLimit: TEXT_CAP * 6 }, async (req, reply) => {
     const body = req.body as { path?: unknown; projectId?: unknown; content?: unknown; baseHash?: unknown }
     const raw = typeof body?.path === 'string' ? body.path : ''
     const content = typeof body?.content === 'string' ? body.content : null
@@ -231,8 +236,16 @@ export function registerFileRoutes(
     const r = resolveInScope(raw, project, isAdminReq(req))
     if (!r.exists || !r.real) return reply.code(404).send({ error: 'not_found' })
     if (!isUnderProjectRoot(r.real, project)) return reply.code(403).send({ error: 'forbidden' })
+    if (r.kind === 'image' || r.kind === 'pdf' || r.kind === 'binary') {
+      return reply.code(415).send({ error: 'not_editable' })
+    }
+    if (Buffer.byteLength(content, 'utf8') > TEXT_CAP) return reply.code(413).send({ error: 'too_large' })
 
     const atual = await readFile(r.real)
+    // Releitura na hora de gravar: entre o GET do operador e este POST cabe um
+    // turno inteiro de agente. Divergiu → devolve 409 e não encosta no arquivo;
+    // sobrescrever calado apagaria o trabalho dele sem ninguém notar.
+    if (hashContent(atual) !== baseHash) return reply.code(409).send({ error: 'stale' })
     await writeFileAtomic(r.real, content, atual)
     const hash = hashContent(await readFile(r.real))
     req.log.info({ path: r.real, projectId: project.id, bytes: content.length }, 'arquivo gravado pelo visualizador')

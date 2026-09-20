@@ -40,10 +40,17 @@ export function CodeEditor({ value, lang, onChange, onSave }: {
     if (!host.current) return
     const state = EditorState.create({
       doc: value,
+      // Cursor no fim, não no começo: no markdown a linha do cursor mostra a
+      // marcação crua, e abrir com ele na linha 1 põe um `#` solto bem em cima
+      // do título — a primeira coisa que se vê seria o fonte.
+      selection: { anchor: value.length },
       extensions: [
         history(),
-        highlightActiveLine(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        ...(lang === 'markdown' ? [] : [highlightActiveLine()]),
+        // O realce de sintaxe é do editor de CÓDIGO. No markdown quem manda é o
+        // live preview — deixar os dois juntos devolve cara de fonte (título
+        // sublinhado, marcação colorida).
+        ...(lang === 'markdown' ? [] : [syntaxHighlighting(defaultHighlightStyle, { fallback: true })]),
         keymap.of([
           { key: 'Mod-s', preventDefault: true, run: () => { aoSalvar.current(); return true } },
           ...historyKeymap,
@@ -71,5 +78,6 @@ export function CodeEditor({ value, lang, onChange, onSave }: {
     v.dispatch({ changes: { from: 0, to: atual.length, insert: value } })
   }, [value])
 
-  return <div className="code-editor" ref={host} data-testid="code-editor" />
+  const variante = lang === 'markdown' ? 'code-editor--markdown' : 'code-editor--code'
+  return <div className={`code-editor ${variante}`} ref={host} data-testid="code-editor" />
 }

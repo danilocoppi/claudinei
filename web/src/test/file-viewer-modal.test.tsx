@@ -174,3 +174,51 @@ describe('preview de código colorido (highlight estilo IDE, só leitura)', () =
     expect(document.querySelector('.code-preview')).toBeNull()
   })
 })
+
+describe('tipos não editáveis não ganham lápis', () => {
+  it('imagem não monta o documento de texto', () => {
+    open('image', '/p/logo.png', 1)
+    render(<FileViewerModal />)
+    expect(screen.queryByRole('button', { name: /Editar/ })).toBeNull()
+  })
+
+  it('pdf não monta o documento de texto', () => {
+    open('pdf', '/p/doc.pdf', 1)
+    render(<FileViewerModal />)
+    expect(screen.queryByRole('button', { name: /Editar/ })).toBeNull()
+  })
+
+  it('binário não monta o documento de texto', () => {
+    open('binary', '/p/bin.dat', 1)
+    render(<FileViewerModal />)
+    expect(screen.queryByRole('button', { name: /Editar/ })).toBeNull()
+  })
+})
+
+describe('fechar com edição pendente', () => {
+  it('Escape com alteração não salva pede confirmação e não fecha', async () => {
+    useStore.setState({ fileEditDirty: true })
+    open('markdown', '/p/doc.md', 1)
+    render(<FileViewerModal />)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(await screen.findByText(/Descartar alterações/i)).toBeTruthy()
+    expect(useStore.getState().fileViewer).not.toBeNull()
+  })
+
+  it('confirmando o descarte, fecha', async () => {
+    useStore.setState({ fileEditDirty: true })
+    open('markdown', '/p/doc.md', 1)
+    render(<FileViewerModal />)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Descartar' }))
+    await waitFor(() => expect(useStore.getState().fileViewer).toBeNull())
+  })
+
+  it('sem alteração pendente, Escape fecha direto', () => {
+    useStore.setState({ fileEditDirty: false })
+    open('markdown', '/p/doc.md', 1)
+    render(<FileViewerModal />)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(useStore.getState().fileViewer).toBeNull()
+  })
+})

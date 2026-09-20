@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fileContentUrl } from '../files'
 import { useStore } from '../store'
+import { ConfirmDialog } from './ConfirmDialog'
 import { FileBody } from './FileViewerModal'
 
 // Altura do painel como PROPORÇÃO da janela (persiste entre inlines e reloads).
@@ -30,6 +31,8 @@ export function InlineFileView({ localId }: { localId: string }) {
   const { t } = useTranslation()
   const inlineFile = useStore((s) => s.inlineFile)
   const closeFileInline = useStore((s) => s.closeFileInline)
+  const sujo = useStore((s) => s.fileEditDirty)
+  const [confirmando, setConfirmando] = useState(false)
   const [frac, setFrac] = useState(initialFrac)
   const drag = useRef<{ startY: number; startF: number } | null>(null)
 
@@ -85,7 +88,7 @@ export function InlineFileView({ localId }: { localId: string }) {
         <button
           type="button" className="ghost inline-file__close"
           aria-label={t('fileViewer.close')} title={t('fileViewer.close')}
-          onClick={closeFileInline}
+          onClick={() => { if (sujo) setConfirmando(true); else closeFileInline() }}
         >
           ✕
         </button>
@@ -93,6 +96,17 @@ export function InlineFileView({ localId }: { localId: string }) {
       <div className="inline-file__body">
         <FileBody kind={kind} url={url} name={name} path={path} projectId={projectId} compact />
       </div>
+      {/* Mesma proteção do popup: fechar com edição pendente descartaria o
+          texto, que não vive em lugar nenhum além do editor. */}
+      {confirmando && (
+        <ConfirmDialog
+          title={t('fileViewer.discardTitle')}
+          message={t('fileViewer.discardBody')}
+          confirmLabel={t('fileViewer.discard')}
+          onConfirm={() => { setConfirmando(false); closeFileInline() }}
+          onClose={() => setConfirmando(false)}
+        />
+      )}
     </div>
   )
 }

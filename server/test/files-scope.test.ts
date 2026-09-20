@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync, realpathSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { resolveInScope, kindOf } from '../src/files/scope.js'
+import { resolveInScope, kindOf, isUnderProjectRoot } from '../src/files/scope.js'
 
 let root: string, proj: { id: number; path: string }
 beforeEach(() => {
@@ -140,5 +140,46 @@ describe('resolveInScope', () => {
   })
   it('admin + diretório → inScope:false (não serve dir nem pra admin)', () => {
     expect(resolveInScope(proj.path, proj, true)).toMatchObject({ exists: true, inScope: false })
+  })
+})
+
+describe('isUnderProjectRoot', () => {
+  it('arquivo dentro da raiz do projeto → true', () => {
+    const raiz = mkdtempSync(join(tmpdir(), 'escopo-'))
+    mkdirSync(join(raiz, 'docs'))
+    const arquivo = join(raiz, 'docs', 'a.md')
+    writeFileSync(arquivo, 'oi')
+    expect(isUnderProjectRoot(realpathSync(arquivo), { path: raiz })).toBe(true)
+  })
+
+  it('arquivo fora da raiz → false', () => {
+    const raiz = mkdtempSync(join(tmpdir(), 'escopo-'))
+    const fora = mkdtempSync(join(tmpdir(), 'fora-'))
+    const arquivo = join(fora, 'segredo.txt')
+    writeFileSync(arquivo, 'x')
+    expect(isUnderProjectRoot(realpathSync(arquivo), { path: raiz })).toBe(false)
+  })
+
+  it('symlink dentro do projeto apontando pra fora → false (o alvo é que conta)', () => {
+    const raiz = mkdtempSync(join(tmpdir(), 'escopo-'))
+    const fora = mkdtempSync(join(tmpdir(), 'fora-'))
+    const alvo = join(fora, 'segredo.txt')
+    writeFileSync(alvo, 'x')
+    const link = join(raiz, 'atalho.txt')
+    symlinkSync(alvo, link)
+    expect(isUnderProjectRoot(realpathSync(link), { path: raiz })).toBe(false)
+  })
+
+  it('prefixo parecido não conta como dentro (/proj vs /proj-x)', () => {
+    const base = mkdtempSync(join(tmpdir(), 'escopo-'))
+    mkdirSync(join(base, 'proj'))
+    mkdirSync(join(base, 'proj-x'))
+    const arquivo = join(base, 'proj-x', 'a.txt')
+    writeFileSync(arquivo, 'x')
+    expect(isUnderProjectRoot(realpathSync(arquivo), { path: join(base, 'proj') })).toBe(false)
+  })
+
+  it('sem projeto → false', () => {
+    expect(isUnderProjectRoot('/qualquer/coisa.txt', null)).toBe(false)
   })
 })

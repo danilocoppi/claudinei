@@ -7,7 +7,7 @@ import { createAuthService, type AuthService } from '../src/auth/index.js'
 import { COOKIE_NAME } from '../src/auth/plugin.js'
 import { createProjectsService } from '../src/projects.js'
 import { hashContent } from '../src/files/hash.js'
-import { mkdtempSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, symlinkSync, chmodSync, statSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -170,5 +170,47 @@ describe('POST /api/files/write — o agente mexeu no arquivo', () => {
     })
     expect(segunda.statusCode).toBe(200)
     expect(readFileSync(alvo, 'utf8')).toBe('dois\n')
+  })
+})
+
+describe('POST /api/files/write — fidelidade ao arquivo', () => {
+  it('preserva as permissões do arquivo original', async () => {
+    const alvo = join(projectPath, 'doc.md')
+    chmodSync(alvo, 0o640)
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: 'novo\n', baseHash: hashDe(alvo) },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(statSync(alvo).mode & 0o777).toBe(0o640)
+  })
+
+  it('arquivo CRLF continua CRLF depois de salvo', async () => {
+    const alvo = join(projectPath, 'win.md')
+    writeFileSync(alvo, 'linha1\r\nlinha2\r\n')
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'win.md', projectId, content: 'linha1\nlinha2\nlinha3\n', baseHash: hashDe(alvo) },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(readFileSync(alvo, 'utf8')).toBe('linha1\r\nlinha2\r\nlinha3\r\n')
+  })
+
+  it('arquivo LF continua LF (não ganha \\r por engano)', async () => {
+    const alvo = join(projectPath, 'doc.md')
+    await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: 'a\nb\n', baseHash: hashDe(alvo) },
+    })
+    expect(readFileSync(alvo, 'utf8')).toBe('a\nb\n')
+  })
+
+  it('não deixa arquivo temporário para trás', async () => {
+    const alvo = join(projectPath, 'doc.md')
+    await app.inject({
+      method: 'POST', url: '/api/files/write',
+      payload: { path: 'doc.md', projectId, content: 'novo\n', baseHash: hashDe(alvo) },
+    })
+    expect(readdirSync(projectPath).filter((n) => n.includes('claudinei-tmp'))).toEqual([])
   })
 })

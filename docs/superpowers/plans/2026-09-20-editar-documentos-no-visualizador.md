@@ -37,6 +37,7 @@
 - `web/src/editor/markdown-live.ts` — **novo**: `markdownDecorations()`, a função pura do live preview.
 - `web/src/editor/markdown-live-plugin.ts` — **novo**: a ponte entre a função pura e o CodeMirror.
 - `web/src/components/CodeEditor.tsx` — **novo**: casca fina sobre o `EditorView`.
+- `web/src/components/RenderedText.tsx` — **novo**: a renderização de um texto já carregado (markdown, código com realce, `<pre>`), hoje presa dentro do `TextBody`.
 - `web/src/components/TextDocument.tsx` — **novo**: barra de ações + alternância visualizar/editar + gravação.
 - `web/src/components/FileViewerModal.tsx` — `TextBody` passa a viver dentro do `TextDocument`; o `Escape` do modal respeita alterações pendentes.
 - `web/src/store.ts` — `fileEditDirty` e `setFileEditDirty`.
@@ -1183,6 +1184,8 @@ git commit -m "feat(web): editor CodeMirror com live preview de markdown"
 
 **Files:**
 - Create: `web/src/components/TextDocument.tsx`
+- Create: `web/src/components/RenderedText.tsx`
+- Modify: `web/src/components/FileViewerModal.tsx` (o `TextBody` perde a parte de render)
 - Modify: `web/src/store.ts`
 - Test: `web/src/test/text-document.test.tsx` (novo)
 
@@ -1214,8 +1217,12 @@ import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/re
 import { useStore } from '../store'
 
 vi.mock('../components/CodeEditor', () => ({
-  CodeEditor: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <textarea data-testid="code-editor" value={value} onChange={(e) => onChange(e.target.value)} />
+  CodeEditor: ({ value, onChange, onSave }: { value: string; onChange: (v: string) => void; onSave: () => void }) => (
+    <>
+      <textarea data-testid="code-editor" value={value} onChange={(e) => onChange(e.target.value)} />
+      {/* o keymap Mod-s é do CodeMirror; aqui se testa a LIGAÇÃO dele com a gravação */}
+      <button type="button" data-testid="atalho-salvar" onClick={onSave}>atalho</button>
+    </>
   ),
 }))
 
@@ -1317,6 +1324,18 @@ describe('TextDocument — editar e salvar', () => {
     expect(useStore.getState().fileEditDirty).toBe(false)
   })
 
+  it('o atalho do editor (Ctrl+S) grava igual ao botão', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(respostaDeLeitura('a', 'h1'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hash: 'h2' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    montar()
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar' }))
+    fireEvent.change(screen.getByTestId('code-editor'), { target: { value: 'b' } })
+    fireEvent.click(screen.getByTestId('atalho-salvar'))
+    await waitFor(() => expect(useStore.getState().fileEditDirty).toBe(false))
+    expect(JSON.parse((fetchSpy.mock.calls[1][1] as RequestInit).body as string).content).toBe('b')
+  })
+
   it('desmontar sujo limpa a marca do store (não fica travando o modal seguinte)', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(respostaDeLeitura('a', 'h1'))
     const { unmount } = montar()
@@ -1371,7 +1390,7 @@ import type { FileKind } from '../files'
 import { fetchTextFile, langOfPath, saveFileContent } from '../files'
 import { useStore } from '../store'
 import { CodeEditor, type EditorLang } from './CodeEditor'
-import { RenderedText } from './FileViewerModal'
+import { RenderedText } from './RenderedText'
 
 type Carga =
   | { status: 'loading' }
@@ -1506,27 +1525,39 @@ export function TextDocument({ kind, url, name, path, projectId }: {
 }
 ```
 
-- [ ] **Step 5: Extrair o `RenderedText` do `TextBody`**
+- [ ] **Step 5: Extrair o `RenderedText` para um arquivo próprio**
 
-`TextDocument` precisa renderizar o texto que já carregou. Em `web/src/components/FileViewerModal.tsx`, separe a renderização do carregamento: mantenha o `TextBody` como está por enquanto e **exporte** uma função nova com só a parte de render (o corpo dos `if (kind === 'markdown')` / código / `<pre>` de hoje, recebendo `text` pronto):
+`TextDocument` precisa renderizar o texto que já carregou. Ele **não** pode importar isso do `FileViewerModal`, que por sua vez importa o `TextDocument` — o ciclo de imports quebra em tempo de execução. Crie `web/src/components/RenderedText.tsx` e mova para lá, sem alterar a lógica, os três ramos finais do `TextBody` de hoje (markdown com `ReactMarkdown`, código com fence + `rehypeHighlight`, e o `<pre>` de fallback), junto com o `mdComponents` que eles usam:
 
 ```tsx
-/** Só a renderização de um texto já carregado — o carregamento vive no TextDocument. */
+import { useTranslation } from 'react-i18next'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
+import type { Components } from 'react-markdown'
+import type { FileKind } from '../files'
+import { langOfPath } from '../files'
+import { useStore } from '../store'
+import { MarkdownPre } from './MarkdownPre'
+
+/** Só a renderização de um texto JÁ carregado — quem busca o conteúdo é o TextDocument. */
 export function RenderedText({ kind, text, name }: { kind: FileKind; text: string; name: string }) {
-  // (mover para cá, sem alterar, os três ramos finais do TextBody: markdown,
-  // código com fence + rehypeHighlight, e o <pre> de fallback)
+  // (os três ramos do TextBody atual, sem mudança de comportamento; o estado de
+  // loading/erro fica no TextDocument e não vem para cá)
 }
 ```
+
+Os imports que sobrarem sem uso no `FileViewerModal.tsx` saem — o `tsc` acusa.
 
 - [ ] **Step 6: Rodar e ver passar**
 
 Run: `npx vitest run src/test/text-document.test.tsx --root web`
-Expected: PASS nos 9 casos.
+Expected: PASS nos 10 casos.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add web/src/components/TextDocument.tsx web/src/components/FileViewerModal.tsx web/src/store.ts web/src/test/text-document.test.tsx
+git add web/src/components/TextDocument.tsx web/src/components/RenderedText.tsx web/src/components/FileViewerModal.tsx web/src/store.ts web/src/test/text-document.test.tsx
 git commit -m "feat(web): documento de texto editável com gravação e aviso de conflito"
 ```
 
@@ -1549,6 +1580,26 @@ git commit -m "feat(web): documento de texto editável com gravação e aviso de
 Acrescente a `web/src/test/file-viewer-modal.test.tsx`:
 
 ```tsx
+describe('tipos não editáveis não ganham lápis', () => {
+  it('imagem não monta o documento de texto', () => {
+    open('image', '/p/logo.png', 1)
+    render(<FileViewerModal />)
+    expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull()
+  })
+
+  it('pdf não monta o documento de texto', () => {
+    open('pdf', '/p/doc.pdf', 1)
+    render(<FileViewerModal />)
+    expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull()
+  })
+
+  it('binário não monta o documento de texto', () => {
+    open('binary', '/p/bin.dat', 1)
+    render(<FileViewerModal />)
+    expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull()
+  })
+})
+
 describe('fechar com edição pendente', () => {
   it('Escape com alteração não salva pede confirmação e não fecha', async () => {
     useStore.setState({ fileEditDirty: true })
@@ -1595,11 +1646,18 @@ e, dentro do `HtmlBody`, troque o `{view === 'source' && <TextBody … />}` por:
 
 ```tsx
       {view === 'source' && (
-        <TextDocument
-          kind="code" url={url} name={name} path={path} projectId={projectId}
-          onSaved={() => { /* o Step 5 preenche: recarregar a prévia */ }}
-        />
+        <TextDocument kind="code" url={url} name={name} path={path} projectId={projectId} onSaved={recarregarPagina} />
       )}
+```
+
+com `recarregarPagina` definido no próprio `HtmlBody` (é o mesmo pedido de prévia do `useEffect` que já existe lá, agora reaproveitado):
+
+```tsx
+  const recarregarPagina = () => {
+    createFilePreview(path, projectId)
+      .then((r) => setPreview({ status: 'ok', url: r.url }))
+      .catch(() => setPreview({ status: 'error' }))
+  }
 ```
 
 Remova o `TextBody` antigo (o carregamento agora vive no `TextDocument`; a renderização, no `RenderedText`).
@@ -1630,17 +1688,16 @@ Use `tentarFechar` no `onKeyDown` do `Escape`, no clique fora e no botão `✕`;
 
 Faça o mesmo no `InlineFileView` para o botão `✕`.
 
-- [ ] **Step 5: Recarregar a página do HTML depois de salvar**
+- [ ] **Step 5: A prop `onSaved` no TextDocument**
 
-Dê ao `TextDocument` uma prop opcional `onSaved?: () => void`, chamada no `.then` de `salvar`. No `HtmlBody`, passe uma função que refaz a prévia:
+Em `web/src/components/TextDocument.tsx`, acrescente a prop opcional `onSaved?: () => void` à assinatura e chame-a no `.then` de `salvar`, depois de limpar o estado sujo:
 
 ```tsx
-  const recarregarPagina = () => {
-    createFilePreview(path, projectId)
-      .then((r) => setPreview({ status: 'ok', url: r.url }))
-      .catch(() => setPreview({ status: 'error' }))
-  }
+        setFileEditDirty(false)
+        onSaved?.()
 ```
+
+É o que faz a aba Página do HTML refletir o que acabou de ser gravado. Para os demais tipos a prop não é passada e nada muda.
 
 - [ ] **Step 6: Textos nos três idiomas**
 

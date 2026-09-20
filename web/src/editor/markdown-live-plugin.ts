@@ -72,8 +72,24 @@ const campo = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
+/**
+ * O que o cursor não pode atravessar: SÓ a tabela desenhada, que na tela não
+ * tem posições intermediárias.
+ *
+ * Nunca o conjunto inteiro de decorações. Marcar negrito, código ou link como
+ * atômico empurra o cursor para a borda do trecho, e clicar no meio de uma
+ * palavra em negrito passa a cair antes dela.
+ */
+export function rangesAtomicos(state: EditorState): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>()
+  const texto = state.doc.toString()
+  const linhaDoCursor = state.doc.lineAt(state.selection.main.head).number - 1
+  for (const d of markdownDecorations(texto, linhaDoCursor)) {
+    if (d.table) builder.add(d.from, d.to, Decoration.replace({}))
+  }
+  return builder.finish()
+}
+
 export function livePreview(): Extension {
-  // A tabela desenhada é atômica: o cursor pula por cima dela em vez de
-  // parar num "meio" que não existe na tela.
-  return [campo, EditorView.atomicRanges.of((view) => view.state.field(campo, false) ?? Decoration.none)]
+  return [campo, EditorView.atomicRanges.of((view) => rangesAtomicos(view.state))]
 }

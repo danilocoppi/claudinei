@@ -2844,6 +2844,10 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .code-editor--code .cm-content { font-family: var(--font-code); font-size: 13px; }
 
 /* --- markdown como documento ---
+   Regra dura: NADA de margem vertical nas classes de linha. O CodeMirror
+   monta o mapa de alturas medindo o bloco da linha, e margem fica de fora
+   dessa conta — o mapa encolhe e clicar numa linha põe o cursor na de baixo.
+   O espaçamento dos títulos vem de padding, que ele mede.
    A fonte tem de ser trocada no .cm-scroller: é nele que o CodeMirror crava
    monospace, e o .cm-content só herda. E o realce de sintaxe do markdown
    sublinha títulos — cara de fonte, não de documento; some. */
@@ -2851,11 +2855,11 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .code-editor--markdown .cm-line { padding: 0 2px; }
 .code-editor--markdown .cm-line span { text-decoration: none; }
 .cm-md-h1, .cm-md-h2, .cm-md-h3, .cm-md-h4, .cm-md-h5, .cm-md-h6 { font-weight: 700; line-height: 1.25; }
-.cm-md-h1 { font-size: 1.8em; margin: .6em 0 .3em; }
-.cm-md-h2 { font-size: 1.45em; margin: .6em 0 .3em; }
-.cm-md-h3 { font-size: 1.2em; margin: .5em 0 .25em; }
-.cm-md-h4 { font-size: 1.05em; margin: .5em 0 .25em; }
-.cm-md-h5, .cm-md-h6 { font-size: 1em; margin: .4em 0 .2em; opacity: .9; }
+.cm-md-h1 { font-size: 1.8em; padding: .6em 0 .3em; }
+.cm-md-h2 { font-size: 1.45em; padding: .6em 0 .3em; }
+.cm-md-h3 { font-size: 1.2em; padding: .5em 0 .25em; }
+.cm-md-h4 { font-size: 1.05em; padding: .5em 0 .25em; }
+.cm-md-h5, .cm-md-h6 { font-size: 1em; padding: .4em 0 .2em; opacity: .9; }
 .code-editor--markdown .cm-line.cm-md-list,
 .code-editor--markdown .cm-line.cm-md-ol { padding-left: 1.7em; position: relative; }
 .code-editor--markdown .cm-line.cm-md-list::before { content: '•'; position: absolute; left: .6em; opacity: .75; }

@@ -6,8 +6,9 @@ import { basename, dirname, extname, sep } from 'node:path'
 import { canAccessProject } from '../auth/guards.js'
 import { isTrustedLocal } from '../auth/plugin.js'
 import { hashContent } from '../files/hash.js'
+import { writeFileAtomic } from '../files/write.js'
 import { createPreviewStore, pathFromPreviewUrl, previewUrl, type PreviewStore } from '../files/preview.js'
-import { resolveInScope } from '../files/scope.js'
+import { isUnderProjectRoot, resolveInScope } from '../files/scope.js'
 import type { ProjectsService } from '../projects.js'
 
 const TEXT_CAP = 2 * 1024 * 1024 // 2 MB p/ texto/markdown/código
@@ -206,6 +207,36 @@ export function registerFileRoutes(
     // apagar o que o agente escreveu.
     reply.header('X-Content-Hash', hashContent(buf))
     return reply.send(buf)
+  })
+
+  /**
+   * Grava um arquivo de texto do projeto.
+   *
+   * A diferença para a leitura é deliberada: ler alcança qualquer caminho
+   * absoluto quando se é admin; gravar NÃO. Sem projeto, ou fora da raiz real
+   * dele, a resposta é 403 — inclusive para admin, inclusive via symlink (o
+   * realpath é que vale). Um clique perdido não pode alcançar ~/.ssh nem o
+   * banco do próprio Claudinei.
+   */
+  app.post('/api/files/write', async (req, reply) => {
+    const body = req.body as { path?: unknown; projectId?: unknown; content?: unknown; baseHash?: unknown }
+    const raw = typeof body?.path === 'string' ? body.path : ''
+    const content = typeof body?.content === 'string' ? body.content : null
+    const baseHash = typeof body?.baseHash === 'string' ? body.baseHash : ''
+    const projectId = typeof body?.projectId === 'number' ? body.projectId : undefined
+    if (!raw || content === null || !baseHash) return reply.code(400).send({ error: 'invalid_body' })
+
+    const project = projectFor(req, deps.projects, projectId)
+    if (!project) return reply.code(403).send({ error: 'forbidden' })
+    const r = resolveInScope(raw, project, isAdminReq(req))
+    if (!r.exists || !r.real) return reply.code(404).send({ error: 'not_found' })
+    if (!isUnderProjectRoot(r.real, project)) return reply.code(403).send({ error: 'forbidden' })
+
+    const atual = await readFile(r.real)
+    await writeFileAtomic(r.real, content, atual)
+    const hash = hashContent(await readFile(r.real))
+    req.log.info({ path: r.real, projectId: project.id, bytes: content.length }, 'arquivo gravado pelo visualizador')
+    return { hash }
   })
 
   /**

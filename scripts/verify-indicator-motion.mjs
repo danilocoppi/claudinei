@@ -87,6 +87,98 @@ try {
  await page.evaluate(()=>window.stopIndicatorMotion())
  assert.ok(await page.evaluate(()=>document.getAnimations().every(a=>a.effect.getKeyframes().length<10)),'Cleanup did not restore CSS frames')
  assert.deepEqual(errors,[])
- const result={status:'passed',sidebarStates:states,sidebarFaces:16,sidebarSizes:[20,22],originalAnimations:before,poses:poseResult.checked,maxNumericPoseDifference:poseResult.maxError,steadyJavaScriptFrames:0,offscreenPause:true,offscreenResume:true,hiddenPause:true,osReducedMotion:true,appReducedMotion:true,stateChanges:true,themeAndSizeRebuild:true,cleanup:true,recolored,errors}
+ // Mobile: a closed drawer must not measure thousands of invisible poses.
+ // Use the same CSS and real face markup, then exercise opening and resizing.
+ const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true})
+ mobile.on('pageerror',e=>errors.push(e.message))
+ await mobile.setContent(`<html data-theme="dark-fun" data-motion="full"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div class="app"><aside class="sidebar">${faces}</aside><main><div class="typing"><span></span><span></span><span></span></div></main></div></html>`)
+ await mobile.addScriptTag({content:bundle.outputFiles[0].text})
+ await mobile.evaluate(()=>{
+  window.measuredFaces=new Set();window.faceReads=0;window.poseBatches=new Set();window.batch=0
+  const raf=window.requestAnimationFrame
+  window.requestAnimationFrame=callback=>raf.call(window,time=>{window.batch++;callback(time)})
+  const style=window.getComputedStyle
+  window.getComputedStyle=(target,...args)=>{
+   const root=target.closest('.sidebar .agent-face')
+   if(root){window.measuredFaces.add(root);window.faceReads++}
+   // Make individual poses deliberately expensive so chunking is exercised on
+   // fast test machines too. Playback must resume between preparation batches.
+   if(target.matches('.typing span')){
+    window.poseBatches.add(window.batch)
+    const until=performance.now()+1
+    while(performance.now()<until){}
+   }
+   return style.call(window,target,...args)
+  }
+  window.stopMotion=IndicatorMotion.installIndicatorMotion()
+ })
+ await mobile.waitForFunction(()=>document.querySelector('.typing').getAnimations({subtree:true}).every(a=>a.effect.getKeyframes().length>10))
+ assert.ok(await mobile.evaluate(()=>window.poseBatches.size>1),'Slow poses were all measured in one frame')
+ await mobile.waitForTimeout(200)
+ assert.equal(await mobile.evaluate(()=>window.faceReads),0,'Closed drawer sampled hidden faces')
+ assert.ok(await mobile.evaluate(()=>document.querySelector('.sidebar').getAnimations({subtree:true}).every(a=>a.playState==='paused')))
+ await mobile.evaluate(()=>document.documentElement.dataset.theme='light-fun')
+ await mobile.waitForTimeout(200)
+ assert.equal(await mobile.evaluate(()=>window.faceReads),0,'Theme change sampled hidden faces')
+ await mobile.evaluate(()=>document.querySelector('.app').classList.add('nav-open'))
+ await mobile.waitForFunction(()=>document.querySelector('.sidebar').getAnimations({subtree:true}).every(a=>a.effect.getKeyframes().length>10&&a.playState==='running'))
+ await mobile.waitForTimeout(400)
+ await mobile.evaluate(()=>{
+  window.measuredFaces.clear()
+  document.querySelector('.sidebar .agent-face').style.setProperty('--face','32px')
+ })
+ await mobile.waitForFunction(()=>window.measuredFaces.size>0)
+ await mobile.waitForTimeout(200)
+ assert.ok(await mobile.evaluate(()=>window.measuredFaces.size===1&&window.measuredFaces.has(document.querySelector('.sidebar .agent-face'))),'Resizing one face resampled unrelated faces')
+ // Hold a touch longer than the quiet period, then simulate momentum scroll
+ // after pointercancel (the browser takes over the native scroll gesture).
+ await mobile.evaluate(()=>{
+  window.discoveryReads=0
+  const animations=document.getAnimations.bind(document)
+  document.getAnimations=()=>{window.discoveryReads++;return animations()}
+  document.dispatchEvent(new PointerEvent('pointerdown',{pointerId:7,pointerType:'touch'}))
+  document.documentElement.dataset.theme='dark-fun'
+  window.faceReads=0
+ })
+ await mobile.waitForTimeout(320)
+ assert.deepEqual(await mobile.evaluate(()=>[window.faceReads,window.discoveryReads]),[0,0],'Preparation ran during a held touch')
+ assert.ok(await mobile.evaluate(()=>document.querySelector('.sidebar').getAnimations({subtree:true}).some(a=>a.playState==='running')),'Touch froze native animation playback')
+ await mobile.evaluate(()=>document.dispatchEvent(new PointerEvent('pointercancel',{pointerId:7,pointerType:'touch'})))
+ for(let i=0;i<5;i++){
+  await mobile.evaluate(()=>document.querySelector('.sidebar').dispatchEvent(new Event('scroll')))
+  await mobile.waitForTimeout(70)
+ }
+ assert.deepEqual(await mobile.evaluate(()=>[window.faceReads,window.discoveryReads]),[0,0],'Preparation competed with momentum scroll')
+ await mobile.waitForFunction(()=>window.faceReads>0&&window.discoveryReads>0)
+ await mobile.waitForFunction(()=>document.querySelector('.sidebar').getAnimations({subtree:true}).every(a=>a.effect.getKeyframes().length>10))
+ // A switch away from the browser can swallow pointerup. Returning must recover.
+ await mobile.evaluate(()=>{
+  document.dispatchEvent(new PointerEvent('pointerdown',{pointerId:8,pointerType:'touch'}))
+  document.documentElement.dataset.theme='light-fun'
+  window.faceReads=0
+  Object.defineProperty(document,'hidden',{configurable:true,value:true})
+  document.dispatchEvent(new Event('visibilitychange'))
+ })
+ await mobile.waitForTimeout(220)
+ assert.equal(await mobile.evaluate(()=>window.faceReads),0,'Hidden page prepared indicator poses')
+ await mobile.evaluate(()=>{
+  Object.defineProperty(document,'hidden',{configurable:true,value:false})
+  document.dispatchEvent(new Event('visibilitychange'))
+ })
+ await mobile.waitForFunction(()=>window.faceReads>0)
+ await mobile.waitForFunction(()=>document.querySelector('.sidebar').getAnimations({subtree:true}).every(a=>a.effect.getKeyframes().length>10))
+ // Disposal must cancel both the quiet-period timer and deferred discovery.
+ await mobile.evaluate(()=>{
+  document.querySelector('.sidebar').dispatchEvent(new Event('scroll'))
+  document.documentElement.dataset.theme='dark-fun'
+  window.stopMotion()
+  window.faceReads=0
+  window.discoveryReads=0
+ })
+ await mobile.waitForTimeout(260)
+ assert.deepEqual(await mobile.evaluate(()=>[window.faceReads,window.discoveryReads]),[0,0],'Disposed controller resumed deferred work')
+ await mobile.close()
+ assert.deepEqual(errors,[])
+ const result={status:'passed',sidebarStates:states,sidebarFaces:16,sidebarSizes:[20,22],originalAnimations:before,poses:poseResult.checked,maxNumericPoseDifference:poseResult.maxError,steadyJavaScriptFrames:0,offscreenPause:true,offscreenResume:true,hiddenPause:true,osReducedMotion:true,appReducedMotion:true,stateChanges:true,themeAndSizeRebuild:true,mobileHiddenSampling:false,resizeOnlyAffectedFace:true,touchDefersPreparation:true,momentumScrollDefersPreparation:true,lostPointerRecovery:true,deferredCleanup:true,cleanup:true,recolored,errors}
  if (process.argv[2]) await writeFile(process.argv[2],JSON.stringify(result,null,2));console.log(JSON.stringify(result))
 } finally {await browser.close()}

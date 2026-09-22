@@ -2827,24 +2827,61 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .html-view__frame { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: var(--radius-sm); background: white; }
 
 /* Documento de texto editável no visualizador (TextDocument + CodeEditor).
-   Os tamanhos de título acompanham os do .markdown, para que ligar o editor
-   não mude o tamanho aparente do que já estava na tela. */
+
+   O editor de MARKDOWN tem de parecer o documento, não o fonte: fonte
+   proporcional do corpo, títulos com tamanho e respiro, listas com marcador,
+   tabela desenhada. Monospace fica só onde é código de verdade. O editor de
+   CÓDIGO (.html, .ts) é o oposto: monospace em tudo, como se espera. */
 .text-document__bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 8px; min-height: 28px; }
 .text-document__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .text-document__alert { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 8px;
   border: 1px solid var(--glass-border); border-radius: var(--radius-sm); color: var(--err); }
+
 .code-editor .cm-editor { background: transparent; }
 .code-editor .cm-editor.cm-focused { outline: none; }
-.code-editor .cm-content { font-family: monospace; font-size: 13px; }
 .code-editor .cm-gutters { background: transparent; border: 0; }
-.cm-md-h1 { font-size: 1.7em; font-weight: 700; }
-.cm-md-h2 { font-size: 1.45em; font-weight: 700; }
-.cm-md-h3 { font-size: 1.25em; font-weight: 600; }
-.cm-md-h4, .cm-md-h5, .cm-md-h6 { font-weight: 600; }
+.code-editor .cm-content { padding: 0; }
+.code-editor--code .cm-content { font-family: var(--font-code); font-size: 13px; }
+
+/* --- markdown como documento ---
+   Regra dura: NADA de margem vertical nas classes de linha. O CodeMirror
+   monta o mapa de alturas medindo o bloco da linha, e margem fica de fora
+   dessa conta — o mapa encolhe e clicar numa linha põe o cursor na de baixo.
+   O espaçamento dos títulos vem de padding, que ele mede.
+   A fonte tem de ser trocada no .cm-scroller: é nele que o CodeMirror crava
+   monospace, e o .cm-content só herda. E o realce de sintaxe do markdown
+   sublinha títulos — cara de fonte, não de documento; some. */
+.code-editor--markdown .cm-scroller { font-family: inherit; font-size: inherit; line-height: 1.6; }
+.code-editor--markdown .cm-line { padding: 0 2px; }
+.code-editor--markdown .cm-line span { text-decoration: none; }
+.cm-md-h1, .cm-md-h2, .cm-md-h3, .cm-md-h4, .cm-md-h5, .cm-md-h6 { font-weight: 700; line-height: 1.25; }
+.cm-md-h1 { font-size: 1.8em; padding: .6em 0 .3em; }
+.cm-md-h2 { font-size: 1.45em; padding: .6em 0 .3em; }
+.cm-md-h3 { font-size: 1.2em; padding: .5em 0 .25em; }
+.cm-md-h4 { font-size: 1.05em; padding: .5em 0 .25em; }
+.cm-md-h5, .cm-md-h6 { font-size: 1em; padding: .4em 0 .2em; opacity: .9; }
+.code-editor--markdown .cm-line.cm-md-list,
+.code-editor--markdown .cm-line.cm-md-ol { padding-left: 1.7em; position: relative; }
+.code-editor--markdown .cm-line.cm-md-list::before { content: '•'; position: absolute; left: .6em; opacity: .75; }
+.code-editor--markdown .cm-line.cm-md-quote { padding-left: .8em; }
+.cm-md-quote { border-left: 3px solid var(--accent); opacity: .85; font-style: italic; }
+.cm-md-rule { opacity: .35; }
 .cm-md-strong { font-weight: 700; }
 .cm-md-em { font-style: italic; }
 .cm-md-strike { text-decoration: line-through; opacity: .7; }
-.cm-md-code, .cm-md-codeblock { font-family: monospace; background: var(--surface); border-radius: var(--radius-xs); }
-.cm-md-fence { opacity: .5; }
-.cm-md-quote { border-left: 3px solid var(--glass-border); padding-left: 10px; opacity: .85; }
-.cm-md-link { color: var(--accent); }
+.cm-md-link { color: var(--accent); text-decoration: underline dotted; }
+.cm-md-code { font-family: var(--font-code); font-size: .92em;
+  background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent);
+  padding: 1px 5px; border-radius: var(--radius-xs); }
+.cm-md-codeblock, .cm-md-fence { font-family: var(--font-code); font-size: .92em;
+  background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); }
+.cm-md-fence { opacity: .45; }
+
+/* A tabela desenhada no lugar do bloco de pipes — mesmas regras da tabela
+   do markdown renderizado, para o editor não mudar a cara do documento. */
+.cm-md-table { border-collapse: collapse; margin: 10px 0; font-size: 12.5px; line-height: 1.45;
+  display: block; overflow-x: auto; max-width: 100%; width: max-content;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.cm-md-table th, .cm-md-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+.cm-md-table th { background: color-mix(in srgb, var(--sheen) calc(7% * var(--sheen-k)), transparent); font-weight: 600; white-space: nowrap; }
+.cm-md-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--sheen) calc(2.5% * var(--sheen-k)), transparent); }

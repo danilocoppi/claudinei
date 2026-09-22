@@ -71,3 +71,33 @@ describe.runIf(process.env.RUN_REAL === '1')('e2e com claude real', () => {
     await mgr.stop(info.localId)
   }, 360_000)
 })
+
+/**
+ * O seletor de modelos anuncia um número de versão ("Opus 5.5"), mas o que o
+ * Claudinei passa para a CLI é o ALIAS (`opus`), que aponta sempre para o Opus
+ * mais recente. Quando a família avançar, o rótulo vira mentira em silêncio —
+ * e ninguém percebe, porque nada no código liga um ao outro.
+ *
+ * Este teste é essa ligação: roda a CLI de verdade com o alias e confere que o
+ * modelo servido é o que a tela promete. Vermelho aqui = hora de atualizar o
+ * rótulo nos três idiomas.
+ */
+describe.runIf(process.env.RUN_REAL === '1')('o rótulo do seletor bate com o modelo servido', () => {
+  it('o alias `opus` serve o modelo que a UI anuncia', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { execFileSync } = await import('node:child_process')
+
+    const en = readFileSync(new URL('../../web/src/i18n/en.ts', import.meta.url).pathname, 'utf8')
+    const rotulo = /modelOpus:\s*'([^']+)'/.exec(en)?.[1] ?? ''
+    const versaoAnunciada = /(\d+(?:\.\d+)?)/.exec(rotulo)?.[1]
+    expect(versaoAnunciada, `o rótulo "${rotulo}" não traz versão`).toBeTruthy()
+
+    const saida = execFileSync('claude', ['-p', '--model', 'opus', '--output-format', 'json', 'responda apenas: ok'],
+      { encoding: 'utf8', timeout: 120_000 })
+    const servido = Object.keys(JSON.parse(saida).modelUsage ?? {}).find((m) => m.includes('opus')) ?? ''
+
+    // "5.5" no rótulo ↔ "claude-opus-5-5" no modelo servido
+    expect(servido, `a UI anuncia Opus ${versaoAnunciada}, a CLI serviu ${servido}`)
+      .toContain(`opus-${versaoAnunciada!.replace('.', '-')}`)
+  }, 180_000)
+})

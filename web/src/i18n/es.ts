@@ -161,7 +161,7 @@ export const es: typeof en = {
     title: 'Nueva sesión',
     engine: 'Engine',
     model: 'Modelo', modelDesc: 'Predeterminado usa tu configuración de Claude; elige un modelo específico si prefieres.',
-    modelDefault: 'Predeterminado', modelFable: 'Fable (más capaz)', modelOpus: 'Opus', effortAuto: 'auto (predeterminado)', effortUltracodeHint: 'ultracode aplica solo a esta sesión (no se restaura al reiniciar).',
+    modelDefault: 'Predeterminado', modelFable: 'Fable (más capaz)', modelOpus: 'Opus 5.5', effortAuto: 'auto (predeterminado)', effortUltracodeHint: 'ultracode aplica solo a esta sesión (no se restaura al reiniciar).',
     modelSonnet: 'Sonnet', modelHaiku: 'Haiku (más rápido)',
     continueTitle: 'Continuar conversación', continueDesc: 'Retoma la última conversación de esta carpeta, si existe.',
     skipTitle: 'Omitir permisos', skipDesc: 'Claude ejecuta comandos sin pedir tu confirmación en cada paso.',

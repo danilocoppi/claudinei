@@ -9,7 +9,13 @@ import { EngineIcon } from './EngineIcon'
 import { Icon } from './Icon'
 
 /** Chaves i18n dos rótulos de modelo conhecidos (hoje só os do Claude). Modelos
- * sem entrada aqui (ex.: Codex) usam o próprio id como label. */
+ * sem entrada aqui (ex.: Codex) usam o próprio id como label.
+ *
+ * O valor enviado é o ALIAS (`opus`, `sonnet`…), que a CLI resolve sempre para o
+ * mais recente da família — por isso um modelo novo chega sem mexer em nada
+ * aqui. O rótulo, porém, carrega o número da versão, e esse número envelhece em
+ * silêncio: quem guarda os dois juntos é o teste "o rótulo do seletor bate com o
+ * modelo servido" (server/test/e2e-real.test.ts, RUN_REAL=1). */
 const MODEL_KEY: Record<string, string> = {
   '': 'session.modelDefault', fable: 'session.modelFable', opus: 'session.modelOpus', sonnet: 'session.modelSonnet', haiku: 'session.modelHaiku',
 }

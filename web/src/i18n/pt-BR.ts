@@ -161,7 +161,7 @@ export const ptBR: typeof en = {
     title: 'Nova sessão',
     engine: 'Engine',
     model: 'Modelo', modelDesc: 'Padrão usa a configuração do Claude; escolha um modelo específico se preferir.',
-    modelDefault: 'Padrão', modelFable: 'Fable (mais capaz)', modelOpus: 'Opus', effortAuto: 'auto (padrão)', effortUltracodeHint: 'ultracode vale só para esta sessão (não volta após reiniciar).',
+    modelDefault: 'Padrão', modelFable: 'Fable (mais capaz)', modelOpus: 'Opus 5.5', effortAuto: 'auto (padrão)', effortUltracodeHint: 'ultracode vale só para esta sessão (não volta após reiniciar).',
     modelSonnet: 'Sonnet', modelHaiku: 'Haiku (mais rápido)',
     continueTitle: 'Continuar conversa', continueDesc: 'Retoma a última conversa desta pasta, se houver uma.',
     skipTitle: 'Pular permissões', skipDesc: 'O Claude executa comandos sem pedir sua confirmação a cada passo.',

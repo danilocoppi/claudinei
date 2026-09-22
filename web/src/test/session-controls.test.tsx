@@ -71,7 +71,7 @@ describe('SessionControls', () => {
     // o pill não exibe mais o texto do modelo — só a engrenagem
     expect(screen.getByTestId('session-controls-pill').textContent).toContain('⚙')
     fireEvent.click(screen.getByTestId('session-controls-pill'))
-    expect(screen.getByText('Opus')).toBeTruthy() // o modelo aparece no popover
+    expect(screen.getByText(/^Opus\b/)).toBeTruthy() // o modelo aparece no popover
     expect(screen.getByText('Plano')).toBeTruthy() // label pt do modo plan (setup fixa pt-BR)
   })
 
@@ -91,13 +91,13 @@ describe('SessionControls', () => {
       expect(pill.disabled).toBe(false)
       expect(pill.title).toContain('aguarde o turno atual terminar')
       fireEvent.click(pill)
-      expect(screen.getByText('Opus')).toBeTruthy()
+      expect(screen.getByText(/^Opus\b/)).toBeTruthy()
     })
 
     it('clicar num modelo durante o turno não dispara PATCH (e o item aparece inerte)', () => {
       render(<SessionControls session={sess({ status: 'working' })} />)
       fireEvent.click(screen.getByTestId('session-controls-pill'))
-      const item = screen.getByText('Opus').closest('.sess-pop__item') as HTMLElement
+      const item = screen.getByText(/^Opus\b/).closest('.sess-pop__item') as HTMLElement
       expect(item.className).toContain('sess-pop__item--off')
       fireEvent.click(item)
       // abrir o popover busca o limiar do auto-compact (GET) — o que não pode
@@ -117,7 +117,7 @@ describe('SessionControls', () => {
     it('sessão ociosa: modelo continua clicável e faz PATCH', async () => {
       render(<SessionControls session={sess()} />)
       fireEvent.click(screen.getByTestId('session-controls-pill'))
-      fireEvent.click(screen.getByText('Opus'))
+      fireEvent.click(screen.getByText(/^Opus\b/))
       await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/sessions/s1/options',
         expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ model: 'opus' }) }),

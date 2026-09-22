@@ -159,7 +159,7 @@ export const en = {
     title: 'New session',
     engine: 'Engine',
     model: 'Model', modelDesc: 'Default uses your Claude configuration; pick a specific model if you prefer.',
-    modelDefault: 'Default', modelFable: 'Fable (most capable)', modelOpus: 'Opus', effortAuto: 'auto (default)', effortUltracodeHint: 'ultracode applies to this session only (not restored after restart).',
+    modelDefault: 'Default', modelFable: 'Fable (most capable)', modelOpus: 'Opus 5.5', effortAuto: 'auto (default)', effortUltracodeHint: 'ultracode applies to this session only (not restored after restart).',
     modelSonnet: 'Sonnet', modelHaiku: 'Haiku (fastest)',
     continueTitle: 'Continue conversation', continueDesc: 'Resumes the latest conversation of this folder, if any.',
     skipTitle: 'Skip permissions', skipDesc: 'Claude runs commands without asking for your confirmation at each step.',

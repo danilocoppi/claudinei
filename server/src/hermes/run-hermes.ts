@@ -72,7 +72,11 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
   server.registerTool(
     'list_projects',
     {
-      description: 'Lists the other Claudinei projects and whether each one has an active session (with whom you can talk).',
+      description:
+        'Lists the Claudinei projects you can reach and whether each one has an agent session running right now. '
+        + 'Call it before ask_agent or dispatch_task: the names it prints are the routing key those tools expect, so copy them verbatim. '
+        + 'Returns one line per project, with "(active)" marking the ones with a live session; your own project is in the list too, so skip your own name. '
+        + 'A project with no active session can still receive dispatch_task (the task waits in the queue), but cannot answer ask_agent.',
       inputSchema: {},
     },
     async () => {
@@ -85,10 +89,13 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
     'ask_agent',
     {
       description:
-        'Sends a question to the Claude agent of ANOTHER project and returns its answer. Use to request information or coordinate. The target project needs an active session.',
+        "Asks the agent of another project a question and waits for its answer, which comes back as this tool's result. "
+        + 'Use it when you cannot continue without the answer; when you just want work done, use dispatch_task instead. '
+        + 'The call blocks for up to 120 seconds and fails when the target project has no idle session — an agent in the middle of a turn is skipped, not queued, so a busy project returns an error to retry later or to replace with dispatch_task. '
+        + "What comes back is the other agent's own reply text, not a delivery status.",
       inputSchema: {
-        project: z.string().describe('name of the target project'),
-        question: z.string().describe('the question'),
+        project: z.string().describe('exact project name, as list_projects prints it'),
+        question: z.string().describe('the question, self-contained: the other agent cannot see your conversation'),
       },
     },
     async ({ project, question }) => {
@@ -103,10 +110,14 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
   server.registerTool(
     'post_to_board',
     {
-      description: 'Publishes a notice/finding to the shared board, visible to all agents and the operator.',
+      description:
+        'Publishes a notice to the shared board, visible to every agent and to the operator. '
+        + 'Use it for what others may need but nobody asked for yet: a decision taken, an interface that changed, a trap found. '
+        + 'It notifies nobody and waits for nothing — another agent only sees it when that agent calls read_board. '
+        + 'Rejected above the size limits below.',
       inputSchema: {
-        title: z.string(),
-        content: z.string(),
+        title: z.string().describe('one-line subject, at most 500 characters'),
+        content: z.string().describe('the body of the notice, at most 50000 characters'),
       },
     },
     async ({ title, content }) => {
@@ -121,9 +132,12 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
   server.registerTool(
     'read_board',
     {
-      description: 'Reads the latest notices posted to the shared board by agents.',
+      description:
+        'Reads the latest notices posted to the shared board, by other agents and by you. '
+        + 'Call it when picking up work or before coordinating, to see what has already been decided elsewhere. '
+        + 'Returns the posts as text, each one prefixed with the project that wrote it; the board is shared by every project, so entries unrelated to yours are normal.',
       inputSchema: {
-        limit: z.number().optional(),
+        limit: z.number().optional().describe('how many posts to read (default 50)'),
       },
     },
     async ({ limit }) => {
@@ -136,10 +150,13 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
     'dispatch_task',
     {
       description:
-        'Delegates a TASK to the agent of another project without waiting (asynchronous). Use to coordinate parallel work. Check list_tasks afterwards to see the result.',
+        "Delegates a task to another project's agent and returns immediately, without waiting for the work to be done. "
+        + 'Use it to run work in parallel; when you cannot continue without the answer, use ask_agent instead. '
+        + 'The task is queued even when the target has no session running, so it does not fail for unavailability — it starts once that project has an agent. '
+        + 'What comes back is a task id: call list_tasks later to read the outcome.',
       inputSchema: {
-        project: z.string().describe('name of the target project'),
-        task: z.string().describe('the task to be executed'),
+        project: z.string().describe('exact project name, as list_projects prints it'),
+        task: z.string().describe('what to do, self-contained: the other agent cannot see your conversation'),
       },
     },
     async ({ project, task }) => {
@@ -154,7 +171,10 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
   server.registerTool(
     'list_tasks',
     {
-      description: 'Lists the dispatched tasks and the status of each one (queued/in_progress/completed/failed), with the result when ready.',
+      description:
+        'Lists dispatched tasks with the status of each one (queued, in_progress, completed, failed) and the result text once it is ready. '
+        + 'Call it to collect what you delegated with dispatch_task — a dispatch returns only an id, and this is where the outcome shows up. '
+        + 'Each line carries the task id, so match on the id the dispatch gave you rather than on position.',
       inputSchema: {},
     },
     async () => {

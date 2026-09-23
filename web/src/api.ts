@@ -27,6 +27,11 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const fetchProjects = () => req<Project[]>('/api/projects')
 
+export function fetchProjectFiles(projectId: number, path: string, query: string, offset: number, signal?: AbortSignal) {
+  const params = new URLSearchParams({ projectId: String(projectId), path, query, offset: String(offset) })
+  return req<import('../../shared/project-files').ProjectFileListing>(`/api/files/list?${params}`, { signal })
+}
+
 /** Ações de um terminal: comandos salvos para repetir com um clique. */
 export interface Action {
   id: number; projectId: number; name: string; commands: string[]

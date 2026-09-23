@@ -26,6 +26,17 @@ describe('Codex model catalog', () => {
     expect(codexCatalog([null, model('--flag'), model('broken', ['evil'])])).toBeNull()
     expect(codexCatalog([model('valid', ['max', 'max', 'evil'])])?.modelOptions?.valid.efforts).toEqual(['max'])
   })
+  it('preserva o nome publicado pela CLI separado do id e aceita catálogo futuro', () => {
+    const c = codexCatalog([
+      { ...model('gpt-next'), displayName: ' GPT Next ' },
+      { ...model('unnamed'), displayName: { invalid: true } },
+      { ...model('blank'), displayName: '  ' },
+    ])!
+    expect(c.models).toEqual(['', 'gpt-next', 'unnamed', 'blank'])
+    expect(c.modelOptions?.['gpt-next'].displayName).toBe('GPT Next')
+    expect(c.modelOptions?.unnamed.displayName).toBeUndefined()
+    expect(c.modelOptions?.blank.displayName).toBeUndefined()
+  })
 })
 
 describe('Codex account limits', () => {
@@ -70,6 +81,13 @@ describe('Codex metadata cache', () => {
     const s = createCodexMetadataService({ read: async () => ({}) })
     await s.refresh()
     expect(s.catalog().models).toContain('gpt-6-astra')
+    expect(s.catalog().models).toContain('gpt-6-sol')
+    expect(s.catalog().models).toContain('gpt-6-luna')
+    expect(s.catalog().models).not.toContain('gpt-5.4-mini')
+    expect(s.catalog().modelOptions?.['gpt-6-sol']).toMatchObject({ displayName: 'GPT-6-Sol', defaultEffort: 'medium' })
+    expect(effortsForModel(s.catalog(), 'gpt-6-sol')).toContain('ultra')
+    expect(effortsForModel(s.catalog(), 'gpt-6-luna')).toContain('max')
+    expect(effortsForModel(s.catalog(), 'gpt-6-luna')).not.toContain('ultra')
     expect(effortsForModel(s.catalog(), 'gpt-5.6-luna')).toContain('max')
     expect(effortsForModel(s.catalog(), 'gpt-5.6-luna')).not.toContain('ultra')
     expect(await s.getLimits()).toEqual([])

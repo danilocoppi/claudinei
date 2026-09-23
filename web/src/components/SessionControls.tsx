@@ -6,10 +6,10 @@ import { fetchAutoCompact, putAutoCompact, setSessionOptions, type PermissionMod
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
 import { MODE_KEY, MODE_COLOR } from '../permissionLabels'
-import { effortsForModel } from '../../../shared/engine-options'
+import { effortsForModel, modelDisplayName } from '../../../shared/engine-options'
 
 /** Chaves i18n dos rótulos de modelo conhecidos (hoje só os do Claude). Modelos
- * sem entrada aqui (ex.: Codex) usam o próprio id como label. */
+ * sem entrada aqui usam o nome retornado pela engine, ou o id como fallback. */
 const MODEL_KEY: Record<string, string> = { '': 'session.modelDefault', fable: 'session.modelFable', opus: 'session.modelOpus', sonnet: 'session.modelSonnet', haiku: 'session.modelHaiku' }
 
 export function SessionControls({ session }: { session: SessionInfo }) {
@@ -121,7 +121,7 @@ export function SessionControls({ session }: { session: SessionInfo }) {
                    className={`sess-pop__item ${m === model ? 'active' : ''}${busy ? ' sess-pop__item--off' : ''}`}
                    title={busy ? t('controls.workingHint') : undefined}
                    onClick={() => { if (!busy) void apply({ model: m }) }}>
-                <span>{MODEL_KEY[m] ? t(MODEL_KEY[m] as any) : m}</span>{m === model && <span className="sess-pop__check">✓</span>}
+                <span>{MODEL_KEY[m] ? t(MODEL_KEY[m] as any) : modelDisplayName(engine, m)}</span>{m === model && <span className="sess-pop__check">✓</span>}
               </div>
             ))}
             <div className="sess-pop__eyebrow">{t('controls.effort')}</div>

@@ -9,6 +9,8 @@ import { hashContent } from '../files/hash.js'
 import { writeFileAtomic } from '../files/write.js'
 import { createPreviewStore, pathFromPreviewUrl, previewUrl, type PreviewStore } from '../files/preview.js'
 import { isUnderProjectRoot, resolveInScope } from '../files/scope.js'
+import { listProjectFiles } from '../files/list.js'
+import { z } from 'zod'
 import type { ProjectsService } from '../projects.js'
 
 const TEXT_CAP = 2 * 1024 * 1024 // 2 MB p/ texto/markdown/código
@@ -134,6 +136,27 @@ export function registerFileRoutes(
   deps: { projects: ProjectsService; revealInFolder?: (dir: string) => void; previews?: PreviewStore },
 ): void {
   const previews = deps.previews ?? createPreviewStore()
+
+  app.get('/api/files/list', async (req, reply) => {
+    const parsed = z.object({
+      projectId: z.coerce.number().int().positive(),
+      path: z.string().max(4096).refine(value => !value.includes('\0')).default(''),
+      query: z.string().max(256).default(''),
+      offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+    }).safeParse(req.query)
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' })
+    const { projectId, path, query, offset } = parsed.data
+    const project = projectFor(req, deps.projects, projectId)
+    if (!project) return reply.code(403).send({ error: 'forbidden_project' })
+    reply.header('Cache-Control', 'no-store')
+    try { return await listProjectFiles(project.path, path, query, offset) } catch (err) {
+      if ((err as Error).message === 'outside_project') return reply.code(403).send({ error: 'outside_project' })
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return reply.code(404).send({ error: 'directory_not_found' })
+      if (code === 'EACCES' || code === 'EPERM') return reply.code(403).send({ error: 'directory_unreadable' })
+      return reply.code(500).send({ error: 'directory_unavailable' })
+    }
+  })
 
   // Abre o gerenciador de arquivos na pasta do arquivo. O caminho NUNCA vai cru
   // para o SO: passa pelo mesmo resolveInScope das outras rotas, então o

@@ -7,15 +7,19 @@ const regular = ['low', 'medium', 'high', 'xhigh']
 const extended = [...regular, 'max']
 const delegated = [...extended, 'ultra']
 const modelOptions: Record<string, ModelOptions> = {
-  'gpt-6-astra': { efforts: delegated, defaultEffort: 'low' },
-  'gpt-5.6-sol': { efforts: delegated, defaultEffort: 'low' },
-  'gpt-5.6-terra': { efforts: delegated, defaultEffort: 'medium' },
-  'gpt-5.6-luna': { efforts: extended, defaultEffort: 'medium' },
-  'gpt-5.5': { efforts: regular, defaultEffort: 'medium' },
-  'gpt-5.4-mini': { efforts: regular, defaultEffort: 'medium' },
+  'gpt-6-astra': { displayName: 'GPT-6-Astra', efforts: delegated, defaultEffort: 'medium' },
+  'gpt-6-sol': { displayName: 'GPT-6-Sol', efforts: delegated, defaultEffort: 'medium' },
+  'gpt-6-luna': { displayName: 'GPT-6-Luna', efforts: extended, defaultEffort: 'medium' },
+  'gpt-5.6-sol': { displayName: 'GPT-5.6-Sol', efforts: delegated, defaultEffort: 'low' },
+  'gpt-5.6-terra': { displayName: 'GPT-5.6-Terra', efforts: delegated, defaultEffort: 'medium' },
+  'gpt-5.6-luna': { displayName: 'GPT-5.6-Luna', efforts: extended, defaultEffort: 'medium' },
+  'gpt-5.5': { displayName: 'GPT-5.5', efforts: regular, defaultEffort: 'medium' },
 }
 
-/** Fallback verificado com codex-cli 0.153.4 em 2026-09-06. model/list prevalece. */
+/** Fallback verificado com model/list do codex-cli 0.156.1 em 2026-09-23.
+ * A lista da conta/CLI prevalece, inclusive para modelos antigos ainda disponíveis.
+ * https://learn.chatgpt.com/docs/models
+ */
 export const CODEX_FALLBACK_CATALOG: ModelCatalog = {
   models: ['', ...Object.keys(modelOptions)],
   efforts: ['auto', ...delegated],

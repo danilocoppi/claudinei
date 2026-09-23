@@ -20,6 +20,24 @@ const clickAndChoosePopup = (link: Element) => {
 }
 
 describe('MessageBlock — paths de arquivo clicáveis', () => {
+  it.each(['./README', './.env', './src/ação "nova".tsx'])('referência @! %s vira um único link no projeto da mensagem', async path => {
+    const openFile = vi.fn()
+    useStore.setState({
+      sessions: { s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'codex' } },
+      openFile,
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson([{ path, exists: true, inScope: true, kind: 'text', size: 10 }]))
+    const reference = JSON.stringify(path)
+    render(<><MessageBlock item={{ kind: 'user_text', text: `veja ${reference}` }} currentLocalId="s1" /><FileOpenMenu /></>)
+    const link = await screen.findByRole('link', { name: reference })
+    expect(document.querySelectorAll('.file-link')).toHaveLength(1)
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/files/resolve', expect.objectContaining({
+      body: JSON.stringify({ paths: [path], projectId: 7 }),
+    }))
+    clickAndChoosePopup(link)
+    expect(openFile).toHaveBeenCalledWith(path, 'text', 7)
+  })
+
   it('base repetida confirmada pelo servidor mantém o texto e abre no projeto da conversa', async () => {
     const path = 'backend/docs/plano-correcoes-2026-09-16.md'
     useStore.setState({

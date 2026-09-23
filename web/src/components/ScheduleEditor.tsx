@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { previewCadence, type Cadence, type Schedule } from '../api'
 import { useStore } from '../store'
 import { defaultCadence, formatRunTimes } from '../cadenceText'
-import { effortsForModel } from '../../../shared/engine-options'
+import { effortsForModel, modelDisplayName } from '../../../shared/engine-options'
 
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -60,22 +60,22 @@ export function ScheduleEditor({
   // engine, em vez de fingir que as do Claude servem para um terminal que roda Codex.
   const chosen = engine ? engines.filter((e) => e.id === engine) : engines
   const modelGroups = chosen
-    .map((e) => ({ label: e.label, items: (e.models ?? []).filter(Boolean) }))
+    .map((e) => ({ label: e.label, items: (e.models ?? []).filter(Boolean).map((value) => ({ value, label: modelDisplayName(e, value) })) }))
     .filter((g) => g.items.length > 0)
   const effortGroups = chosen
-    .map((e) => ({ label: e.label, items: (model ? effortsForModel(e, model) : e.efforts).filter(Boolean) }))
+    .map((e) => ({ label: e.label, items: (model ? effortsForModel(e, model) : e.efforts).filter(Boolean).map((value) => ({ value, label: value })) }))
     .filter((g) => g.items.length > 0)
   const grouped = !engine && chosen.length > 1
 
   /** Opções agrupadas por engine só quando há mais de uma em jogo. */
-  const options = (groups: { label: string; items: string[] }[]) =>
+  const options = (groups: { label: string; items: { value: string; label: string }[] }[]) =>
     grouped
       ? groups.map((g) => (
         <optgroup key={g.label} label={g.label}>
-          {g.items.map((v) => <option key={`${g.label}-${v}`} value={v}>{v}</option>)}
+          {g.items.map((v) => <option key={`${g.label}-${v.value}`} value={v.value}>{v.label}</option>)}
         </optgroup>
       ))
-      : groups.flatMap((g) => g.items.map((v) => <option key={v} value={v}>{v}</option>))
+      : groups.flatMap((g) => g.items.map((v) => <option key={v.value} value={v.value}>{v.label}</option>))
 
   const save = async () => {
     setSaving(true)

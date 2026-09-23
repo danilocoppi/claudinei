@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from './store'
-import { fetchAppearance, fetchEngines, fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
+import { fetchAppearance, fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
 import { Sidebar } from './components/Sidebar'
@@ -18,6 +18,7 @@ import { MobileTopbar } from './components/MobileTopbar'
 import { initNotifications } from './notifications'
 import { installIndicatorMotion } from './indicatorMotion'
 import { useAccessHours } from './useAccessHours'
+import { useEngineCatalog } from './useEngineCatalog'
 import { AccessLocked } from './components/AccessLocked'
 import './access-hours.css'
 
@@ -56,6 +57,7 @@ export default function App() {
   const authStatus = useStore((s) => s.authStatus)
   const setAuth = useStore((s) => s.setAuth)
   useAccessHours()
+  useEngineCatalog(authStatus === 'ready')
 
   useEffect(() => installIndicatorMotion(), [])
 
@@ -113,8 +115,6 @@ export default function App() {
     // Pré-carrega a lista de slash commands (persistida no backend) para o
     // autocomplete do chat mostrar tudo já no primeiro `/`, sem esperar a 1ª msg.
     fetchSlashCommands().then((cmds) => useStore.getState().setSlashCommands(cmds)).catch(() => {})
-    // Metadados por engine (models/efforts/permissions/slash) p/ a UX se adaptar (SP-C).
-    fetchEngines().then((engines) => useStore.getState().setEngines(engines)).catch(() => {})
   }, [authStatus])
 
   useEffect(() => {

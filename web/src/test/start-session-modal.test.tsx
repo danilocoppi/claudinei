@@ -3,6 +3,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { StartSessionModal } from '../components/StartSessionModal'
 import { useStore } from '../store'
 import type { EngineMeta, Project } from '../types'
+import { CODEX_FALLBACK_CATALOG } from '../../../shared/codex-models'
 
 const project: Project = { id: 1, name: 'AiShiba', path: '/tmp/a', color: '#ff0000', icon: '🐕' }
 
@@ -37,6 +38,21 @@ afterEach(() => {
 })
 
 describe('StartSessionModal', () => {
+  it('mostra os nomes atuais do Codex e persiste o id escolhido', async () => {
+    useStore.setState({ engines: [{ ...CODEX, ...CODEX_FALLBACK_CATALOG }] })
+    localStorage.setItem('claudinei:lastEngine', 'codex')
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      okJson({ localId: 'c6', projectId: 1, engine: 'codex', status: 'starting', engineSessionId: null, updatedAt: 'x' }, 201))
+    render(<StartSessionModal project={project} onClose={() => {}} />)
+    const select = screen.getByLabelText(/Modelo/) as HTMLSelectElement
+    expect(screen.getByRole('option', { name: 'GPT-6-Luna' }).getAttribute('value')).toBe('gpt-6-luna')
+    expect(screen.queryByRole('option', { name: /5.4/ })).toBeNull()
+    fireEvent.change(select, { target: { value: 'gpt-6-luna' } })
+    fireEvent.click(screen.getByText('Iniciar sessão'))
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith('/api/projects/1/sessions',
+      expect.objectContaining({ body: JSON.stringify({ continueConversation: true, model: 'gpt-6-luna', engine: 'codex' }) })))
+    await vi.waitFor(() => expect(localStorage.getItem('claudinei:lastModel:codex')).toBe('gpt-6-luna'))
+  })
   it('renderiza com o checkbox de continuar marcado e o modo de permissão em "Pular permissões" por padrão', () => {
     render(<StartSessionModal project={project} onClose={() => {}} />)
     const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]

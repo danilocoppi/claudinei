@@ -34,19 +34,27 @@ function candidateRanges(text: string): PathRange[] {
   const masked = text.replace(URL_RE, (m) => ' '.repeat(m.length))
 
   const ranges: PathRange[] = []
+  // Referências inseridas pelo @!: JSON string de um relativo explícito. Assim
+  // README, .env, Unicode, espaços, aspas e barras invertidas continuam um único
+  // caminho exato, sem depender do cache efêmero dos anexos de upload.
+  for (const m of masked.matchAll(/"\.\/(?:[^"\\\r\n]|\\.)*"/g)) {
+    try {
+      const path: unknown = JSON.parse(m[0])
+      if (typeof path === 'string' && path.length > 2) ranges.push({ start: m.index, end: m.index + m[0].length, path })
+    } catch { /* aspas digitadas incompletas não formam referência */ }
+  }
+  const overlaps = (start: number, end: number) => ranges.some((r) => start < r.end && end > r.start)
   for (const m of masked.matchAll(ABSOLUTE_RE)) {
+    if (overlaps(m.index, m.index + m[0].length)) continue
     ranges.push({ start: m.index, end: m.index + m[0].length, path: m[0] })
   }
-
-  const overlapsAbsolute = (start: number, end: number) =>
-    ranges.some((r) => start < r.end && end > r.start)
 
   for (const m of masked.matchAll(RELATIVE_RE)) {
     const start = m.index
     const end = start + m[0].length
     // Descarta o "docs/notas.md" residual de dentro de um "~/docs/notas.md" já achado
     // (mesma lógica pro "home/user/a.ts" dentro de "/home/user/a.ts").
-    if (overlapsAbsolute(start, end)) continue
+    if (overlaps(start, end)) continue
     ranges.push({ start, end, path: m[0] })
   }
 

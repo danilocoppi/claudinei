@@ -42,7 +42,7 @@ describe('SessionControls', () => {
     it('Astra oferece max/ultra e envia ultra pelo PATCH, sem mensagem ao agente', async () => {
       const send = renderWithWs(sess({ engine: 'codex', model: 'gpt-6-astra' }))
       fireEvent.click(screen.getByTestId('session-controls-pill'))
-      expect(screen.getByText('gpt-6-astra')).toBeTruthy()
+      expect(screen.getByText('GPT-6-Astra')).toBeTruthy()
       expect(screen.getByText('max')).toBeTruthy()
       fireEvent.click(screen.getByText('ultra'))
       await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/s1/options',
@@ -50,7 +50,7 @@ describe('SessionControls', () => {
       expect(send).not.toHaveBeenCalled()
     })
     it.each([
-      ['gpt-5.6-luna', true], ['gpt-5.5', false],
+      ['gpt-6-luna', true], ['gpt-5.6-luna', true], ['gpt-5.5', false],
     ])('%s mostra apenas os efforts que suporta', (model, hasMax) => {
       renderWithWs(sess({ engine: 'codex', model }))
       fireEvent.click(screen.getByTestId('session-controls-pill'))
@@ -64,6 +64,14 @@ describe('SessionControls', () => {
       fireEvent.click(screen.getByTestId('session-controls-pill'))
       expect(screen.queryByText('max')).toBeNull()
       expect(screen.queryByText('ultra')).toBeNull()
+    })
+    it('exibe o nome do Sol novo, mas envia o id da CLI ao trocar', async () => {
+      renderWithWs(sess({ engine: 'codex', model: 'gpt-5.6-sol' }))
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      expect(screen.getByText('GPT-5.6-Sol').closest('.sess-pop__item')?.classList.contains('active')).toBe(true)
+      fireEvent.click(screen.getByText('GPT-6-Sol'))
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/s1/options',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ model: 'gpt-6-sol' }) })))
     })
   })
   it('pill discreto (só engrenagem) abre o popover mostrando o modelo atual', () => {

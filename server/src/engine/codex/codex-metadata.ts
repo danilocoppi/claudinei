@@ -12,7 +12,11 @@ export function codexCatalog(rows: unknown[], configuredModel?: string): ModelCa
     const efforts: string[] = [...new Set<string>((Array.isArray(m.supportedReasoningEfforts) ? m.supportedReasoningEfforts : [])
       .map((e: any) => e?.reasoningEffort).filter((e: unknown) => typeof e === 'string' && CODEX_EFFORTS.includes(e)))]
     if (!efforts.length) continue
-    modelOptions[m.model] = { efforts, defaultEffort: efforts.includes(m.defaultReasoningEffort) ? m.defaultReasoningEffort : efforts[0] }
+    const displayName = typeof m.displayName === 'string' ? m.displayName.trim() : ''
+    modelOptions[m.model] = {
+      ...(displayName ? { displayName } : {}),
+      efforts, defaultEffort: efforts.includes(m.defaultReasoningEffort) ? m.defaultReasoningEffort : efforts[0],
+    }
     if (m.isDefault) defaultModel = m.model
   }
   const models = Object.keys(modelOptions)

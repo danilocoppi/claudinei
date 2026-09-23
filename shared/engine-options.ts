@@ -1,6 +1,12 @@
 export interface ModelOptions {
+  /** Nome publicado pela engine; o id continua sendo enviado à CLI. */
+  displayName?: string
   efforts: string[]
   defaultEffort: string
+}
+
+export function modelDisplayName(catalog: ModelCatalog | undefined, model: string): string {
+  return catalog?.modelOptions?.[model]?.displayName || model
 }
 
 export interface ModelCatalog {

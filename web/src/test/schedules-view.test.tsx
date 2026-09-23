@@ -205,33 +205,44 @@ describe('editor', () => {
     useStore.setState({
       engines: [
         CLAUDE,
-        { ...CLAUDE, id: 'codex', label: 'Codex', models: ['', 'gpt-5.6-sol'], efforts: ['xhigh'] },
+        { ...CLAUDE, id: 'codex', label: 'Codex', models: ['', 'gpt-6-sol'], efforts: ['xhigh'],
+          modelOptions: { 'gpt-6-sol': { displayName: 'GPT-6-Sol', efforts: ['xhigh'], defaultEffort: 'xhigh' } } },
       ],
     })
     stubFetch()
     render(<SchedulesView />)
     fireEvent.click(await screen.findByText(/novo|new/i))
     const model = await screen.findByTestId('sched-model')
-    expect(within(model).getByText('gpt-5.6-sol')).toBeTruthy()
+    expect(within(model).getByText('GPT-6-Sol').getAttribute('value')).toBe('gpt-6-sol')
     expect(within(model).getByText('opus')).toBeTruthy()
     expect(model.querySelectorAll('optgroup').length).toBe(2)
   })
 
-  it('escolhida a engine, só os modelos dela aparecem', async () => {
+  it('escolhida a engine, mostra seus nomes e salva o id do modelo', async () => {
     useStore.setState({
       engines: [
         CLAUDE,
-        { ...CLAUDE, id: 'codex', label: 'Codex', models: ['', 'gpt-5.6-sol'], efforts: ['xhigh'] },
+        { ...CLAUDE, id: 'codex', label: 'Codex', models: ['', 'gpt-6-sol'], efforts: ['xhigh'],
+          modelOptions: { 'gpt-6-sol': { displayName: 'GPT-6-Sol', efforts: ['xhigh'], defaultEffort: 'xhigh' } } },
       ],
     })
-    stubFetch()
+    const spy = stubFetch()
     render(<SchedulesView />)
     fireEvent.click(await screen.findByText(/novo|new/i))
     fireEvent.change(await screen.findByTestId('sched-engine'), { target: { value: 'codex' } })
     const model = screen.getByTestId('sched-model')
-    expect(within(model).getByText('gpt-5.6-sol')).toBeTruthy()
+    expect(within(model).getByText('GPT-6-Sol')).toBeTruthy()
     expect(within(model).queryByText('opus')).toBeNull()
     expect(model.querySelectorAll('optgroup').length).toBe(0)
+    fireEvent.change(model, { target: { value: 'gpt-6-sol' } })
+    fireEvent.change(screen.getByTestId('sched-name'), { target: { value: 'Revisão' } })
+    fireEvent.change(screen.getByTestId('sched-task'), { target: { value: 'revisar' } })
+    fireEvent.click(screen.getByText(/salvar/i))
+    await vi.waitFor(() => {
+      const call = spy.mock.calls.find(([url, init]) => String(url).includes('/projects/1/schedules') && init?.method === 'POST')
+      expect(call).toBeTruthy()
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ engine: 'codex', model: 'gpt-6-sol' })
+    })
   })
 
   it('a quantidade de resultados desaparece quando não se espera retorno', async () => {

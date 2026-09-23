@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
@@ -8,7 +8,8 @@ import { filterCommands } from '../slash'
 import { readDraft, saveDraft } from '../drafts'
 import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
-import { applyMention, mentionAt } from '../mentions'
+import { FileMentionMenu } from './FileMentionMenu'
+import { applyFileMention, applyMention, mentionAt } from '../mentions'
 import { MicButton, type MicDeps } from './MicButton'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
@@ -115,6 +116,16 @@ export function ChatInput({
   const [activeIndex, setActiveIndex] = useState(0)
   /** Aberta pelo `@@`: com quem este terminal vai falar. */
   const [mencaoAberta, setMencaoAberta] = useState(false)
+  const [fileCursor, setFileCursor] = useState<number | null>(null)
+  const fileSelection = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (fileSelection.current === null || fileCursor !== null) return
+    const cursor = fileSelection.current
+    fileSelection.current = null
+    const el = areaRef.current
+    // Restaura após o commit, antes de outra digitação poder mudar a seleção.
+    el?.focus({ preventScroll: true }); el?.setSelectionRange(cursor, cursor)
+  }, [text, fileCursor])
   const [slashDismissed, setSlashDismissed] = useState(false)
 
   const addLocalItem = useStore((s) => s.addLocalItem)
@@ -220,6 +231,26 @@ export function ChatInput({
     })
   }
 
+  const closeFiles = (restoreFocus: boolean) => {
+    setFileCursor(null)
+    if (restoreFocus) areaRef.current?.focus({ preventScroll: true })
+  }
+  const chooseFile = (path: string) => {
+    if (fileCursor === null) return
+    const el = areaRef.current
+    const next = applyFileMention(el?.value ?? text, fileCursor, path)
+    fileSelection.current = next.cursor
+    setText(next.text)
+    setFileCursor(null)
+  }
+  const openReference = (value: string, cursor: number) => {
+    if (mentionAt(value, cursor, '@!') !== null && meuProjeto !== undefined) {
+      setMencaoAberta(false); setFileCursor(cursor)
+    } else if (mentionAt(value, cursor) !== null) {
+      setFileCursor(null); setMencaoAberta(true)
+    }
+  }
+
   const slashQuery = /^\/\S*$/.test(text) ? text.slice(1) : null
   const slashMatches = slashQuery !== null ? filterCommands(slashCommands, slashQuery) : []
   const slashOpen = !disabled && !slashDismissed && histIdxRef.current === null && slashMatches.length > 0
@@ -292,6 +323,11 @@ export function ChatInput({
             onClose={() => { setMencaoAberta(false); areaRef.current?.focus() }}
           />
         )}
+        {fileCursor !== null && meuProjeto !== undefined && !disabled && (
+          <FileMentionMenu projectId={meuProjeto}
+            projectName={todosProjetos.find(project => project.id === meuProjeto)?.name ?? './'}
+            anchorRef={areaRef} onPick={chooseFile} onClose={closeFiles} />
+        )}
         <textarea
           ref={areaRef}
           className={`chat-compose__area ${dragOver ? 'drag-over' : ''}`}
@@ -309,16 +345,18 @@ export function ChatInput({
           onChange={(e) => {
             setText(e.target.value)
             setSlashDismissed(false); setActiveIndex(0); histIdxRef.current = null
-            // `@@` recém-digitado convoca a lista de terminais. A conferência é
-            // pela POSIÇÃO DO CURSOR, não pelo texto inteiro: um `@@` mais atrás
+            // `@@` abre terminais; `@!` abre arquivos. A conferência é pela
+            // POSIÇÃO DO CURSOR, não pelo texto inteiro: um gatilho mais atrás
             // na frase já foi resolvido ou foi descartado, e reabrir a lista por
             // causa dele atrapalharia quem só está escrevendo.
-            if (mentionAt(e.target.value, e.target.selectionStart ?? 0) !== null) setMencaoAberta(true)
+            if (!(e.nativeEvent as InputEvent).isComposing) openReference(e.target.value, e.target.selectionStart ?? 0)
           }}
+          onCompositionEnd={(e) => openReference(e.currentTarget.value, e.currentTarget.selectionStart)}
           // clicar fora fecha o menu; a seleção usa onMouseDown+preventDefault,
           // então clicar num item NÃO dispara este blur antes do pick.
           onBlur={() => setSlashDismissed(true)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return
             if (slashOpen) {
               if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => (i + 1) % slashMatches.length); return }
               if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => (i - 1 + slashMatches.length) % slashMatches.length); return }

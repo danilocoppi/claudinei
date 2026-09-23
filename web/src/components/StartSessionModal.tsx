@@ -7,9 +7,10 @@ import { useStore } from '../store'
 import { MODE_KEY } from '../permissionLabels'
 import { EngineIcon } from './EngineIcon'
 import { Icon } from './Icon'
+import { modelDisplayName } from '../../../shared/engine-options'
 
 /** Chaves i18n dos rótulos de modelo conhecidos (hoje só os do Claude). Modelos
- * sem entrada aqui (ex.: Codex) usam o próprio id como label.
+ * sem entrada aqui usam o nome retornado pela engine, ou o id como fallback.
  *
  * O valor enviado é o ALIAS (`opus`, `sonnet`…), que a CLI resolve sempre para o
  * mais recente da família — por isso um modelo novo chega sem mexer em nada
@@ -139,7 +140,7 @@ export function StartSessionModal({ project, onClose }: { project: Project; onCl
               }}
             >
               {models.map((m) => (
-                <option key={m || 'default'} value={m}>{MODEL_KEY[m] ? t(MODEL_KEY[m] as any) : m}</option>
+                <option key={m || 'default'} value={m}>{MODEL_KEY[m] ? t(MODEL_KEY[m] as any) : modelDisplayName(engine, m)}</option>
               ))}
             </select>
           </label>

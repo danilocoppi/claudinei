@@ -18,12 +18,20 @@ export const marcaDe = (nome: string) => `@[${nome}]`
  * Exige que o `@@` comece palavra — sem isso, colar um e-mail com `@@` ou digitar
  * dentro de uma palavra abriria a lista no meio da frase, sem ninguém pedir.
  */
-export function mentionAt(text: string, cursor: number): number | null {
+export function mentionAt(text: string, cursor: number, trigger: '@@' | '@!' = '@@'): number | null {
   const ate = text.slice(0, cursor)
-  if (!ate.endsWith('@@')) return null
+  if (!ate.endsWith(trigger)) return null
   const inicio = cursor - 2
   const anterior = inicio > 0 ? text[inicio - 1] : ' '
   return /[\s([{]/.test(anterior) ? inicio : null
+}
+
+/** Caminho explícito e durável no rascunho; aspas preservam espaços e acentos. */
+export function applyFileMention(text: string, cursor: number, path: string): { text: string; cursor: number } {
+  const start = mentionAt(text, cursor, '@!')
+  if (start === null) return { text, cursor }
+  const reference = `${JSON.stringify(`./${path}`)} `
+  return { text: text.slice(0, start) + reference + text.slice(cursor), cursor: start + reference.length }
 }
 
 /** Troca o `@@` pela referência, e devolve onde o cursor deve ficar. */

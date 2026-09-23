@@ -126,10 +126,17 @@ function migrarPathNaoUnico(db: Db, dbPath: string): void {
   try {
     db.exec('BEGIN')
     try {
+      // MAX(id) não inclui terminais já excluídos. O DROP também apaga a
+      // sequência antiga; preservá-la evita reutilizar esses identificadores.
+      const previousSequence = (db.prepare("SELECT seq FROM sqlite_sequence WHERE name='projects'").get() as { seq: number } | undefined)?.seq
       db.exec(novoDdl)
       db.exec(`INSERT INTO projects_new (${cols}) SELECT ${cols} FROM projects`)
       db.exec('DROP TABLE projects')
       db.exec('ALTER TABLE projects_new RENAME TO projects')
+      if (previousSequence !== undefined) {
+        const updated = db.prepare("UPDATE sqlite_sequence SET seq=MAX(seq, ?) WHERE name='projects'").run(previousSequence)
+        if (!updated.changes) db.prepare('INSERT INTO sqlite_sequence(name, seq) VALUES (?, ?)').run('projects', previousSequence)
+      }
       db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path)`)
       // Confere o que a substituição no DDL de fato produziu. Se o UNIQUE
       // sobreviveu (DDL escrito de outra forma numa instalação que não conhecemos),

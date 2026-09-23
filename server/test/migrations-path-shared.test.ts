@@ -115,6 +115,23 @@ describe('migração: projects.path deixa de ser único', () => {
     db.close()
   })
 
+  it.each([false, true])('preserva ids já usados e excluídos, inclusive com tabela vazia (%s)', (empty) => {
+    const dbPath = bancoAntigoPovoado()
+    const old = new Database(dbPath)
+    old.pragma('foreign_keys = ON')
+    old.prepare("INSERT INTO projects (id, name, path) VALUES (10000, 'Apagado', '/tmp/apagado')").run()
+    old.prepare('DELETE FROM projects WHERE id=10000').run()
+    if (empty) old.prepare('DELETE FROM projects').run()
+    expect(old.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    old.close()
+
+    const db = openDb(dbPath)
+    expect((db.prepare("SELECT seq FROM sqlite_sequence WHERE name='projects'").get() as { seq: number }).seq).toBe(10000)
+    const next = db.prepare("INSERT INTO projects (name, path) VALUES ('Novo', '/tmp/novo')").run()
+    expect(Number(next.lastInsertRowid)).toBe(10001)
+    db.close()
+  })
+
   it('deixa uma cópia de segurança do banco antes de mexer', () => {
     const dbPath = bancoAntigoPovoado()
     expect(backups(dbPath)).toHaveLength(0)

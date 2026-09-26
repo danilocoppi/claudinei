@@ -933,6 +933,7 @@ button.term-card__action--play:hover { color: var(--ok); }
 .inline-file__resizer {
   position: absolute; top: -4px; left: 0; right: 0; height: 8px; z-index: 5;
   cursor: row-resize; background: transparent; transition: background .15s;
+  touch-action: none; /* arrastar com o dedo redimensiona em vez de rolar a página */
 }
 .inline-file__resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .inline-file__header {
@@ -946,6 +947,10 @@ button.term-card__action--play:hover { color: var(--ok); }
 }
 .inline-file__close { flex: none; padding: 4px 9px; }
 .inline-file__body { overflow: auto; padding: 12px 16px; }
+/* Conteúdo embutido (iframe de HTML ou PDF): o painel tem altura explícita e o
+   corpo precisa preenchê-la — o iframe não tem altura própria para empurrar. */
+.inline-file--embed .inline-file__body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.inline-file--embed .html-view { flex: 1; }
 
 /* Grupo de ações consecutivas no chat (ver chat/grouping.ts). O visual segue o
    ToolCallCard, com um "empilhado" sutil atrás do cabeçalho quando recolhido. */

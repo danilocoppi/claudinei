@@ -101,7 +101,10 @@ export function FileBody({ kind, url, name, compact, path, projectId }: {
     return <img src={url} alt={name} style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
   }
   if (kind === 'pdf') {
-    return <iframe src={url} title="pdf" style={{ width: '100%', height: '100%', minHeight: compact ? 220 : '70vh', border: 0, borderRadius: 8 }} />
+    // No painel inline quem dá a altura é o painel (que o operador redimensiona);
+    // no popup, o PDF garante uma área de leitura mínima.
+    const dimensao = compact ? { flex: 1, minHeight: 0 } : { height: '100%', minHeight: '70vh' }
+    return <iframe src={url} title="pdf" style={{ width: '100%', border: 0, borderRadius: 8, ...dimensao }} />
   }
   if (kind === 'binary') {
     return (
@@ -180,7 +183,7 @@ function HtmlBody({ url, name, path, projectId, compact }: {
           title={name}
           sandbox="allow-scripts"
           className="html-view__frame"
-          style={{ display: view === 'page' ? 'block' : 'none', minHeight: compact ? 220 : '70vh' }}
+          style={{ display: view === 'page' ? 'block' : 'none', minHeight: compact ? 0 : '70vh' }}
         />
       )}
       {view === 'page' && preview.status === 'loading' && (

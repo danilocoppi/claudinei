@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { fileContentUrl } from '../files'
+import { fileContentUrl, isHtmlPath } from '../files'
 import { useStore } from '../store'
 import { ConfirmDialog } from './ConfirmDialog'
 import { FileBody } from './FileViewerModal'
@@ -34,52 +34,71 @@ export function InlineFileView({ localId }: { localId: string }) {
   const sujo = useStore((s) => s.fileEditDirty)
   const [confirmando, setConfirmando] = useState(false)
   const [frac, setFrac] = useState(initialFrac)
-  const drag = useRef<{ startY: number; startF: number } | null>(null)
+  const drag = useRef<{ startY: number; startF: number; last: number } | null>(null)
 
   if (!inlineFile || inlineFile.localId !== localId) return null
   const { path, kind, projectId } = inlineFile
   const url = fileContentUrl(path, projectId)
   const name = path.split('/').pop() || path
+  // HTML renderizado e PDF são iframes: não têm altura própria, então com só um
+  // teto (max-height) o painel ficava do tamanho do iframe e arrastar a alça não
+  // mudava nada na tela. Eles recebem a altura escolhida; texto e markdown
+  // continuam só com teto, para um arquivo curto não abrir num painel vazio.
+  const embutido = kind === 'pdf' || (kind === 'code' && isHtmlPath(name))
+  const altura = `${(frac * 100).toFixed(1)}vh`
 
   const persist = (f: number) => {
     try { localStorage.setItem(FRAC_KEY, f.toFixed(3)) } catch { /* só não persiste */ }
   }
 
-  const onMouseDown = (e: React.MouseEvent) => {
+  // O arrasto CAPTURA o ponteiro na alça em vez de escutar a window. Escutando a
+  // window, bastava o ponteiro passar por cima de um iframe (a página de um HTML,
+  // um PDF) para o movimento e o "soltar" irem para o documento do iframe: o
+  // painel parava de acompanhar e a página ficava presa com cursor de resize e
+  // sem seleção de texto. Com a captura, tudo volta para a alça, esteja o
+  // ponteiro onde estiver.
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
-    drag.current = { startY: e.clientY, startF: frac }
-    let last = frac
-    const onMove = (ev: MouseEvent) => {
-      if (!drag.current) return
-      // subir o mouse (clientY menor) = painel maior
-      last = clampFrac(drag.current.startF + (drag.current.startY - ev.clientY) / window.innerHeight)
-      setFrac(last)
-    }
-    const onUp = () => {
-      drag.current = null
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      persist(last)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { startY: e.clientY, startF: frac, last: frac }
     // feedback durante o arrasto inteiro (mesmo fora da alça) e sem selecionar texto
     document.body.style.cursor = 'row-resize'
     document.body.style.userSelect = 'none'
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return
+    // subir o ponteiro (clientY menor) = painel maior
+    drag.current.last = clampFrac(drag.current.startF + (drag.current.startY - e.clientY) / window.innerHeight)
+    setFrac(drag.current.last)
+  }
+  const encerrar = () => {
+    if (!drag.current) return
+    const ultimo = drag.current.last
+    drag.current = null
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    persist(ultimo)
   }
 
   const reset = () => { setFrac(FRAC_DEFAULT); persist(FRAC_DEFAULT) }
 
   return (
-    <div className="inline-file" data-testid="inline-file-view" style={{ maxHeight: `${(frac * 100).toFixed(1)}vh` }}>
+    <div
+      className={`inline-file${embutido ? ' inline-file--embed' : ''}`}
+      data-testid="inline-file-view"
+      style={embutido ? { height: altura } : { maxHeight: altura }}
+    >
       <div
         className="inline-file__resizer"
         role="separator"
         aria-orientation="horizontal"
         title={t('fileViewer.resizeHint')}
-        onMouseDown={onMouseDown}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={encerrar}
+        // A captura também se perde sem "soltar" (alt-tab, a janela some): sem
+        // isto, a página ficaria presa no modo de arrasto até o próximo clique.
+        onLostPointerCapture={encerrar}
         onDoubleClick={reset}
       />
       <div className="inline-file__header">

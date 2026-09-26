@@ -1,12 +1,14 @@
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { paceColor } from '../usage/pace'
 
-const SWATCHES: Array<{ key: 'green' | 'gradient' | 'red' | 'purple'; style: React.CSSProperties }> = [
-  { key: 'green', style: { background: 'var(--ok)' } },
-  // amostra do MEIO do degradê (ritmo ~1.5×): matiz 70 — mesmo cálculo do paceColor
-  { key: 'gradient', style: { background: 'linear-gradient(90deg, hsl(140 70% 55%), hsl(70 70% 55%), hsl(0 70% 55%))' } },
-  { key: 'red', style: { background: 'var(--err)' } },
-  { key: 'purple', style: { background: 'var(--accent)' } },
+const SWATCHES: Array<{ key: 'blue' | 'green' | 'gradient' | 'red' | 'purple' | 'unknown'; style: React.CSSProperties }> = [
+  { key: 'blue', style: { background: paceColor(0.5) } },
+  { key: 'green', style: { background: paceColor(1) } },
+  { key: 'gradient', style: { background: `linear-gradient(90deg, ${paceColor(1)}, ${paceColor(1.25)}, ${paceColor(1.5)})` } },
+  { key: 'red', style: { background: paceColor(1.5) } },
+  { key: 'purple', style: { background: paceColor(2.1) } },
+  { key: 'unknown', style: { background: paceColor(null) } },
 ]
 
 /** Modal ⓘ do card de Usage: explica o que a barra mede e o que as CORES do

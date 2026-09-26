@@ -26,6 +26,14 @@ Registro incremental dos fluxos verificados, não uma certificação de toda a i
 
 Busca, pasta e paginação são transitórias, locais ao popup; não vão para a URL nem são compartilhadas entre terminais. Essa é uma exceção intencional à persistência de filtros de páginas de dados. Fechar preserva o rascunho, inclusive o gatilho ainda não substituído.
 
+## Cores do ritmo de uso
+
+O multiplicador aparece ao lado do nome de cada limite, com uma casa decimal e separador do idioma ativo (ex.: `All Models (1.5×)` / `Todos os modelos (1,5×)`), conforme pedido posterior do usuário em 2026-09-25. Ele usa o mesmo cálculo da cor e do tooltip. Nome longo pode receber reticências; multiplicador e percentual permanecem visíveis. Sem ritmo finito calculável, o multiplicador é omitido.
+
+Pedido do usuário em 2026-09-25: azul abaixo de 0,7×; verde de 0,7× a 1×; progressão por amarelo até vermelho em 1,5×; vermelho de 1,5× a 2×; roxo somente acima de 2×. O amarelo ocupa o ponto médio, 1,25×. A regra vale para todas as barras em `UsageCard`, via `paceColor`, e a legenda em `UsageInfo` usa a mesma função e mensagens nos três idiomas. Ritmo desconhecido usa cinza para distingui-lo de consumo elevado. Os cálculos de cota, percentual consumido, janela e reset permanecem os mesmos.
+
+Validação: 40 testes de ritmo, card, agrupamento, tokens e i18n; build do frontend; lint do DESIGN sem erros/avisos. Conferência no Chromium com os componentes reais em 393px e 320px, temas claro/escuro, legenda, espanhol e movimento reduzido; imagens inspecionadas em `/tmp/claudinei-usage-colors-vTDBMH`. A auditoria strict manteve os 16 apontamentos legados, sem novos (`/tmp/claudinei-usage-colors-before.json` e `-after.json`).
+
 ## Estados e recuperação
 
 Loading, pasta vazia e busca sem resultado são distintos. Falhas de rede/servidor, permissão e pasta removida mostram mensagem inline; retry ou navegação permitem recuperar. Requisições expiram em 12 segundos e são abortadas ao trocar a consulta ou fechar. A API continua usando o tratamento global existente de autenticação/horário de acesso.

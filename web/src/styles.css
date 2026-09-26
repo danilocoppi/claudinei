@@ -43,6 +43,9 @@
 
 /* Fora do tema: forma e tipografia são escolhas independentes do pacote de cores. */
 :root {
+  /* Faixas de ritmo mantêm azul/roxo mesmo quando o usuário muda o acento. */
+  --usage-low: #3b82f6;
+  --usage-high: #8b5cf6;
   --glass-blur: 14px;
   --radius: 16px;
   /* A escala inteira sai do raio escolhido: sem isto o controle de cantos mexia em
@@ -758,9 +761,10 @@ button.term-card__action--play:hover { color: var(--ok); }
 .switch--sm input:checked ~ .thumb { transform: translateX(13px); }
 .usage-card__title { margin-bottom: 2px; }
 .usage-row { display: flex; flex-direction: column; gap: 3px; }
-.usage-row__head { display: flex; justify-content: space-between; font-size: 12px; }
+.usage-row__head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.usage-row__name { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
 .usage-row__label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.usage-row__pct { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.usage-row__pace, .usage-row__pct { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-bar { height: 5px; border-radius: 999px; background: color-mix(in srgb, var(--ink) calc(30% * var(--ink-k)), transparent); overflow: hidden; }
 .usage-bar__fill { height: 100%; border-radius: 999px; transition: width .4s ease, background .4s ease; }
 .usage-row__reset { font-size: 10.5px; color: var(--text-dim); }

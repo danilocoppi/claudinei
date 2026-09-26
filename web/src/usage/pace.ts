@@ -29,11 +29,15 @@ export function paceRatio(percent: number, expected: number): number {
   return percent / expected
 }
 
-/** ≤1 verde; 1→2 degradê (matiz 140→0); ≥2 vermelho; null = sem ritmo (accent). */
+/** <0,7 azul; até 1 verde; 1→1,5 passa por amarelo; 1,5→2 vermelho; >2 roxo. */
 export function paceColor(ratio: number | null): string {
-  if (ratio === null) return 'var(--accent)'
+  if (ratio === null || Number.isNaN(ratio)) return 'var(--text-dim)'
+  if (ratio < 0.7) return 'var(--usage-low)'
   if (ratio <= 1) return 'var(--ok)'
-  if (ratio >= 2) return 'var(--err)'
-  const hue = Math.round(140 * (2 - ratio)) // 1→140, 2→0
-  return `hsl(${hue} 70% 55%)`
+  if (ratio > 2) return 'var(--usage-high)'
+  if (ratio >= 1.5) return 'var(--err)'
+  if (ratio === 1.25) return 'var(--warn)'
+  const [from, to, start] = ratio < 1.25 ? ['ok', 'warn', 1] as const : ['warn', 'err', 1.25] as const
+  const percent = Math.round((ratio - start) * 40000) / 100
+  return `color-mix(in srgb, var(--${from}), var(--${to}) ${percent}%)`
 }

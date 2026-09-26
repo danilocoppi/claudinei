@@ -44,24 +44,33 @@ describe('expectedPercent (chunks decorridos / total, chunk atual conta cheio)',
 })
 
 describe('paceRatio + paceColor (exemplos canônicos do usuário)', () => {
-  it('10% usado com 20% esperado → razão 0,5 → verde', () => {
+  it('10% usado com 20% esperado → razão 0,5 → azul', () => {
     const ratio = paceRatio(10, 20)
     expect(ratio).toBeCloseTo(0.5)
-    expect(paceColor(ratio)).toBe('var(--ok)')
+    expect(paceColor(ratio)).toBe('var(--usage-low)')
   })
   it('40% usado com 20% esperado → razão 2,0 → vermelho', () => {
     const ratio = paceRatio(40, 20)
     expect(ratio).toBeCloseTo(2)
     expect(paceColor(ratio)).toBe('var(--err)')
   })
-  it('razão 1,5 → matiz intermediário (amarelo ~70°)', () => {
-    expect(paceColor(1.5)).toBe('hsl(70 70% 55%)')
+  it('passa por amarelo em 1,25 e chega ao vermelho já em 1,5', () => {
+    expect(paceColor(1.125)).toBe('color-mix(in srgb, var(--ok), var(--warn) 50%)')
+    expect(paceColor(1.25)).toBe('var(--warn)')
+    expect(paceColor(1.375)).toBe('color-mix(in srgb, var(--warn), var(--err) 50%)')
+    expect(paceColor(1.5)).toBe('var(--err)')
+    expect(paceColor(1.75)).toBe('var(--err)')
   })
-  it('razão exatamente 1 → verde; null (grupo desconhecido) → accent', () => {
+  it('0,7 e 1 são verdes; abaixo de 0,7 é azul; apenas acima de 2 fica roxo', () => {
+    expect(paceColor(0.6999)).toBe('var(--usage-low)')
+    expect(paceColor(0.7)).toBe('var(--ok)')
     expect(paceColor(1)).toBe('var(--ok)')
-    expect(paceColor(null)).toBe('var(--accent)')
+    expect(paceColor(2)).toBe('var(--err)')
+    expect(paceColor(2.0001)).toBe('var(--usage-high)')
+    expect(paceColor(null)).toBe('var(--text-dim)')
   })
-  it('esperado 0 não acontece (chunk mínimo), mas por segurança razão vira Infinity → vermelho', () => {
-    expect(paceColor(paceRatio(10, 0))).toBe('var(--err)')
+  it('razão Infinity → roxo; cálculo inválido → sem ritmo', () => {
+    expect(paceColor(paceRatio(10, 0))).toBe('var(--usage-high)')
+    expect(paceColor(NaN)).toBe('var(--text-dim)')
   })
 })

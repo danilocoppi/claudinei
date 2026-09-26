@@ -12,6 +12,8 @@ colors:
   success: "#5ee0a0"
   warning: "#f5c451"
   error: "#ff6b8b"
+  usageLow: "#3b82f6"
+  usageHigh: "#8b5cf6"
 typography:
   sans:
     fontFamily: "system-ui, -apple-system, sans-serif"
@@ -44,6 +46,8 @@ O uso confirmado inclui desktop, Android e iPhone. A interface oferece portuguê
 
 Texto principal e secundário usam `--text` e `--text-dim`. Superfícies, bordas e realce usam `--surface`, `--surface-strong` e `--border`, que variam por tema. O violeta marca ação/foco e os tokens semânticos sinalizam sucesso, atenção e erro com texto, nunca só pela cor. Componentes novos não introduzem cores literais fora dos pacotes de tema. O seletor de arquivos herda esses tokens em temas claros e escuros.
 
+As barras de uso têm duas cores semânticas independentes do acento escolhido: `usageLow` → `--usage-low` (azul, abaixo de 0,7×) e `usageHigh` → `--usage-high` (roxo, acima de 2×). Os tokens ficam no bloco `:root` compartilhado em `styles.css`. Entre 0,7× e 1× usam `--ok`; de 1× a 1,5× interpolam `--ok` → `--warn` → `--err`, com amarelo em 1,25×. De 1,5× a 2× ficam em `--err`. Sem ritmo calculável, usam `--text-dim`. `web/src/usage/pace.ts` é o único dono dessa escala, inclusive para as amostras da legenda.
+
 ## Typography
 
 Controles usam a fonte de interface do usuário; caminhos usam a fonte de código. Nomes de arquivos preservam caixa, acentos e caracteres especiais. Nomes longos quebram linha no seletor para que seleção por toque não dependa de tooltip. A busca desse popup usa 16px para evitar zoom automático ao focar no iPhone; linhas usam a densidade compacta dos menus existentes.
@@ -63,6 +67,8 @@ Reutilizar `.glass`, `.sess-pop` e suas bordas/superfícies. `ViewportPopover` o
 Contêineres e controles seguem os raios ajustáveis do tema. O padrão é 16px; os fatores existentes xs/sm/md/lg são .375/.5/.625/.75. Valores no frontmatter descrevem somente o padrão, não substituem as variáveis responsivas à preferência do usuário.
 
 ## Components
+
+- **Uso:** `UsageCard` mantém nome e multiplicador juntos no lado esquerdo de cada barra. O multiplicador usa texto secundário, números tabulares e uma casa decimal localizada; o percentual permanece à direita. Em nomes longos, apenas o nome recebe reticências.
 
 - **Composição:** `ChatInput` é dono do rascunho, cursor e envio. `MentionMenu` continua sendo a referência visual/funcional para `@@`; `FileMentionMenu` navega pastas e escolhe um arquivo com botões nativos.
 - **Overlays:** `ViewportPopover` mede e limita os menus compartilhados. O seletor de arquivos é deliberadamente não modal: título acessível, foco inicial na busca, Escape/fechar retornam ao campo, clique/foco externo fecha sem tomar o foco do destino.

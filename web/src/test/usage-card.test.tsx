@@ -34,8 +34,8 @@ describe('UsageCard', () => {
     const fills = document.querySelectorAll('.usage-bar__fill')
     expect(fills).toHaveLength(3)
     expect((fills[0] as HTMLElement).style.width).toBe('10%')
-    // sessão: 10% usado, ~1h decorrida de 5h → razão < 1 → verde
-    expect((fills[0] as HTMLElement).style.background).toContain('--ok')
+    // sessão: 10% usado, ~1h decorrida de 5h → razão < 0,7 → azul
+    expect((fills[0] as HTMLElement).style.background).toContain('--usage-low')
   })
 
   it('sem limites → não renderiza nada', async () => {

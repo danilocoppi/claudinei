@@ -95,6 +95,7 @@ export function UsageCard() {
   if (limits.length === 0 && tokenEntries.length === 0) return null
 
   const now = Date.now()
+  const paceFormat = new Intl.NumberFormat(i18n.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
   // modo simples: só a barra da sessão (fallback: a primeira, se a API mudar)
   const visible = advanced ? limits : simpleView(limits)
   // Barras de OUTRO provedor (Kimi) vão para o bloco da engine correspondente:
@@ -138,13 +139,17 @@ export function UsageCard() {
         const win = windowFor(l.group, l.windowMinutes)
         const ratio = win ? paceRatio(l.percent, expectedPercent(l.resetsAt, win.windowMs, win.chunkMs, now)) : null
         const color = paceColor(ratio)
-        const tip = ratio !== null
-          ? t('usage.pace', { percent: l.percent, ratio: (Math.round(ratio * 10) / 10).toLocaleString(i18n.language) })
+        const pace = ratio !== null && Number.isFinite(ratio) ? paceFormat.format(ratio) : null
+        const tip = pace !== null
+          ? t('usage.pace', { percent: l.percent, ratio: pace })
           : `${l.percent}%`
         return (
           <div key={l.kind + (l.label ?? '')} className="usage-row" title={tip}>
             <div className="usage-row__head">
-              <span className="usage-row__label">{labelFor(l, t)}</span>
+              <div className="usage-row__name">
+                <span className="usage-row__label" title={labelFor(l, t)}>{labelFor(l, t)}</span>
+                {pace !== null && <span className="usage-row__pace"> ({pace}×)</span>}
+              </div>
               <span className="usage-row__pct">{l.percent}%</span>
             </div>
             <div className="usage-bar">
@@ -168,13 +173,17 @@ export function UsageCard() {
               const win = windowFor(l.group, l.windowMinutes)
               const ratio = win ? paceRatio(l.percent, expectedPercent(l.resetsAt, win.windowMs, win.chunkMs, now)) : null
               const color = paceColor(ratio)
-              const tip = ratio !== null
-                ? t('usage.pace', { percent: l.percent, ratio: (Math.round(ratio * 10) / 10).toLocaleString(i18n.language) })
+              const pace = ratio !== null && Number.isFinite(ratio) ? paceFormat.format(ratio) : null
+              const tip = pace !== null
+                ? t('usage.pace', { percent: l.percent, ratio: pace })
                 : `${l.percent}%`
               return (
                 <div key={l.kind + (l.label ?? '')} className="usage-row" title={tip}>
                   <div className="usage-row__head">
-                    <span className="usage-row__label">{labelFor(l, t)}</span>
+                    <div className="usage-row__name">
+                      <span className="usage-row__label" title={labelFor(l, t)}>{labelFor(l, t)}</span>
+                      {pace !== null && <span className="usage-row__pace"> ({pace}×)</span>}
+                    </div>
                     <span className="usage-row__pct">{l.percent}%</span>
                   </div>
                   <div className="usage-bar">

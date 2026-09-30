@@ -4,6 +4,8 @@ import { createInterface } from 'node:readline'
 let threadId = 'THREAD-FAKE', turn = 0, current, total = 0, context = 0
 let timer
 let steered = []
+const writerConflict = process.argv.find((a) => a.startsWith('--writer-conflict='))?.split('=')[1]
+let refusals = 0
 const out = (msg) => process.stdout.write(JSON.stringify(msg) + '\n')
 const reply = (id, result) => out({ id, result })
 const notify = (method, params) => out({ method, params: { threadId, ...params } })
@@ -20,6 +22,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   if (method === 'initialize') reply(id, { userAgent: 'fake' })
   else if (method === 'config/read') reply(id, { config: { model: 'default-model', model_reasoning_effort: 'medium' } })
   else if (method === 'thread/start' || method === 'thread/resume') {
+    // Outro Codex com a conversa aberta: a CLI real recusa a retomada até soltá-la.
+    if (method === 'thread/resume' && writerConflict && (writerConflict === 'always' || refusals < Number(writerConflict))) {
+      refusals++
+      out({ id, error: { code: -32600, message: `thread ${p.threadId} already has an active writer` } }); return
+    }
+    if (method === 'thread/resume' && process.argv.includes('--resume-missing')) {
+      out({ id, error: { code: -32600, message: `no rollout found for thread id ${p.threadId}` } }); return
+    }
     if (p.threadId) threadId = p.threadId
     reply(id, { thread: { id: threadId }, model: p.model ?? 'default-model' })
     if (method === 'thread/resume') { total = 900000; context = 120000; usage() }

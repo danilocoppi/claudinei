@@ -35,7 +35,7 @@ export class CodexSession extends EventEmitter implements EngineSession {
   private steering = false
   private deferSteeringFor?: string
 
-  constructor(private opts: EngineSessionOptions & { binOverride?: string }) {
+  constructor(private opts: EngineSessionOptions & { binOverride?: string; writerWait?: { retryMs: number; deadlineMs: number } }) {
     super()
     this.model = opts.model
     this.effort = opts.effort
@@ -68,12 +68,13 @@ export class CodexSession extends EventEmitter implements EngineSession {
       this.configuredModel = config?.config?.model ?? undefined
       this.configuredEffort = config?.config?.model_reasoning_effort ?? undefined
       const resumed = !!this.sessionId
-      const response = await this.rpc.request(resumed ? 'thread/resume' : 'thread/start', {
+      const params = {
         cwd: this.opts.projectPath, approvalPolicy: 'never', sandbox: 'danger-full-access',
         ...(this.model ? { model: this.model } : {}),
         config: this.effort ? { model_reasoning_effort: this.effort } : {},
         ...(resumed ? { threadId: this.sessionId, excludeTurns: true } : {}),
-      })
+      }
+      const response = resumed ? await this.resumeWhenFree(params) : await this.rpc.request('thread/start', params)
       if (!response?.thread?.id) throw new Error('codex: thread sem identificador')
       this.sessionId = response.thread.id
       this.configuredModel ??= response.model
@@ -81,6 +82,29 @@ export class CodexSession extends EventEmitter implements EngineSession {
       this.turnBaseline = this.total
     })()
     return this.ready
+  }
+
+  /**
+   * Retoma a conversa, esperando se outro Codex estiver com ela aberta. A CLI só
+   * deixa um processo gravar cada conversa, e o daemon do TUI a segura por mais
+   * 60 s depois que o terminal fecha — sem esperar, voltar do terminal para o
+   * chat matava a sessão. A mesma conexão serve para tentar de novo: a recusa
+   * não derruba o app-server. Qualquer outro erro continua fatal na hora.
+   */
+  private async resumeWhenFree(params: object): Promise<any> {
+    const { retryMs, deadlineMs } = this.opts.writerWait ?? { retryMs: 2000, deadlineMs: 75_000 }
+    const deadline = Date.now() + deadlineMs
+    for (;;) {
+      try {
+        return await this.rpc!.request('thread/resume', params)
+      } catch (err) {
+        if (!(err instanceof CodexRpcError) || !/already has an active writer/.test(err.message)) throw err
+        if (Date.now() + retryMs > deadline) {
+          throw new Error(`A conversa está aberta em outro Codex (terminal ou app) e não foi solta em ${Math.round(deadlineMs / 1000)} s. Feche-o e reviva a sessão.`)
+        }
+        await new Promise((resolve) => setTimeout(resolve, retryMs))
+      }
+    }
   }
 
   send(text: string, opts?: { echoToClients?: boolean }): void {

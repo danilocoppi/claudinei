@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { previewCadence, type Cadence, type Schedule } from '../api'
 import { useStore } from '../store'
@@ -21,6 +22,7 @@ export function ScheduleEditor({
   onSave: (input: Record<string, unknown>) => Promise<void>
 }) {
   const { t } = useTranslation()
+  const titleId = useId()
   const engines = useStore((s) => s.engines)
 
   const [name, setName] = useState(editing?.name ?? '')
@@ -94,14 +96,15 @@ export function ScheduleEditor({
 
   const canSave = !!name.trim() && !!task.trim() && next.length > 0 && !saving
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       {/* Cabeçalho e rodapé fixos, corpo rolando: um formulário desta altura sem
           isso empurra o Salvar para fora da tela em janela baixa. */}
-      <div className="glass sched-editor" data-testid="sched-editor" onClick={(e) => e.stopPropagation()}>
+      <div className="glass sched-editor" data-testid="sched-editor" role="dialog" aria-modal="true"
+           aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
         <header className="sched-editor__head">
           <span className="sched-editor__icon" aria-hidden="true">⏱</span>
-          <h3>{editing ? t('schedules.editTitle') : t('schedules.newTitle')}</h3>
+          <h3 id={titleId}>{editing ? t('schedules.editTitle') : t('schedules.newTitle')}</h3>
         </header>
         <div className="sched-editor__body">
 
@@ -238,6 +241,7 @@ export function ScheduleEditor({
           <button disabled={!canSave} onClick={() => void save()}>{t('common.save')}</button>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

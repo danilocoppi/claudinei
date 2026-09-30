@@ -7,6 +7,7 @@ export interface Project {
   path: string
   color: string
   icon: string
+  favorite: boolean
   /** Grupo visual na sidebar (null = solto na raiz). */
   groupId: number | null
   /** Setor do terminal quando ele está SOLTO num setor (fora de grupo). */
@@ -19,7 +20,7 @@ export type ProjectsService = ReturnType<typeof createProjectsService>
 
 export function createProjectsService(db: Db) {
   const rowToProject = (r: any): Project => ({
-    id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, groupId: r.group_id ?? null, sectorId: r.sector_id ?? null, sortOrder: r.sort_order ?? 0,
+    id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, favorite: !!r.favorite, groupId: r.group_id ?? null, sectorId: r.sector_id ?? null, sortOrder: r.sort_order ?? 0,
   })
 
   return {
@@ -40,13 +41,17 @@ export function createProjectsService(db: Db) {
         .run(input.name, input.path, input.color ?? '#7c5cff', input.icon ?? '📁', nextOrder)
       return this.get(Number(info.lastInsertRowid))!
     },
-    update(id: number, patch: Partial<Omit<Project, 'id'>>): Project {
+    update(id: number, patch: Partial<Pick<Project, 'name' | 'path' | 'color' | 'icon'>>): Project {
       const cur = this.get(id)
       if (!cur) throw new Error(`projeto ${id} não existe`)
       const next = { ...cur, ...patch }
       db.prepare(`UPDATE projects SET name=?, path=?, color=?, icon=? WHERE id=?`)
         .run(next.name, next.path, next.color, next.icon, id)
       return next
+    },
+    setFavorite(id: number, favorite: boolean): Project | undefined {
+      const updated = db.prepare('UPDATE projects SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id)
+      return updated.changes ? this.get(id) : undefined
     },
     /** Persiste a ordem dada (índice = posição). Ids desconhecidos são no-op; o front envia a lista completa. */
     reorder(ids: number[]): Project[] {

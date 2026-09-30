@@ -20,6 +20,7 @@ describe('projects service', () => {
     expect(p.id).toBeGreaterThan(0)
     expect(p.color).toBe('#7c5cff')
     expect(p.icon).toBe('📁')
+    expect(p.favorite).toBe(false)
     expect(svc.list()).toHaveLength(1)
   })
 
@@ -41,5 +42,14 @@ describe('projects service', () => {
     const p = svc.create({ name: 'A', path: dir })
     svc.remove(p.id)
     expect(svc.list()).toHaveLength(0)
+  })
+
+  it('persiste a estrela sem alterar nome, pasta ou ordem', () => {
+    const svc = createProjectsService(db)
+    const p = svc.create({ name: 'A', path: dir })
+    expect(svc.setFavorite(p.id, true)?.favorite).toBe(true)
+    expect(svc.list()[0]).toMatchObject({ id: p.id, name: 'A', path: dir, sortOrder: p.sortOrder, favorite: true })
+    expect(svc.setFavorite(p.id, false)?.favorite).toBe(false)
+    expect(svc.setFavorite(9999, true)).toBeUndefined()
   })
 })

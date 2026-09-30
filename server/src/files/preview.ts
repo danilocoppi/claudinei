@@ -26,10 +26,11 @@ export interface PreviewGrant {
   /** Revalida o horário e a sessão de quem emitiu, mesmo sem cookie no iframe. */
   allowed?: () => boolean
   expiresAt: number
+  form?: { path: string; channel: string }
 }
 
 export interface PreviewStore {
-  issue(root: string, client?: string, allowed?: () => boolean): string
+  issue(root: string, client?: string, allowed?: () => boolean, form?: PreviewGrant['form']): string
   resolve(token: string, client?: string): PreviewGrant | null
   size(): number
 }
@@ -54,11 +55,11 @@ export function createPreviewStore(opts?: {
   }
 
   return {
-    issue(root, client, allowed) {
+    issue(root, client, allowed, form) {
       const t = now()
       limpar(t) // sem isso, cada prévia aberta ficaria para sempre na memória do processo
       const token = makeToken()
-      grants.set(token, { root, client, allowed, expiresAt: t + ttl })
+      grants.set(token, { root, client, allowed, expiresAt: t + ttl, form })
       return token
     },
     resolve(token, client) {

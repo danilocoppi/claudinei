@@ -94,6 +94,8 @@ export const deleteProject = (id: number) =>
   req<void>(`/api/projects/${id}`, { method: 'DELETE' })
 export const updateProject = (id: number, patch: { name?: string; color?: string; icon?: string }) =>
   req<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+export const setProjectFavorite = (id: number, favorite: boolean) =>
+  req<Project>(`/api/projects/${id}/favorite`, { method: 'PATCH', body: JSON.stringify({ favorite }) })
 export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number; sectorId?: number | null }
 /** Setor: um nível acima do grupo, com a mesma anatomia (aceita grupos E terminais). */
 export type Sector = Group

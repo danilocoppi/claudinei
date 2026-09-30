@@ -27,7 +27,7 @@ describe('GET /api/engines', () => {
     expect(byId.claude.slashSource).toBe('protocol')
     expect(byId.codex.label).toBeTruthy()
     expect(codexMetadata.refresh).toHaveBeenCalled()
-    expect(byId.codex.models).toContain('gpt-6-astra')
+    expect(byId.codex.models).toContain('gpt-6.1-sol')
     expect(byId.codex.efforts).toContain('xhigh')
     expect(byId.codex.permissions).toEqual([])
     expect(byId.codex.slashSource).toBe('curated')

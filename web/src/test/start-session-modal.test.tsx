@@ -45,13 +45,14 @@ describe('StartSessionModal', () => {
       okJson({ localId: 'c6', projectId: 1, engine: 'codex', status: 'starting', engineSessionId: null, updatedAt: 'x' }, 201))
     render(<StartSessionModal project={project} onClose={() => {}} />)
     const select = screen.getByLabelText(/Modelo/) as HTMLSelectElement
+    expect(screen.getByRole('option', { name: 'GPT-6.1-Sol' }).getAttribute('value')).toBe('gpt-6.1-sol')
     expect(screen.getByRole('option', { name: 'GPT-6-Luna' }).getAttribute('value')).toBe('gpt-6-luna')
     expect(screen.queryByRole('option', { name: /5.4/ })).toBeNull()
-    fireEvent.change(select, { target: { value: 'gpt-6-luna' } })
+    fireEvent.change(select, { target: { value: 'gpt-6.1-sol' } })
     fireEvent.click(screen.getByText('Iniciar sessão'))
     await vi.waitFor(() => expect(spy).toHaveBeenCalledWith('/api/projects/1/sessions',
-      expect.objectContaining({ body: JSON.stringify({ continueConversation: true, model: 'gpt-6-luna', engine: 'codex' }) })))
-    await vi.waitFor(() => expect(localStorage.getItem('claudinei:lastModel:codex')).toBe('gpt-6-luna'))
+      expect.objectContaining({ body: JSON.stringify({ continueConversation: true, model: 'gpt-6.1-sol', engine: 'codex' }) })))
+    await vi.waitFor(() => expect(localStorage.getItem('claudinei:lastModel:codex')).toBe('gpt-6.1-sol'))
   })
   it('renderiza com o checkbox de continuar marcado e o modo de permissão em "Pular permissões" por padrão', () => {
     render(<StartSessionModal project={project} onClose={() => {}} />)

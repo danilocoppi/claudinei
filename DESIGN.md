@@ -68,7 +68,16 @@ Contêineres e controles seguem os raios ajustáveis do tema. O padrão é 16px;
 
 ## Components
 
+- **Modelos do Codex:** os seletores de início de sessão e de sessão aberta mostram o `displayName` publicado pelo `model/list`, mas enviam o ID exato à CLI. O catálogo dinâmico da conta prevalece; a reserva inicial acompanha GPT-6.1 Sol como padrão e mantém as famílias anteriores que a CLI ainda publica. Cada modelo apresenta apenas seus esforços suportados.
+
+- **HTML editável:** `TextDocument` mantém a mesma barra de edição para Página e Fonte, em popup e inline. `HtmlVisualEditor` usa uma barra compacta de formatação com botões nativos, rótulos nos três idiomas e estado pressionado. O conteúdo mantém as cores/tipografia do próprio arquivo; controles externos seguem os tokens do aplicativo. Em telas estreitas, os controles quebram linha e o documento rola dentro do iframe.
+  Preencher os campos do documento na Página faz a ação Salvar aparecer nessa mesma barra, mesmo sem acionar Editar. Checkbox, campos, seleções e conteúdo editável pertencem ao HTML; seus controles e menus nativos mantêm a aparência escolhida pelo documento/navegador.
+
 - **Uso:** `UsageCard` mantém nome e multiplicador juntos no lado esquerdo de cada barra. O multiplicador usa texto secundário, números tabulares e uma casa decimal localizada; o percentual permanece à direita. Em nomes longos, apenas o nome recebe reticências.
+
+- **Favoritos da sidebar:** cada cartão de terminal oferece uma estrela com estado pressionado. A estrela marcada permanece visível; a desmarcada aparece ao passar o ponteiro, ao focar o cartão e em dispositivos de toque. O switch com estrela no cabeçalho usa o mesmo desenho do filtro de ativos, com rótulo acessível; ambos podem ser combinados. Filtros preservam setores, grupos e ordem, com contadores visíveis/total. Em largura estreita, o título decorativo sai para manter filtros e ações alcançáveis.
+
+- **Editor de agendamentos:** criação e edição usam o mesmo modal no portal do documento, acima da lista de resultados. Cabeçalho e ações permanecem visíveis; o formulário rola dentro do modal em janelas baixas. O cartão conserva seu recorte e sua aparência, sem afetar o diálogo.
 
 - **Composição:** `ChatInput` é dono do rascunho, cursor e envio. `MentionMenu` continua sendo a referência visual/funcional para `@@`; `FileMentionMenu` navega pastas e escolhe um arquivo com botões nativos.
 - **Overlays:** `ViewportPopover` mede e limita os menus compartilhados. O seletor de arquivos é deliberadamente não modal: título acessível, foco inicial na busca, Escape/fechar retornam ao campo, clique/foco externo fecha sem tomar o foco do destino.

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { createProjectsService } from '../projects.js'
 import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
-import { canAccessProject, requireAdmin } from '../auth/guards.js'
+import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/guards.js'
 import { iconValueOf } from '../icons/value.js'
 import { createActionsStore } from '../actions.js'
 import { runKey } from './actions.js'
@@ -62,6 +62,16 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     } catch (err) {
       return reply.code(404).send({ error: (err as Error).message })
     }
+  })
+
+  app.patch('/api/projects/:id/favorite', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isSafeInteger(id) || id <= 0) return reply.code(400).send({ error: 'id inválido' })
+    if (!requireProjectAccess(req, reply, id)) return
+    const favorite = (req.body as { favorite?: unknown } | undefined)?.favorite
+    if (typeof favorite !== 'boolean') return reply.code(400).send({ error: 'favorite deve ser booleano' })
+    const project = svc.setFavorite(id, favorite)
+    return project ?? reply.code(404).send({ error: 'projeto não existe' })
   })
 
   app.delete('/api/projects/:id', async (req, reply) => {

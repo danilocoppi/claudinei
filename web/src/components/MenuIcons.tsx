@@ -27,6 +27,13 @@ export const MoreIcon = ({ size = 12 }: { size?: number }) => (
   </svg>
 )
 
+export const StarIcon = ({ size = 15, filled = false }: { size?: number; filled?: boolean }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'}
+       stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+    <path d="m12 2.7 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.5l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9z" />
+  </svg>
+)
+
 export const EditIcon = ({ size }: { size?: number }) => (
   <Glyph size={size}>
     <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />

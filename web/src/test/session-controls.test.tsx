@@ -49,6 +49,13 @@ describe('SessionControls', () => {
         expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ effort: 'ultra' }) })))
       expect(send).not.toHaveBeenCalled()
     })
+    it('6.1 Sol oferece max/ultra e mostra o nome publicado pela CLI', () => {
+      renderWithWs(sess({ engine: 'codex', model: 'gpt-6.1-sol' }))
+      fireEvent.click(screen.getByTestId('session-controls-pill'))
+      expect(screen.getByText('GPT-6.1-Sol').closest('.sess-pop__item')?.classList.contains('active')).toBe(true)
+      expect(screen.getByText('max')).toBeTruthy()
+      expect(screen.getByText('ultra')).toBeTruthy()
+    })
     it.each([
       ['gpt-6-luna', true], ['gpt-5.6-luna', true], ['gpt-5.5', false],
     ])('%s mostra apenas os efforts que suporta', (model, hasMax) => {
@@ -65,13 +72,13 @@ describe('SessionControls', () => {
       expect(screen.queryByText('max')).toBeNull()
       expect(screen.queryByText('ultra')).toBeNull()
     })
-    it('exibe o nome do Sol novo, mas envia o id da CLI ao trocar', async () => {
+    it('exibe o nome do 6.1 Sol, mas envia o id da CLI ao trocar', async () => {
       renderWithWs(sess({ engine: 'codex', model: 'gpt-5.6-sol' }))
       fireEvent.click(screen.getByTestId('session-controls-pill'))
       expect(screen.getByText('GPT-5.6-Sol').closest('.sess-pop__item')?.classList.contains('active')).toBe(true)
-      fireEvent.click(screen.getByText('GPT-6-Sol'))
+      fireEvent.click(screen.getByText('GPT-6.1-Sol'))
       await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/s1/options',
-        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ model: 'gpt-6-sol' }) })))
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ model: 'gpt-6.1-sol' }) })))
     })
   })
   it('pill discreto (só engrenagem) abre o popover mostrando o modelo atual', () => {

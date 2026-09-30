@@ -11,6 +11,8 @@ import { createPreviewStore, pathFromPreviewUrl, previewUrl, type PreviewStore }
 import { isUnderProjectRoot, resolveInScope } from '../files/scope.js'
 import { listProjectFiles } from '../files/list.js'
 import { z } from 'zod'
+import { randomBytes } from 'node:crypto'
+import { formBridgeScript } from '../../../shared/html-form.js'
 import type { ProjectsService } from '../projects.js'
 
 const TEXT_CAP = 2 * 1024 * 1024 // 2 MB p/ texto/markdown/código
@@ -282,7 +284,7 @@ export function registerFileRoutes(
    * contexto onde o cookie não chega.
    */
   app.post('/api/files/preview', async (req, reply) => {
-    const body = req.body as { path?: unknown; projectId?: number }
+    const body = req.body as { path?: unknown; projectId?: number; interactive?: boolean }
     const raw = typeof body?.path === 'string' ? body.path : ''
     if (!raw) return reply.code(400).send({ error: 'path required' })
     const project = projectFor(req, deps.projects, body?.projectId)
@@ -293,7 +295,10 @@ export function registerFileRoutes(
     // Só HTML: é o único tipo que precisa de documento próprio para ser visto, e
     // cada extensão a mais aqui alarga uma rota que responde sem cookie.
     if (!isHtmlFile(real)) return reply.code(415).send({ error: 'not html' })
-    return { url: previewUrl(previews.issue(previewRoot(real, project), req.socket.remoteAddress, req.accessAllowed), real) }
+    const form = body.interactive === true && isUnderProjectRoot(real, project)
+      ? { path: real, channel: randomBytes(24).toString('hex') } : undefined
+    const token = previews.issue(previewRoot(real, project), req.socket.remoteAddress, req.accessAllowed, form)
+    return { url: previewUrl(token, real), ...(form ? { channel: form.channel } : {}) }
   })
 
   /**
@@ -322,6 +327,13 @@ export function registerFileRoutes(
       reply.header('Content-Security-Policy', previewCsp(req.headers.host))
       // O app inteiro responde DENY; aqui o visualizador PRECISA embutir.
       reply.header('X-Frame-Options', 'SAMEORIGIN')
+      if (grant.form?.path === real && st.size <= TEXT_CAP) {
+        const source = await readFile(real)
+        // Only the requested document gets the bridge, never sibling pages.
+        // No writes here: the app still requires the operator's Save + baseHash.
+        const bridge = formBridgeScript(grant.form.channel, hashContent(source))
+        return reply.send(`${source.toString('utf8')}\n<script id="claudinei-preview-form-bridge">${bridge}</script>`)
+      }
     } else {
       reply.header('Content-Type', PREVIEW_MIME[extname(real).toLowerCase()] ?? 'application/octet-stream')
       reply.header('Content-Security-Policy', 'sandbox')

@@ -162,19 +162,25 @@ describe('estados do agendamento', () => {
 })
 
 describe('editor', () => {
-  /**
-   * O editor tem de nascer dentro do primitivo de modal do app (`.modal-overlay`,
-   * que é quem centraliza e escurece o fundo). Já nasceu com um nome de classe
-   * inventado uma vez, e o resultado foi um formulário jogado no canto da página
-   * com o botão Salvar fora da tela — invisível para os testes de comportamento.
-   */
-  it('renderiza dentro do overlay de modal do app', async () => {
+  /** O cartão e a lista têm overflow: hidden/auto; o modal precisa sair deles. */
+  it('renderiza o editor no portal acima da lista para não recortar cabeçalho e rodapé', async () => {
     stubFetch()
-    const { container } = render(<SchedulesView />)
+    render(<SchedulesView />)
     fireEvent.click(await screen.findByText(/novo|new/i))
     const editor = await screen.findByTestId('sched-editor')
-    expect(container.querySelector('.modal-overlay')).toBeTruthy()
-    expect(editor.closest('.modal-overlay')).toBeTruthy()
+    expect(editor.closest('.modal-overlay')?.parentElement).toBe(document.body)
+    expect(editor.closest('.sched-view')).toBeNull()
+    expect(within(editor).getByRole('button', { name: 'Salvar' })).toBeTruthy()
+  })
+
+  it('a edição de um agendamento existente usa o mesmo portal', async () => {
+    stubFetch()
+    render(<SchedulesView />)
+    fireEvent.click(await screen.findByTitle(/editar/i))
+    const editor = await screen.findByTestId('sched-editor')
+    expect(editor.closest('.modal-overlay')?.parentElement).toBe(document.body)
+    expect(editor.closest('.sched-card')).toBeNull()
+    expect((within(editor).getByTestId('sched-name') as HTMLInputElement).value).toBe('Preços do produto X')
   })
 
   it('o preview das próximas execuções vem do SERVIDOR', async () => {

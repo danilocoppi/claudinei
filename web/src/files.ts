@@ -124,10 +124,10 @@ export const isHtmlPath = (path: string): boolean => /\.(x?html?)$/i.test(path)
  * hierarquia do disco, senão todo `src`/`href` relativo dela aponta para o
  * lugar errado. Quem explica o desenho por inteiro é server/src/files/preview.ts.
  */
-export const createFilePreview = (path: string, projectId?: number) =>
-  req<{ url: string }>('/api/files/preview', {
+export const createFilePreview = (path: string, projectId?: number, interactive = false) =>
+  req<{ url: string; channel?: string }>('/api/files/preview', {
     method: 'POST',
-    body: JSON.stringify(projectId ? { path, projectId } : { path }),
+    body: JSON.stringify({ path, ...(projectId ? { projectId } : {}), ...(interactive ? { interactive: true } : {}) }),
   })
 
 // Palpite de tipo por extensão (espelha o kindOf do servidor) — usado quando o

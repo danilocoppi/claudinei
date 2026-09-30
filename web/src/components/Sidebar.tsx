@@ -1,9 +1,9 @@
 import { useShallow } from 'zustand/react/shallow'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
+import { deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setProjectFavorite, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, railRows, type Entry, type RailGuide } from '../sidebarEntries'
@@ -20,7 +20,7 @@ import { ColorField } from './ColorField'
 import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
-import { MoreIcon, GearIcon } from './MenuIcons'
+import { MoreIcon, GearIcon, StarIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { BrandMark } from './BrandMark'
 
@@ -87,6 +87,10 @@ const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
 const loadActiveOnly = (): boolean => {
   try { return localStorage.getItem(ACTIVE_ONLY_KEY) === '1' } catch { return false }
 }
+const FAVORITES_ONLY_KEY = 'claudinei:favoritesOnly'
+const loadFavoritesOnly = (): boolean => {
+  try { return localStorage.getItem(FAVORITES_ONLY_KEY) === '1' } catch { return false }
+}
 
 
 // O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
@@ -128,6 +132,10 @@ export function Sidebar() {
   const [groupColor, setGroupColor] = useState('#7c5cff')
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
+  const [favoritesOnly, setFavoritesOnly] = useState(loadFavoritesOnly)
+  const [favoriteError, setFavoriteError] = useState(false)
+  const pendingFavorites = useRef(new Set<number>())
+  const [pendingFavoriteIds, setPendingFavoriteIds] = useState<number[]>([])
   const railMode = useStore((s) => s.railMode)
   const toggleRail = useStore((s) => s.toggleRail)
   const toggleActiveOnly = () => {
@@ -135,6 +143,32 @@ export function Sidebar() {
       try { localStorage.setItem(ACTIVE_ONLY_KEY, cur ? '0' : '1') } catch { /* só não persiste */ }
       return !cur
     })
+  }
+  const toggleFavoritesOnly = () => {
+    setFavoritesOnly((cur) => {
+      try { localStorage.setItem(FAVORITES_ONLY_KEY, cur ? '0' : '1') } catch { /* só não persiste */ }
+      return !cur
+    })
+  }
+  const toggleFavorite = async (p: Project) => {
+    if (pendingFavorites.current.has(p.id)) return
+    const favorite = !p.favorite
+    pendingFavorites.current.add(p.id)
+    setPendingFavoriteIds((ids) => [...ids, p.id])
+    setFavoriteError(false)
+    const update = (value: boolean) => setProjects(useStore.getState().projects.map((item) =>
+      item.id === p.id ? { ...item, favorite: value } : item))
+    update(favorite)
+    try {
+      const saved = await setProjectFavorite(p.id, favorite)
+      update(!!saved.favorite)
+    } catch {
+      update(!!p.favorite)
+      setFavoriteError(true)
+    } finally {
+      pendingFavorites.current.delete(p.id)
+      setPendingFavoriteIds((ids) => ids.filter((id) => id !== p.id))
+    }
   }
 
   // A sessão "cara do projeto" no card: prioridade de status (needs_attention >
@@ -148,9 +182,9 @@ export function Sidebar() {
   // atualiza as entradas RECEBIDAS, com sort_order recomeçando do zero — os escondidos
   // manteriam valores antigos que colidem com esses, e a ordem apareceria embaralhada
   // ao desligar o filtro. Enquanto filtra, não arrasta.
-  const canDrag = isAdmin && !activeOnly
+  const canDrag = isAdmin && !activeOnly && !favoritesOnly
   // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
-  const visibleEntries = activeOnly ? filterEntries(entries, sessions) : entries
+  const visibleEntries = activeOnly || favoritesOnly ? filterEntries(entries, sessions, activeOnly, favoritesOnly) : entries
 
   const toggleGroup = (id: number) => {
     setCollapsed((cur) => {
@@ -353,6 +387,13 @@ export function Sidebar() {
             )
           })()}
           {badge > 0 && <span className="badge">{badge}</span>}
+          <button className={`term-card__action term-card__favorite ${p.favorite ? 'is-favorite' : ''}`}
+                  type="button" disabled={pendingFavoriteIds.includes(p.id)} aria-pressed={!!p.favorite}
+                  aria-label={t(p.favorite ? 'sidebar.removeFavorite' : 'sidebar.addFavorite', { name: p.name })}
+                  title={t(p.favorite ? 'sidebar.removeFavorite' : 'sidebar.addFavorite', { name: p.name })}
+                  onClick={(e) => { e.stopPropagation(); void toggleFavorite(p) }}>
+            <StarIcon size={15} filled={!!p.favorite} />
+          </button>
           <button className="term-card__action term-card__action--reveal term-card__caret"
                   title={isCollapsed ? t('sidebar.expandCard') : t('sidebar.collapseCard')}
                   onClick={(e) => { e.stopPropagation(); toggleCard(p.id) }}>
@@ -416,8 +457,8 @@ export function Sidebar() {
     const isCollapsed = collapsed.includes(g.id)
     const badgeSum = items.reduce((acc, p) => acc + unreadOf(p.id, sessions, unread), 0)
     const key = `g-${g.id}`
-    // Com o filtro ligado, `items` só tem os ativos — o total real vem do store. O
-    // contador vira "3/8" para não parecer que os outros sumiram do grupo.
+    // Com filtros ligados, `items` só tem os terminais visíveis — o total real
+    // vem do store. O contador vira "3/8" para não parecer que sumiram do grupo.
     const total = projects.filter((p) => p.groupId === g.id).length
     return (
       <div
@@ -446,7 +487,7 @@ export function Sidebar() {
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-group__icon" value={g.icon ?? '🗂️'} size={14} />
           <span className="term-group__name">{g.name}</span>
-          <span className="term-group__count">{activeOnly ? `${items.length}/${total}` : total}</span>
+          <span className="term-group__count">{activeOnly || favoritesOnly ? `${items.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
           {isCollapsed && (
             <span className="term-group__dots">
@@ -526,7 +567,7 @@ export function Sidebar() {
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-sector__icon" value={sec.icon ?? '🏢'} size={14} />
           <span className="term-sector__name">{sec.name}</span>
-          <span className="term-group__count">{activeOnly ? `${shown.length}/${total}` : total}</span>
+          <span className="term-group__count">{activeOnly || favoritesOnly ? `${shown.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
           {isCollapsed && (
             <span className="term-group__dots">
@@ -656,11 +697,21 @@ export function Sidebar() {
         onDrop={(e) => { e.preventDefault(); void dropOnRoot() }}
       >
         <span className="eyebrow">{t('sidebar.terminals')}</span>
-        <label className="switch switch--sm term-header__filter" title={t('sidebar.activeOnlyHint')}>
-          <input type="checkbox" checked={activeOnly} onChange={toggleActiveOnly} aria-label={t('sidebar.activeOnly')} />
-          <span className="track" />
-          <span className="thumb" />
-        </label>
+        <div className="term-header__filters">
+          <label className="switch switch--sm term-header__filter" title={t('sidebar.activeOnlyHint')}>
+            <input type="checkbox" checked={activeOnly} onChange={toggleActiveOnly} aria-label={t('sidebar.activeOnly')} />
+            <span className="track" />
+            <span className="thumb" />
+          </label>
+          <label className="term-header__favorite-filter" title={t('sidebar.favoritesOnlyHint')}>
+            <StarIcon size={13} filled={favoritesOnly} />
+            <span className="switch switch--sm term-header__filter">
+              <input type="checkbox" checked={favoritesOnly} onChange={toggleFavoritesOnly} aria-label={t('sidebar.favoritesOnly')} />
+              <span className="track" />
+              <span className="thumb" />
+            </span>
+          </label>
+        </div>
         <button className="ghost term-header__icon" title={t('sidebar.collapseAll')}
                 onClick={() => collapseAll(true)}>⌃</button>
         <button className="ghost term-header__icon" title={t('sidebar.expandAll')}
@@ -673,14 +724,15 @@ export function Sidebar() {
       </div>
 
       <div className="term-list">
+        {favoriteError && <div className="term-list__error" role="alert">{t('sidebar.favoriteSaveError')}</div>}
         {visibleEntries.map(renderEntry)}
         {projects.length === 0 && (
           <div className="term-list__empty">{t('sidebar.empty')}</div>
         )}
         {/* Tem terminal, mas o filtro escondeu todos: o texto de "crie o primeiro"
             diria a coisa errada aqui. */}
-        {projects.length > 0 && activeOnly && visibleEntries.length === 0 && (
-          <div className="term-list__empty">{t('sidebar.emptyActive')}</div>
+        {projects.length > 0 && (activeOnly || favoritesOnly) && visibleEntries.length === 0 && (
+          <div className="term-list__empty">{t(activeOnly && favoritesOnly ? 'sidebar.emptyFiltered' : activeOnly ? 'sidebar.emptyActive' : 'sidebar.emptyFavorites')}</div>
         )}
         {/* zona de drop do FIM da lista (mandar pro final) */}
         {drag !== null && (

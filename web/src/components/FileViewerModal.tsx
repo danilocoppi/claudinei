@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import 'highlight.js/styles/github-dark.css'
@@ -94,7 +94,7 @@ export function FileBody({ kind, url, name, compact, path, projectId }: {
 
   // HTML: o fonte sozinho não responde "como ficou a página".
   if (kind === 'code' && path && isHtmlPath(name)) {
-    return <HtmlBody url={url} name={name} path={path} projectId={projectId} compact={compact} />
+    return <HtmlBody key={`${projectId}:${path}`} url={url} name={name} path={path} projectId={projectId} compact={compact} />
   }
 
   if (kind === 'image') {
@@ -114,13 +114,13 @@ export function FileBody({ kind, url, name, compact, path, projectId }: {
       </div>
     )
   }
-  return <TextDocument kind={kind} url={url} name={name} path={path ?? name} projectId={projectId} />
+  return <TextDocument key={`${projectId}:${path}`} kind={kind} url={url} name={name} path={path ?? name} projectId={projectId} />
 }
 
 type PreviewState =
   | { status: 'loading' }
   | { status: 'error' }
-  | { status: 'ok'; url: string }
+  | { status: 'ok'; url: string; channel?: string }
 
 /**
  * As duas leituras de um HTML, com a página por padrão — quem abre um `.html`
@@ -142,24 +142,22 @@ function HtmlBody({ url, name, path, projectId, compact }: {
   const { t } = useTranslation()
   const [view, setView] = useState<'page' | 'source'>('page')
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' })
+  const previewRequest = useRef(0)
+  const frame = useRef<HTMLIFrameElement>(null)
+
+  const recarregarPagina = () => {
+    const request = ++previewRequest.current
+    createFilePreview(path, projectId, true)
+      .then((r) => { if (request === previewRequest.current) setPreview({ status: 'ok', ...r }) })
+      .catch(() => { if (request === previewRequest.current) setPreview({ status: 'error' }) })
+  }
 
   useEffect(() => {
-    let cancelled = false
     setView('page')
     setPreview({ status: 'loading' })
-    createFilePreview(path, projectId)
-      .then((r) => { if (!cancelled) setPreview({ status: 'ok', url: r.url }) })
-      .catch(() => { if (!cancelled) setPreview({ status: 'error' }) })
-    return () => { cancelled = true }
+    recarregarPagina()
+    return () => { previewRequest.current++ }
   }, [path, projectId])
-
-  // Salvou o fonte → a página tem de mostrar o que foi gravado; a prévia é
-  // emitida de novo porque o token anterior aponta para o conteúdo antigo.
-  const recarregarPagina = () => {
-    createFilePreview(path, projectId)
-      .then((r) => setPreview({ status: 'ok', url: r.url }))
-      .catch(() => setPreview({ status: 'error' }))
-  }
 
   const aba = (qual: 'page' | 'source', rotulo: string) => (
     <button
@@ -176,25 +174,21 @@ function HtmlBody({ url, name, path, projectId, compact }: {
         {aba('page', t('fileViewer.tabPage'))}
         {aba('source', t('fileViewer.tabSource'))}
       </div>
-      {preview.status === 'ok' && (
-        <iframe
-          key={preview.url}
-          src={preview.url}
-          title={name}
-          sandbox="allow-scripts"
-          className="html-view__frame"
-          style={{ display: view === 'page' ? 'block' : 'none', minHeight: compact ? 0 : '70vh' }}
-        />
-      )}
-      {view === 'page' && preview.status === 'loading' && (
-        <div style={{ color: 'var(--text-dim)' }}>{t('fileViewer.loading')}</div>
-      )}
-      {view === 'page' && preview.status === 'error' && (
-        <div style={{ color: 'var(--err)' }}>{t('fileViewer.previewFailed')}</div>
-      )}
-      {view === 'source' && (
-        <TextDocument kind="code" url={url} name={name} path={path} projectId={projectId} onSaved={recarregarPagina} />
-      )}
+      <TextDocument
+        kind="code" url={url} name={name} path={path} projectId={projectId} onSaved={recarregarPagina}
+        html={{ view, baseUrl: preview.status === 'ok' ? preview.url : undefined,
+          channel: preview.status === 'ok' ? preview.channel : undefined, frame, compact, preview: <>
+          {preview.status === 'ok' && (
+            <iframe ref={frame} key={preview.url} src={preview.url} title={name} sandbox="allow-scripts"
+              className="html-view__frame" style={{ minHeight: compact ? 0 : '70vh' }} />
+          )}
+          {preview.status === 'loading' && <div role="status">{t('fileViewer.loading')}</div>}
+          {preview.status === 'error' && <div className="text-document__alert" role="alert">
+            {t('fileViewer.previewFailed')}
+            <button type="button" className="ghost" onClick={recarregarPagina}>{t('fileViewer.reload')}</button>
+          </div>}
+        </> }}
+      />
     </div>
   )
 }

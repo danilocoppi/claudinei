@@ -130,4 +130,32 @@ describe('TextDocument — editar e salvar', () => {
     unmount()
     expect(useStore.getState().fileEditDirty).toBe(false)
   })
+
+  it('Concluir pede confirmação antes de descartar e cancelar conserva o rascunho', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(respostaDeLeitura('original'))
+    montar()
+    fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
+    fireEvent.change(screen.getByTestId('code-editor'), { target: { value: 'rascunho' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Concluir' }))
+    expect(screen.getByText('Descartar alterações?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect((screen.getByTestId('code-editor') as HTMLTextAreaElement).value).toBe('rascunho')
+    expect(useStore.getState().fileEditDirty).toBe(true)
+  })
+
+  it('digitar durante um save mantém as novas alterações pendentes', async () => {
+    let finish!: (response: Response) => void
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(respostaDeLeitura('original'))
+      .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    montar()
+    fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
+    fireEvent.change(screen.getByTestId('code-editor'), { target: { value: 'salvando' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+    fireEvent.change(screen.getByTestId('code-editor'), { target: { value: 'mais texto' } })
+    finish(new Response(JSON.stringify({ hash: 'h2' }), { status: 200 }))
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Salvar' }) as HTMLButtonElement).disabled).toBe(false))
+    expect(useStore.getState().fileEditDirty).toBe(true)
+    expect((screen.getByTestId('code-editor') as HTMLTextAreaElement).value).toBe('mais texto')
+  })
 })

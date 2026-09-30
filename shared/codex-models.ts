@@ -7,6 +7,7 @@ const regular = ['low', 'medium', 'high', 'xhigh']
 const extended = [...regular, 'max']
 const delegated = [...extended, 'ultra']
 const modelOptions: Record<string, ModelOptions> = {
+  'gpt-6.1-sol': { displayName: 'GPT-6.1-Sol', efforts: delegated, defaultEffort: 'low' },
   'gpt-6-astra': { displayName: 'GPT-6-Astra', efforts: delegated, defaultEffort: 'medium' },
   'gpt-6-sol': { displayName: 'GPT-6-Sol', efforts: delegated, defaultEffort: 'medium' },
   'gpt-6-luna': { displayName: 'GPT-6-Luna', efforts: extended, defaultEffort: 'medium' },
@@ -16,7 +17,7 @@ const modelOptions: Record<string, ModelOptions> = {
   'gpt-5.5': { displayName: 'GPT-5.5', efforts: regular, defaultEffort: 'medium' },
 }
 
-/** Fallback verificado com model/list do codex-cli 0.156.1 em 2026-09-23.
+/** Fallback verificado com model/list do codex-cli 0.159.2 em 2026-09-29.
  * A lista da conta/CLI prevalece, inclusive para modelos antigos ainda disponíveis.
  * https://learn.chatgpt.com/docs/models
  */
@@ -24,5 +25,5 @@ export const CODEX_FALLBACK_CATALOG: ModelCatalog = {
   models: ['', ...Object.keys(modelOptions)],
   efforts: ['auto', ...delegated],
   modelOptions,
-  defaultModel: 'gpt-6-astra',
+  defaultModel: 'gpt-6.1-sol',
 }

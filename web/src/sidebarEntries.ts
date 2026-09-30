@@ -52,14 +52,14 @@ export function isProjectActive(projectId: number, sessions: Record<string, Sess
  *
  * Não muta a entrada: a lista completa segue sendo a fonte do `applyOrder`.
  */
-export function filterEntries(entries: Entry[], sessions: Record<string, SessionInfo>): Entry[] {
-  const active = (projectId: number) => isProjectActive(projectId, sessions)
+export function filterEntries(entries: Entry[], sessions: Record<string, SessionInfo>, activeOnly = true, favoritesOnly = false): Entry[] {
+  const visible = (p: Project) => (!activeOnly || isProjectActive(p.id, sessions)) && (!favoritesOnly || !!p.favorite)
   // Recursivo porque a árvore tem três níveis: um setor sobrevive se sobrar algo
   // dentro dele — seja um terminal solto, seja um grupo com filho ativo.
   const keep = (e: Entry): Entry | null => {
-    if (e.kind === 'project') return active(e.p.id) ? e : null
+    if (e.kind === 'project') return visible(e.p) ? e : null
     if (e.kind === 'group') {
-      const items = e.items.filter((p) => active(p.id))
+      const items = e.items.filter(visible)
       return items.length > 0 ? { ...e, items } : null
     }
     const children = e.children.map(keep).filter(Boolean) as Array<Extract<Entry, { kind: 'group' | 'project' }>>

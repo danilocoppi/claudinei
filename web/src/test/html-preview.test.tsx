@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/react'
 import { FileViewerModal } from '../components/FileViewerModal'
 import { useStore } from '../store'
+import { htmlFormTools } from '../../../shared/html-form'
 
 /**
  * HTML tem duas leituras legítimas: o fonte e a PÁGINA. Até aqui o visualizador
@@ -19,7 +20,7 @@ const abrirHtml = (path = '/tmp/p/review/index.html') =>
   useStore.setState({ fileViewer: { path, kind: 'code', projectId: 7 } })
 
 /** fetch dublê: separa a emissão do preview (POST) da leitura do fonte (GET). */
-function mockFetch(opts?: { preview?: () => Promise<Response>; fonte?: string }) {
+function mockFetch(opts?: { preview?: () => Promise<Response>; fonte?: string; hash?: string; channel?: string }) {
   const chamadas: { url: string; body?: unknown }[] = []
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -27,9 +28,12 @@ function mockFetch(opts?: { preview?: () => Promise<Response>; fonte?: string })
     if (url === '/api/files/preview') {
       return opts?.preview
         ? opts.preview()
-        : new Response(JSON.stringify({ url: PREVIEW_URL }), { status: 200 })
+        : new Response(JSON.stringify({ url: PREVIEW_URL, channel:opts?.channel }), { status: 200 })
     }
-    return new Response(opts?.fonte ?? '<!doctype html><h1>Oi</h1>', { status: 200 })
+    if (url === '/api/files/write') return new Response(JSON.stringify({ hash:'hash-novo' }), { status:200 })
+    return new Response(opts?.fonte ?? '<!doctype html><h1>Oi</h1>', {
+      status: 200, headers: opts?.hash ? { 'X-Content-Hash': opts.hash } : {},
+    })
   })
   return chamadas
 }
@@ -41,6 +45,35 @@ beforeEach(() => useStore.setState({ fileViewer: null }))
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('arquivo HTML no visualizador', () => {
+  it('preencher mostra Salvar sem Editar; só aceita eventos do iframe/canal atual e exige clique para gravar', async () => {
+    const source = '<input id="check" type="checkbox">'
+    const calls = mockFetch({ fonte:source, hash:'hash-lido', channel:'canal-atual' })
+    abrirHtml()
+    render(<FileViewerModal />)
+    await screen.findByRole('button', {name:/Editar/})
+    const doc = new DOMParser().parseFromString(source,'text/html')
+    const fields = htmlFormTools(doc).read()
+    const message = (kind: string, sender: MessageEventSource | null, channel = 'canal-atual') => fireEvent(window, new MessageEvent('message', {
+      source:sender, origin:'null', data:{type:'claudinei:html-form',kind,channel,hash:'hash-lido',fields},
+    }))
+    message('ready',window)
+    message('change',window)
+    expect(screen.queryByRole('button',{name:'Salvar'})).toBeNull()
+    message('ready',iframe()!.contentWindow)
+    fields[0].checked = true
+    message('change',iframe()!.contentWindow,'outro-canal')
+    expect(screen.queryByRole('button',{name:'Salvar'})).toBeNull()
+    message('change',iframe()!.contentWindow)
+    expect(screen.getByRole('button',{name:'Salvar'})).toBeTruthy()
+    expect(document.querySelector('.html-editor')).toBeNull()
+    expect(calls.some(call => call.url === '/api/files/write')).toBe(false)
+    fireEvent.click(screen.getByRole('button',{name:'Salvar'}))
+    await waitFor(() => expect(useStore.getState().fileEditDirty).toBe(false))
+    const body = calls.find(call => call.url === '/api/files/write')!.body as Record<string, unknown>
+    expect(body).toMatchObject({path:'/tmp/p/review/index.html',projectId:7,baseHash:'hash-lido'})
+    expect(new DOMParser().parseFromString(String(body.content),'text/html').querySelector('input')!.hasAttribute('checked')).toBe(true)
+  })
+
   it('oferece as duas leituras: página e fonte', async () => {
     mockFetch()
     abrirHtml()
@@ -58,12 +91,34 @@ describe('arquivo HTML no visualizador', () => {
     expect(botao(/página/i).getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('o lápis na Página abre edição visual isolada, sem executar scripts', async () => {
+    mockFetch({ hash: 'hash-lido' })
+    abrirHtml()
+    render(<FileViewerModal />)
+    fireEvent.click(await screen.findByRole('button', { name: /Editar/ }))
+    const visual = screen.getByTitle('Edição visual de index.html') as HTMLIFrameElement
+    // jsdom does not implement focusing a nested window; the browser check does.
+    visual.contentWindow!.focus = vi.fn()
+    expect(visual.getAttribute('sandbox')).toBe('allow-same-origin')
+    expect(visual.getAttribute('srcdoc')).toContain("script-src 'none'")
+    expect(screen.getByRole('button', { name: 'Negrito' })).toBeTruthy()
+    expect(document.querySelector('.code-editor')).toBeNull()
+  })
+
+  it('sem hash mantém a Página legível e não oferece gravação insegura', async () => {
+    mockFetch()
+    abrirHtml()
+    render(<FileViewerModal />)
+    await waitFor(() => expect(iframe()?.getAttribute('src')).toBe(PREVIEW_URL))
+    expect(screen.queryByRole('button', { name: /Editar/ })).toBeNull()
+  })
+
   it('a página vem da URL emitida para o arquivo aberto', async () => {
     const chamadas = mockFetch()
     abrirHtml()
     render(<FileViewerModal />)
     await waitFor(() => expect(iframe()?.getAttribute('src')).toBe(PREVIEW_URL))
-    expect(chamadas[0]).toMatchObject({
+    expect(chamadas.find((c) => c.url === '/api/files/preview')).toMatchObject({
       url: '/api/files/preview',
       body: { path: '/tmp/p/review/index.html', projectId: 7 },
     })

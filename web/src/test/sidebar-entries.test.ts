@@ -51,6 +51,18 @@ describe('isProjectActive', () => {
 })
 
 describe('filterEntries', () => {
+  it('filtra favoritos parados e combina favorito com ativo sem mudar a ordem', () => {
+    const entries: Entry[] = [
+      { kind: 'project', p: { ...proj(1), favorite: true } },
+      { kind: 'project', p: proj(2) },
+      { kind: 'project', p: { ...proj(3), favorite: true } },
+    ]
+    const sessions = byId(sess('a', 1, 'stopped'), sess('b', 2, 'working'), sess('c', 3, 'working'))
+    expect(filterEntries(entries, sessions, false, true).map((e) => e.kind === 'project' && e.p.id)).toEqual([1, 3])
+    expect(filterEntries(entries, sessions, true, true).map((e) => e.kind === 'project' && e.p.id)).toEqual([3])
+    expect(entries).toHaveLength(3)
+  })
+
   it('mantém terminal solto com sessão viva e remove o parado', () => {
     const entries: Entry[] = [
       { kind: 'project', p: proj(1) },

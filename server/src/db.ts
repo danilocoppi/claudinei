@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS projects (
   path TEXT NOT NULL,
   color TEXT NOT NULL DEFAULT '#7c5cff',
   icon TEXT NOT NULL DEFAULT '📁',
+  favorite INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -171,6 +172,7 @@ export function openDb(path: string): Db {
   try { db.exec(`ALTER TABLE sessions ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude'`) } catch { /* já existe */ }
   db.exec(`UPDATE sessions SET permission_mode = CASE WHEN skip_permissions = 0 THEN 'default' ELSE 'bypassPermissions' END WHERE permission_mode IS NULL`)
   try { db.exec(`ALTER TABLE projects ADD COLUMN sort_order INTEGER`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
   db.exec(`UPDATE projects SET sort_order = id WHERE sort_order IS NULL`)
   // Nomenclatura em inglês (Hermes): colunas antigas em PT renomeadas para EN,
   // e valores antigos de status migrados. Idempotente — instalação nova já

@@ -6,6 +6,7 @@ import { createSessionManager } from '../src/claude/manager.js'
 import { createAuthService, type AuthService } from '../src/auth/index.js'
 import { createProjectsService } from '../src/projects.js'
 import { createPreviewStore, pathFromPreviewUrl, previewUrl } from '../src/files/preview.js'
+import { hashContent } from '../src/files/hash.js'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -59,6 +60,28 @@ const urlDe = async (path = 'review/index.html'): Promise<string> => {
 }
 
 describe('emissão do preview (POST /api/files/preview)', () => {
+  it('instrumenta somente o HTML solicitado quando o preenchimento é habilitado', async () => {
+    const response = await emitir('review/index.html', { interactive: true })
+    const { url, channel } = response.json()
+    expect(channel).toMatch(/^[a-f0-9]{48}$/)
+    const page = await app.inject({ method: 'GET', url })
+    expect(page.body).toContain('claudinei-preview-form-bridge')
+    expect(page.body).toContain(channel)
+    expect(page.body).toContain(hashContent(Buffer.from(HTML)))
+    expect(page.headers['content-security-policy']).not.toContain('allow-same-origin')
+    writeFileSync(join(projectPath, 'review', 'sibling.html'), HTML)
+    const sibling = await app.inject({ method:'GET', url:url.replace('/index.html','/sibling.html') })
+    expect(sibling.body).toBe(HTML)
+  })
+
+  it('prévia normal continua sem bridge; ler sem projeto não habilita preenchimento', async () => {
+    const normal = await app.inject({ method:'GET', url:await urlDe() })
+    expect(normal.body).toBe(HTML)
+    const noProject = await app.inject({ method:'POST', url:'/api/files/preview',
+      payload:{ path:join(projectPath,'review','index.html'), interactive:true } })
+    expect(noProject.statusCode).toBe(200)
+    expect(noProject.json().channel).toBeUndefined()
+  })
   it('devolve uma URL que espelha o caminho real do arquivo', async () => {
     const url = await urlDe()
     expect(url).toContain('/api/files/preview/')

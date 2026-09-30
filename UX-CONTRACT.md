@@ -26,6 +26,20 @@ Registro incremental dos fluxos verificados, não uma certificação de toda a i
 
 Busca, pasta e paginação são transitórias, locais ao popup; não vão para a URL nem são compartilhadas entre terminais. Essa é uma exceção intencional à persistência de filtros de páginas de dados. Fechar preserva o rascunho, inclusive o gatilho ainda não substituído.
 
+## Favoritos dos terminais
+
+Pedido do usuário em 2026-09-29: a estrela no cartão marca/desmarca o terminal como favorito, inclusive quando o cartão está compacto. A marca fica no banco junto ao terminal e aparece para os usuários que podem acessá-lo, também em outros dispositivos. Qualquer usuário com acesso ao terminal pode mudar essa marca; o filtro de favoritos é apenas uma preferência de visualização deste navegador, persistida no localStorage.
+
+O switch com estrela mostra somente terminais favoritos. Pode ser combinado com “Somente ativos”; nesse caso, só aparecem favoritos com agente ativo. Setores e grupos sem filhos visíveis desaparecem, e os contadores exibem visíveis/total. Os dados completos continuam sendo a fonte da ordenação; o arraste fica indisponível enquanto um filtro está ligado. Remover a estrela no modo filtrado retira o cartão da lista. Falha na gravação restaura o estado anterior e mostra uma mensagem. Sem resultados, a lista explica se faltam ativos, favoritos ou terminais que atendam aos dois filtros.
+
+## Editor de agendamentos
+
+Ao criar ou editar, `ScheduleEditor` monta `.modal-overlay` diretamente em `document.body`. A lista e os cartões têm rolagem/recorte próprios; o diálogo fora dessa árvore ocupa a viewport e mantém título e Salvar/Cancelar acessíveis. Em altura reduzida, apenas o corpo do formulário rola. O diálogo expõe nome acessível e estado modal. Fechar ou salvar mantém os fluxos existentes de `SchedulesView`.
+
+## Modelos do Codex
+
+O Claudinei consulta `model/list` da CLI para mostrar somente os modelos liberados à conta, com os nomes, esforços e padrão informados por ela. Ao iniciar ou alterar uma sessão, o valor enviado continua sendo o ID do modelo. Se a consulta falhar, o catálogo de reserva oferece GPT-6.1 Sol como padrão, seguido pelos modelos anteriores ainda presentes no catálogo da CLI em 2026-09-29; uma consulta posterior bem-sucedida substitui essa reserva.
+
 ## Cores do ritmo de uso
 
 O multiplicador aparece ao lado do nome de cada limite, com uma casa decimal e separador do idioma ativo (ex.: `All Models (1.5×)` / `Todos os modelos (1,5×)`), conforme pedido posterior do usuário em 2026-09-25. Ele usa o mesmo cálculo da cor e do tooltip. Nome longo pode receber reticências; multiplicador e percentual permanecem visíveis. Sem ritmo finito calculável, o multiplicador é omitido.
@@ -33,6 +47,26 @@ O multiplicador aparece ao lado do nome de cada limite, com uma casa decimal e s
 Pedido do usuário em 2026-09-25: azul abaixo de 0,7×; verde de 0,7× a 1×; progressão por amarelo até vermelho em 1,5×; vermelho de 1,5× a 2×; roxo somente acima de 2×. O amarelo ocupa o ponto médio, 1,25×. A regra vale para todas as barras em `UsageCard`, via `paceColor`, e a legenda em `UsageInfo` usa a mesma função e mensagens nos três idiomas. Ritmo desconhecido usa cinza para distingui-lo de consumo elevado. Os cálculos de cota, percentual consumido, janela e reset permanecem os mesmos.
 
 Validação: 40 testes de ritmo, card, agrupamento, tokens e i18n; build do frontend; lint do DESIGN sem erros/avisos. Conferência no Chromium com os componentes reais em 393px e 320px, temas claro/escuro, legenda, espanhol e movimento reduzido; imagens inspecionadas em `/tmp/claudinei-usage-colors-vTDBMH`. A auditoria strict manteve os 16 apontamentos legados, sem novos (`/tmp/claudinei-usage-colors-before.json` e `-after.json`).
+
+## Editar o HTML pela página
+
+Pedido de 2026-09-28: oferecer o lápis na visão formatada com WYSIWYG. `FileBody`/`HtmlBody` compartilham `TextDocument` entre popup e inline; `TextDocument` é dono da leitura, rascunho, hash, salvamento e erros. A variante HTML troca apenas a apresentação entre `HtmlVisualEditor` (Página) e `CodeEditor` (Fonte), mantendo o mesmo rascunho. A edição visual cobre texto, negrito, itálico, sublinhado, listas e desfazer/refazer; não reorganiza o layout por arrasto.
+
+O lápis exige projeto e hash lido; na Página também exige a URL da prévia para resolver CSS/imagens locais. Salvar usa a rota e autorização existentes (`POST /api/files/write`, `baseHash`); conflitos e falhas preservam o rascunho, e novas edições durante um save permanecem pendentes. Concluir/fechar com alterações exige o diálogo de descarte existente; a saída real da página usa `beforeunload`. Trocar Página/Fonte conserva alterações, mas remontar um editor reinicia seu histórico de desfazer. Recarregar após conflito substitui o rascunho pela versão do disco, como no editor de fonte.
+
+A prévia interativa continua em origem opaca (`sandbox="allow-scripts"`). A edição usa outro iframe com scripts desativados (`sandbox="allow-same-origin"`, CSP `script-src 'none'`); as duas permissões nunca são combinadas. Apenas recursos da concessão de leitura podem carregar. Formulários, navegação por links, refresh e embeds ficam inativos. Colagem insere texto simples. Conteúdo gerado por scripts não aparece durante a edição; a interface informa essa limitação. O serializador preserva o head, scripts e URLs relativas, altera o corpo e remove os detalhes temporários do editor; o navegador pode normalizar a sintaxe do HTML no primeiro save. Sem alteração, mantém o fonte exato.
+
+Verificação: testes de preservação/isolamento em `html-visual.test.ts`, testes dos visualizadores e do salvamento em `text-document.test.tsx`, e `scripts/verify-html-visual.mjs` com componentes reais, API temporária, conflito/erro/retry, alternância de abas, teclas, inline em 393/320px, espanhol e movimento reduzido. O script não usa o serviço nem os arquivos do usuário.
+
+### Preencher relatórios sem acionar Editar
+
+Correção solicitada em 2026-09-28: interagir com checkboxes ou campos na Página deve disponibilizar Salvar, sem exigir o lápis. A prévia captura checkbox, rádio, texto/número/data e outros inputs comuns, textarea, select simples/múltiplo e regiões `contenteditable`. Marcar e desfazer antes de salvar volta ao estado limpo. Senhas e seleção de arquivo não entram no conteúdo persistido. Só o clique em Salvar grava o arquivo; navegar entre Página/Fonte mantém o preenchimento, e fechar com valores pendentes usa a confirmação existente.
+
+`shared/html-form.ts` é dono da captura/restauração; `web/src/editor/html-form.ts` aplica os valores ao HTML original e `TextDocument` continua dono do rascunho/save/conflito. Valores estáticos viram atributos/conteúdo nativos; um estado e restaurador locais no HTML preservam também campos gerados por script, inclusive ao abrir o relatório fora do Claudinei. Não se salva um snapshot de todo o DOM da aplicação em execução, nem dados em localStorage. IDs/nomes dos campos identificam controles; controles sem identidade usam sua ordem dentro do tipo. Reconstrução do documento com outras identidades não tem garantia de correspondência.
+
+O bridge só é emitido mediante pedido da prévia para um arquivo dentro do projeto autorizado, vinculado a esse arquivo e hash; não é injetado em páginas irmãs. A prévia segue em origem opaca e não ganha permissão de escrita. O app aceita apenas mensagens de seu iframe/canal, valida os dados e usa exclusivamente seu caminho/projeto/hash na rota de save existente. Divergência entre a versão lida e a exibida exige recarregar. A instrumentação da prévia não entra no arquivo salvo.
+
+Verificado por `html-form.test.ts`, `html-preview.test.tsx`, `files-preview.test.ts` e ensaio real/minificado em `verify-html-visual.mjs`: preencher sem Editar, salvar/reabrir, campo dinâmico, documento independente, cancelamento, conflito e ausência de gravação automática.
 
 ## Estados e recuperação
 

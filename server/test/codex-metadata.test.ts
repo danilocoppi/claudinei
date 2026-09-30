@@ -80,6 +80,10 @@ describe('Codex metadata cache', () => {
   it('sem CLI mantém fallback atualizado e não inventa limites', async () => {
     const s = createCodexMetadataService({ read: async () => ({}) })
     await s.refresh()
+    expect(s.catalog().models[1]).toBe('gpt-6.1-sol')
+    expect(s.catalog().defaultModel).toBe('gpt-6.1-sol')
+    expect(s.catalog().modelOptions?.['gpt-6.1-sol']).toMatchObject({ displayName: 'GPT-6.1-Sol', defaultEffort: 'low' })
+    expect(effortsForModel(s.catalog(), 'gpt-6.1-sol')).toContain('ultra')
     expect(s.catalog().models).toContain('gpt-6-astra')
     expect(s.catalog().models).toContain('gpt-6-sol')
     expect(s.catalog().models).toContain('gpt-6-luna')

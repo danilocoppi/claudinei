@@ -104,6 +104,48 @@ describe('CodexSession (App Server)', () => {
   })
 })
 
+// O daemon do TUI segura a conversa por 60 s depois que o terminal fecha; o chat
+// que volta nesse intervalo leva "already has an active writer" na retomada.
+describe('conversa aberta em outro Codex', () => {
+  const statusesOf = (s: CodexSession) => { const seen: string[] = []; s.on('status', (st) => seen.push(st)); return seen }
+
+  it('espera a outra ponta soltar a conversa e retoma, sem morrer', async () => {
+    const s = mk({ resumeSessionId: 'OLD', writerWait: { retryMs: 20, deadlineMs: 5000 } }, ['--writer-conflict=3'])
+    const statuses = statusesOf(s); s.start()
+    await waitFor(() => s.status === 'idle')
+    expect(s.sessionId).toBe('OLD')
+    expect(statuses).not.toContain('dead')
+    s.send('oi'); await waitFor(() => s.status === 'needs_attention')
+  })
+  it('mensagem enviada durante a espera vai assim que a conversa é solta', async () => {
+    const s = mk({ resumeSessionId: 'OLD', writerWait: { retryMs: 20, deadlineMs: 5000 } }, ['--writer-conflict=3'])
+    const events = eventsOf(s); s.start(); s.send('oi')
+    await waitFor(() => s.status === 'needs_attention')
+    expect(events.filter((e) => e.kind === 'result').at(-1)).toMatchObject({ isError: false, resultText: 'echo:oi' })
+  })
+  it('se a conversa não é solta dentro do prazo, morre dizendo o que fazer', async () => {
+    const s = mk({ resumeSessionId: 'OLD', writerWait: { retryMs: 20, deadlineMs: 150 } }, ['--writer-conflict=always'])
+    s.start()
+    await waitFor(() => s.status === 'dead')
+    // É o detalhe que o chat mostra na sessão morta.
+    expect(s.lastStderr).toContain('aberta em outro Codex')
+  })
+  it('outro erro na retomada continua fatal na hora, sem esperar o prazo', async () => {
+    const s = mk({ resumeSessionId: 'OLD', writerWait: { retryMs: 20, deadlineMs: 60_000 } }, ['--resume-missing'])
+    s.start()
+    await waitFor(() => s.status === 'dead')
+    expect(s.lastStderr).toContain('no rollout found')
+  })
+  it('parar durante a espera encerra a sessão como parada, não como morta', async () => {
+    const s = mk({ resumeSessionId: 'OLD', writerWait: { retryMs: 20, deadlineMs: 60_000 } }, ['--writer-conflict=always'])
+    const statuses = statusesOf(s); s.start()
+    await new Promise((r) => setTimeout(r, 100))
+    await s.stop()
+    expect(s.status).toBe('stopped')
+    expect(statuses).not.toContain('dead')
+  })
+})
+
 describe('compactação: diferenças de ordem e falhas do protocolo', () => {
   it('preserva a nova medição quando chega antes de item/completed (CLI real)', async () => {
     const s = mk({ resumeSessionId: 'OLD' }, ['--usage-before-complete'])

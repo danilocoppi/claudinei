@@ -552,7 +552,11 @@ describe('SessionManager', () => {
     it('Codex sem claude_session_id no banco: retoma o último thread da pasta (rollout) em vez de abrir fresh', async () => {
       const codexHome = mkdtempSync(join(tmpdir(), 'codexhome-'))
       const prev = process.env.CODEX_HOME
+      const prevBin = process.env.CLAUDINEI_CODEX_BIN
       process.env.CODEX_HOME = codexHome
+      // A CLI instalada na máquina decide se o terminal aceita --no-daemon; a
+      // falsa deixa o resultado igual em qualquer máquina.
+      process.env.CLAUDINEI_CODEX_BIN = fileURLToPath(new URL('./fake-codex-cli.mjs', import.meta.url))
       try {
         const uuid = '019f5c1c-1cf7-75b0-9cbc-cecf17c3a8db'
         const dir = join(codexHome, 'sessions', '2026', '07', '13')
@@ -572,13 +576,15 @@ describe('SessionManager', () => {
 
         // Retomou o thread do rollout (não abriu fresh)
         expect(launches).toHaveLength(1)
-        expect(launches[0].args).toEqual(['resume', uuid, '--dangerously-bypass-approvals-and-sandbox'])
+        expect(launches[0].args).toEqual(['resume', uuid, '--dangerously-bypass-approvals-and-sandbox', '--no-daemon'])
         // E persistiu o id recuperado para as próximas aberturas
         const row = db.prepare('SELECT claude_session_id FROM sessions WHERE local_id=?').get('cx-noid') as any
         expect(row.claude_session_id).toBe(uuid)
       } finally {
         if (prev === undefined) delete process.env.CODEX_HOME
         else process.env.CODEX_HOME = prev
+        if (prevBin === undefined) delete process.env.CLAUDINEI_CODEX_BIN
+        else process.env.CLAUDINEI_CODEX_BIN = prevBin
       }
     })
 

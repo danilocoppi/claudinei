@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
-  createGroup, createSector, deleteAction, deleteProject, fetchActions, fetchGroups,
+  createGroup, createSector, deleteAction, fetchActions, fetchGroups,
   fetchLocalApps, fetchProjects, fetchSectors, openLocalApp, setProjectGroup,
   setProjectSector, type Action, type LocalApp,
 } from '../api'
@@ -11,7 +11,7 @@ import { copyText } from '../clipboard'
 import { CodeIcon, CopyIcon, EditIcon, FolderIcon, PlayIcon, TerminalIcon, TrashIcon } from './MenuIcons'
 import { NewProjectModal } from './NewProjectModal'
 import { ActionEditor } from './ActionEditor'
-import { ConfirmDialog } from './ConfirmDialog'
+import { DeleteProjectDialog } from './DeleteProjectDialog'
 import type { Project } from '../types'
 import { ViewportPopover } from './ViewportPopover'
 
@@ -43,7 +43,6 @@ export function TerminalMenu({ project, x, y, onDone }: {
   const [phase, setPhase] = useState<'menu' | 'edit' | 'delete' | 'action'>('menu')
   const [newGroupName, setNewGroupName] = useState('')
   const [newSectorName, setNewSectorName] = useState('')
-  const [deleteError, setDeleteError] = useState('')
   const [localApps, setLocalApps] = useState<Partial<Record<LocalApp, boolean>> & { local?: boolean }>({})
   const [actions, setActions] = useState<Action[]>([])
   // Indefinido = criando; definido = editando aquela.
@@ -103,16 +102,6 @@ export function TerminalMenu({ project, x, y, onDone }: {
     } catch { /* mantém como está */ }
   }
 
-  const excluir = async () => {
-    try {
-      await deleteProject(project.id)
-      setProjects(await fetchProjects())
-      onDone()
-    } catch (err) {
-      setDeleteError((err as Error).message)
-    }
-  }
-
   if (phase === 'action') {
     return (
       <ActionEditor
@@ -124,18 +113,7 @@ export function TerminalMenu({ project, x, y, onDone }: {
     )
   }
   if (phase === 'edit') return <NewProjectModal editProject={project} onClose={onDone} />
-  if (phase === 'delete') {
-    return (
-      <ConfirmDialog
-        title={t('confirm.deleteTitle', { name: project.name })}
-        message={t('confirm.deleteMsg')}
-        confirmLabel={t('common.delete')}
-        error={deleteError}
-        onConfirm={excluir}
-        onClose={onDone}
-      />
-    )
-  }
+  if (phase === 'delete') return <DeleteProjectDialog project={project} onDeleted={onDone} onClose={onDone} />
 
   return createPortal(
     <div className="sess-pop__overlay" onClick={onDone}>
@@ -262,7 +240,7 @@ export function TerminalMenu({ project, x, y, onDone }: {
             do menu, encostado em Editar — no ponto de maior tráfego do ponteiro. */}
         <div className="sess-pop__sep" />
         <div className="sess-pop__item sess-pop__item--danger"
-             onClick={() => { setDeleteError(''); setPhase('delete') }}>
+             onClick={() => setPhase('delete')}>
           <TrashIcon /><span>{t('sidebar.deleteTerminal')}</span>
         </div>
       </ViewportPopover>

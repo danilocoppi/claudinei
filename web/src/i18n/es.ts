@@ -163,6 +163,12 @@ export const es: typeof en = {
   confirm: {
     deleteTitle: '¿Eliminar {{name}}?',
     deleteMsg: 'Esto quita la terminal de la lista de Claudinei. No borra los archivos del disco ni el historial de conversaciones.',
+    deleteOpenSessions_one: 'Esta terminal tiene una sesión abierta:',
+    deleteOpenSessions_other: 'Esta terminal tiene {{count}} sesiones abiertas:',
+    deleteAck_one: 'Entiendo que la sesión se cerrará.',
+    deleteAck_other: 'Entiendo que las {{count}} sesiones se cerrarán.',
+    deleteStopping: 'Cerrando sesiones…',
+    deleteSessionsChanged: 'Se abrió una sesión mientras esta ventana estaba abierta. Revisa la lista y confirma de nuevo.',
   },
   modal: {
     newProject: 'Nuevo proyecto', editTerminal: 'Editar terminal',

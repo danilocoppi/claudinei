@@ -120,17 +120,35 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     return project ?? reply.code(404).send({ error: 'projeto não existe' })
   })
 
+  /**
+   * Sessões que impedem excluir o terminal, em todas as engines. Inclui a que
+   * está no terminal: ela sai do mapa `live`, mas o PTY continua rodando — o
+   * delete em cascata da linha deixaria o canal órfão no terminalManager.
+   */
+  const openSessionsOf = (projectId: number) => deps.db.prepare(
+    `SELECT local_id AS localId, engine, status FROM sessions
+     WHERE project_id=? AND status IN ('starting','idle','working','needs_attention','in_terminal')`,
+  ).all(projectId) as { localId: string; engine: string; status: string }[]
+
   app.delete('/api/projects/:id', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
     const id = Number((req.params as { id: string }).id)
-    // Sessão in_terminal sai do mapa `live` mas o PTY continua rodando — o
-    // delete em cascata da linha da sessão deixaria o canal órfão no
-    // terminalManager (onExit vira no-op). Barra também esse caso.
-    const inTerminal = (deps.db.prepare(
-      `SELECT COUNT(*) c FROM sessions WHERE project_id=? AND status='in_terminal'`,
-    ).get(id) as any).c as number
-    if (deps.manager.hasActiveSession(id) || inTerminal > 0) {
-      return reply.code(409).send({ error: 'projeto tem uma sessão ativa; finalize-a antes de excluir' })
+    const stillOpen = () => deps.manager.hasActiveSession(id) || openSessionsOf(id).length > 0
+    if (stillOpen()) {
+      // Sem a confirmação do operador, recusa — e diz quais sessões estão abertas,
+      // para o diálogo pedir o "estou ciente" com a lista certa.
+      if ((req.query as { stopSessions?: string }).stopSessions !== '1') {
+        return reply.code(409).send({ error: 'projeto tem uma sessão ativa; finalize-a antes de excluir', sessions: openSessionsOf(id) })
+      }
+      // Cada uma espera o processo encerrar de verdade antes da próxima.
+      for (const s of openSessionsOf(id)) {
+        if (s.status === 'in_terminal') await deps.terminalManager?.closeAndWait(s.localId)
+        else await deps.manager.stop(s.localId)
+      }
+      // Remover com um processo de pé deixaria um agente sem terminal na lista.
+      if (stillOpen()) {
+        return reply.code(409).send({ error: 'não foi possível finalizar todas as sessões; o terminal não foi excluído', sessions: openSessionsOf(id) })
+      }
     }
     // As ações do terminal morrem COM ele.
     //

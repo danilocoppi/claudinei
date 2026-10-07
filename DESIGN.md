@@ -81,6 +81,8 @@ Contêineres e controles seguem os raios ajustáveis do tema. O padrão é 16px;
 
 - **Terminal temporário:** o raio é um botão-ícone do cabeçalho, com a mesma altura de ⌃ ⌄ e “+ Terminal” e com título e rótulo acessível localizados. Com ele, a linha do cabeçalho pede 251px; com a barra abaixo de 255px, o rótulo “Terminal” sai e fica o “+”.
 
+- **Excluir terminal:** `DeleteProjectDialog` sobre o `ConfirmDialog`, que aceita conteúdo entre a mensagem e o erro e um botão de confirmar desabilitado. Com sessões abertas, a lista usa o texto normal e a caixa de ciência usa o checkbox nativo com `accent-color`; o botão destrutivo fica desabilitado até ela ser marcada.
+
 - **Editor de agendamentos:** criação e edição usam o mesmo modal no portal do documento, acima da lista de resultados. Cabeçalho e ações permanecem visíveis; o formulário rola dentro do modal em janelas baixas. O cartão conserva seu recorte e sua aparência, sem afetar o diálogo.
 
 - **Composição:** `ChatInput` é dono do rascunho, cursor e envio. `MentionMenu` continua sendo a referência visual/funcional para `@@`; `FileMentionMenu` navega pastas e escolhe um arquivo com botões nativos.

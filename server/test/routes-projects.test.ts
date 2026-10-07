@@ -4,6 +4,8 @@ import { openDb } from '../src/db.js'
 import { loadConfig } from '../src/config.js'
 import { createSessionManager } from '../src/claude/manager.js'
 import { ClaudeSession, type SessionOptions } from '../src/claude/session.js'
+import { createTerminalManager } from '../src/terminal/manager.js'
+import '../src/engine/index.js' // registra as engines (terminalCommand no openInTerminal)
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -87,5 +89,90 @@ describe('rotas de projetos', () => {
 
     const del2 = await fakeApp.inject({ method: 'DELETE', url: `/api/projects/${id}` })
     expect(del2.statusCode).toBe(204)
+  })
+})
+
+/**
+ * Excluir um terminal com sessões abertas: sem confirmação o servidor recusa e
+ * diz QUAIS estão abertas (o diálogo mostra a lista e pede o "estou ciente");
+ * com `stopSessions=1` ele as finaliza — chat de várias engines e a que está no
+ * terminal — e só remove depois de conferir que nenhuma ficou de pé.
+ */
+describe('excluir terminal com sessões abertas', () => {
+  const statusOf = (db: ReturnType<typeof openDb>, localId: string) =>
+    (db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any)?.status
+
+  const montar = async (opts: { travarStop?: boolean } = {}) => {
+    const db = openDb(':memory:')
+    const sessoes: ClaudeSession[] = []
+    const ptysMortos: string[] = []
+    const terminalManager = createTerminalManager({
+      ptyFactory: (file) => {
+        const p = {
+          onData: () => {}, write: () => {}, resize: () => {},
+          onExit: (cb: (e: { exitCode: number }) => void) => { p._exit = () => cb({ exitCode: 0 }) },
+          kill: () => { ptysMortos.push(file); p._exit?.() },
+          _exit: undefined as undefined | (() => void),
+        }
+        return p
+      },
+    })
+    const manager = createSessionManager({
+      db, broadcast: () => {},
+      sessionFactory: (o) => {
+        const s = fakeFactory(o as SessionOptions)
+        // Sessão que ignora o pedido de parar: nada pode ser removido por cima dela.
+        if (opts.travarStop) s.stop = async () => {}
+        sessoes.push(s)
+        return s
+      },
+      terminalLauncher: (o) => terminalManager.open(o.localId, { cwd: o.cwd, file: o.file, args: o.args, env: o.env, onExit: o.onExit }),
+    })
+    const app = await buildApp({ config: loadConfig({}), db, manager, terminalManager })
+    const id = (await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'P1', path: dir } })).json().id
+    const abrir = async (engine: string) => {
+      const { localId } = (await app.inject({ method: 'POST', url: `/api/projects/${id}/sessions`, payload: { engine } })).json()
+      await waitUntil(() => statusOf(db, localId) === 'idle')
+      return localId as string
+    }
+    return { db, app, id, manager, sessoes, ptysMortos, abrir }
+  }
+
+  it('sem confirmação, recusa e lista as sessões abertas de cada engine', async () => {
+    const { app, id, abrir } = await montar()
+    const claude = await abrir('claude')
+    const codex = await abrir('codex')
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${id}` })
+    expect(del.statusCode).toBe(409)
+    expect(del.json().sessions).toEqual(expect.arrayContaining([
+      { localId: claude, engine: 'claude', status: 'idle' },
+      { localId: codex, engine: 'codex', status: 'idle' },
+    ]))
+    expect(del.json().sessions).toHaveLength(2)
+  })
+
+  it('com stopSessions=1 finaliza o chat de duas engines e a sessão no terminal, e remove', async () => {
+    const { db, app, id, manager, sessoes, ptysMortos, abrir } = await montar()
+    await abrir('claude')
+    await abrir('codex')
+    const kimi = await abrir('kimi')
+    await manager.openInTerminal(kimi)
+    expect(statusOf(db, kimi)).toBe('in_terminal')
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${id}?stopSessions=1` })
+    expect(del.statusCode).toBe(204)
+    expect(sessoes.every((s) => s.status === 'stopped')).toBe(true)
+    expect(ptysMortos).toHaveLength(1)
+    expect(manager.hasActiveSession(id)).toBe(false)
+    expect((await app.inject({ method: 'GET', url: '/api/projects' })).json()).toEqual([])
+  })
+
+  it('se uma sessão não encerra, recusa e mantém o terminal', async () => {
+    const { app, id, abrir } = await montar({ travarStop: true })
+    const claude = await abrir('claude')
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${id}?stopSessions=1` })
+    expect(del.statusCode).toBe(409)
+    expect(del.json().sessions).toEqual([{ localId: claude, engine: 'claude', status: 'idle' }])
+    expect((await app.inject({ method: 'GET', url: '/api/projects' })).json()).toHaveLength(1)
   })
 })

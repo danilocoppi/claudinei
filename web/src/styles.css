@@ -2841,6 +2841,14 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .acted__check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .acted__check input { margin: 0; }
 .acted__err { color: var(--err); font-size: 12.5px; }
+
+/* Excluir terminal com sessões abertas: o que será finalizado e o "estou ciente". */
+.delete-sessions { margin: 0 0 10px; }
+.delete-sessions__intro { margin: 0 0 6px; }
+.delete-sessions__list { margin: 0 0 12px; padding-left: 20px; }
+.delete-sessions__list li { margin: 2px 0; }
+.delete-sessions__ack { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; cursor: pointer; }
+.delete-sessions__ack input { margin: 3px 0 0; padding: 0; flex: none; accent-color: var(--accent); }
 .acted__foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
 
 /* O histórico permanece pesquisável, mas o navegador só calcula/pinta o conteúdo

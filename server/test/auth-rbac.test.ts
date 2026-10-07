@@ -70,6 +70,8 @@ describe('projetos', () => {
     expect((await app.inject({ method: 'PATCH', url: `/api/projects/${p1.id}`, cookies: anaCookie, payload: { name: 'Y' } })).statusCode).toBe(403)
     expect((await app.inject({ method: 'DELETE', url: `/api/projects/${p2.id}`, cookies: anaCookie })).statusCode).toBe(403)
     expect((await app.inject({ method: 'PUT', url: '/api/projects/order', cookies: anaCookie, payload: { ids: [p2.id, p1.id] } })).statusCode).toBe(403)
+    // O guard recusa ANTES de reservar a pasta: nada nasce em ~/.claudinei/scratch.
+    expect((await app.inject({ method: 'POST', url: '/api/projects/scratch', cookies: anaCookie, payload: { name: 'T' } })).statusCode).toBe(403)
     expect((await app.inject({ method: 'POST', url: '/api/projects', cookies: adminCookie, payload: { name: 'X', path: dir } })).statusCode).toBe(201)
   })
 })

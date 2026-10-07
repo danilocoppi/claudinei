@@ -1,6 +1,7 @@
 import type { Project, SessionInfo } from './types'
 import type { Group } from './api'
 import { liveSessionsOf } from './engineSession'
+import { matchesSearch } from './mentions'
 
 /**
  * A sidebar é uma lista de ENTRADAS num espaço único de posições: um setor (com
@@ -45,27 +46,43 @@ export function isProjectActive(projectId: number, sessions: Record<string, Sess
 }
 
 /**
- * As entradas visíveis com o filtro "somente ativos" ligado: terminais soltos ativos e
- * grupos com ao menos um filho ativo, já com `items` reduzido aos ativos. Grupo sem
- * nenhum ativo some inteiro (inclusive o vazio, que só existe como alvo de arraste —
- * e o arraste fica desabilitado enquanto se filtra).
+ * As entradas visíveis com os filtros ligados: terminais soltos que passam e
+ * contêineres com ao menos um filho que passa, já com `items`/`children` reduzidos.
+ * Contêiner sem nenhum filho visível some inteiro (inclusive o vazio, que só existe
+ * como alvo de arraste — e o arraste fica desabilitado enquanto se filtra).
+ *
+ * A busca (`query`) olha o NOME: do terminal, ou do grupo/setor onde ele mora. Um
+ * contêiner cujo nome bate traz todos os filhos — procurar "Veaxa" tem de achar os
+ * terminais do grupo Veaxa mesmo que eles se chamem "Vaexa - Admin". Ativos e
+ * favoritos continuam valendo dentro dele.
  *
  * Não muta a entrada: a lista completa segue sendo a fonte do `applyOrder`.
  */
-export function filterEntries(entries: Entry[], sessions: Record<string, SessionInfo>, activeOnly = true, favoritesOnly = false): Entry[] {
-  const visible = (p: Project) => (!activeOnly || isProjectActive(p.id, sessions)) && (!favoritesOnly || !!p.favorite)
+export function filterEntries(
+  entries: Entry[],
+  sessions: Record<string, SessionInfo>,
+  activeOnly = true,
+  favoritesOnly = false,
+  query = '',
+): Entry[] {
+  const passes = (p: Project) => (!activeOnly || isProjectActive(p.id, sessions)) && (!favoritesOnly || !!p.favorite)
+  const hasQuery = query.trim() !== ''
+  const named = (name: string) => !hasQuery || matchesSearch(name, query)
   // Recursivo porque a árvore tem três níveis: um setor sobrevive se sobrar algo
-  // dentro dele — seja um terminal solto, seja um grupo com filho ativo.
-  const keep = (e: Entry): Entry | null => {
-    if (e.kind === 'project') return visible(e.p) ? e : null
+  // dentro dele — seja um terminal solto, seja um grupo com filho visível.
+  // `inMatch` = algum contêiner acima já bateu com a busca.
+  const keep = (e: Entry, inMatch: boolean): Entry | null => {
+    if (e.kind === 'project') return passes(e.p) && (inMatch || named(e.p.name)) ? e : null
     if (e.kind === 'group') {
-      const items = e.items.filter(visible)
+      const groupMatch = inMatch || (hasQuery && named(e.g.name))
+      const items = e.items.filter((p) => passes(p) && (groupMatch || named(p.name)))
       return items.length > 0 ? { ...e, items } : null
     }
-    const children = e.children.map(keep).filter(Boolean) as Array<Extract<Entry, { kind: 'group' | 'project' }>>
+    const sectorMatch = hasQuery && named(e.s.name)
+    const children = e.children.map((c) => keep(c, sectorMatch)).filter(Boolean) as Array<Extract<Entry, { kind: 'group' | 'project' }>>
     return children.length > 0 ? { ...e, children } : null
   }
-  return entries.map(keep).filter(Boolean) as Entry[]
+  return entries.map((e) => keep(e, false)).filter(Boolean) as Entry[]
 }
 
 /**

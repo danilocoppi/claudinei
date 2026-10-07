@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setProjectFavorite, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
+import { createScratchProject, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setProjectFavorite, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, railRows, type Entry, type RailGuide } from '../sidebarEntries'
@@ -20,7 +20,7 @@ import { ColorField } from './ColorField'
 import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
-import { MoreIcon, GearIcon, StarIcon } from './MenuIcons'
+import { MoreIcon, GearIcon, StarIcon, SearchIcon, BoltIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { BrandMark } from './BrandMark'
 
@@ -99,7 +99,7 @@ const DRAG_PREFIX = { project: 'p', group: 'g', sector: 's' } as const
 const dragKeyOf = (d: Drag) => `${DRAG_PREFIX[d.kind]}-${d.id}`
 
 export function Sidebar() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { projects, sessions, unread, activeLocalId, view, engines, groups, sectors, schedules, openSession, openDashboard, openBoard, openTasks, setProjects, setGroups, setSectors } = useStore(useShallow((s) => ({ projects: s.projects, sessions: s.sessions, unread: s.unread, activeLocalId: s.activeLocalId, view: s.view, engines: s.engines, groups: s.groups, sectors: s.sectors, schedules: s.schedules, openSession: s.openSession, openDashboard: s.openDashboard, openBoard: s.openBoard, openTasks: s.openTasks, setProjects: s.setProjects, setGroups: s.setGroups, setSectors: s.setSectors })))
   // Ícone da engine da sessão (badge ao lado do status) — distingue 1 Claude + 1
   // Codex no mesmo projeto. Não é um hook: `engines` já veio do useStore() acima
@@ -134,6 +134,13 @@ export function Sidebar() {
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
   const [favoritesOnly, setFavoritesOnly] = useState(loadFavoritesOnly)
   const [favoriteError, setFavoriteError] = useState(false)
+  // Busca pelo nome: estado TRANSITÓRIO, de propósito fora do localStorage. Uma
+  // busca esquecida que voltasse no próximo carregamento faria a lista parecer
+  // vazia sem motivo aparente.
+  const [query, setQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [creatingScratch, setCreatingScratch] = useState(false)
+  const [scratchError, setScratchError] = useState('')
   const pendingFavorites = useRef(new Set<number>())
   const [pendingFavoriteIds, setPendingFavoriteIds] = useState<number[]>([])
   const railMode = useStore((s) => s.railMode)
@@ -171,6 +178,35 @@ export function Sidebar() {
     }
   }
 
+  /**
+   * Terminal temporário: o servidor reserva uma pasta nova em ~/.claudinei/scratch
+   * e cria o terminal nela — o seletor de pastas não aparece. Em seguida abre a
+   * mesma escolha de engine/modelo de qualquer terminal sem sessão.
+   */
+  const createScratch = async () => {
+    if (creatingScratch) return
+    setCreatingScratch(true)
+    setScratchError('')
+    try {
+      const now = new Date()
+      const when = `${now.toLocaleDateString(i18n.language, { day: '2-digit', month: '2-digit' })} ${now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}`
+      const created = await createScratchProject({ name: t('sidebar.scratchName', { when }) })
+      try {
+        setProjects(await fetchProjects())
+      } catch {
+        // O terminal existe no servidor; sem a lista nova, ao menos ele entra nesta.
+        setProjects([...useStore.getState().projects, created])
+      }
+      // Uma busca ligada esconderia o terminal que acabou de nascer.
+      setQuery('')
+      setStartFor(created)
+    } catch (err) {
+      setScratchError((err as Error).message)
+    } finally {
+      setCreatingScratch(false)
+    }
+  }
+
   // A sessão "cara do projeto" no card: prioridade de status (needs_attention >
   // working > starting > in_terminal > idle > paradas); empate → mais recente.
   const sessionOf = (projectId: number): SessionInfo | undefined => primarySessionOf(projectId, sessions)
@@ -182,9 +218,13 @@ export function Sidebar() {
   // atualiza as entradas RECEBIDAS, com sort_order recomeçando do zero — os escondidos
   // manteriam valores antigos que colidem com esses, e a ordem apareceria embaralhada
   // ao desligar o filtro. Enquanto filtra, não arrasta.
-  const canDrag = isAdmin && !activeOnly && !favoritesOnly
+  // A busca só vale com o campo à vista: na régua ela esconderia terminais sem que
+  // nada na tela dissesse por quê.
+  const searching = !railMode && query.trim() !== ''
+  const filtering = activeOnly || favoritesOnly || searching
+  const canDrag = isAdmin && !filtering
   // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
-  const visibleEntries = activeOnly || favoritesOnly ? filterEntries(entries, sessions, activeOnly, favoritesOnly) : entries
+  const visibleEntries = filtering ? filterEntries(entries, sessions, activeOnly, favoritesOnly, searching ? query : '') : entries
 
   const toggleGroup = (id: number) => {
     setCollapsed((cur) => {
@@ -454,7 +494,9 @@ export function Sidebar() {
   const renderGroup = (g: Group, items: Project[]) => {
     // Grupo vazio só aparece pra admin (é quem pode arrastar algo pra dentro).
     if (items.length === 0 && !isAdmin) return null
-    const isCollapsed = collapsed.includes(g.id)
+    // Buscando, o fechado abre: o resultado não pode ficar escondido num grupo
+    // recolhido. Só a visão muda — o que está salvo volta ao limpar a busca.
+    const isCollapsed = !searching && collapsed.includes(g.id)
     const badgeSum = items.reduce((acc, p) => acc + unreadOf(p.id, sessions, unread), 0)
     const key = `g-${g.id}`
     // Com filtros ligados, `items` só tem os terminais visíveis — o total real
@@ -487,7 +529,7 @@ export function Sidebar() {
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-group__icon" value={g.icon ?? '🗂️'} size={14} />
           <span className="term-group__name">{g.name}</span>
-          <span className="term-group__count">{activeOnly || favoritesOnly ? `${items.length}/${total}` : total}</span>
+          <span className="term-group__count">{filtering ? `${items.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
           {isCollapsed && (
             <span className="term-group__dots">
@@ -534,7 +576,7 @@ export function Sidebar() {
    */
   const renderSector = (sec: Group, children: Array<Extract<Entry, { kind: 'group' | 'project' }>>) => {
     if (children.length === 0 && !isAdmin) return null
-    const isCollapsed = collapsedSectors.includes(sec.id)
+    const isCollapsed = !searching && collapsedSectors.includes(sec.id)
     const key = `s-${sec.id}`
     const shown = children.flatMap(projectsOf)
     // O total conta TUDO que está no setor, inclusive dentro dos grupos dele — um
@@ -567,7 +609,7 @@ export function Sidebar() {
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-sector__icon" value={sec.icon ?? '🏢'} size={14} />
           <span className="term-sector__name">{sec.name}</span>
-          <span className="term-group__count">{activeOnly || favoritesOnly ? `${shown.length}/${total}` : total}</span>
+          <span className="term-group__count">{filtering ? `${shown.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
           {isCollapsed && (
             <span className="term-group__dots">
@@ -717,22 +759,60 @@ export function Sidebar() {
         <button className="ghost term-header__icon" title={t('sidebar.expandAll')}
                 onClick={() => collapseAll(false)}>⌄</button>
         {isAdmin && (
+          <button className="ghost term-header__icon term-header__scratch" type="button"
+                  title={t('sidebar.scratchHint')} aria-label={t('sidebar.scratchTerminal')}
+                  disabled={creatingScratch} onClick={() => void createScratch()}>
+            <BoltIcon size={13} />
+          </button>
+        )}
+        {isAdmin && (
           <button className="ghost term-header__add" title={t('sidebar.addTerminal')} onClick={() => setShowNew(true)}>
             +<span className="term-header__label"> Terminal</span>
           </button>
         )}
       </div>
 
+      {projects.length > 0 && (
+        <div className="term-search" role="search">
+          <SearchIcon size={13} />
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            placeholder={t('sidebar.searchPlaceholder')}
+            aria-label={t('sidebar.search')}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              // Primeiro Escape limpa; com o campo vazio, devolve o foco à página.
+              e.preventDefault()
+              if (query) setQuery('')
+              else e.currentTarget.blur()
+            }}
+          />
+          {query && (
+            <button type="button" className="term-search__clear"
+                    aria-label={t('sidebar.searchClear')} title={t('sidebar.searchClear')}
+                    onClick={() => { setQuery(''); searchRef.current?.focus() }}>×</button>
+          )}
+        </div>
+      )}
+
       <div className="term-list">
         {favoriteError && <div className="term-list__error" role="alert">{t('sidebar.favoriteSaveError')}</div>}
+        {scratchError && <div className="term-list__error" role="alert">{t('sidebar.scratchError', { message: scratchError })}</div>}
         {visibleEntries.map(renderEntry)}
         {projects.length === 0 && (
           <div className="term-list__empty">{t('sidebar.empty')}</div>
         )}
         {/* Tem terminal, mas o filtro escondeu todos: o texto de "crie o primeiro"
             diria a coisa errada aqui. */}
-        {projects.length > 0 && (activeOnly || favoritesOnly) && visibleEntries.length === 0 && (
-          <div className="term-list__empty">{t(activeOnly && favoritesOnly ? 'sidebar.emptyFiltered' : activeOnly ? 'sidebar.emptyActive' : 'sidebar.emptyFavorites')}</div>
+        {projects.length > 0 && filtering && visibleEntries.length === 0 && (
+          <div className="term-list__empty">{searching
+            ? t(activeOnly || favoritesOnly ? 'sidebar.searchEmptyFiltered' : 'sidebar.searchEmpty', { query: query.trim() })
+            : t(activeOnly && favoritesOnly ? 'sidebar.emptyFiltered' : activeOnly ? 'sidebar.emptyActive' : 'sidebar.emptyFavorites')}</div>
         )}
         {/* zona de drop do FIM da lista (mandar pro final) */}
         {drag !== null && (

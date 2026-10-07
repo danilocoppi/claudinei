@@ -303,3 +303,58 @@ describe('moveEntry / moveInto', () => {
     expect(flatKeys(out)).toEqual(['s-100', 'g-10', 'p-2', 'g-20', 'p-3', 'p-4', 'p-1'])
   })
 })
+
+describe('filterEntries com busca por nome', () => {
+  const named = (id: number, name: string, extra: Partial<Project> = {}): Project =>
+    ({ id, name, path: `/tmp/${id}`, color: '#fff', icon: '📁', ...extra })
+  const ids = (list: Entry[]) => list.flatMap(projectsOf).map((p) => p.id)
+  const nada = byId()
+
+  const tree = (): Entry[] => [
+    {
+      kind: 'sector', s: { id: 100, name: 'Daily Work' },
+      children: [
+        { kind: 'group', g: { id: 10, name: 'Veaxa' }, items: [named(1, 'Vaexa - Admin', { groupId: 10 }), named(2, 'Vaexa - Backend', { groupId: 10 })] },
+        { kind: 'project', p: named(3, 'Operação Noturna', { sectorId: 100 }) },
+      ],
+    },
+    { kind: 'group', g: { id: 20, name: 'AIFinex' }, items: [named(4, 'AIFinex - BACKEND', { groupId: 20 }), named(5, 'AIFinex - Frontend', { groupId: 20 })] },
+    { kind: 'project', p: named(6, 'Azivon - backend-api') },
+  ]
+
+  it('acha o trecho em qualquer posição do nome, sem diferenciar maiúsculas', () => {
+    expect(ids(filterEntries(tree(), nada, false, false, 'backend'))).toEqual([2, 4, 6])
+    expect(ids(filterEntries(tree(), nada, false, false, 'BaCk'))).toEqual([2, 4, 6])
+    expect(ids(filterEntries(tree(), nada, false, false, 'end-a'))).toEqual([6])
+  })
+
+  it('ignora acentos e aceita várias palavras em qualquer ordem', () => {
+    expect(ids(filterEntries(tree(), nada, false, false, 'operacao'))).toEqual([3])
+    expect(ids(filterEntries(tree(), nada, false, false, 'backend vaexa'))).toEqual([2])
+  })
+
+  it('nome de grupo ou setor que bate traz todos os terminais dele', () => {
+    expect(ids(filterEntries(tree(), nada, false, false, 'veaxa'))).toEqual([1, 2])
+    expect(ids(filterEntries(tree(), nada, false, false, 'daily'))).toEqual([1, 2, 3])
+  })
+
+  it('combina com favoritos e devolve a árvore sem contêineres vazios', () => {
+    const t = tree()
+    ;(t[1] as Extract<Entry, { kind: 'group' }>).items[0].favorite = true
+    const out = filterEntries(t, nada, false, true, 'backend')
+    expect(ids(out)).toEqual([4])
+    expect(out.map(entryKeyOf)).toEqual(['g-20'])
+  })
+
+  it('busca vazia ou só com espaços não esconde nada', () => {
+    expect(ids(filterEntries(tree(), nada, false, false, '   '))).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
+  it('sem resultado, devolve lista vazia', () => {
+    expect(filterEntries(tree(), nada, false, false, 'zzz')).toEqual([])
+  })
+})
+
+function entryKeyOf(e: Entry): string {
+  return e.kind === 'sector' ? `s-${e.s.id}` : e.kind === 'group' ? `g-${e.g.id}` : `p-${e.p.id}`
+}

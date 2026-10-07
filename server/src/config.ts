@@ -29,6 +29,8 @@ export interface Config {
   speechDir: string
   /** Conteúdo dos resultados de agendamento (um arquivo por execução). */
   schedulesDir: string
+  /** Pastas dos terminais temporários (fora do /tmp, que é limpo no boot). */
+  scratchDir: string
   /** Certificado/chave para servir HTTPS direto. Vazios = HTTP (padrão). */
   tlsCert?: string
   tlsKey?: string
@@ -67,6 +69,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     tlsKey: env.CLAUDINEI_TLS_KEY,
     speechDir: env.CLAUDINEI_SPEECH ?? join(homedir(), '.claudinei', 'speech'),
     schedulesDir: env.CLAUDINEI_SCHEDULES ?? join(homedir(), '.claudinei', 'schedules'),
+    scratchDir: env.CLAUDINEI_SCRATCH ?? join(homedir(), '.claudinei', 'scratch'),
   }
 }
 

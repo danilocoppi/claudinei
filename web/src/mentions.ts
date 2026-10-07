@@ -58,10 +58,21 @@ export function applyMention(
 const dobra = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-export function filterTerminals<T extends { name: string }>(itens: T[], busca: string): T[] {
+/**
+ * O nome atende à busca? Cada palavra digitada tem de aparecer em ALGUM lugar do
+ * nome, em qualquer ordem: "adm vaexa" acha "Vaexa - Admin". Busca vazia aceita tudo.
+ *
+ * É a regra única do `@@` e da busca da lateral — procurar um terminal não pode
+ * dar resultados diferentes conforme o lugar onde se procura.
+ */
+export function matchesSearch(nome: string, busca: string): boolean {
   const q = dobra(busca.trim())
-  if (!q) return itens
-  // Todos os pedaços, em qualquer ordem: "adm vaexa" acha "Vaexa - Admin".
-  const partes = q.split(/\s+/)
-  return itens.filter((i) => { const n = dobra(i.name); return partes.every((p) => n.includes(p)) })
+  if (!q) return true
+  const n = dobra(nome)
+  return q.split(/\s+/).every((p) => n.includes(p))
+}
+
+export function filterTerminals<T extends { name: string }>(itens: T[], busca: string): T[] {
+  if (!busca.trim()) return itens
+  return itens.filter((i) => matchesSearch(i.name, busca))
 }

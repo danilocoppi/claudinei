@@ -74,6 +74,9 @@ export const fetchSlashCommands = () => req<string[]>('/api/slash-commands')
 export const fetchEngines = () => req<EngineMeta[]>('/api/engines')
 export const createProject = (input: { name: string; path: string; color?: string; icon?: string }) =>
   req<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) })
+/** Terminal temporário: o servidor escolhe a pasta (nova, em ~/.claudinei/scratch). */
+export const createScratchProject = (input: { name?: string; color?: string; icon?: string } = {}) =>
+  req<Project>('/api/projects/scratch', { method: 'POST', body: JSON.stringify(input) })
 export type { PermissionMode }
 export const startSession = (
   projectId: number,

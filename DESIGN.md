@@ -77,6 +77,10 @@ Contêineres e controles seguem os raios ajustáveis do tema. O padrão é 16px;
 
 - **Favoritos da sidebar:** cada cartão de terminal oferece uma estrela com estado pressionado. A estrela marcada permanece visível; a desmarcada aparece ao passar o ponteiro, ao focar o cartão e em dispositivos de toque. O switch com estrela no cabeçalho usa o mesmo desenho do filtro de ativos, com rótulo acessível; ambos podem ser combinados. Filtros preservam setores, grupos e ordem, com contadores visíveis/total. Em largura estreita, o título decorativo sai para manter filtros e ações alcançáveis.
 
+- **Busca da sidebar:** campo logo abaixo do cabeçalho, na largura da lista, com a lupa e o × dentro dele. O × nativo do `type=search` fica escondido para seguir o tema. Os vazios de busca usam o mesmo texto secundário dos outros vazios da lista.
+
+- **Terminal temporário:** o raio é um botão-ícone do cabeçalho, com a mesma altura de ⌃ ⌄ e “+ Terminal” e com título e rótulo acessível localizados. Com ele, a linha do cabeçalho pede 251px; com a barra abaixo de 255px, o rótulo “Terminal” sai e fica o “+”.
+
 - **Editor de agendamentos:** criação e edição usam o mesmo modal no portal do documento, acima da lista de resultados. Cabeçalho e ações permanecem visíveis; o formulário rola dentro do modal em janelas baixas. O cartão conserva seu recorte e sua aparência, sem afetar o diálogo.
 
 - **Composição:** `ChatInput` é dono do rascunho, cursor e envio. `MentionMenu` continua sendo a referência visual/funcional para `@@`; `FileMentionMenu` navega pastas e escolhe um arquivo com botões nativos.

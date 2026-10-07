@@ -7,12 +7,19 @@ import { iconValueOf } from '../icons/value.js'
 import { createActionsStore } from '../actions.js'
 import { runKey } from './actions.js'
 import type { TerminalManager } from '../terminal/manager.js'
+import { createScratchDir } from '../scratch.js'
+import { basename } from 'node:path'
+
+/** Teto do nome de um terminal temporário: o cliente manda um rótulo curto com data. */
+const SCRATCH_NAME_MAX = 120
 
 export function registerProjectRoutes(app: FastifyInstance, deps: {
   db: Db
   manager: SessionManager
   /** Sem ele o servidor não tem como parar as ações do terminal que sai. */
   terminalManager?: Pick<TerminalManager, 'closeAndWait'>
+  /** Base das pastas de terminais temporários. Ausente = a rota não existe. */
+  scratchDir?: string
 }) {
   const svc = createProjectsService(deps.db)
 
@@ -31,6 +38,45 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
       return reply.code(400).send({ error: (err as Error).message })
     }
   })
+
+  /**
+   * Terminal temporário: o servidor reserva uma pasta nova na base e cria o terminal
+   * nela, sem passar pelo seletor de pastas.
+   *
+   * O caminho NUNCA vem do cliente — um `path` no corpo é ignorado. Tudo é validado
+   * antes de reservar a pasta, para que um pedido recusado não deixe pasta órfã.
+   */
+  if (deps.scratchDir) {
+    const scratchDir = deps.scratchDir
+    app.post('/api/projects/scratch', async (req, reply) => {
+      if (!requireAdmin(req, reply)) return
+      const body = (req.body ?? {}) as { name?: unknown; icon?: unknown; color?: unknown }
+      if (body.name !== undefined && typeof body.name !== 'string') {
+        return reply.code(400).send({ error: 'name deve ser texto' })
+      }
+      const name = (body.name as string | undefined)?.trim() ?? ''
+      if (name.length > SCRATCH_NAME_MAX) {
+        return reply.code(400).send({ error: `name passa de ${SCRATCH_NAME_MAX} caracteres` })
+      }
+      let icon = '🧪'
+      if (body.icon !== undefined) {
+        const valid = iconValueOf(body.icon)
+        if (!valid) return reply.code(400).send({ error: 'ícone inválido' })
+        icon = valid
+      }
+      if (body.color !== undefined && typeof body.color !== 'string') {
+        return reply.code(400).send({ error: 'color deve ser texto' })
+      }
+      try {
+        const path = createScratchDir(scratchDir)
+        return reply.code(201).send(svc.create({
+          name: name || basename(path), path, icon, color: body.color as string | undefined,
+        }))
+      } catch (err) {
+        return reply.code(500).send({ error: (err as Error).message })
+      }
+    })
+  }
 
   app.put('/api/projects/order', async (req, reply) => {
     if (!requireAdmin(req, reply)) return

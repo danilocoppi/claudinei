@@ -18,6 +18,7 @@ describe('loadConfig', () => {
     expect(c.selfUrl).toBe('http://127.0.0.1:9105')
     expect(c.uploadsDir).toBe(join(homedir(), '.claudinei', 'uploads'))
     expect(c.speechDir).toBe(join(homedir(), '.claudinei', 'speech'))
+    expect(c.scratchDir).toBe(join(homedir(), '.claudinei', 'scratch'))
   })
 
   it('default port é 9105 e host 127.0.0.1', () => {

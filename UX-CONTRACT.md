@@ -32,6 +32,20 @@ Pedido do usuário em 2026-09-29: a estrela no cartão marca/desmarca o terminal
 
 O switch com estrela mostra somente terminais favoritos. Pode ser combinado com “Somente ativos”; nesse caso, só aparecem favoritos com agente ativo. Setores e grupos sem filhos visíveis desaparecem, e os contadores exibem visíveis/total. Os dados completos continuam sendo a fonte da ordenação; o arraste fica indisponível enquanto um filtro está ligado. Remover a estrela no modo filtrado retira o cartão da lista. Falha na gravação restaura o estado anterior e mostra uma mensagem. Sem resultados, a lista explica se faltam ativos, favoritos ou terminais que atendam aos dois filtros.
 
+## Busca na lateral
+
+Pedido do usuário em 2026-10-04: um campo no alto da lista de terminais filtra pelo nome. O trecho pode estar em qualquer posição do nome; a busca ignora caixa e acentos e, com várias palavras, exige todas, em qualquer ordem. É a mesma regra do `@@` (`matchesSearch` em `web/src/mentions.ts`), para que procurar um terminal não dê resultados diferentes conforme o lugar. Um grupo ou setor cujo nome bate traz todos os seus terminais.
+
+A busca se combina com os filtros de ativos e favoritos. Enquanto há texto, grupos e setores recolhidos abrem só na visão, sem mudar o que está salvo; os contadores mostram visíveis/total e o arraste fica indisponível. A busca é transitória: não vai para o localStorage e não sobrevive a recarregar a página, porque uma busca esquecida faria a lista parecer vazia sem motivo. O × e o Escape limpam; Escape com o campo vazio devolve o foco à página. Sem resultado, a lista mostra o termo procurado e avisa quando um filtro ligado esconde o resultado. O campo só aparece quando há terminais e some no modo régua, onde a busca deixa de filtrar. Em telas de até 768px o texto do campo tem 16px, para o iPhone não ampliar a página ao focar.
+
+## Terminal temporário
+
+Pedido do usuário em 2026-10-04: criar um terminal para conversar sem escolher pasta. O botão de raio no cabeçalho, antes de “+ Terminal” e só para admin, pede ao servidor (`POST /api/projects/scratch`) uma pasta nova `temp-AAAAMMDD-HHMMSS` em `~/.claudinei/scratch` (ou em `CLAUDINEI_SCRATCH`) e cria nela um terminal chamado “Temporário <dia/mês hora>”, com o ícone 🧪. A pasta fica fora do `/tmp` porque o sistema o esvazia.
+
+O caminho nunca vem do cliente. O servidor valida nome e ícone antes de criar a pasta, para que um pedido recusado não deixe pasta órfã, e duas criações no mesmo segundo recebem sufixo em vez de dividir a pasta. Depois de criar, a lista recarrega, a busca é limpa e abre a mesma escolha de engine e modelo de qualquer terminal sem sessão. Falha na criação aparece como alerta na lista e não abre nada. Excluir o terminal pelo menu não apaga a pasta; ela fica até o usuário removê-la.
+
+Verificação em 2026-10-04: `server/test/projects-scratch.test.ts`, `server/test/auth-rbac.test.ts`, `web/src/test/sidebar-search.test.tsx` e `web/src/test/sidebar-entries.test.ts`, com as suítes completas aprovadas (1234 no servidor, 1212 no frontend). Ensaio numa instância isolada, só com mouse e teclado reais: “BACKEND” achou os dois terminais Backend, “acao critica” achou “Ação Crítica”, o nome do grupo trouxe seu terminal com contador 1/1, a busca sem resultado mostrou o termo, × e Escape limparam. O raio criou a pasta e o terminal, limpou a busca e abriu “Nova sessão”; a sessão iniciada rodou dentro da pasta temporária, e excluir o terminal manteve a pasta.
+
 ## Editor de agendamentos
 
 Ao criar ou editar, `ScheduleEditor` monta `.modal-overlay` diretamente em `document.body`. A lista e os cartões têm rolagem/recorte próprios; o diálogo fora dessa árvore ocupa a viewport e mantém título e Salvar/Cancelar acessíveis. Em altura reduzida, apenas o corpo do formulário rola. O diálogo expõe nome acessível e estado modal. Fechar ou salvar mantém os fluxos existentes de `SchedulesView`.

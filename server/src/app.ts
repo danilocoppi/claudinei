@@ -110,7 +110,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }
 
   app.get('/api/health', async () => ({ ok: true }))
-  registerProjectRoutes(app, { db: deps.db, manager: deps.manager, terminalManager: deps.terminalManager })
+  registerProjectRoutes(app, { db: deps.db, manager: deps.manager, terminalManager: deps.terminalManager, scratchDir: deps.config.scratchDir })
   registerSessionRoutes(app, deps)
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })

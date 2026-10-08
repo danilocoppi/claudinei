@@ -139,8 +139,7 @@ export function Sidebar() {
   // vazia sem motivo aparente.
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
-  const [creatingScratch, setCreatingScratch] = useState(false)
-  const [scratchError, setScratchError] = useState('')
+  const [scratchDraft, setScratchDraft] = useState<Pick<Project, 'name' | 'icon' | 'color'> | null>(null)
   const pendingFavorites = useRef(new Set<number>())
   const [pendingFavoriteIds, setPendingFavoriteIds] = useState<number[]>([])
   const railMode = useStore((s) => s.railMode)
@@ -179,32 +178,32 @@ export function Sidebar() {
   }
 
   /**
-   * Terminal temporário: o servidor reserva uma pasta nova em ~/.claudinei/scratch
-   * e cria o terminal nela — o seletor de pastas não aparece. Em seguida abre a
-   * mesma escolha de engine/modelo de qualquer terminal sem sessão.
+   * Terminal temporário: abre a escolha de engine/modelo com um RASCUNHO, sem criar
+   * nada. Só ao iniciar a sessão o servidor reserva a pasta em ~/.claudinei/scratch
+   * e cria o terminal — cancelar não deixa terminal nem pasta para trás.
    */
-  const createScratch = async () => {
-    if (creatingScratch) return
-    setCreatingScratch(true)
-    setScratchError('')
+  const openScratch = () => {
+    const now = new Date()
+    const when = `${now.toLocaleDateString(i18n.language, { day: '2-digit', month: '2-digit' })} ${now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}`
+    setScratchDraft({ name: t('sidebar.scratchName', { when }), icon: '🧪', color: '#7c5cff' })
+  }
+
+  const createScratch = async (name: string): Promise<Project> => {
+    let created: Project
     try {
-      const now = new Date()
-      const when = `${now.toLocaleDateString(i18n.language, { day: '2-digit', month: '2-digit' })} ${now.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}`
-      const created = await createScratchProject({ name: t('sidebar.scratchName', { when }) })
-      try {
-        setProjects(await fetchProjects())
-      } catch {
-        // O terminal existe no servidor; sem a lista nova, ao menos ele entra nesta.
-        setProjects([...useStore.getState().projects, created])
-      }
-      // Uma busca ligada esconderia o terminal que acabou de nascer.
-      setQuery('')
-      setStartFor(created)
+      created = await createScratchProject({ name })
     } catch (err) {
-      setScratchError((err as Error).message)
-    } finally {
-      setCreatingScratch(false)
+      throw new Error(t('sidebar.scratchError', { message: (err as Error).message }))
     }
+    try {
+      setProjects(await fetchProjects())
+    } catch {
+      // O terminal existe no servidor; sem a lista nova, ao menos ele entra nesta.
+      setProjects([...useStore.getState().projects, created])
+    }
+    // Uma busca ligada esconderia o terminal que acabou de nascer.
+    setQuery('')
+    return created
   }
 
   // A sessão "cara do projeto" no card: prioridade de status (needs_attention >
@@ -761,7 +760,7 @@ export function Sidebar() {
         {isAdmin && (
           <button className="ghost term-header__icon term-header__scratch" type="button"
                   title={t('sidebar.scratchHint')} aria-label={t('sidebar.scratchTerminal')}
-                  disabled={creatingScratch} onClick={() => void createScratch()}>
+                  onClick={openScratch}>
             <BoltIcon size={13} />
           </button>
         )}
@@ -802,7 +801,6 @@ export function Sidebar() {
 
       <div className="term-list">
         {favoriteError && <div className="term-list__error" role="alert">{t('sidebar.favoriteSaveError')}</div>}
-        {scratchError && <div className="term-list__error" role="alert">{t('sidebar.scratchError', { message: scratchError })}</div>}
         {visibleEntries.map(renderEntry)}
         {projects.length === 0 && (
           <div className="term-list__empty">{t('sidebar.empty')}</div>
@@ -925,6 +923,9 @@ export function Sidebar() {
       {showInfo && <InteractionInfo onClose={() => setShowInfo(false)} />}
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} />}
       {startFor && <StartSessionModal project={startFor} onClose={() => setStartFor(null)} />}
+      {scratchDraft && (
+        <StartSessionModal project={scratchDraft} create={() => createScratch(scratchDraft.name)} onClose={() => setScratchDraft(null)} />
+      )}
     </div>
   )
 }

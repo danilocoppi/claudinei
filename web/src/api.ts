@@ -17,9 +17,10 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     }
     const body = await res.json().catch(() => ({ error: res.statusText }))
     reportAccessRestriction(res.status, body.error)
-    const err = new Error(body.error ?? res.statusText) as Error & { status?: number; retryAfterMs?: number }
+    const err = new Error(body.error ?? res.statusText) as Error & { status?: number; retryAfterMs?: number; sessions?: OpenSession[] }
     err.status = res.status
     if (typeof body.retryAfterMs === 'number') err.retryAfterMs = body.retryAfterMs
+    if (Array.isArray(body.sessions)) err.sessions = body.sessions
     throw err
   }
   return res.status === 204 ? (undefined as T) : res.json()
@@ -93,8 +94,11 @@ export const putAutoCompact = (pct: number) =>
 
 export const setSessionOptions = (localId: string, opts: { model?: string; permissionMode?: PermissionMode; effort?: string }) =>
   req<SessionInfo>(`/api/sessions/${localId}/options`, { method: 'PATCH', body: JSON.stringify(opts) })
-export const deleteProject = (id: number) =>
-  req<void>(`/api/projects/${id}`, { method: 'DELETE' })
+/** Sessão que impede excluir um terminal — o servidor manda a lista ao recusar (409). */
+export interface OpenSession { localId: string; engine: string; status: SessionInfo['status'] }
+/** `stopSessions`: o operador confirmou que as sessões abertas serão finalizadas antes. */
+export const deleteProject = (id: number, opts: { stopSessions?: boolean } = {}) =>
+  req<void>(`/api/projects/${id}${opts.stopSessions ? '?stopSessions=1' : ''}`, { method: 'DELETE' })
 export const updateProject = (id: number, patch: { name?: string; color?: string; icon?: string }) =>
   req<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
 export const setProjectFavorite = (id: number, favorite: boolean) =>

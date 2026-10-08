@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { deleteProject, fetchProjects } from '../api'
 import { useStore } from '../store'
 import { startOrReviveEngine } from '../engineSession'
 import { StartSessionModal } from './StartSessionModal'
-import { ConfirmDialog } from './ConfirmDialog'
+import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { EnginePickerMenu } from './EnginePickerMenu'
 import { Icon } from './Icon'
 
@@ -16,24 +15,12 @@ export function ProjectCard({ project, session, unread }: {
 }) {
   const { t } = useTranslation()
   const openSession = useStore((s) => s.openSession)
-  const setProjects = useStore((s) => s.setProjects)
   const engines = useStore((s) => s.engines)
   const [showStart, setShowStart] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
-  const [deleteError, setDeleteError] = useState('')
   const [reviveMenu, setReviveMenu] = useState<{ x: number; y: number } | null>(null)
 
   const canOpen = session && session.status !== 'stopped'
-
-  const onDelete = async () => {
-    try {
-      await deleteProject(project.id)
-      setProjects(await fetchProjects())
-      setShowDelete(false)
-    } catch (err) {
-      setDeleteError((err as Error).message)
-    }
-  }
 
   return (
     <div className="card" style={{ borderLeft: `4px solid ${project.color}` }}
@@ -45,7 +32,7 @@ export function ProjectCard({ project, session, unread }: {
         <button
           className="ghost"
           title={t('projectCard.deleteTitle')}
-          onClick={(e) => { e.stopPropagation(); setDeleteError(''); setShowDelete(true) }}
+          onClick={(e) => { e.stopPropagation(); setShowDelete(true) }}
         >
           🗑
         </button>
@@ -91,14 +78,7 @@ export function ProjectCard({ project, session, unread }: {
         />
       )}
       {showDelete && (
-        <ConfirmDialog
-          title={t('confirm.deleteTitle', { name: project.name })}
-          message={t('confirm.deleteMsg')}
-          confirmLabel={t('common.delete')}
-          error={deleteError}
-          onConfirm={onDelete}
-          onClose={() => setShowDelete(false)}
-        />
+        <DeleteProjectDialog project={project} onDeleted={() => setShowDelete(false)} onClose={() => setShowDelete(false)} />
       )}
     </div>
   )

@@ -163,6 +163,12 @@ export const ptBR: typeof en = {
   confirm: {
     deleteTitle: 'Excluir {{name}}?',
     deleteMsg: 'Isso remove o terminal da lista do Claudinei. Não apaga os arquivos no disco nem o histórico de conversas.',
+    deleteOpenSessions_one: 'Este terminal tem uma sessão aberta:',
+    deleteOpenSessions_other: 'Este terminal tem {{count}} sessões abertas:',
+    deleteAck_one: 'Estou ciente de que a sessão será finalizada.',
+    deleteAck_other: 'Estou ciente de que as {{count}} sessões serão finalizadas.',
+    deleteStopping: 'Finalizando sessões…',
+    deleteSessionsChanged: 'Uma sessão foi aberta enquanto esta janela estava aberta. Confira a lista e confirme de novo.',
   },
   modal: {
     newProject: 'Novo projeto', editTerminal: 'Editar terminal',

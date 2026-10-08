@@ -161,6 +161,12 @@ export const en = {
   confirm: {
     deleteTitle: 'Delete {{name}}?',
     deleteMsg: 'This removes the terminal from Claudinei’s list. It does not delete files on disk nor the conversation history.',
+    deleteOpenSessions_one: 'This terminal has one open session:',
+    deleteOpenSessions_other: 'This terminal has {{count}} open sessions:',
+    deleteAck_one: 'I understand this session will be ended.',
+    deleteAck_other: 'I understand these {{count}} sessions will be ended.',
+    deleteStopping: 'Ending sessions…',
+    deleteSessionsChanged: 'A session was opened while this window was open. Check the list and confirm again.',
   },
   modal: {
     newProject: 'New project', editTerminal: 'Edit terminal',

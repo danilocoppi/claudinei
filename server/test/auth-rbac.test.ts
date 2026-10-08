@@ -9,7 +9,7 @@ import { COOKIE_NAME } from '../src/auth/plugin.js'
 import { createProjectsService } from '../src/projects.js'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -72,6 +72,12 @@ describe('projetos', () => {
     expect((await app.inject({ method: 'PUT', url: '/api/projects/order', cookies: anaCookie, payload: { ids: [p2.id, p1.id] } })).statusCode).toBe(403)
     // O guard recusa ANTES de reservar a pasta: nada nasce em ~/.claudinei/scratch.
     expect((await app.inject({ method: 'POST', url: '/api/projects/scratch', cookies: anaCookie, payload: { name: 'T' } })).statusCode).toBe(403)
+    // Pasta nova: o guard vem antes do mkdir — nada nasce na pasta de quem não é admin.
+    expect((await app.inject({ method: 'POST', url: '/api/projects', cookies: anaCookie, payload: { name: 'X', path: dir, newFolder: 'nova' } })).statusCode).toBe(403)
+    expect(existsSync(join(dir, 'nova'))).toBe(false)
+    // A pasta padrão revela caminhos do servidor e decide onde nascem pastas.
+    expect((await app.inject({ method: 'GET', url: '/api/settings/default-folder', cookies: anaCookie })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'PUT', url: '/api/settings/default-folder', cookies: anaCookie, payload: { path: dir } })).statusCode).toBe(403)
     expect((await app.inject({ method: 'POST', url: '/api/projects', cookies: adminCookie, payload: { name: 'X', path: dir } })).statusCode).toBe(201)
   })
 })

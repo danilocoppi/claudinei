@@ -97,35 +97,79 @@ describe('Sidebar — busca', () => {
 describe('Sidebar — terminal temporário', () => {
   const scratchButton = () => screen.getByRole('button', { name: 'Terminal temporário' })
 
-  it('cria sem pedir pasta e abre a escolha da sessão para o terminal novo', async () => {
-    const created = project(9, 'Temporário 04/10 19:42', { path: '/home/u/.claudinei/scratch/temp-20261004-194210', icon: '🧪' })
+  const created = project(9, 'Temporário 04/10 19:42', { path: '/home/u/.claudinei/scratch/temp-20261004-194210', icon: '🧪' })
+  const modalDeSessao = () => screen.getByRole('heading', { name: 'Nova sessão' }).closest('.glass') as HTMLElement
+  const posts = (fetcher: { mock: { calls: unknown[][] } }) => fetcher.mock.calls
+    .filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST').map(([u]) => String(u))
+  const servidor = (scratch: () => Response) => vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    const u = String(url)
+    if (u === '/api/projects/scratch' && init?.method === 'POST') return scratch()
+    if (u === '/api/projects/9/sessions' && init?.method === 'POST') {
+      return new Response(JSON.stringify({ localId: 'nova', projectId: 9, status: 'starting', engine: 'claude' }), { status: 201 })
+    }
+    if (u === '/api/projects') return new Response(JSON.stringify([...PROJECTS, created]), { status: 200 })
+    return new Response('[]', { status: 200 })
+  })
+
+  it('abre a escolha da sessão sem criar nada; cancelar não deixa terminal nenhum', async () => {
+    const fetcher = servidor(() => new Response(JSON.stringify(created), { status: 201 }))
+    render(<Sidebar />)
+    fireEvent.click(scratchButton())
+    const modal = screen.getByRole('heading', { name: 'Nova sessão' }).closest('.glass') as HTMLElement
+    expect(within(modal).getByText(/^Temporário \S+ \S+/)).toBeTruthy()
+    fireEvent.click(within(modal).getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('heading', { name: 'Nova sessão' })).toBeNull()
+    expect(posts(fetcher)).toEqual([])
+    expect(useStore.getState().projects.map((p) => p.id)).not.toContain(9)
+  })
+
+  it('iniciar a sessão cria o terminal e só então a sessão, nessa ordem', async () => {
+    const fetcher = servidor(() => new Response(JSON.stringify(created), { status: 201 }))
+    render(<Sidebar />)
+    fireEvent.change(search(), { target: { value: 'zzz' } })
+    fireEvent.click(scratchButton())
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: 'Iniciar sessão' }))
+    await waitFor(() => expect(posts(fetcher)).toEqual(['/api/projects/scratch', '/api/projects/9/sessions']))
+    const body = JSON.parse(String(fetcher.mock.calls.find(([u]) => String(u) === '/api/projects/scratch')![1]?.body))
+    expect(body.name).toMatch(/^Temporário \S+ \S+/)
+    expect(body.path).toBeUndefined()
+    await waitFor(() => expect(useStore.getState().projects.map((p) => p.id)).toContain(9))
+    // A busca sai do caminho para o terminal novo não nascer escondido.
+    expect(search().value).toBe('')
+    await waitFor(() => expect(useStore.getState().activeLocalId).toBe('nova'))
+  })
+
+  it('sessão recusada depois de criar: tentar de novo usa o mesmo terminal, não cria outro', async () => {
+    let tentativas = 0
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
       const u = String(url)
-      if (u === '/api/projects/scratch' && init?.method === 'POST') return new Response(JSON.stringify(created), { status: 201 })
+      if (u === '/api/projects/scratch') return new Response(JSON.stringify(created), { status: 201 })
+      if (u === '/api/projects/9/sessions') {
+        return ++tentativas === 1
+          ? new Response(JSON.stringify({ error: 'engine indisponível' }), { status: 500 })
+          : new Response(JSON.stringify({ localId: 'nova', projectId: 9, status: 'starting', engine: 'claude' }), { status: 201 })
+      }
       if (u === '/api/projects') return new Response(JSON.stringify([...PROJECTS, created]), { status: 200 })
       return new Response('[]', { status: 200 })
     })
     render(<Sidebar />)
-    fireEvent.change(search(), { target: { value: 'zzz' } })
     fireEvent.click(scratchButton())
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Nova sessão' })).toBeTruthy())
-    const call = fetcher.mock.calls.find(([u]) => String(u) === '/api/projects/scratch')!
-    const body = JSON.parse(String(call[1]?.body))
-    expect(body.name).toMatch(/^Temporário \S+ \S+/)
-    expect(body.path).toBeUndefined()
-    expect(useStore.getState().projects.map((p) => p.id)).toContain(9)
-    // A busca sai do caminho para o terminal novo não nascer escondido.
-    expect(search().value).toBe('')
-    expect(screen.getAllByText('Temporário 04/10 19:42').length).toBeGreaterThan(0)
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: 'Iniciar sessão' }))
+    await waitFor(() => expect(within(modalDeSessao()).getByText(/engine indisponível/)).toBeTruthy())
+    await waitFor(() => expect((within(modalDeSessao()).getByRole('button', { name: 'Iniciar sessão' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: 'Iniciar sessão' }))
+    await waitFor(() => expect(useStore.getState().activeLocalId).toBe('nova'))
+    expect(posts(fetcher)).toEqual(['/api/projects/scratch', '/api/projects/9/sessions', '/api/projects/9/sessions'])
   })
 
-  it('falha na criação aparece na lista e não abre nada', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      new Response(JSON.stringify({ error: 'sem espaço em disco' }), { status: 500 }))
+  it('falha na criação aparece no modal e não inicia sessão', async () => {
+    const fetcher = servidor(() => new Response(JSON.stringify({ error: 'sem espaço em disco' }), { status: 500 }))
     render(<Sidebar />)
     fireEvent.click(scratchButton())
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/sem espaço em disco/))
-    expect(screen.queryByRole('heading', { name: 'Nova sessão' })).toBeNull()
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: 'Iniciar sessão' }))
+    const modal = screen.getByRole('heading', { name: 'Nova sessão' }).closest('.glass') as HTMLElement
+    await waitFor(() => expect(within(modal).getByText(/sem espaço em disco/)).toBeTruthy())
+    expect(posts(fetcher)).toEqual(['/api/projects/scratch'])
   })
 
   it('não aparece para quem não é admin', () => {

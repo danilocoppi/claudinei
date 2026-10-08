@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project } from '../types'
@@ -32,8 +32,19 @@ const remember = (k: string, v: string) => {
   try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k) } catch { /* sem storage: só não lembra */ }
 }
 
-export function StartSessionModal({ project, onClose }: { project: Project; onClose: () => void }) {
+/**
+ * O terminal da sessão: um que já existe, ou o rascunho de um que só nasce ao
+ * iniciar — o terminal temporário. Cancelar o rascunho não deixa terminal nem
+ * pasta para trás.
+ */
+type Target =
+  | { project: Project; create?: undefined }
+  | { project: Pick<Project, 'name' | 'icon' | 'color'>; create: () => Promise<Project> }
+
+export function StartSessionModal({ project, create, onClose }: Target & { onClose: () => void }) {
   const { t } = useTranslation()
+  // Criado e com a sessão recusada: tentar de novo usa ESTE, não cria outro.
+  const created = useRef<Project | null>(null)
   const openSession = useStore((s) => s.openSession)
   const engines = useStore((s) => s.engines)
   const [engineId, setEngineId] = useState(() => recall(LAST_ENGINE_KEY) || 'claude')
@@ -43,6 +54,8 @@ export function StartSessionModal({ project, onClose }: { project: Project; onCl
   )
   const [model, setModel] = useState(() => recall(lastModelKey(recall(LAST_ENGINE_KEY) || 'claude')))
   const [error, setError] = useState('')
+  // Dois cliques rápidos criariam dois terminais temporários.
+  const [busy, setBusy] = useState(false)
 
   const engine = engines.find((e) => e.id === engineId) ?? engines.find((e) => e.id === 'claude') ?? engines[0]
   const models = engine?.models ?? []
@@ -60,8 +73,11 @@ export function StartSessionModal({ project, onClose }: { project: Project; onCl
   }
 
   const submit = async () => {
+    if (busy) return
+    setBusy(true)
     try {
-      const info = await startSession(project.id, {
+      const target = create ? (created.current ??= await create()) : project
+      const info = await startSession(target.id, {
         continueConversation,
         ...(permissions.length > 0 ? { permissionMode: permissionValue } : {}),
         ...(modelValue ? { model: modelValue } : {}),
@@ -74,6 +90,8 @@ export function StartSessionModal({ project, onClose }: { project: Project; onCl
       onClose()
     } catch (err) {
       setError((err as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -195,7 +213,7 @@ export function StartSessionModal({ project, onClose }: { project: Project; onCl
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <button className="ghost" onClick={onClose}>{t('common.cancel')}</button>
-            <button onClick={submit}>{t('session.start')}</button>
+            <button disabled={busy} onClick={submit}>{t('session.start')}</button>
           </div>
         </div>
       </div>

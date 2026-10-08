@@ -6,8 +6,8 @@ import { createSessionManager } from '../src/claude/manager.js'
 import { ClaudeSession, type SessionOptions } from '../src/claude/session.js'
 import { createTerminalManager } from '../src/terminal/manager.js'
 import '../src/engine/index.js' // registra as engines (terminalCommand no openInTerminal)
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -89,6 +89,75 @@ describe('rotas de projetos', () => {
 
     const del2 = await fakeApp.inject({ method: 'DELETE', url: `/api/projects/${id}` })
     expect(del2.statusCode).toBe(204)
+  })
+})
+
+/**
+ * Pasta padrão: a base de onde nascem os terminais novos. Fica nas configurações
+ * do Claudinei e o modal de novo terminal a usa já preenchida; com `newFolder`,
+ * a criação abre uma pasta nova dentro da base.
+ */
+describe('pasta padrão e pasta nova', () => {
+  const pastaPadrao = async () => (await app.inject({ method: 'GET', url: '/api/settings/default-folder' })).json()
+
+  it('sem configuração, a efetiva é a home', async () => {
+    expect(await pastaPadrao()).toEqual({ path: null, effective: homedir(), missing: false })
+  })
+
+  it('guarda uma pasta que existe e passa a devolvê-la', async () => {
+    const put = await app.inject({ method: 'PUT', url: '/api/settings/default-folder', payload: { path: dir } })
+    expect(put.statusCode).toBe(200)
+    expect(put.json()).toEqual({ path: dir, effective: dir, missing: false })
+    expect(await pastaPadrao()).toEqual({ path: dir, effective: dir, missing: false })
+  })
+
+  it('recusa caminho que não existe ou não é pasta, sem mudar o que estava guardado', async () => {
+    await app.inject({ method: 'PUT', url: '/api/settings/default-folder', payload: { path: dir } })
+    const arquivo = join(dir, 'arquivo.txt')
+    writeFileSync(arquivo, 'x')
+    for (const ruim of ['/nao/existe/mesmo', arquivo]) {
+      const put = await app.inject({ method: 'PUT', url: '/api/settings/default-folder', payload: { path: ruim } })
+      expect(put.statusCode).toBe(400)
+    }
+    expect((await pastaPadrao()).path).toBe(dir)
+  })
+
+  it('vazio volta para a home', async () => {
+    await app.inject({ method: 'PUT', url: '/api/settings/default-folder', payload: { path: dir } })
+    const put = await app.inject({ method: 'PUT', url: '/api/settings/default-folder', payload: { path: '' } })
+    expect(put.json()).toEqual({ path: null, effective: homedir(), missing: false })
+  })
+
+  it('pasta guardada que sumiu: avisa e a efetiva volta a ser a home', async () => {
+    const some = join(dir, 'vai-sumir')
+    mkdirSync(some)
+    await app.inject({ method: 'PUT', url: '/api/settings/default-folder', payload: { path: some } })
+    rmSync(some, { recursive: true })
+    expect(await pastaPadrao()).toEqual({ path: some, effective: homedir(), missing: true })
+  })
+
+  it('newFolder cria a pasta dentro da base e o terminal nela', async () => {
+    const post = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Meu App', path: dir, newFolder: 'meu-app' } })
+    expect(post.statusCode).toBe(201)
+    expect(post.json().path).toBe(join(dir, 'meu-app'))
+    expect(statSync(join(dir, 'meu-app')).isDirectory()).toBe(true)
+  })
+
+  it('newFolder inválido é recusado sem criar pasta nem terminal', async () => {
+    for (const ruim of ['', '..', 'a/b', '../fora']) {
+      const post = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'X', path: dir, newFolder: ruim } })
+      expect(post.statusCode).toBe(400)
+    }
+    expect(readdirSync(dir)).toEqual([])
+    expect((await app.inject({ method: 'GET', url: '/api/projects' })).json()).toEqual([])
+  })
+
+  it('newFolder que já existe é recusado (409) sem criar terminal', async () => {
+    mkdirSync(join(dir, 'existe'))
+    const post = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'X', path: dir, newFolder: 'existe' } })
+    expect(post.statusCode).toBe(409)
+    expect(post.json().error).toMatch(/já existe/)
+    expect((await app.inject({ method: 'GET', url: '/api/projects' })).json()).toEqual([])
   })
 })
 

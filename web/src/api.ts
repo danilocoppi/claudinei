@@ -73,8 +73,15 @@ export const searchIcons = (q: string) =>
   req<{ icons: IconBody[] }>(`/api/icons/search?q=${encodeURIComponent(q)}`).then((r) => r.icons)
 export const fetchSlashCommands = () => req<string[]>('/api/slash-commands')
 export const fetchEngines = () => req<EngineMeta[]>('/api/engines')
-export const createProject = (input: { name: string; path: string; color?: string; icon?: string }) =>
+/** `newFolder`: `path` é a pasta-base e o terminal nasce numa pasta nova dentro dela. */
+export const createProject = (input: { name: string; path: string; color?: string; icon?: string; newFolder?: string }) =>
   req<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) })
+/** Pasta padrão dos terminais novos (só admin). `effective`: a guardada, ou a home. */
+export interface DefaultFolder { path: string | null; effective: string; missing: boolean }
+export const fetchDefaultFolder = () => req<DefaultFolder>('/api/settings/default-folder')
+/** Vazio volta para a home. */
+export const saveDefaultFolder = (path: string) =>
+  req<DefaultFolder>('/api/settings/default-folder', { method: 'PUT', body: JSON.stringify({ path }) })
 /** Terminal temporário: o servidor escolhe a pasta (nova, em ~/.claudinei/scratch). */
 export const createScratchProject = (input: { name?: string; color?: string; icon?: string } = {}) =>
   req<Project>('/api/projects/scratch', { method: 'POST', body: JSON.stringify(input) })

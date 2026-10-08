@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { chooseTerminal, fetchTerminals, saveAppearance } from '../api'
 import { useStore } from '../store'
 import { GearIcon } from './MenuIcons'
+import { DefaultFolderField } from './DefaultFolderField'
 import {
   ACCENTS, CHAT_WIDTHS, CODE_FONTS, DEFAULT_APPEARANCE, DENSITIES, GLASS, RADII, THEMES, UI_FONTS,
   type Appearance, type Option,
@@ -61,6 +62,7 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
   }, [])
   const { t } = useTranslation()
   const current = useStore((s) => s.appearance)
+  const isAdmin = useStore((s) => !!s.me?.isAdmin)
   const apply = useStore((s) => s.applyAppearance)
   // O que estava valendo quando o painel abriu: preview ao vivo sem volta atrás
   // vira armadilha, então cancelar precisa de um lugar para onde voltar.
@@ -200,6 +202,9 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
               </div>
             </>
           )}
+
+          {/* TERMINAIS — só admin cria terminal, então só admin decide de onde eles nascem. */}
+          {isAdmin && <DefaultFolderField />}
 
           {error && <div className="ap-error" role="alert">{t('appearance.saveFailed', { error })}</div>}
         </div>

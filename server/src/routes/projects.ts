@@ -8,10 +8,16 @@ import { createActionsStore } from '../actions.js'
 import { runKey } from './actions.js'
 import type { TerminalManager } from '../terminal/manager.js'
 import { createScratchDir } from '../scratch.js'
-import { basename } from 'node:path'
+import { createSettingsService } from '../settings.js'
+import { folderNameOf, withNewFolder } from '../files/new-folder.js'
+import { statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, resolve } from 'node:path'
 
 /** Teto do nome de um terminal temporário: o cliente manda um rótulo curto com data. */
 const SCRATCH_NAME_MAX = 120
+/** Chave da pasta padrão nas configurações do Claudinei (vazio = home). */
+const DEFAULT_FOLDER_KEY = 'defaultFolder'
 
 export function registerProjectRoutes(app: FastifyInstance, deps: {
   db: Db
@@ -26,17 +32,60 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
   app.get('/api/projects', async (req) =>
     svc.list().filter((p) => canAccessProject(req.authUser, p.id)))
 
+  /**
+   * Cria um terminal. Com `newFolder`, `path` é a pasta-base e o terminal nasce
+   * numa pasta NOVA dentro dela — o nome é validado antes de qualquer mkdir, e se
+   * o terminal for recusado a pasta recém-criada sai junto.
+   */
   app.post('/api/projects', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    const body = req.body as { name?: string; path?: string; color?: string; icon?: string }
+    const body = req.body as { name?: string; path?: string; color?: string; icon?: string; newFolder?: unknown }
     if (!body?.name || !body?.path) {
       return reply.code(400).send({ error: 'name e path são obrigatórios' })
     }
+    const input = { name: body.name, color: body.color, icon: body.icon }
     try {
-      return reply.code(201).send(svc.create({ name: body.name, path: body.path, color: body.color, icon: body.icon }))
+      if (body.newFolder === undefined) return reply.code(201).send(svc.create({ ...input, path: body.path }))
+      const folder = folderNameOf(body.newFolder)
+      if (!folder) return reply.code(400).send({ error: 'nome de pasta inválido: use só um nome, sem barras nem ".."' })
+      return reply.code(201).send(withNewFolder(body.path, folder, (path) => svc.create({ ...input, path })))
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message })
+      const code = (err as NodeJS.ErrnoException).code === 'EEXIST' ? 409 : 400
+      return reply.code(code).send({ error: (err as Error).message })
     }
+  })
+
+  /**
+   * Pasta padrão: a base de onde nascem os terminais novos (o modal já a traz
+   * preenchida). Configuração do Claudinei, não de cada usuário — só admin cria
+   * terminal. Só admin lê também: ela revela caminhos do servidor.
+   *
+   * `effective` é o que o modal usa: a guardada, ou a home quando não há nenhuma
+   * ou quando a guardada sumiu do disco (`missing` avisa o painel).
+   */
+  const settings = createSettingsService(deps.db)
+  const isDir = (p: string) => { try { return statSync(p).isDirectory() } catch { return false } }
+  const defaultFolder = () => {
+    const path = settings.get(DEFAULT_FOLDER_KEY) || null
+    const ok = !!path && isDir(path)
+    return { path, effective: ok ? path : homedir(), missing: !!path && !ok }
+  }
+
+  app.get('/api/settings/default-folder', async (req, reply) => {
+    if (!requireAdmin(req, reply)) return
+    return defaultFolder()
+  })
+
+  app.put('/api/settings/default-folder', async (req, reply) => {
+    if (!requireAdmin(req, reply)) return
+    const raw = (req.body as { path?: unknown } | undefined)?.path
+    if (raw !== undefined && raw !== null && typeof raw !== 'string') {
+      return reply.code(400).send({ error: 'path deve ser texto' })
+    }
+    const wanted = (raw ?? '').trim()
+    if (wanted && !isDir(resolve(wanted))) return reply.code(400).send({ error: `não é uma pasta: ${wanted}` })
+    settings.set(DEFAULT_FOLDER_KEY, wanted ? resolve(wanted) : '')
+    return defaultFolder()
   })
 
   /**

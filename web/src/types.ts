@@ -40,6 +40,8 @@ export interface SessionInfo {
   pendingQuestion?: PendingQuestion
   /** Compactação de contexto em curso: epoch ms do início. Vem no session_status/snapshot só enquanto dura; ausente = não está compactando. */
   compactingSince?: number
+  /** Última vez que você mexeu na sessão (ISO 8601): mandou mensagem, iniciou, reviveu ou digitou no terminal. Null = nunca. */
+  lastInputAt?: string | null
 }
 
 /** Metadados + capabilities de uma engine, devolvidos por GET /api/engines. */

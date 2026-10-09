@@ -404,6 +404,9 @@ export const useStore = create<State>((set, get) => ({
             pendingQuestion: msg.pendingQuestion,
             // Compactação em curso: mesma regra — o servidor manda enquanto dura.
             compactingSince: msg.compactingSince,
+            // Última vez que você mexeu: nem todo session_status traz o campo (ex.: a
+            // passagem para o terminal), então ausente mantém o que já se sabia.
+            lastInputAt: msg.lastInputAt !== undefined ? msg.lastInputAt : s.sessions[msg.localId]?.lastInputAt,
             // Atividade do TUI só sobrevive à PERMANÊNCIA em in_terminal; na entrada
             // (status anterior não era in_terminal) zera — senão dois in_terminal
             // consecutivos mostrariam atividade velha do terminal anterior.
@@ -414,6 +417,10 @@ export const useStore = create<State>((set, get) => ({
           },
         },
       }))
+    } else if (msg.type === 'session_input') {
+      // Você mexeu nesta sessão (aqui ou em outro aparelho): reordena a coluna de rostinhos.
+      if (!get().sessions[msg.localId]) return
+      set((s) => ({ sessions: { ...s.sessions, [msg.localId]: { ...s.sessions[msg.localId], lastInputAt: msg.lastInputAt } } }))
     } else if (msg.type === 'terminal_activity') {
       // Heurística do TUI (working/waiting/idle) — efêmera, só enquanto in_terminal.
       const sess = get().sessions[msg.localId]

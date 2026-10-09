@@ -147,6 +147,7 @@ export const en = {
     collapseAll: 'Collapse all', expandAll: 'Expand all',
     collapseCard: 'Collapse', expandCard: 'Expand',
     onThisMachine: 'On this machine', terminalApp: 'Terminal', terminalAppSystem: 'System default',
+    quickColumn: 'Running terminals',
     revive: 'Revive', startSession: 'Start session', editTerminal: 'Edit', deleteTerminal: 'Delete', options: 'Options',
   },
   status: {

@@ -48,7 +48,16 @@ const slash_commands = slashArg !== -1 ? (process.argv[slashArg + 1] ?? '').spli
 // --model é ecoado no init como o claude real faz: alimenta a janela de contexto.
 const modelArg = process.argv.indexOf('--model')
 const model = modelArg !== -1 ? (process.argv[modelArg + 1] ?? 'fake-model') : 'fake-model'
-out({ type: 'system', subtype: 'init', session_id: sid, model, cwd: process.cwd(), tools: [], slash_commands, pkgExecPath: process.env.PKG_EXECPATH ?? null })
+// --init-tardio replica a CLI real retomando uma conversa (--resume em stream-json):
+// o init só sai junto da 1ª mensagem, e até lá a sessão fica em 'starting'.
+const initTardio = process.argv.includes('--init-tardio')
+let initEmitido = false
+const emitInit = () => {
+  if (initEmitido) return
+  initEmitido = true
+  out({ type: 'system', subtype: 'init', session_id: sid, model, cwd: process.cwd(), tools: [], slash_commands, pkgExecPath: process.env.PKG_EXECPATH ?? null })
+}
+if (!initTardio) emitInit()
 
 // O usage como a CLI REAL o reporta (medido na 2.1.274):
 //  - em cada mensagem `assistant`: o que entrou NAQUELA requisição = a conversa
@@ -79,6 +88,7 @@ const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
   let msg
   try { msg = JSON.parse(line) } catch { return }
+  if (msg?.type === 'user') emitInit()
   // Host respondeu à pergunta (ou a outro can_use_tool) — o turno bloqueado segue.
   // QUALQUER control_response cai neste bloco e retorna: sem isto, uma resposta
   // que não bate com `pendingQuestion` (ex.: o deny automático da 2ª pergunta em

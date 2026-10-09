@@ -142,6 +142,11 @@ export function createWsHub() {
              * `--dangerously-skip-permissions`: o atalho tira fricção, não muro.)
              */
             else if (msg.type === 'shell') runShellFor(client, msg.localId, msg.command)
+            else return
+            // Chegou até aqui sem erro: a pessoa mexeu nesta sessão. Abrir a
+            // conversa para ler (mark_read) não conta — reordenaria a coluna de
+            // rostinhos a cada clique.
+            if (msg.type !== 'mark_read' && typeof msg.localId === 'string') deps.manager.touchInput(msg.localId)
           } catch (err) {
             access.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message }))
           }

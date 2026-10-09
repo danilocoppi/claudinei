@@ -36,6 +36,8 @@ export interface SessionInfo {
   pendingQuestion?: PendingQuestion
   /** Compactação de contexto em curso: epoch ms do início — só sessão VIVA, só memória. Ausente = não está compactando. */
   compactingSince?: number
+  /** Última vez que o operador mexeu na sessão (ISO 8601), gravada pelo touchInput. Null = nunca. */
+  lastInputAt?: string | null
 }
 
 export interface TerminalLauncherOpts {
@@ -77,6 +79,8 @@ interface Deps {
   onSessionAvailable?: (projectId: number) => void
   /** Chamado quando um evento result traz tokens (Codex e demais engines que os expõem). Claude não seta tokens → nunca dispara. */
   onEngineUsage?: (engine: EngineId, tokens: { input: number; cachedInput: number; output: number; reasoning: number; total: number }) => void
+  /** Relógio (epoch ms). Injetável para testar o intervalo mínimo do touchInput. */
+  now?: () => number
   /**
    * Limiar do auto-compact em % da janela de contexto (0/ausente = desligado),
    * lido A CADA result — mudar a configuração vale na hora, sem recriar sessão.
@@ -127,6 +131,9 @@ function waitForResult(session: EngineSession, timeoutMs: number): Promise<strin
 
 export function createSessionManager(deps: Deps) {
   const live = new Map<string, { session: EngineSession; projectId: number; engine: EngineId; contextTokens?: number; contextWindow?: number; autoCompacting?: boolean; initModel?: string }>()
+  const now = deps.now ?? Date.now
+  /** Último touchInput gravado por sessão (epoch ms), para o intervalo mínimo. */
+  const lastTouch = new Map<string, number>()
   // Resolve a sessão pela engine (registry) — ou, em teste, pelo override sessionFactory.
   const makeSession = (engineId: EngineId, opts: EngineSessionOptions): EngineSession =>
     deps.sessionFactory ? deps.sessionFactory(opts) : getEngine(engineId).createSession(opts)
@@ -214,6 +221,7 @@ export function createSessionManager(deps: Deps) {
         contextWindow: info?.contextWindow,
         pendingQuestion: info?.pendingQuestion,
         compactingSince: info?.compactingSince,
+        lastInputAt: info?.lastInputAt ?? null,
       }
     }
     session.on('status', (status: SessionStatus) => {
@@ -351,6 +359,7 @@ export function createSessionManager(deps: Deps) {
       contextWindow: liveEntry?.contextWindow,
       pendingQuestion: liveEntry?.session.pendingQuestion,
       compactingSince: liveEntry?.session.compactingSince,
+      lastInputAt: row.last_input_at ?? null,
     }
   }
 
@@ -439,6 +448,26 @@ export function createSessionManager(deps: Deps) {
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new Error('aguarde o turno terminar para compactar')
         entry.session.compact()
       } else entry.session.send(text)
+    },
+
+    /**
+     * O operador acabou de mexer nesta sessão: grava a hora e avisa as telas, que
+     * reordenam a coluna de rostinhos. Quem chama decide o que conta como
+     * operador — o agendador e os outros agentes não chamam.
+     *
+     * `atMostEveryMs` segura a frequência para quem toca a cada tecla (o terminal):
+     * dentro do intervalo, o toque não grava nem avisa.
+     */
+    touchInput(localId: string, opts: { atMostEveryMs?: number } = {}): void {
+      const t = now()
+      const prev = lastTouch.get(localId)
+      if (opts.atMostEveryMs && prev !== undefined && t - prev < opts.atMostEveryMs) return
+      const row = deps.db.prepare('SELECT project_id FROM sessions WHERE local_id=?').get(localId) as { project_id: number } | undefined
+      if (!row) return
+      const at = new Date(t).toISOString()
+      deps.db.prepare('UPDATE sessions SET last_input_at=? WHERE local_id=?').run(at, localId)
+      lastTouch.set(localId, t)
+      deps.broadcast({ type: 'session_input', localId, projectId: row.project_id, lastInputAt: at })
     },
 
     markRead(localId: string): void {
@@ -595,7 +624,7 @@ export function createSessionManager(deps: Deps) {
         type: 'session_status', localId, projectId: row.project_id, engine: info.engine, status: info.status,
         engineSessionId: info.engineSessionId, model: info.model, permissionMode: info.permissionMode, effort: info.effort,
         backgroundTasks: info.backgroundTasks, authExpired: info.authExpired, contextTokens: info.contextTokens, contextWindow: info.contextWindow,
-        pendingQuestion: info.pendingQuestion, compactingSince: info.compactingSince,
+        pendingQuestion: info.pendingQuestion, compactingSince: info.compactingSince, lastInputAt: info.lastInputAt,
       })
       return info
     },

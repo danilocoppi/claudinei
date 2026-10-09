@@ -985,3 +985,69 @@ describe('persistência de model/effort', () => {
     await expect(mgr.setSessionOptions(info.localId, { model: 'opus' })).rejects.toThrow(/trabalhando/)
   })
 })
+
+/**
+ * A última vez que VOCÊ mexeu no terminal ordena a coluna de rostinhos da lateral.
+ * Quem chama decide o que é "você" (as rotas, nunca o agendador ou outro agente);
+ * o manager só grava, publica e segura a frequência quando pedido.
+ */
+describe('última interação (touchInput)', () => {
+  it('grava, aparece no get/list e avisa as telas', async () => {
+    const mgr = makeManager()
+    const info = mgr.start(project)
+    expect(mgr.get(info.localId)?.lastInputAt ?? null).toBeNull()
+    mgr.touchInput(info.localId)
+    const at = mgr.get(info.localId)?.lastInputAt
+    expect(at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(mgr.list().find((s) => s.localId === info.localId)?.lastInputAt).toBe(at)
+    expect(broadcasts).toContainEqual({ type: 'session_input', localId: info.localId, projectId: project.id, lastInputAt: at })
+    await mgr.stop(info.localId)
+  })
+
+  it('o session_status seguinte leva a última interação', async () => {
+    const mgr = makeManager()
+    const info = mgr.start(project)
+    mgr.touchInput(info.localId)
+    const at = mgr.get(info.localId)?.lastInputAt
+    await waitUntil(() => mgr.get(info.localId)?.status === 'idle')
+    const status = broadcasts.filter((b: any) => b.type === 'session_status' && b.localId === info.localId && b.status === 'idle')
+    expect((status.at(-1) as any).lastInputAt).toBe(at)
+    await mgr.stop(info.localId)
+  })
+
+  it('com intervalo mínimo, toques seguidos gravam uma vez só', async () => {
+    let agora = Date.parse('2026-10-09T12:00:00.000Z')
+    const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m), now: () => agora })
+    const info = mgr.start(project)
+    const toques = () => broadcasts.filter((b: any) => b.type === 'session_input').length
+    mgr.touchInput(info.localId, { atMostEveryMs: 60_000 })
+    agora += 59_000
+    mgr.touchInput(info.localId, { atMostEveryMs: 60_000 })
+    expect(toques()).toBe(1)
+    expect(mgr.get(info.localId)?.lastInputAt).toBe('2026-10-09T12:00:00.000Z')
+    agora += 1_000
+    mgr.touchInput(info.localId, { atMostEveryMs: 60_000 })
+    expect(toques()).toBe(2)
+    expect(mgr.get(info.localId)?.lastInputAt).toBe('2026-10-09T12:01:00.000Z')
+    await mgr.stop(info.localId)
+  })
+
+  it('mandar e reviver direto pelo manager (agendador, outros agentes) não conta', async () => {
+    const mgr = makeManager()
+    const info = mgr.start(project)
+    await waitUntil(() => mgr.get(info.localId)?.status === 'idle')
+    mgr.send(info.localId, 'olá')
+    await waitUntil(() => mgr.get(info.localId)?.status === 'needs_attention')
+    await mgr.stop(info.localId)
+    mgr.revive(info.localId)
+    expect(mgr.get(info.localId)?.lastInputAt ?? null).toBeNull()
+    expect(broadcasts.some((b: any) => b.type === 'session_input')).toBe(false)
+    await mgr.stop(info.localId)
+  })
+
+  it('sessão que não existe: não grava nem avisa', () => {
+    const mgr = makeManager()
+    mgr.touchInput('nao-existe')
+    expect(broadcasts.some((b: any) => b.type === 'session_input')).toBe(false)
+  })
+})

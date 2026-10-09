@@ -81,6 +81,8 @@ Contêineres e controles seguem os raios ajustáveis do tema. O padrão é 16px;
 
 - **Terminal temporário:** o raio é um botão-ícone do cabeçalho, com a mesma altura de ⌃ ⌄ e “+ Terminal” e com título e rótulo acessível localizados. Com ele, a linha do cabeçalho pede 251px; com a barra abaixo de 255px, o rótulo “Terminal” sai e fica o “+”.
 
+- **Coluna de rostinhos:** `QuickColumn` à esquerda da lista, abaixo da busca, em 28px que entram 10px no respiro da lateral (a lista perde ~22px). Cada linha repete a régua — rosto de 20px com o ícone de 10px no canto, `rail-badge` e `Sonar` em volta do rosto —, com hover e item aberto em `--surface-strong` e foco visível. Fica `sticky` no topo enquanto a lateral rola, com altura máxima da área visível, rolagem própria e barra oculta; no fim da lista acompanha o fim do `.term-body`. Sem `backdrop-filter`; as animações são as do rosto, sob o mesmo controle de ~20 FPS e pausa fora da tela.
+
 - **Excluir terminal:** `DeleteProjectDialog` sobre o `ConfirmDialog`, que aceita conteúdo entre a mensagem e o erro e um botão de confirmar desabilitado. Com sessões abertas, a lista usa o texto normal e a caixa de ciência usa o checkbox nativo com `accent-color`; o botão destrutivo fica desabilitado até ela ser marcada.
 
 - **Pasta padrão:** no painel da engrenagem, a seção “Terminais” segue o desenho de “Nesta máquina”: rótulo de seção, subrótulo, o caminho em fonte de código com reticências e os botões “Escolher…” e “Usar a pasta pessoal” inteiros ao lado; o aviso de pasta sumida usa `ap-error`. No modal de novo terminal, “Criar pasta nova dentro desta” usa o checkbox nativo com `accent-color`, e a prévia do caminho final vem em fonte de código e texto secundário, quebrando em qualquer ponto.

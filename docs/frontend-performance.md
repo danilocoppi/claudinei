@@ -181,6 +181,29 @@ Dados e verificações: `.superpowers/review-software-motion/validation.json`.
 O resultado da instalação autorizada será registrado separadamente em
 `.superpowers/deployment-13c51cf6/result.json`.
 
+## Coluna de rostinhos — 2026-10-09
+
+A coluna de rostinhos da lateral (ver `UX-CONTRACT.md`) repete o rosto de cada
+terminal ligado ao lado do cartão. Não há laço JavaScript novo nem filtro na
+lateral: o custo é o de mais rostos animando, sob o mesmo controle de ~20
+quadros/s e pausa fora da tela.
+
+Medição com `scripts/profile-frontend.mjs`, Chromium headless com SwiftShader
+(sem GPU), 16 terminais (11 ligados, 1 trabalhando), viewport 1610×1036, a
+mesma captura GET para todas as versões, rodadas intercaladas. CPU total dos
+processos do navegador em 6 s, mediana:
+
+| Versão | Animações | Conversa ociosa | Conversa trabalhando |
+| --- | ---: | ---: | ---: |
+| `main` sem a coluna (n=11) | 81 | 3.590 ms | 4.070 ms |
+| coluna com todos os ligados (n=7) | 137 | 4.500 ms (+25%) | 5.270 ms (+29%) |
+| coluna limitada a 6 rostos (n=4) | 117 | 4.045 ms (+13%) | 4.635 ms (+14%) |
+| todos, sem a sombra do rosto (n=4) | 129 | 4.345 ms (+21%) | 4.920 ms (+21%) |
+
+O custo acompanha o número de rostos (cerca de 2,3% por rosto); tirar a
+sombra desfocada quase não muda o resultado, então o desenho ficou inteiro.
+Com os números, o usuário escolheu mostrar todos os terminais ligados.
+
 ## Conversa ativa e preferência de vidro — 2026-09-06
 
 A captura GET posterior usa o frontend instalado, quatro sessões (uma

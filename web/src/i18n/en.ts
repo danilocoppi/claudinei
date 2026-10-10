@@ -341,6 +341,7 @@ export const en = {
   },
   mic: {
     start: 'Record audio',
+    shortcut: 'Ctrl+Space: tap to start or stop, hold to talk',
     stop: 'Stop recording',
     transcribing: 'transcribing…',
     errPermission: 'Allow the microphone to record.',

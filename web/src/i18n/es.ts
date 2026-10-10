@@ -343,6 +343,7 @@ export const es: typeof en = {
   },
   mic: {
     start: 'Grabar audio',
+    shortcut: 'Ctrl+Espacio: toca para iniciar o detener, mantén para hablar',
     stop: 'Detener grabación',
     transcribing: 'transcribiendo…',
     errPermission: 'Permite el micrófono para grabar.',

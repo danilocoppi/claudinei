@@ -344,6 +344,7 @@ export const ptBR: typeof en = {
   },
   mic: {
     start: 'Gravar áudio',
+    shortcut: 'Ctrl+Espaço: toque liga e desliga, segure para falar',
     stop: 'Parar gravação',
     transcribing: 'transcrevendo…',
     errPermission: 'Permita o microfone para gravar.',

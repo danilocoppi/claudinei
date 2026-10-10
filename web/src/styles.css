@@ -3019,6 +3019,8 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .cm-md-codeblock, .cm-md-fence { font-family: var(--font-code); font-size: .92em;
   background: color-mix(in srgb, var(--ink) calc(35% * var(--ink-k)), transparent); }
 .cm-md-fence { opacity: .45; }
+/* Fora da linha do cursor as crases somem e sobra a linguagem: rótulo pequeno do bloco. */
+.cm-md-fence-lang { font-size: .85em; letter-spacing: .04em; }
 
 /* A tabela desenhada no lugar do bloco de pipes — mesmas regras da tabela
    do markdown renderizado, para o editor não mudar a cara do documento. */

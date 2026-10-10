@@ -1319,13 +1319,19 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .auth-card button[type='submit'] { margin-top: 4px; }
 
 /* ---- menu 👤 (UserMenu) ---- */
-.sidebar__top-actions { display: flex; align-items: center; gap: 4px; }
+/* `min-width: 0` na fileira e no botão do usuário: é o que deixa o nome encolher
+   com reticências quando o topo aperta. Sem isso a fileira não cedia e a lateral
+   inteira ganhava barra de rolagem horizontal (nome longo, ou a barra de rolagem
+   clássica do Linux comendo 11px). Os outros botões não encolhem. */
+.sidebar__top-actions { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.sidebar__top-actions > :not(.user-menu__btn) { flex: none; }
 .user-menu__btn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius-sm);
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius-sm); min-width: 0;
   background: transparent; border: 0; color: var(--text); font-weight: 500; font-size: 12px; opacity: .85;
 }
 .user-menu__btn:hover { background: var(--surface-strong); opacity: 1; filter: none; }
 .user-menu__name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-menu__btn svg { flex: none; }
 .user-menu__overlay { position: fixed; inset: 0; z-index: 60; }
 .user-menu__popover { position: fixed; min-width: 180px; border-radius: var(--radius-lg); padding: 6px; z-index: 61; }
 .user-menu__sep { height: 1px; background: var(--border); margin: 4px 6px; }
@@ -2340,6 +2346,16 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
    em 250px, a largura padrão da barra. */
 @container sidebar (max-width: 255px) {
   .term-header__label { display: none; }
+}
+/* O topo cede espaço em ordem. Com o nome do usuário já encolhido, a linha pede
+   220px de conteúdo: logo 71 (quebrado em duas linhas), «/⚙ 53, 👤 37, bandeira
+   39, folgas 12 e margens 8. Abaixo disso sai a palavra "Claudinei" e fica o
+   brasão (~20px); abaixo de ~169px os botões descem para a linha de baixo. */
+@container sidebar (max-width: 219px) {
+  .sidebar__logo-text { display: none; }
+}
+@container sidebar (max-width: 168px) {
+  .sidebar__top { flex-wrap: wrap; row-gap: 6px; }
 }
 
 /* ---- Cartão de terminal colapsado ----

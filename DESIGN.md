@@ -89,7 +89,7 @@ Contêineres e controles seguem os raios ajustáveis do tema. O padrão é 16px;
 
 - **Editor de agendamentos:** criação e edição usam o mesmo modal no portal do documento, acima da lista de resultados. Cabeçalho e ações permanecem visíveis; o formulário rola dentro do modal em janelas baixas. O cartão conserva seu recorte e sua aparência, sem afetar o diálogo.
 
-- **Composição:** `ChatInput` é dono do rascunho, cursor e envio. `MentionMenu` continua sendo a referência visual/funcional para `@@`; `FileMentionMenu` navega pastas e escolhe um arquivo com botões nativos.
+- **Composição:** `ChatInput` é dono do rascunho, cursor e envio. O 🎤 aceita Ctrl+Espaço (toque liga e desliga, segurar fala); a dica do botão traz o atalho, sem novo elemento visual. `MentionMenu` continua sendo a referência visual/funcional para `@@`; `FileMentionMenu` navega pastas e escolhe um arquivo com botões nativos.
 - **Overlays:** `ViewportPopover` mede e limita os menus compartilhados. O seletor de arquivos é deliberadamente não modal: título acessível, foco inicial na busca, Escape/fechar retornam ao campo, clique/foco externo fecha sem tomar o foco do destino.
 - **Estados:** busca, loading textual com status, erro inline com retry, vazio e nenhum resultado ficam no popup. Botões têm hover, foco visível, pressionado e disabled; ações indisponíveis não executam. Não há gravação ao navegar nem envio automático ao selecionar.
 - **Ícones:** preservar o vocabulário dos menus (pasta/arquivo e setas), com rótulos textuais localizados; ícones decorativos não duplicam os nomes acessíveis.

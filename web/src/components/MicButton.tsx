@@ -4,10 +4,13 @@ import { startMicCapture as defaultCapture, micSupported, type MicHandle } from 
 import { rmsOf, normalizePeak } from '../speech/audio'
 import { pcmToWav } from '../speech/wav'
 import { transcribeAudio as defaultTranscribe } from '../api'
+import { useMicShortcut } from '../speech/shortcut'
 
 export interface MicDeps {
   startMicCapture: (onBuffer: (pcm: Float32Array) => void, intervalMs?: number) => Promise<MicHandle>
   transcribeAudio: (wav: Blob) => Promise<{ text: string }>
+  /** Relógio do atalho (toque × segurar). Injetável nos testes. */
+  now?: () => number
 }
 
 const realDeps: MicDeps = { startMicCapture: defaultCapture, transcribeAudio: defaultTranscribe }
@@ -31,6 +34,7 @@ export function MicButton({
   onDone,
   onError,
   onStart,
+  field,
   deps = realDeps,
 }: {
   disabled?: boolean
@@ -38,6 +42,8 @@ export function MicButton({
   onDone: () => void
   onError: (msg: string) => void
   onStart?: () => void
+  /** Campo do chat: o Ctrl+Espaço funciona com o foco nele (ou fora de campos) e o leva até lá. */
+  field?: { readonly current: HTMLElement | null }
   deps?: MicDeps
 }): JSX.Element | null {
   const { t } = useTranslation()
@@ -45,6 +51,7 @@ export function MicButton({
   const [secs, setSecs] = useState(0)
   const handleRef = useRef<MicHandle | null>(null)
   const genRef = useRef(0) // id da sessão de gravação; invalida resultados de sessões antigas
+  const startingRef = useRef(false) // microfone abrindo (getUserMedia em curso)
 
   useEffect(() => {
     if (state !== 'recording') return
@@ -60,10 +67,26 @@ export function MicButton({
     handleRef.current = null
   }, [])
 
+  // Antes do `return null`: hook não pode ser condicional.
+  useMicShortcut({
+    enabled: !disabled && micSupported(),
+    active: () => !!handleRef.current || startingRef.current,
+    start: () => { field?.current?.focus(); void startRecording() },
+    stop: () => {
+      if (handleRef.current) void stopRecording()
+      // Soltou antes de o microfone abrir: invalida a abertura, que libera o
+      // microfone assim que chegar em vez de começar a gravar sozinha.
+      else if (startingRef.current) { genRef.current++; startingRef.current = false }
+    },
+    field: () => field?.current ?? null,
+    now: deps.now,
+  })
+
   if (!micSupported()) return null
 
-  const startRecording = async () => {
+  async function startRecording() {
     const gen = ++genRef.current
+    startingRef.current = true
     try {
       // Ao vivo: a cada tick do recorder (buffer ACUMULADO), transcreve e atualiza o
       // campo. Backpressure: com uma parcial em voo, o tick é ignorado — o próximo
@@ -83,6 +106,7 @@ export function MicButton({
         }
       }
       const handle = await deps.startMicCapture(onLiveBuffer)
+      if (genRef.current === gen) startingRef.current = false
       if (genRef.current !== gen) {
         handle.stop() // sessão abandonada durante o start → libera o microfone
         return
@@ -92,12 +116,13 @@ export function MicButton({
       onStart?.()
     } catch (err) {
       if (genRef.current !== gen) return
+      startingRef.current = false
       const name = (err as { name?: string })?.name
       onError(name === 'NotAllowedError' || name === 'SecurityError' ? t('mic.errPermission') : t('mic.errCapture'))
     }
   }
 
-  const stopRecording = async () => {
+  async function stopRecording() {
     const handle = handleRef.current
     if (!handle) return
     handleRef.current = null
@@ -135,7 +160,7 @@ export function MicButton({
     <button
       type="button"
       aria-label={label}
-      title={label}
+      title={`${label} — ${t('mic.shortcut')}`}
       disabled={disabled}
       className={state === 'recording' ? 'input-action mic-btn--rec' : 'input-action'}
       onClick={onClick}

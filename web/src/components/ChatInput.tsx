@@ -397,6 +397,7 @@ export function ChatInput({
           onDone={endMic}
           onError={setMicError}
           onStart={startMic}
+          field={areaRef}
           deps={micDeps}
         />
         {session && <SessionControls session={session} />}

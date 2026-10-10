@@ -114,6 +114,47 @@ describe('websocket hub', () => {
     ws.close()
   })
 
+  /**
+   * A coluna de rostinhos ordena pelo que a pessoa FEZ: iniciar, mandar,
+   * interromper contam; abrir a conversa para ler (mark_read) não.
+   */
+  it('ações de chat marcam a última interação; marcar como lido não', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+    const msgs = collect(ws)
+    await waitUntil(() => msgs.some((m: any) => m.type === 'sessions_snapshot'))
+    const post = await app.inject({
+      method: 'POST', url: '/api/projects',
+      payload: { name: 'P-toque', path: mkdtempSync(join(tmpdir(), 'tm-')) },
+    })
+    const { localId } = (await app.inject({ method: 'POST', url: `/api/projects/${post.json().id}/sessions` })).json()
+    await waitUntil(() => msgs.some((m: any) => m.type === 'session_status' && m.localId === localId && m.status === 'idle'))
+    const toques = () => msgs.filter((m: any) => m.type === 'session_input' && m.localId === localId).length
+    await waitUntil(() => toques() === 1) // iniciar pela rota
+
+    ws.send(JSON.stringify({ type: 'mark_read', localId }))
+    ws.send(JSON.stringify({ type: 'send_message', localId, text: 'tarefa demorada' }))
+    await waitUntil(() => msgs.some((m: any) => m.type === 'session_status' && m.localId === localId && m.status === 'working'))
+    ws.send(JSON.stringify({ type: 'interrupt', localId }))
+    await waitUntil(() => msgs.some((m: any) => m.type === 'session_status' && m.localId === localId && m.status === 'needs_attention'))
+    ws.send(JSON.stringify({ type: 'mark_read', localId }))
+    ws.send(JSON.stringify({ type: 'send_message', localId, text: 'olá' }))
+    await waitUntil(() => toques() >= 4)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(toques()).toBe(4) // iniciar, mandar, interromper, mandar — os dois mark_read não
+    expect(manager.get(localId)?.lastInputAt).toBe((msgs.filter((m: any) => m.type === 'session_input').at(-1) as any).lastInputAt)
+    ws.close()
+  })
+
+  it('mensagem para sessão parada não marca a última interação', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+    const msgs = collect(ws)
+    await waitUntil(() => msgs.some((m: any) => m.type === 'sessions_snapshot'))
+    ws.send(JSON.stringify({ type: 'send_message', localId: 'nao-existe', text: 'x' }))
+    await waitUntil(() => msgs.some((m: any) => m.type === 'error'))
+    expect(msgs.some((m: any) => m.type === 'session_input')).toBe(false)
+    ws.close()
+  })
+
   it('interrupt para sessão inexistente devolve erro só ao solicitante', async () => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
     const msgs = collect(ws)

@@ -214,6 +214,23 @@ describe('rotas de sessões', () => {
     await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
   })
 
+  it('iniciar e reviver pela rota marcam a última interação; revive recusado não', async () => {
+    const lastInput = (id: string) => (db.prepare('SELECT last_input_at FROM sessions WHERE local_id=?').get(id) as any)?.last_input_at
+    const { localId } = (await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions` })).json()
+    const iniciou = lastInput(localId)
+    expect(iniciou).toMatch(/^\d{4}-/)
+    await waitUntil(() => (db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any)?.status === 'idle')
+    expect((await app.inject({ method: 'POST', url: `/api/sessions/${localId}/revive` })).statusCode).toBe(400)
+    expect(lastInput(localId)).toBe(iniciou)
+    await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
+    await new Promise((r) => setTimeout(r, 5))
+    expect((await app.inject({ method: 'POST', url: `/api/sessions/${localId}/revive` })).statusCode).toBe(200)
+    expect(lastInput(localId) > iniciou).toBe(true)
+    const listada = (await app.inject({ method: 'GET', url: '/api/sessions' })).json().find((x: any) => x.localId === localId)
+    expect(listada.lastInputAt).toBe(lastInput(localId))
+    await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
+  })
+
   it('history de sessão inexistente retorna 404', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/sessions/nao-existe/history' })
     expect(res.statusCode).toBe(404)

@@ -631,6 +631,39 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .term-header__favorite-filter { display: inline-flex; align-items: center; gap: 3px; color: var(--text-dim); cursor: pointer; }
 .term-header__favorite-filter:has(input:checked) { color: var(--warn); }
 .term-list { display: flex; flex-direction: column; gap: 6px; }
+/* A COLUNA DE ROSTINHOS: atalho dos terminais ligados, ao lado da lista.
+   Quem rola é a lateral inteira; a coluna fica grudada no topo dela (sticky,
+   presa ao .term-body) e, com mais rostos do que altura, rola sozinha. A linha é
+   a da régua — rosto com o ícone no canto, contador, sonar — sem os traços de
+   profundidade. A barra de rolagem some: em 28px ela comeria o próprio rosto.
+   A margem negativa entra no respiro da lateral: a lista perde só ~22px. */
+.term-body { display: flex; align-items: flex-start; gap: calc(4px * var(--density)); }
+.term-body > .term-list { flex: 1; min-width: 0; }
+.quick-col {
+  position: sticky; top: 0; flex: none; width: 28px;
+  /* Grudada, ela começa abaixo do respiro de cima da lateral: desconta os dois. */
+  max-height: calc(100dvh - 28px * var(--density)); overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  display: flex; flex-direction: column; gap: 2px; padding: 2px 0;
+  margin-left: calc(-10px * var(--density));
+}
+.quick-col::-webkit-scrollbar { display: none; }
+.quick-col__item {
+  position: relative; flex: none; display: grid; place-items: center;
+  width: 28px; height: 32px; padding: 0; border: 0; border-radius: var(--radius-md);
+  background: transparent; color: inherit; cursor: pointer;
+}
+.quick-col__item:hover, .quick-col__item.active { background: var(--surface-strong); }
+.quick-col__item.active { box-shadow: inset 0 0 0 1px var(--border); }
+.quick-col__item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.quick-col__item:hover .rail-ico, .quick-col__item.active .rail-ico {
+  background: color-mix(in srgb, var(--surface-strong), var(--bg));
+}
+/* O anel nasce em volta do rosto, não da linha: aberto a partir da borda da
+   linha ele seria cortado pela própria coluna logo no começo. */
+.quick-col__item .sonar { inset: 6px 4px; border-radius: 999px; }
+.quick-col__item .rail-badge { top: 0; right: -1px; }
+/* Ícone menor e mais para fora que na régua: em 20px o rosto é o que se lê primeiro. */
+.quick-col__item .rail-mark .rail-ico { right: -6px; bottom: -5px; padding: 0; }
 .term-list__empty { color: var(--text-dim); font-size: 12px; padding: 8px 4px; }
 .term-list__error { color: var(--err); font-size: 12px; padding: 4px; }
 /* O raio é SVG, não texto: sem esticar, ele ficava 4px mais baixo que ⌃ ⌄ e + Terminal. */

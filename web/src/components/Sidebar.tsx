@@ -23,6 +23,8 @@ import { AgentFace, faceStateOf } from './AgentFace'
 import { MoreIcon, GearIcon, StarIcon, SearchIcon, BoltIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { BrandMark } from './BrandMark'
+import { Sonar } from './Sonar'
+import { QuickColumn } from './QuickColumn'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -57,17 +59,6 @@ const loadCollapsedCards = (): number[] => {
 // Filtro "somente ativos" (estado de VISÃO, como o de grupos colapsados): esconde
 // terminais e grupos sem agente de pé. Não toca em nada no servidor.
 /**
- * O pulso de sonar de quem espera por você.
- *
- * O véu âmbar sozinho era discreto demais: com meia dúzia de terminais na lista,
- * um contorno fino não chama ninguém. São DOIS anéis defasados — com um só, o
- * pulso teria um intervalo morto no meio de cada ciclo.
- *
- * Vive no cartão, e sobe para o grupo (e do grupo para o setor) quando o que
- * espera está escondido dentro de um contêiner fechado: o chamado tem que aparecer
- * onde alguém está olhando.
- */
-/**
  * Os traços de profundidade. As pontas do trecho ficam arredondadas — é o que faz
  * o traço ler como um colchete que abre e fecha, em vez de um corte de linha
  * infinita.
@@ -80,8 +71,6 @@ const RailGuides = ({ guides }: { guides: RailGuide[] }) => (
     ))}
   </span>
 )
-
-const Sonar = () => <span className="sonar" aria-hidden="true"><i /><i /></span>
 
 const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
 const loadActiveOnly = (): boolean => {
@@ -799,6 +788,9 @@ export function Sidebar() {
         </div>
       )}
 
+      {/* A coluna de rostinhos fica ao lado da lista e parada enquanto ela rola. */}
+      <div className="term-body">
+      <QuickColumn projects={entries.flatMap(projectsOf)} />
       <div className="term-list">
         {favoriteError && <div className="term-list__error" role="alert">{t('sidebar.favoriteSaveError')}</div>}
         {visibleEntries.map(renderEntry)}
@@ -821,6 +813,7 @@ export function Sidebar() {
             onDrop={(e) => { e.preventDefault(); void dropAt(null) }}
           />
         )}
+      </div>
       </div>
 
       </>)}

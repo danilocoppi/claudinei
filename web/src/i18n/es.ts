@@ -149,6 +149,7 @@ export const es: typeof en = {
     collapseAll: 'Contraer todo', expandAll: 'Expandir todo',
     collapseCard: 'Contraer', expandCard: 'Expandir',
     onThisMachine: 'En esta máquina', terminalApp: 'Terminal', terminalAppSystem: 'Predeterminado del sistema',
+    quickColumn: 'Terminales encendidos',
     revive: 'Reanudar', startSession: 'Iniciar sesión', editTerminal: 'Editar', deleteTerminal: 'Eliminar', options: 'Opciones',
   },
   status: {

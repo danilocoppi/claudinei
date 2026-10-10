@@ -170,6 +170,8 @@ export function openDb(path: string): Db {
   try { db.exec(`ALTER TABLE sessions ADD COLUMN permission_mode TEXT`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE sessions ADD COLUMN effort TEXT`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE sessions ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude'`) } catch { /* já existe */ }
+  // Última vez que o operador mexeu na sessão (ISO 8601): ordena a coluna de rostinhos.
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN last_input_at TEXT`) } catch { /* já existe */ }
   db.exec(`UPDATE sessions SET permission_mode = CASE WHEN skip_permissions = 0 THEN 'default' ELSE 'bypassPermissions' END WHERE permission_mode IS NULL`)
   try { db.exec(`ALTER TABLE projects ADD COLUMN sort_order INTEGER`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }

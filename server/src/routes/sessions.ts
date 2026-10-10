@@ -8,6 +8,7 @@ import { createSettingsService } from '../settings.js'
 import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/guards.js'
 import { hasEngine, DEFAULT_ENGINE_ID, getEngine } from '../engine/index.js'
 import { ownLatestThread, isSharedPath } from '../project-threads.js'
+import { errorBody, fail } from '../user-error.js'
 
 const PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'plan', 'bypassPermissions'])
 // Níveis persistíveis do effort ('auto' limpa; 'ultracode' é por sessão — o front não persiste).
@@ -55,7 +56,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
   // Resolve a sessão e barra acesso a projeto fora da lista do usuário.
   const guardSession = (req: any, reply: any, localId: string) => {
     const info = deps.manager.get(localId)
-    if (!info) { reply.code(404).send({ error: 'sessão não existe' }); return undefined }
+    if (!info) { reply.code(404).send(fail('session_not_found', 'sessão não existe')); return undefined }
     if (!requireProjectAccess(req, reply, info.projectId)) return undefined
     return info
   }
@@ -82,7 +83,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
 
   app.post('/api/projects/:id/sessions', async (req, reply) => {
     const project = projects.get(Number((req.params as { id: string }).id))
-    if (!project) return reply.code(404).send({ error: 'projeto não existe' })
+    if (!project) return reply.code(404).send(fail('project_not_found', 'projeto não existe'))
     if (!requireProjectAccess(req, reply, project.id)) return
     const body = (req.body ?? {}) as { continueConversation?: boolean; permissionMode?: string; model?: string; engine?: string }
     const engine = body?.engine ?? DEFAULT_ENGINE_ID
@@ -105,7 +106,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
       deps.manager.touchInput(info.localId)
       return reply.code(201).send(deps.manager.get(info.localId) ?? info)
     } catch (err) {
-      return reply.code(409).send({ error: (err as Error).message })
+      return reply.code(409).send(errorBody(err))
     }
   })
 
@@ -125,7 +126,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     try {
       return await deps.manager.setSessionOptions(localId, { model, permissionMode: body.permissionMode as PermissionMode | undefined, effort: body.effort })
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message })
+      return reply.code(400).send(errorBody(err))
     }
   })
 
@@ -162,7 +163,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     try {
       return await deps.manager.startAuth(localId)
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message })
+      return reply.code(400).send(errorBody(err))
     }
   })
 
@@ -175,7 +176,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
       await deps.manager.completeAuth(localId, code.trim())
       return reply.code(204).send()
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message })
+      return reply.code(400).send(errorBody(err))
     }
   })
 
@@ -187,14 +188,14 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
       deps.manager.touchInput(localId)
       return deps.manager.get(localId)
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message })
+      return reply.code(400).send(errorBody(err))
     }
   })
 
   app.get('/api/sessions/:localId/history', async (req, reply) => {
     const { localId } = req.params as { localId: string }
     const info = deps.manager.get(localId)
-    if (!info) return reply.code(404).send({ error: 'sessão não existe' })
+    if (!info) return reply.code(404).send(fail('session_not_found', 'sessão não existe'))
     if (!requireProjectAccess(req, reply, info.projectId)) return
     const project = projects.get(info.projectId)
     if (!project) return []

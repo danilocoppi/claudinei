@@ -1,4 +1,5 @@
 import type { Db } from './db.js'
+import { UserError } from './user-error.js'
 
 export interface ProjectGroup {
   id: number
@@ -47,7 +48,7 @@ export function createGroupsService(db: Db) {
     /** Atualiza nome/ícone/cor (subset). */
     update(id: number, patch: { name?: string; icon?: string; color?: string }): ProjectGroup {
       const cur = (db.prepare(`SELECT id, name, icon, color, sort_order, sector_id FROM project_groups WHERE id=?`).get(id) as any)
-      if (!cur) throw new Error(`grupo ${id} não existe`)
+      if (!cur) throw new UserError('group_not_found', `grupo ${id} não existe`)
       const next = { name: patch.name ?? cur.name, icon: patch.icon ?? cur.icon, color: patch.color ?? cur.color }
       db.prepare(`UPDATE project_groups SET name=?, icon=?, color=? WHERE id=?`).run(next.name, next.icon, next.color, id)
       return { id, ...next, sortOrder: cur.sort_order, sectorId: cur.sector_id ?? null }
@@ -81,7 +82,7 @@ export function createGroupsService(db: Db) {
 
     updateSector(id: number, patch: { name?: string; icon?: string; color?: string }): Sector {
       const cur = db.prepare(`SELECT id, name, icon, color, sort_order FROM sectors WHERE id=?`).get(id) as any
-      if (!cur) throw new Error(`setor ${id} não existe`)
+      if (!cur) throw new UserError('sector_not_found', `setor ${id} não existe`)
       const next = { name: patch.name ?? cur.name, icon: patch.icon ?? cur.icon, color: patch.color ?? cur.color }
       db.prepare(`UPDATE sectors SET name=?, icon=?, color=? WHERE id=?`).run(next.name, next.icon, next.color, id)
       return { id, ...next, sortOrder: cur.sort_order }
@@ -101,28 +102,28 @@ export function createGroupsService(db: Db) {
      */
     setProjectSector(projectId: number, sectorId: number | null): void {
       if (sectorId !== null && !db.prepare(`SELECT 1 FROM sectors WHERE id=?`).get(sectorId)) {
-        throw new Error(`setor ${sectorId} não existe`)
+        throw new UserError('sector_not_found', `setor ${sectorId} não existe`)
       }
       const r = db.prepare(`UPDATE projects SET sector_id=?, group_id=NULL WHERE id=?`).run(sectorId, projectId)
-      if (r.changes === 0) throw new Error(`projeto ${projectId} não existe`)
+      if (r.changes === 0) throw new UserError('project_not_found', `projeto ${projectId} não existe`)
     },
 
     /** Move um GRUPO para um setor (ou null = raiz). */
     setGroupSector(groupId: number, sectorId: number | null): void {
       if (sectorId !== null && !db.prepare(`SELECT 1 FROM sectors WHERE id=?`).get(sectorId)) {
-        throw new Error(`setor ${sectorId} não existe`)
+        throw new UserError('sector_not_found', `setor ${sectorId} não existe`)
       }
       const r = db.prepare(`UPDATE project_groups SET sector_id=? WHERE id=?`).run(sectorId, groupId)
-      if (r.changes === 0) throw new Error(`grupo ${groupId} não existe`)
+      if (r.changes === 0) throw new UserError('group_not_found', `grupo ${groupId} não existe`)
     },
     /** Move um terminal para o grupo (ou null = raiz). Valida que o grupo existe. */
     setProjectGroup(projectId: number, groupId: number | null): void {
       if (groupId !== null && !db.prepare(`SELECT 1 FROM project_groups WHERE id=?`).get(groupId)) {
-        throw new Error(`grupo ${groupId} não existe`)
+        throw new UserError('group_not_found', `grupo ${groupId} não existe`)
       }
       // Limpa o sector_id: o pertencimento é único (ver setProjectSector).
       const r = db.prepare(`UPDATE projects SET group_id=?, sector_id=NULL WHERE id=?`).run(groupId, projectId)
-      if (r.changes === 0) throw new Error(`projeto ${projectId} não existe`)
+      if (r.changes === 0) throw new UserError('project_not_found', `projeto ${projectId} não existe`)
     },
     /**
      * Persiste a ORDEM COMPLETA da sidebar numa passada atômica: cada entrada (grupo

@@ -214,6 +214,13 @@ export function registerFileRoutes(
       // SVG pode conter script executável; PDF é renderizado isolado (não vira XSS
       // na origem do app), então o sandbox vai só nas imagens.
       if (r.kind === 'image') reply.header('Content-Security-Policy', 'sandbox')
+      // O visualizador mostra o PDF num iframe do próprio app: com o DENY geral
+      // ele ficava em branco. Só a mesma origem embute; nenhum outro site. A CSP
+      // é só isso de propósito — o leitor de PDF do navegador quebra com sandbox.
+      if (r.kind === 'pdf') {
+        reply.header('X-Frame-Options', 'SAMEORIGIN')
+        reply.header('Content-Security-Policy', "frame-ancestors 'self'")
+      }
       return reply.send(createReadStream(real))
     }
     if (r.kind === 'binary') {

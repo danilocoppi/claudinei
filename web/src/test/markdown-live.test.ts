@@ -92,6 +92,30 @@ describe('bloco de código', () => {
   it('volta a estilizar depois do fence fechar', () => {
     const texto = '```\nx\n```\n**forte**'
     expect(classes(texto, 0)).toContain('cm-md-strong')
+  
+  })
+
+  // As crases eram a última marcação sempre à vista. Fora da linha do cursor
+  // elas somem como as outras; a linguagem fica como rótulo do bloco.
+  it('fora da linha do cursor, as crases da abertura e do fechamento somem e a linguagem vira rótulo', () => {
+    const texto = '```ts\nconst x = 1\n```\nfim'
+    expect(escondidos(texto, 3)).toEqual([[0, 3], [18, 21]])
+    const rotulo = markdownDecorations(texto, 3).find((d) => d.class === 'cm-md-fence-lang')
+    expect(rotulo).toMatchObject({ from: 3, to: 5 })
+  })
+
+  it('com o cursor na linha da abertura ou do fechamento, as crases daquela linha aparecem', () => {
+    const texto = '```ts\nconst x = 1\n```\nfim'
+    expect(escondidos(texto, 0)).toEqual([[18, 21]])
+    expect(escondidos(texto, 2)).toEqual([[0, 3]])
+  })
+
+  it('vale para til e para cercas mais longas, com recuo', () => {
+    expect(escondidos('  ~~~~py\nx\n  ~~~~\n', 3)).toEqual([[2, 6], [13, 17]])
+  })
+
+  it('cerca sem linguagem não ganha rótulo', () => {
+    expect(markdownDecorations('```\nx\n```', 1).some((d) => d.class === 'cm-md-fence-lang')).toBe(false)
   })
 })
 

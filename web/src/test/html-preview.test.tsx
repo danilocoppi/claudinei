@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { FileViewerModal } from '../components/FileViewerModal'
 import { useStore } from '../store'
 import { htmlFormTools } from '../../../shared/html-form'
@@ -51,6 +51,11 @@ describe('arquivo HTML no visualizador', () => {
     abrirHtml()
     render(<FileViewerModal />)
     await screen.findByRole('button', {name:/Editar/})
+    // O botão aparece no commit; o ouvinte do iframe com o fonte já carregado só
+    // entra no efeito seguinte. Sem esperar por ele, as mensagens caíam no
+    // ouvinte antigo (que as enfileira para depois) e o teste conferia o Salvar
+    // cedo demais — falhava de vez em quando, sob a carga da suíte inteira.
+    await act(async () => {})
     const doc = new DOMParser().parseFromString(source,'text/html')
     const fields = htmlFormTools(doc).read()
     const message = (kind: string, sender: MessageEventSource | null, channel = 'canal-atual') => fireEvent(window, new MessageEvent('message', {

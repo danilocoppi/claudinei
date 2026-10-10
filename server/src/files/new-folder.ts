@@ -1,5 +1,6 @@
 import { mkdirSync, rmdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { UserError } from '../user-error.js'
 
 /** Teto do nome da pasta nova — folgado para nomes reais, longe do limite do sistema. */
 const NAME_MAX = 120
@@ -28,13 +29,13 @@ export function folderNameOf(raw: unknown): string | null {
 export function withNewFolder<T>(base: string, name: string, use: (path: string) => T): T {
   let isDir = false
   try { isDir = statSync(base).isDirectory() } catch { /* não existe */ }
-  if (!isDir) throw new Error(`a pasta-base não existe: ${base}`)
+  if (!isDir) throw new UserError('base_folder_missing', `a pasta-base não existe: ${base}`, { path: base })
   const path = join(base, name)
   try {
     mkdirSync(path)
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-      throw Object.assign(new Error(`a pasta já existe: ${path}`), { code: 'EEXIST' })
+      throw new UserError('folder_exists', `a pasta já existe: ${path}`, { path })
     }
     throw err
   }

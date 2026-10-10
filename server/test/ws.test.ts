@@ -170,6 +170,8 @@ describe('websocket hub', () => {
     await waitUntil(() => msgs.some((m: any) => m.type === 'sessions_snapshot'))
     ws.send(JSON.stringify({ type: 'send_message', localId: 'nao-existe', text: 'x' }))
     await waitUntil(() => msgs.some((m: any) => m.type === 'error'))
+    // O código deixa a interface mostrar a mensagem no idioma da tela.
+    expect(msgs.find((m: any) => m.type === 'error')).toMatchObject({ localId: 'nao-existe', code: 'session_not_active' })
     ws.close()
   })
 

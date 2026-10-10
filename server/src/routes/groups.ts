@@ -4,6 +4,7 @@ import { createGroupsService, type SidebarEntry } from '../groups.js'
 import { createProjectsService } from '../projects.js'
 import { canAccessProject, requireAdmin } from '../auth/guards.js'
 import { iconValueOf } from '../icons/value.js'
+import { errorBody, fail } from '../user-error.js'
 
 /** Grupos visuais de terminais na sidebar. Mutações admin-only (como projetos);
  *  GET para qualquer autenticado — não-admin só vê grupos com ≥1 terminal acessível. */
@@ -37,7 +38,7 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
     if (!requireAdmin(req, reply)) return
     const body = req.body as { name?: unknown; icon?: unknown; color?: unknown }
     const name = validName(body?.name)
-    if (!name) return reply.code(400).send({ error: 'nome do grupo inválido (1..60 caracteres)' })
+    if (!name) return reply.code(400).send(fail('invalid_group_name', 'nome do grupo inválido (1..60 caracteres)'))
     return reply.code(201).send(groups.create(name, validIcon(body?.icon) ?? undefined, validColor(body?.color) ?? undefined))
   })
 
@@ -47,22 +48,22 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
     const patch: { name?: string; icon?: string; color?: string } = {}
     if (body?.name !== undefined) {
       const name = validName(body.name)
-      if (!name) return reply.code(400).send({ error: 'nome do grupo inválido (1..60 caracteres)' })
+      if (!name) return reply.code(400).send(fail('invalid_group_name', 'nome do grupo inválido (1..60 caracteres)'))
       patch.name = name
     }
     if (body?.icon !== undefined) {
       const icon = validIcon(body.icon)
-      if (!icon) return reply.code(400).send({ error: 'ícone inválido' })
+      if (!icon) return reply.code(400).send(fail('invalid_icon', 'ícone inválido'))
       patch.icon = icon
     }
     if (body?.color !== undefined) {
       const color = validColor(body.color)
-      if (!color) return reply.code(400).send({ error: 'cor inválida (use #rrggbb)' })
+      if (!color) return reply.code(400).send(fail('invalid_color', 'cor inválida (use #rrggbb)'))
       patch.color = color
     }
     if (Object.keys(patch).length === 0) return reply.code(400).send({ error: 'nada para atualizar' })
     try { return groups.update(Number((req.params as { id: string }).id), patch) }
-    catch (err) { return reply.code(404).send({ error: (err as Error).message }) }
+    catch (err) { return reply.code(404).send(errorBody(err)) }
   })
 
   app.delete('/api/groups/:id', async (req, reply) => {
@@ -95,7 +96,7 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
     if (!requireAdmin(req, reply)) return
     const body = req.body as { name?: unknown; icon?: unknown; color?: unknown }
     const name = validName(body?.name)
-    if (!name) return reply.code(400).send({ error: 'nome do setor inválido (1..60 caracteres)' })
+    if (!name) return reply.code(400).send(fail('invalid_sector_name', 'nome do setor inválido (1..60 caracteres)'))
     return reply.code(201).send(groups.createSector(name, validIcon(body?.icon) ?? undefined, validColor(body?.color) ?? undefined))
   })
 
@@ -105,31 +106,31 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
     const patch: { name?: string; icon?: string; color?: string } = {}
     if (body?.name !== undefined) {
       const name = validName(body.name)
-      if (!name) return reply.code(400).send({ error: 'nome do setor inválido (1..60 caracteres)' })
+      if (!name) return reply.code(400).send(fail('invalid_sector_name', 'nome do setor inválido (1..60 caracteres)'))
       patch.name = name
     }
     if (body?.icon !== undefined) {
       const icon = validIcon(body.icon)
-      if (!icon) return reply.code(400).send({ error: 'ícone inválido' })
+      if (!icon) return reply.code(400).send(fail('invalid_icon', 'ícone inválido'))
       patch.icon = icon
     }
     if (body?.color !== undefined) {
       const color = validColor(body.color)
-      if (!color) return reply.code(400).send({ error: 'cor inválida (use #rrggbb)' })
+      if (!color) return reply.code(400).send(fail('invalid_color', 'cor inválida (use #rrggbb)'))
       patch.color = color
     }
     if (Object.keys(patch).length === 0) return reply.code(400).send({ error: 'nada para atualizar' })
     try {
       return groups.updateSector(Number((req.params as { id: string }).id), patch)
     } catch (err) {
-      return reply.code(404).send({ error: (err as Error).message })
+      return reply.code(404).send(errorBody(err))
     }
   })
 
   app.delete('/api/sectors/:id', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
     const id = Number((req.params as { id: string }).id)
-    if (!groups.listSectors().some((s) => s.id === id)) return reply.code(404).send({ error: `setor ${id} não existe` })
+    if (!groups.listSectors().some((s) => s.id === id)) return reply.code(404).send(fail('sector_not_found', `setor ${id} não existe`))
     groups.removeSector(id)
     return reply.code(204).send()
   })
@@ -143,7 +144,7 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
       groups.setProjectSector(Number((req.params as { id: string }).id), sectorId)
       return { ok: true }
     } catch (err) {
-      return reply.code(404).send({ error: (err as Error).message })
+      return reply.code(404).send(errorBody(err))
     }
   })
 
@@ -155,7 +156,7 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
       groups.setGroupSector(Number((req.params as { id: string }).id), sectorId)
       return { ok: true }
     } catch (err) {
-      return reply.code(404).send({ error: (err as Error).message })
+      return reply.code(404).send(errorBody(err))
     }
   })
 
@@ -206,7 +207,7 @@ export function registerGroupRoutes(app: FastifyInstance, deps: { db: Db }): voi
       groups.setProjectGroup(Number((req.params as { id: string }).id), groupId)
       return { ok: true }
     } catch (err) {
-      return reply.code(404).send({ error: (err as Error).message })
+      return reply.code(404).send(errorBody(err))
     }
   })
 }

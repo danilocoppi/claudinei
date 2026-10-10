@@ -4,6 +4,7 @@ import { isTrustedLocal } from '../auth/plugin.js'
 import { availableApps, availableTerminals, launchApp, LOCAL_APPS, TERMINALS, type LocalApp, type LocalAppsDeps } from '../localApps.js'
 import type { ProjectsService } from '../projects.js'
 import type { SettingsService } from '../settings.js'
+import { errorBody, fail } from '../user-error.js'
 
 /** Onde a escolha de terminal fica guardada. É da MÁQUINA, não de quem entrou. */
 const TERMINAL_KEY = 'localApps.terminal'
@@ -56,7 +57,7 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
   })
 
   app.put('/api/local-apps/terminals', async (req, reply) => {
-    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
+    if (!isTrustedLocal(req)) return reply.code(403).send(fail('local_only', 'somente da máquina do servidor'))
     const terminal = (req.body as { terminal?: unknown })?.terminal
 
     // Voltar ao padrão do sistema é apagar a escolha, não gravar vazio.
@@ -70,14 +71,14 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
       return reply.code(400).send({ error: 'terminal desconhecido' })
     }
     if (!availableTerminals(deps).some((t) => t.id === terminal)) {
-      return reply.code(400).send({ error: `"${terminal}" não está instalado nesta máquina` })
+      return reply.code(400).send(fail('app_not_installed', `"${terminal}" não está instalado nesta máquina`, { app: terminal }))
     }
     deps.settings.set(TERMINAL_KEY, terminal)
     return { chosen: terminal }
   })
 
   app.post('/api/projects/:id/open', async (req, reply) => {
-    if (!isTrustedLocal(req)) return reply.code(403).send({ error: 'somente da máquina do servidor' })
+    if (!isTrustedLocal(req)) return reply.code(403).send(fail('local_only', 'somente da máquina do servidor'))
 
     const action = (req.body as { action?: unknown })?.action
     // A ação é uma CHAVE de uma lista fechada. Sem isto o parâmetro viraria
@@ -87,9 +88,9 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
     }
 
     const id = Number((req.params as { id: string }).id)
-    if (!canAccessProject(req.authUser, id)) return reply.code(403).send({ error: 'sem acesso a este terminal' })
+    if (!canAccessProject(req.authUser, id)) return reply.code(403).send(fail('forbidden_project', 'sem acesso a este terminal'))
     const project = deps.projects.get(id)
-    if (!project) return reply.code(404).send({ error: `terminal ${id} não existe` })
+    if (!project) return reply.code(404).send(fail('project_not_found', `terminal ${id} não existe`))
 
     try {
       // Aguarda: quem clicou merece saber que o app não subiu, e por quê. Silêncio
@@ -98,7 +99,7 @@ export function registerLocalAppRoutes(app: FastifyInstance, deps: LocalAppsRout
       await (deps.launch ?? ((a: LocalApp, dir: string) => launchApp(a, dir, { ...deps, terminal })))(
         action as LocalApp, project.path)
     } catch (err) {
-      return reply.code(500).send({ error: (err as Error).message })
+      return reply.code(500).send(errorBody(err))
     }
     return { ok: true }
   })

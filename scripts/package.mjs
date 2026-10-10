@@ -17,7 +17,7 @@
 //   que o Node resolve NODE_PATH — cada entrada é testada como
 //   <entry>/<nome-do-pacote> diretamente, não <entry>/node_modules/<nome>).
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, rmSync, existsSync, writeFileSync, statSync } from 'node:fs'
+import { copyFileSync, cpSync, mkdirSync, rmSync, existsSync, writeFileSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
@@ -129,9 +129,18 @@ for (const pkg of EXTERNAL) {
 // libstdc++ portátil: reusa o que o setup-speech baixa (o spike do design já
 // baixou em ~/.claudinei/speech/stdcxx). Se não existir, avisa e segue sem —
 // a voz vai falhar em glibc antiga, mas o resto do binário funciona.
+// Só vai o arquivo que o carregador procura (o soname `libstdc++.so.6`, que
+// speech/paths.ts exige), com o conteúdo real. Copiar a pasta inteira levava os
+// links `libstdc++.so` e `.so.6`: o cpSync os reescreve como absolutos e o pkg
+// segue cada um, embutindo a mesma biblioteca de 12 MB três vezes (~9,6 MB a
+// mais no binário).
 const stdcxxSrc = join(process.env.HOME ?? '', '.claudinei', 'speech', 'stdcxx')
-if (existsSync(stdcxxSrc)) {
-  cpSync(stdcxxSrc, join(nativeDir, 'stdcxx'), { recursive: true })
+const stdcxxLib = join(stdcxxSrc, 'lib', 'libstdc++.so.6')
+if (existsSync(stdcxxLib)) {
+  mkdirSync(join(nativeDir, 'stdcxx', 'lib'), { recursive: true })
+  // copyFileSync segue o link e grava o conteúdo (o cpSync com dereference
+  // recusa um link de arquivo no Node 24, achando que é pasta).
+  copyFileSync(stdcxxLib, join(nativeDir, 'stdcxx', 'lib', 'libstdc++.so.6'))
 } else {
   console.warn(
     '⚠ ~/.claudinei/speech/stdcxx não encontrado — rode `npm run setup:speech -w server` antes.\n' +

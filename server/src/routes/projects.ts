@@ -13,6 +13,7 @@ import { folderNameOf, withNewFolder } from '../files/new-folder.js'
 import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, resolve } from 'node:path'
+import { UserError, errorBody, fail } from '../user-error.js'
 
 /** Teto do nome de um terminal temporário: o cliente manda um rótulo curto com data. */
 const SCRATCH_NAME_MAX = 120
@@ -41,17 +42,17 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     if (!requireAdmin(req, reply)) return
     const body = req.body as { name?: string; path?: string; color?: string; icon?: string; newFolder?: unknown }
     if (!body?.name || !body?.path) {
-      return reply.code(400).send({ error: 'name e path são obrigatórios' })
+      return reply.code(400).send(fail('name_and_path_required', 'name e path são obrigatórios'))
     }
     const input = { name: body.name, color: body.color, icon: body.icon }
     try {
       if (body.newFolder === undefined) return reply.code(201).send(svc.create({ ...input, path: body.path }))
       const folder = folderNameOf(body.newFolder)
-      if (!folder) return reply.code(400).send({ error: 'nome de pasta inválido: use só um nome, sem barras nem ".."' })
+      if (!folder) return reply.code(400).send(fail('invalid_folder_name', 'nome de pasta inválido: use só um nome, sem barras nem ".."'))
       return reply.code(201).send(withNewFolder(body.path, folder, (path) => svc.create({ ...input, path })))
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code === 'EEXIST' ? 409 : 400
-      return reply.code(code).send({ error: (err as Error).message })
+      const code = err instanceof UserError && err.code === 'folder_exists' ? 409 : 400
+      return reply.code(code).send(errorBody(err))
     }
   })
 
@@ -83,7 +84,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
       return reply.code(400).send({ error: 'path deve ser texto' })
     }
     const wanted = (raw ?? '').trim()
-    if (wanted && !isDir(resolve(wanted))) return reply.code(400).send({ error: `não é uma pasta: ${wanted}` })
+    if (wanted && !isDir(resolve(wanted))) return reply.code(400).send(fail('not_a_folder', `não é uma pasta: ${wanted}`, { path: wanted }))
     settings.set(DEFAULT_FOLDER_KEY, wanted ? resolve(wanted) : '')
     return defaultFolder()
   })
@@ -110,7 +111,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
       let icon = '🧪'
       if (body.icon !== undefined) {
         const valid = iconValueOf(body.icon)
-        if (!valid) return reply.code(400).send({ error: 'ícone inválido' })
+        if (!valid) return reply.code(400).send(fail('invalid_icon', 'ícone inválido'))
         icon = valid
       }
       if (body.color !== undefined && typeof body.color !== 'string') {
@@ -122,7 +123,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
           name: name || basename(path), path, icon, color: body.color as string | undefined,
         }))
       } catch (err) {
-        return reply.code(500).send({ error: (err as Error).message })
+        return reply.code(500).send(errorBody(err))
       }
     })
   }
@@ -149,13 +150,13 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     // "ícone" e ia parar na lista como palavra solta.
     if (body.icon !== undefined) {
       const icon = iconValueOf(body.icon)
-      if (!icon) return reply.code(400).send({ error: 'ícone inválido' })
+      if (!icon) return reply.code(400).send(fail('invalid_icon', 'ícone inválido'))
       patch.icon = icon
     }
     try {
       return svc.update(id, patch)
     } catch (err) {
-      return reply.code(404).send({ error: (err as Error).message })
+      return reply.code(404).send(errorBody(err))
     }
   })
 
@@ -166,7 +167,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     const favorite = (req.body as { favorite?: unknown } | undefined)?.favorite
     if (typeof favorite !== 'boolean') return reply.code(400).send({ error: 'favorite deve ser booleano' })
     const project = svc.setFavorite(id, favorite)
-    return project ?? reply.code(404).send({ error: 'projeto não existe' })
+    return project ?? reply.code(404).send(fail('project_not_found', 'projeto não existe'))
   })
 
   /**
@@ -187,7 +188,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
       // Sem a confirmação do operador, recusa — e diz quais sessões estão abertas,
       // para o diálogo pedir o "estou ciente" com a lista certa.
       if ((req.query as { stopSessions?: string }).stopSessions !== '1') {
-        return reply.code(409).send({ error: 'projeto tem uma sessão ativa; finalize-a antes de excluir', sessions: openSessionsOf(id) })
+        return reply.code(409).send({ ...fail('project_has_open_sessions', 'projeto tem uma sessão ativa; finalize-a antes de excluir'), sessions: openSessionsOf(id) })
       }
       // Cada uma espera o processo encerrar de verdade antes da próxima.
       for (const s of openSessionsOf(id)) {
@@ -196,7 +197,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
       }
       // Remover com um processo de pé deixaria um agente sem terminal na lista.
       if (stillOpen()) {
-        return reply.code(409).send({ error: 'não foi possível finalizar todas as sessões; o terminal não foi excluído', sessions: openSessionsOf(id) })
+        return reply.code(409).send({ ...fail('sessions_not_stopped', 'não foi possível finalizar todas as sessões; o terminal não foi excluído'), sessions: openSessionsOf(id) })
       }
     }
     // As ações do terminal morrem COM ele.

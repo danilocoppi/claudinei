@@ -27,7 +27,7 @@ const TITULO = /^(#{1,6})\s+/
 const CITACAO = /^>\s?/
 const LISTA = /^(\s*)([-*+])\s+/
 const LISTA_NUM = /^(\s*)(\d+\.)\s+/
-const FENCE = /^\s*(?:```|~~~)/
+const FENCE = /^(\s*)(`{3,}|~{3,})(.*)$/
 const REGUA = /^\s*(?:---+|\*\*\*+|___+)\s*$/
 
 // Ordem importa: ** antes de *, ~~ antes de qualquer coisa com ~.
@@ -83,9 +83,15 @@ export function markdownDecorations(text: string, cursorLine: number): MdDecorat
     }
     const aLinha = (classe: string) => saida.push({ from: base, to: base, class: classe, line: true })
 
-    if (FENCE.test(linha)) {
+    const cerca = FENCE.exec(linha)
+    if (cerca) {
       dentroDeFence = !dentroDeFence
       aLinha('cm-md-fence')
+      // As crases somem como as outras marcas; a linguagem fica como rótulo do
+      // bloco (é a única coisa útil que a linha da cerca diz).
+      const marca = base + cerca[1].length
+      esconder(marca, marca + cerca[2].length)
+      if (cerca[3].trim()) saida.push({ from: marca + cerca[2].length, to: base + linha.length, class: 'cm-md-fence-lang' })
       return
     }
     // Dentro do bloco o texto é código: nada de negrito por causa de um `**`.

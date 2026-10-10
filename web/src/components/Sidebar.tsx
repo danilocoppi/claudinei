@@ -704,7 +704,7 @@ export function Sidebar() {
     <div className={`sidebar ${railMode ? 'rail-mode' : ''}`}>
       <div className="sidebar__top">
         <div className="sidebar__logo" onClick={openDashboard} title={t('sidebar.overview')}>
-          <BrandMark /> Claudinei
+          <BrandMark /> <span className="sidebar__logo-text">Claudinei</span>
         </div>
         <div className="sidebar__top-actions">
           <button className="sidebar__icon-btn sidebar__rail-btn"

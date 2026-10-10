@@ -27,6 +27,7 @@ beforeEach(async () => {
   writeFileSync(join(projectPath, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
   writeFileSync(join(projectPath, 'big.txt'), Buffer.alloc(2 * 1024 * 1024 + 1, 'x'))
   // SVG com <script> — não pode executar na origem do app (XSS).
+  writeFileSync(join(projectPath, 'doc.pdf'), '%PDF-1.4\n%%EOF\n')
   writeFileSync(join(projectPath, 'evil.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.cookie)</script></svg>')
   projectId = createProjectsService(db).create({ name: 'P', path: projectPath }).id
 })
@@ -145,6 +146,25 @@ describe('GET /api/files/content', () => {
     expect(res.headers['content-type']).toBe('image/svg+xml')
     expect(res.headers['x-content-type-options']).toBe('nosniff')
     expect(res.headers['content-security-policy']).toContain('sandbox')
+  })
+
+  /**
+   * O visualizador mostra o PDF num iframe do próprio app. Com o DENY e o
+   * `frame-ancestors 'none'` que valem para o resto, o PDF nunca abria lá dentro
+   * — ficava em branco no popup e no painel. A exceção é só a mesma origem.
+   */
+  it('PDF pode ser embutido pelo próprio app, e por nenhum outro site', async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/files/content?path=doc.pdf&projectId=${projectId}` })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['x-frame-options']).toBe('SAMEORIGIN')
+    expect(String(res.headers['content-security-policy'])).toMatch(/frame-ancestors 'self'/)
+    expect(String(res.headers['content-security-policy'])).not.toMatch(/frame-ancestors 'none'/)
+    // O resto do app continua sem poder ser embutido.
+    const png = await app.inject({ method: 'GET', url: `/api/files/content?path=pic.png&projectId=${projectId}` })
+    expect(png.headers['x-frame-options']).toBe('DENY')
+    const api = await app.inject({ method: 'GET', url: '/api/projects' })
+    expect(api.headers['x-frame-options']).toBe('DENY')
   })
 
   it('texto servido com nosniff (não é re-interpretado como HTML)', async () => {

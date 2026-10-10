@@ -174,6 +174,9 @@ describe('excluir terminal com sessões abertas', () => {
   const montar = async (opts: { travarStop?: boolean } = {}) => {
     const db = openDb(':memory:')
     const sessoes: ClaudeSession[] = []
+    // Ligado no meio do teste: as sessões criadas DEPOIS se comportam como a CLI
+    // real retomando uma conversa (sem init até a 1ª mensagem).
+    const modo = { initTardio: false }
     const ptysMortos: string[] = []
     const terminalManager = createTerminalManager({
       ptyFactory: (file) => {
@@ -189,7 +192,9 @@ describe('excluir terminal com sessões abertas', () => {
     const manager = createSessionManager({
       db, broadcast: () => {},
       sessionFactory: (o) => {
-        const s = fakeFactory(o as SessionOptions)
+        const s = modo.initTardio
+          ? new ClaudeSession({ ...(o as SessionOptions), claudeBin: process.execPath, extraArgsOverride: [FAKE, '--init-tardio'] })
+          : fakeFactory(o as SessionOptions)
         // Sessão que ignora o pedido de parar: nada pode ser removido por cima dela.
         if (opts.travarStop) s.stop = async () => {}
         sessoes.push(s)
@@ -204,8 +209,26 @@ describe('excluir terminal com sessões abertas', () => {
       await waitUntil(() => statusOf(db, localId) === 'idle')
       return localId as string
     }
-    return { db, app, id, manager, sessoes, ptysMortos, abrir }
+    return { db, app, id, manager, sessoes, ptysMortos, abrir, modo }
   }
+
+  it('sessão revivida que ainda não recebeu mensagem é listada e finalizada', async () => {
+    const { db, app, id, manager, sessoes, abrir, modo } = await montar()
+    const claude = await abrir('claude')
+    await manager.stop(claude)
+    expect(statusOf(db, claude)).toBe('stopped')
+    modo.initTardio = true
+    manager.revive(claude)
+
+    const recusa = await app.inject({ method: 'DELETE', url: `/api/projects/${id}` })
+    expect(recusa.statusCode).toBe(409)
+    expect(recusa.json().sessions).toEqual([{ localId: claude, engine: 'claude', status: 'starting' }])
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${id}?stopSessions=1` })
+    expect(del.statusCode).toBe(204)
+    expect(sessoes.at(-1)!.status).toBe('stopped')
+    expect(manager.hasActiveSession(id)).toBe(false)
+  })
 
   it('sem confirmação, recusa e lista as sessões abertas de cada engine', async () => {
     const { app, id, abrir } = await montar()

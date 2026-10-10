@@ -328,6 +328,10 @@ export function createSessionManager(deps: Deps) {
       deps.broadcast({ type: 'session_event', localId, event })
     })
     session.start()
+    // O status inicial não vem como evento, e a CLI retomando uma conversa só
+    // emite o init junto da 1ª mensagem: sem gravar aqui, o revive deixava a linha
+    // "stopped" com o processo de pé — e excluir o terminal não achava o que parar.
+    persist(localId, session.status, session.sessionId ?? null)
     deps.broadcast(statusMsg())
   }
 

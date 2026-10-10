@@ -115,6 +115,17 @@ describe('SessionManager', () => {
     await mgr.stop('orfa-2')
   })
 
+  it('revive grava no banco que a sessão voltou, antes da primeira mensagem', async () => {
+    // Ao retomar, a CLI só emite o init junto da 1ª mensagem: sem um status gravado
+    // aqui, a linha seguia "stopped" com o processo rodando — e quem consulta o
+    // banco (excluir o terminal) não via sessão nenhuma para finalizar.
+    db.prepare(`INSERT INTO sessions (local_id, claude_session_id, project_id, status) VALUES ('parada-1','sid-p',?, 'stopped')`).run(project.id)
+    const mgr = makeManager()
+    mgr.revive('parada-1')
+    expect((db.prepare('SELECT status FROM sessions WHERE local_id=?').get('parada-1') as any).status).toBe('starting')
+    await mgr.stop('parada-1')
+  })
+
   it('revive é bloqueado se o projeto tem outra sessão ativa', async () => {
     const mgr = makeManager()
     const a = mgr.start(project)

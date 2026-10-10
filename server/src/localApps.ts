@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { posix, win32 } from 'node:path'
 import { binAvailableCached } from './engine/available.js'
+import { UserError } from './user-error.js'
 
 /**
  * Abrir a pasta, o editor ou um terminal na pasta do projeto.
@@ -241,7 +242,7 @@ export async function launchApp(app: LocalApp, dir: string, deps: LocalAppsDeps 
   // caminho absoluto nunca começa com hífen.
   if (!dir || !isAbsolute(dir)) throw new Error(`caminho do terminal precisa ser absoluto: "${dir}"`)
   const launcher = resolveLauncher(app, dir, deps)
-  if (!launcher) throw new Error(`nada instalado para abrir "${app}" nesta máquina`)
+  if (!launcher) throw new UserError('nothing_installed_for', `nada instalado para abrir "${app}" nesta máquina`, { app })
 
   const base = desktopEnv(deps.env ?? process.env)
   const grafico = deps.graphical ? deps.graphical() : graphicalEnv({ platform })
@@ -251,7 +252,8 @@ export async function launchApp(app: LocalApp, dir: string, deps: LocalAppsDeps 
   // sobre isso: o `code` sai com 0 e não abre nada. Dizer é melhor que repetir o
   // silêncio que gerou o relato.
   if (platform === 'linux' && !ambiente.DISPLAY && !ambiente.WAYLAND_DISPLAY) {
-    throw new Error('o serviço não enxerga a sessão gráfica — rode: systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY && systemctl --user restart claudinei.service')
+    const command = 'systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY && systemctl --user restart claudinei.service'
+    throw new UserError('no_graphical_session', `o serviço não enxerga a sessão gráfica — rode: ${command}`, { command })
   }
 
   const child = (deps.spawnFn ?? spawn)(launcher.cmd, launcher.args, {

@@ -1,6 +1,7 @@
 import type { ClaudeEvent, EngineMeta, PermissionMode, Project, SessionInfo } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
+import { localizeServerError } from './serverErrors'
 
 const reportAccessRestriction = (status: number, error: unknown) => {
   if (status === 403 && error === 'access_hours_restricted') window.dispatchEvent(new Event('claudinei:access-restricted'))
@@ -17,7 +18,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     }
     const body = await res.json().catch(() => ({ error: res.statusText }))
     reportAccessRestriction(res.status, body.error)
-    const err = new Error(body.error ?? res.statusText) as Error & { status?: number; retryAfterMs?: number; sessions?: OpenSession[] }
+    // A mensagem no idioma da tela (ver serverErrors.ts); o código cru continua em `code`.
+    const err = new Error(localizeServerError(body, res.statusText)) as Error & { status?: number; retryAfterMs?: number; sessions?: OpenSession[]; code?: string }
+    if (typeof body.code === 'string') err.code = body.code
     err.status = res.status
     if (typeof body.retryAfterMs === 'number') err.retryAfterMs = body.retryAfterMs
     if (Array.isArray(body.sessions)) err.sessions = body.sessions

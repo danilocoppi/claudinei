@@ -25,11 +25,11 @@ describe('withNewFolder', () => {
     expect(r).toBe(join(base, 'meu-app'))
     expect(readdirSync(base)).toEqual(['meu-app'])
   })
-  it('pasta que já existe é recusada com EEXIST e não é tocada', () => {
+  it('pasta que já existe é recusada (folder_exists) e não é tocada', () => {
     mkdirSync(join(base, 'existe'))
     writeFileSync(join(base, 'existe', 'dado.txt'), 'x')
     let usou = false
-    expect(() => withNewFolder(base, 'existe', () => { usou = true })).toThrow(expect.objectContaining({ code: 'EEXIST' }))
+    expect(() => withNewFolder(base, 'existe', () => { usou = true })).toThrow(expect.objectContaining({ code: 'folder_exists' }))
     expect(usou).toBe(false)
     expect(readdirSync(join(base, 'existe'))).toEqual(['dado.txt'])
   })

@@ -9,6 +9,7 @@ import { notifyQuestion, notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
+import { localizeServerError } from './serverErrors'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
@@ -322,7 +323,7 @@ export const useStore = create<State>((set, get) => ({
 
   applyWsMessage: (msg) => {
     if (msg.type === 'error' && typeof msg.localId === 'string' && typeof msg.message === 'string') {
-      get().addLocalItem(msg.localId, { kind: 'command_output', text: msg.message, isError: true })
+      get().addLocalItem(msg.localId, { kind: 'command_output', text: localizeServerError(msg), isError: true })
     } else if (msg.type === 'action_exit') {
       const runs = get().actionRuns
       if (!runs.some((r) => r.actionId === msg.actionId)) return

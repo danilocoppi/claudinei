@@ -104,7 +104,9 @@ describe('rotas /api/groups (RBAC)', () => {
 
   it('nome inválido → 400; renomear grupo inexistente → 404', async () => {
     const admin = cookieOf(await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'root', password: 'abcd1234' } }))
-    expect((await app.inject({ method: 'POST', url: '/api/groups', payload: { name: '   ' }, cookies: admin })).statusCode).toBe(400)
+    const vazio = await app.inject({ method: 'POST', url: '/api/groups', payload: { name: '   ' }, cookies: admin })
+    expect(vazio.statusCode).toBe(400)
+    expect(vazio.json().code).toBe('invalid_group_name')
     expect((await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'x'.repeat(61) }, cookies: admin })).statusCode).toBe(400)
     expect((await app.inject({ method: 'PATCH', url: '/api/groups/999', payload: { name: 'ok' }, cookies: admin })).statusCode).toBe(404)
   })

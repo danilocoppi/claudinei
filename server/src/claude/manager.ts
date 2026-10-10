@@ -8,6 +8,7 @@ import { getEngine, DEFAULT_ENGINE_ID, type EngineId, type EngineSession, type E
 import { userEchoEvent } from '../engine/echo.js'
 import { contextWindowFor, windowFromModelUsage, DEFAULT_CONTEXT_WINDOW } from './context-window.js'
 import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '../project-threads.js'
+import { UserError } from '../user-error.js'
 
 export interface SessionInfo {
   localId: string
@@ -402,13 +403,13 @@ export function createSessionManager(deps: Deps) {
       const engine = (opts?.engine ?? DEFAULT_ENGINE_ID) as EngineId
       for (const [id, entry] of live) {
         if (entry.projectId === project.id && entry.engine === engine && ACTIVE.has(entry.session.status)) {
-          throw new Error(`projeto ${project.name} já possui sessão ativa (${id})`)
+          throw new UserError('session_already_active', `projeto ${project.name} já possui sessão ativa (${id})`, { project: project.name })
         }
       }
       const inTerm = deps.db.prepare(
         `SELECT 1 FROM sessions WHERE project_id=? AND engine=? AND status='in_terminal' LIMIT 1`,
       ).get(project.id, engine)
-      if (inTerm) throw new Error(`projeto ${project.name} tem uma sessão aberta no terminal`)
+      if (inTerm) throw new UserError('session_in_terminal', `projeto ${project.name} tem uma sessão aberta no terminal`, { project: project.name })
       // Em pasta compartilhada não existe "--continue desta pasta": a conversa
       // mais recente pode ser a do vizinho, e não há flag que saiba excluí-la. A
       // regra é uniforme para todos os cards da pasta, sem card privilegiado —
@@ -446,10 +447,10 @@ export function createSessionManager(deps: Deps) {
 
     send(localId: string, text: string): void {
       const entry = live.get(localId)
-      if (!entry) throw new Error(`sessão ${localId} não está ativa`)
+      if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
       if (typeof text === 'string' && text.trim() === '/compact') {
-        if (!entry.session.compact) throw new Error('esta engine não oferece compactação no chat')
-        if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new Error('aguarde o turno terminar para compactar')
+        if (!entry.session.compact) throw new UserError('engine_no_compact', 'esta engine não oferece compactação no chat')
+        if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
         entry.session.compact()
       } else entry.session.send(text)
     },
@@ -480,7 +481,7 @@ export function createSessionManager(deps: Deps) {
 
     async interrupt(localId: string): Promise<void> {
       const entry = live.get(localId)
-      if (!entry) throw new Error(`sessão ${localId} não está ativa`)
+      if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
       await entry.session.interrupt()
     },
 
@@ -496,30 +497,30 @@ export function createSessionManager(deps: Deps) {
     /** Inicia o fluxo OAuth de reautenticação da sessão (só Claude). */
     async startAuth(localId: string): Promise<{ manualUrl: string; automaticUrl: string }> {
       const session = live.get(localId)?.session
-      if (!session?.startAuth) throw new Error('esta engine não suporta reautenticação')
+      if (!session?.startAuth) throw new UserError('engine_no_reauth', 'esta engine não suporta reautenticação')
       return session.startAuth()
     },
 
     /** Fecha o fluxo com o código/URL que o operador trouxe do navegador. */
     async completeAuth(localId: string, codeOrUrl: string): Promise<void> {
       const session = live.get(localId)?.session
-      if (!session?.completeAuth) throw new Error('esta engine não suporta reautenticação')
+      if (!session?.completeAuth) throw new UserError('engine_no_reauth', 'esta engine não suporta reautenticação')
       await session.completeAuth(codeOrUrl)
     },
 
     /** Responde a pergunta (AskUserQuestion) que a sessão está esperando — só Claude. */
     answerQuestion(localId: string, answers: Record<string, string>): void {
       const session = live.get(localId)?.session
-      if (!session) throw new Error(`sessão ${localId} não está ativa`)
-      if (!session.answerQuestion) throw new Error('esta engine não faz perguntas estruturadas')
+      if (!session) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
+      if (!session.answerQuestion) throw new UserError('engine_no_questions', 'esta engine não faz perguntas estruturadas')
       session.answerQuestion(answers)
     },
 
     /** Nega a pergunta pendente: o operador vai responder em prosa pela caixa de mensagem. */
     dismissQuestion(localId: string): void {
       const session = live.get(localId)?.session
-      if (!session) throw new Error(`sessão ${localId} não está ativa`)
-      if (!session.dismissQuestion) throw new Error('esta engine não faz perguntas estruturadas')
+      if (!session) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
+      if (!session.dismissQuestion) throw new UserError('engine_no_questions', 'esta engine não faz perguntas estruturadas')
       session.dismissQuestion()
     },
 
@@ -530,19 +531,19 @@ export function createSessionManager(deps: Deps) {
 
     revive(localId: string): SessionInfo {
       const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
-      if (!row) throw new Error(`sessão ${localId} não existe`)
+      if (!row) throw new UserError('session_not_found', `sessão ${localId} não existe`)
       const engine = (row.engine ?? DEFAULT_ENGINE_ID) as EngineId
       const cur = live.get(localId)
       const effective = cur?.session.status ?? (row.status as SessionStatus)
-      if (ACTIVE.has(effective)) throw new Error(`sessão ${localId} ainda está ativa`)
-      if (effective === 'in_terminal') throw new Error(`sessão ${localId} está aberta no terminal`)
+      if (ACTIVE.has(effective)) throw new UserError('session_still_active', `sessão ${localId} ainda está ativa`)
+      if (effective === 'in_terminal') throw new UserError('session_open_in_terminal', `sessão ${localId} está aberta no terminal`)
       for (const [id, entry] of live) {
         if (entry.projectId === row.project_id && entry.engine === engine && ACTIVE.has(entry.session.status)) {
-          throw new Error(`projeto já possui sessão ativa (${id})`)
+          throw new UserError('project_has_active_session', `projeto já possui sessão ativa (${id})`)
         }
       }
       const project = deps.db.prepare('SELECT * FROM projects WHERE id=?').get(row.project_id) as any
-      if (!project) throw new Error(`projeto da sessão não existe mais`)
+      if (!project) throw new UserError('session_project_gone', 'projeto da sessão não existe mais')
       // Fantasma (transcript sumiu) é descartado aqui também: sem isto, reviver o
       // chat caía no mesmo "No conversation found" do terminal.
       let reviveResume = resolveResume(engine, project.path, localId, row.claude_session_id ?? null)
@@ -570,13 +571,13 @@ export function createSessionManager(deps: Deps) {
 
     async setSessionOptions(localId: string, opts: { model?: string; permissionMode?: PermissionMode; effort?: string }): Promise<SessionInfo> {
       const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
-      if (!row) throw new Error(`sessão ${localId} não existe`)
+      if (!row) throw new UserError('session_not_found', `sessão ${localId} não existe`)
       const catalog = getEngine(row.engine ?? DEFAULT_ENGINE_ID).capabilities()
       const selectedModel = (opts.model ?? row.model) || catalog.defaultModel || ''
       const modelOptions = catalog.modelOptions?.[selectedModel]
       if (modelOptions) {
         if (opts.effort && opts.effort !== 'auto' && !modelOptions.efforts.includes(opts.effort)) {
-          throw new Error(`effort ${opts.effort} não é suportado por ${selectedModel}`)
+          throw new UserError('effort_not_supported', `effort ${opts.effort} não é suportado por ${selectedModel}`, { effort: opts.effort, model: selectedModel })
         }
         // Trocar Astra/ultra por Luna, por exemplo, precisa retirar o override
         // incompatível do próximo turno E do banco (inclusive no revive).
@@ -594,7 +595,7 @@ export function createSessionManager(deps: Deps) {
         // Com o guard total, o effort nunca persistia: o PATCH era recusado aqui e o
         // front engolia o erro → refresh voltava ao default.
         if ((opts.model !== undefined || opts.permissionMode) && entry.session.status === 'working') {
-          throw new Error('sessão está trabalhando; aguarde o turno terminar')
+          throw new UserError('session_busy', 'sessão está trabalhando; aguarde o turno terminar')
         }
         // model !== undefined inclui '' (voltar ao Padrão): as engines turn-based
         // tratam '' como "sem -m no próximo turno"; no Claude o protocolo não tem
@@ -635,12 +636,12 @@ export function createSessionManager(deps: Deps) {
 
     async openInTerminal(localId: string): Promise<SessionInfo & { token: string }> {
       const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
-      if (!row) throw new Error('sessão não existe')
-      if (row.status === 'in_terminal') throw new Error('esta sessão já está aberta no terminal')
+      if (!row) throw new UserError('session_not_found', 'sessão não existe')
+      if (row.status === 'in_terminal') throw new UserError('already_in_terminal', 'esta sessão já está aberta no terminal')
       if (!deps.terminalLauncher) throw new Error('terminal launcher não configurado')
 
       const project = deps.db.prepare('SELECT * FROM projects WHERE id=?').get(row.project_id) as any
-      if (!project) throw new Error('projeto da sessão não existe mais')
+      if (!project) throw new UserError('session_project_gone', 'projeto da sessão não existe mais')
 
       // A engine resolve file/args do terminal interativo — para o Claude,
       // isso reproduz exatamente o que era montado inline antes (--resume +

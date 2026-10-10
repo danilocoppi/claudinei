@@ -174,6 +174,7 @@ describe('rotas de sessões', () => {
     const r1 = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions` })
     const res = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions` })
     expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ code: 'session_already_active', params: { project: 'P1' } })
     await app.inject({ method: 'POST', url: `/api/sessions/${r1.json().localId}/stop` })
   })
 

@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { UserError } from './user-error.js'
 
 /**
  * Reserva a pasta de um terminal temporário: `temp-AAAAMMDD-HHMMSS` dentro da base.
@@ -26,5 +27,5 @@ export function createScratchDir(baseDir: string, now: Date = new Date()): strin
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
     }
   }
-  throw new Error('não foi possível reservar uma pasta temporária')
+  throw new UserError('scratch_folder_unavailable', 'não foi possível reservar uma pasta temporária')
 }

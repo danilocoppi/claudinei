@@ -4,6 +4,7 @@ import type { TerminalManager } from '../terminal/manager.js'
 import { requireProjectAccess } from '../auth/guards.js'
 import { watchSocketAccess } from '../auth/socket-access.js'
 import { isTyping } from '../terminal/typing.js'
+import { errorBody, fail } from '../user-error.js'
 
 /** Digitação no terminal grava a última interação no máximo uma vez por minuto. */
 const TYPING_TOUCH_MS = 60_000
@@ -33,7 +34,7 @@ export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRoute
   app.post('/api/sessions/:localId/terminal', async (req, reply) => {
     const { localId } = req.params as { localId: string }
     const info = deps.manager.get(localId)
-    if (!info) return reply.code(404).send({ error: 'sessão não existe' })
+    if (!info) return reply.code(404).send(fail('session_not_found', 'sessão não existe'))
     if (!requireProjectAccess(req, reply, info.projectId)) return
     // Reconexão idempotente: se já existe um PTY vivo para esta sessão, apenas
     // emite um token novo — não reinicia o processo nem re-transiciona o estado.
@@ -45,14 +46,14 @@ export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRoute
       deps.manager.touchInput(localId)
       return reply.send({ token: info.token, wsUrl: `/ws/terminal/${localId}` })
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message })
+      return reply.code(400).send(errorBody(err))
     }
   })
 
   app.delete('/api/sessions/:localId/terminal', async (req, reply) => {
     const { localId } = req.params as { localId: string }
     const info = deps.manager.get(localId)
-    if (!info) return reply.code(404).send({ error: 'sessão não existe' })
+    if (!info) return reply.code(404).send(fail('session_not_found', 'sessão não existe'))
     if (!requireProjectAccess(req, reply, info.projectId)) return
     // espera o exit REAL do PTY (status persistido) — um revive logo em seguida
     // não pode esbarrar na sessão ainda marcada como in_terminal

@@ -9,6 +9,13 @@ import { runShell } from '../shell.js'
 import { createProjectsService, type ProjectsService } from '../projects.js'
 import type { Db } from '../db.js'
 import { watchSocketAccess } from '../auth/socket-access.js'
+import { errorBody } from '../user-error.js'
+
+/** Erro devolvido pelo socket: o texto em `message` e, se for erro da tela, código e parâmetros. */
+const wsError = (err: unknown) => {
+  const { error, code, params } = errorBody(err)
+  return { message: error, ...(code ? { code, params } : {}) }
+}
 
 interface Client {
   ws: WebSocket
@@ -125,7 +132,7 @@ export function createWsHub() {
             }
             if (msg.type === 'send_message') deps.manager.send(msg.localId, msg.text)
             else if (msg.type === 'mark_read') deps.manager.markRead(msg.localId)
-            else if (msg.type === 'interrupt') void deps.manager.interrupt(msg.localId).catch((err) => access.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message })))
+            else if (msg.type === 'interrupt') void deps.manager.interrupt(msg.localId).catch((err) => access.send(JSON.stringify({ type: 'error', localId: msg.localId, ...wsError(err) })))
             // Pergunta do agente (AskUserQuestion): responder ou dispensar. Ação de
             // chat como send_message/interrupt — sem payload de volta, o status
             // seguinte é a confirmação.
@@ -148,7 +155,7 @@ export function createWsHub() {
             // rostinhos a cada clique.
             if (msg.type !== 'mark_read' && typeof msg.localId === 'string') deps.manager.touchInput(msg.localId)
           } catch (err) {
-            access.send(JSON.stringify({ type: 'error', localId: msg.localId, message: (err as Error).message }))
+            access.send(JSON.stringify({ type: 'error', localId: msg.localId, ...wsError(err) }))
           }
         })
       })

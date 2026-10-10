@@ -1,5 +1,6 @@
 import { existsSync, statSync } from 'node:fs'
 import type { Db } from './db.js'
+import { UserError } from './user-error.js'
 
 export interface Project {
   id: number
@@ -33,7 +34,7 @@ export function createProjectsService(db: Db) {
     },
     create(input: { name: string; path: string; color?: string; icon?: string }): Project {
       if (!existsSync(input.path) || !statSync(input.path).isDirectory()) {
-        throw new Error(`diretório não existe: ${input.path}`)
+        throw new UserError('directory_missing', `diretório não existe: ${input.path}`, { path: input.path })
       }
       const nextOrder = (db.prepare(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM projects`).get() as any).n
       const info = db
@@ -43,7 +44,7 @@ export function createProjectsService(db: Db) {
     },
     update(id: number, patch: Partial<Pick<Project, 'name' | 'path' | 'color' | 'icon'>>): Project {
       const cur = this.get(id)
-      if (!cur) throw new Error(`projeto ${id} não existe`)
+      if (!cur) throw new UserError('project_not_found', `projeto ${id} não existe`)
       const next = { ...cur, ...patch }
       db.prepare(`UPDATE projects SET name=?, path=?, color=?, icon=? WHERE id=?`)
         .run(next.name, next.path, next.color, next.icon, id)

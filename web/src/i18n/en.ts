@@ -193,6 +193,7 @@ export const en = {
     start: 'Start session',
   },
   chat: {
+    sendHint: 'Enter in the field · Ctrl+Enter from anywhere on the screen',
     select: 'Select a session.', openInTerminal: 'Open in terminal', backToTerminal: 'Back to the terminal',
     sharedPath: 'shared folder',
     sharedPathTitle: 'Another terminal points at this same folder. The conversations are separate; the files are not.',

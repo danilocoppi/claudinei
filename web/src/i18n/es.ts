@@ -195,6 +195,7 @@ export const es: typeof en = {
     start: 'Iniciar sesión',
   },
   chat: {
+    sendHint: 'Enter en el campo · Ctrl+Enter desde cualquier punto de la pantalla',
     select: 'Selecciona una sesión.', openInTerminal: 'Abrir en la terminal', backToTerminal: 'Volver a la terminal',
     sharedPath: 'carpeta compartida',
     sharedPathTitle: 'Otro terminal apunta a esta misma carpeta. Las conversaciones son separadas; los archivos, no.',

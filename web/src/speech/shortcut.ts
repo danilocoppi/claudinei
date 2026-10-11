@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { isForeignField } from '../keyboard'
 
 /** Segurar o atalho por pelo menos isto vira "segurar para falar"; menos é um toque. */
 export const HOLD_MS = 400
@@ -8,11 +9,6 @@ export function isMicShortcut(e: KeyboardEvent): boolean {
   return e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && (e.code === 'Space' || e.key === ' ')
 }
 
-/** Um campo de digitação que não é o do chat: ali o Ctrl+Espaço é de quem tem o foco. */
-function isForeignField(target: EventTarget | null, own: HTMLElement | null): boolean {
-  if (!(target instanceof HTMLElement) || target === own) return false
-  return /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || !!target.closest('[contenteditable]:not([contenteditable="false"])')
-}
 
 export interface MicShortcutOptions {
   enabled: boolean

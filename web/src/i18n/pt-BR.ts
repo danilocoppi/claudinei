@@ -195,6 +195,7 @@ export const ptBR: typeof en = {
     start: 'Iniciar sessão',
   },
   chat: {
+    sendHint: 'Enter no campo · Ctrl+Enter de qualquer ponto da tela',
     select: 'Selecione uma sessão.', openInTerminal: 'Abrir no terminal', backToTerminal: 'Voltar ao terminal',
     sharedPath: 'pasta compartilhada',
     sharedPathTitle: 'Outro terminal aponta para esta mesma pasta. As conversas são separadas; os arquivos, não.',

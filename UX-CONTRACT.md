@@ -90,6 +90,14 @@ Funciona com o foco no campo do chat ou fora de qualquer campo, e leva o foco ao
 
 Verificação em 2026-10-10: `web/src/test/mic-shortcut.test.tsx` (12 casos), mais os testes do botão e do microfone no ChatInput, com a suíte completa aprovada (1257 no frontend); sabotagens no cancelamento da abertura e na proteção de outro campo foram pegas. Ensaio em Chromium com microfone simulado e teclas reais numa instância isolada: o toque gravou e levou o foco ao chat, o segundo toque transcreveu, segurar 1,2 s gravou e soltar transcreveu, e na busca da lateral nada gravou.
 
+## Ctrl+Enter envia de qualquer ponto da tela
+
+Pedido do usuário em 2026-10-10: com um chat aberto, **Ctrl+Enter** envia a mensagem do campo como o Enter, sem precisar pôr o foco nele — por exemplo, logo depois de clicar no 🎤. Faz o mesmo que o Enter: envia o texto, roda `!comando`, respeita os anexos e não faz nada com o campo vazio. Dentro do próprio campo continua como antes (qualquer Enter sem Shift envia) e sai uma vez só. Com o foco em outro campo de digitação (busca da lateral, modal, editor de arquivo, terminal), o atalho é desse campo. A dica do botão Enviar ensina o atalho nos três idiomas.
+
+Enviar durante o ditado espera a transcrição. Enquanto o 🎤 grava ou transcreve, o texto final ainda não está no campo: mandar na hora levaria só o parcial, e o final cairia depois no campo vazio, repetindo o que foi dito — defeito que o Enter no campo já tinha. Agora o Ctrl+Enter, o Enter no campo e o botão Enviar encerram a gravação e a mensagem sai quando a transcrição final chega, inteira e uma vez só. Se a transcrição falhar, nada é enviado: o erro aparece e o texto fica no campo.
+
+Verificação em 2026-10-10: `web/src/test/chat-ctrl-enter.test.tsx` (9 casos) e a suíte completa (1277 no frontend); sabotagens na espera pelo ditado e na guarda do próprio campo (que enviaria duas vezes) foram pegas. Ensaio em Chromium com microfone simulado e teclas reais numa instância isolada: Ctrl+Enter com o foco na página enviou; gravando com o foco no 🎤, encerrou, esperou a transcrição e enviou o texto final, e o campo ficou vazio; com o foco na busca da lateral, nada saiu.
+
 ## Editor de agendamentos
 
 Ao criar ou editar, `ScheduleEditor` monta `.modal-overlay` diretamente em `document.body`. A lista e os cartões têm rolagem/recorte próprios; o diálogo fora dessa árvore ocupa a viewport e mantém título e Salvar/Cancelar acessíveis. Em altura reduzida, apenas o corpo do formulário rola. O diálogo expõe nome acessível e estado modal. Fechar ou salvar mantém os fluxos existentes de `SchedulesView`.

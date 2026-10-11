@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { startMicCapture as defaultCapture, micSupported, type MicHandle } from '../speech/recorder'
 import { rmsOf, normalizePeak } from '../speech/audio'
@@ -28,15 +28,16 @@ function fmt(s: number): string {
  * Botão de microfone: grava → parar → transcreve NO SERVIDOR (Parakeet) → preenche
  * o campo via `onText` com o texto completo. Só edita texto; o envio é do ChatInput.
  */
-export function MicButton({
-  disabled,
-  onText,
-  onDone,
-  onError,
-  onStart,
-  field,
-  deps = realDeps,
-}: {
+/** O que o ChatInput pode pedir ao microfone. */
+export interface MicButtonHandle {
+  /**
+   * Encerra a gravação em curso. A transcrição final segue o caminho normal
+   * (onText → onDone): é assim que o envio durante o ditado espera por ela.
+   */
+  finish: () => void
+}
+
+interface MicButtonProps {
   disabled?: boolean
   onText: (t: string) => void
   onDone: () => void
@@ -45,7 +46,17 @@ export function MicButton({
   /** Campo do chat: o Ctrl+Espaço funciona com o foco nele (ou fora de campos) e o leva até lá. */
   field?: { readonly current: HTMLElement | null }
   deps?: MicDeps
-}): JSX.Element | null {
+}
+
+export const MicButton = forwardRef<MicButtonHandle, MicButtonProps>(function MicButton({
+  disabled,
+  onText,
+  onDone,
+  onError,
+  onStart,
+  field,
+  deps = realDeps,
+}, ref) {
   const { t } = useTranslation()
   const [state, setState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const [secs, setSecs] = useState(0)
@@ -72,17 +83,22 @@ export function MicButton({
     enabled: !disabled && micSupported(),
     active: () => !!handleRef.current || startingRef.current,
     start: () => { field?.current?.focus(); void startRecording() },
-    stop: () => {
-      if (handleRef.current) void stopRecording()
-      // Soltou antes de o microfone abrir: invalida a abertura, que libera o
-      // microfone assim que chegar em vez de começar a gravar sozinha.
-      else if (startingRef.current) { genRef.current++; startingRef.current = false }
-    },
+    stop: () => encerrar(),
     field: () => field?.current ?? null,
     now: deps.now,
   })
 
+  useImperativeHandle(ref, () => ({ finish: () => encerrar() }))
+
   if (!micSupported()) return null
+
+  /** Para a gravação — ou, se o microfone ainda está abrindo, cancela a abertura. */
+  function encerrar() {
+    if (handleRef.current) void stopRecording()
+    // Soltou antes de o microfone abrir: invalida a abertura, que libera o
+    // microfone assim que chegar em vez de começar a gravar sozinha.
+    else if (startingRef.current) { genRef.current++; startingRef.current = false }
+  }
 
   async function startRecording() {
     const gen = ++genRef.current
@@ -168,4 +184,4 @@ export function MicButton({
       {state === 'transcribing' ? '…' : state === 'recording' ? `⏺ ${fmt(secs)}` : '🎤'}
     </button>
   )
-}
+})

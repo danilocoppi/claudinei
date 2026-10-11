@@ -10,7 +10,8 @@ import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
 import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, mentionAt } from '../mentions'
-import { MicButton, type MicDeps } from './MicButton'
+import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
+import { isForeignField } from '../keyboard'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
 
@@ -170,6 +171,46 @@ export function ChatInput({
     attachments.current.clear()
   }
 
+  /**
+   * Enviar — pelo Enter, pelo Ctrl+Enter de qualquer ponto da tela ou pelo botão.
+   *
+   * Ditando, a transcrição final ainda não está no campo: mandar agora levaria só
+   * o parcial, e o final cairia depois no campo vazio, repetindo o que foi dito.
+   * Então encerra a gravação e o envio sai quando o microfone termina (efeito
+   * abaixo). Se a transcrição falhar, o envio é cancelado e o texto fica no campo.
+   */
+  const micRef = useRef<MicButtonHandle>(null)
+  const [micBusy, setMicBusy] = useState(false)
+  const [enviarAposDitado, setEnviarAposDitado] = useState(false)
+  const submit = () => {
+    if (!micBusy) { send(); return }
+    setEnviarAposDitado(true)
+    micRef.current?.finish()
+  }
+  useEffect(() => {
+    if (!enviarAposDitado || micBusy) return
+    setEnviarAposDitado(false)
+    send()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `send` é recriado a cada render; o que importa é o render com o texto final
+  }, [enviarAposDitado, micBusy])
+
+  // Ctrl+Enter de qualquer ponto da tela. No próprio campo quem trata é o
+  // onKeyDown (que já envia com qualquer Enter sem Shift); num outro campo de
+  // digitação o atalho é dele.
+  const submitRef = useRef(submit)
+  submitRef.current = submit
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || !e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing) return
+      const campo = areaRef.current
+      if (e.target === campo || isForeignField(e.target, campo)) return
+      e.preventDefault()
+      submitRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const stopTurn = () => { if (session?.status === 'working') ws?.send({ type: 'interrupt', localId }) }
 
   const attachFiles = async (files: FileList | File[]) => {
@@ -271,7 +312,7 @@ export function ChatInput({
     const pos = el?.selectionStart ?? val.length
     micBase.current = { before: val.slice(0, pos), after: val.slice(pos) }
   }
-  const startMic = () => { captureMicBase(); setMicError(null) }
+  const startMic = () => { captureMicBase(); setMicError(null); setMicBusy(true) }
 
   // Os trechos transcritos substituem a mesma região da base, crescendo ao vivo.
   // A base normalmente já foi fixada por startMic (onStart); o guard abaixo é só
@@ -283,7 +324,7 @@ export function ChatInput({
     setText(mergeTranscript(before, after, tx))
     setMicError(null)
   }
-  const endMic = () => { micBase.current = null }
+  const endMic = () => { micBase.current = null; setMicBusy(false) }
 
   /**
    * O rodapé publica a própria altura para quem flutua por cima da tela.
@@ -375,7 +416,7 @@ export function ChatInput({
               }
             }
             if (e.key === 'Escape' && session?.status === 'working') { e.preventDefault(); stopTurn(); return }
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
           }}
           onPaste={(e) => {
             if (e.clipboardData?.files?.length) { e.preventDefault(); void attachFiles(e.clipboardData.files) }
@@ -392,16 +433,18 @@ export function ChatInput({
                   aria-label={t('chat.stop')} title={t('chat.stop')} onClick={stopTurn}>■</button>
         )}
         <MicButton
+          ref={micRef}
           disabled={disabled}
           onText={applyTranscript}
           onDone={endMic}
-          onError={setMicError}
+          onError={(msg) => { setMicError(msg); setEnviarAposDitado(false) }}
           onStart={startMic}
           field={areaRef}
           deps={micDeps}
         />
         {session && <SessionControls session={session} />}
-        <button className="chat-send" onClick={send} disabled={disabled || uploading > 0}>{t('common.send')}</button>
+        <button className="chat-send" onClick={submit} disabled={disabled || uploading > 0}
+                title={t('chat.sendHint')}>{t('common.send')}</button>
       </div>
       {(uploadError || micError) && (
         <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError}</div>

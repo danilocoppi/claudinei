@@ -2914,12 +2914,14 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .acted__foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
 
 /* O histórico permanece pesquisável, mas o navegador só calcula/pinta o conteúdo
-   próximo à área visível. Streaming não deve refazer layout de toda a conversa. */
+   próximo à área visível. Streaming não deve refazer layout de toda a conversa.
+   Nada de trocar a propriedade pelo foco (`:focus-within { visible }`): o `auto`
+   já mantém desenhado o que tem foco ou seleção, e a troca no meio de um clique
+   derrubava a aba do Chrome (ver chat-entry-visibility.test.ts). */
 .chat-entry {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
 }
-.chat-entry:focus-within { content-visibility: visible; }
 
 .background-processes { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-dim); font-size: 13px; }
 .background-processes summary { cursor: pointer; }

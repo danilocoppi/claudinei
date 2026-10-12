@@ -95,16 +95,12 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
       ? (body.permissionMode as PermissionMode)
       : 'bypassPermissions'
     try {
-      const info = deps.manager.start(project, {
+      return reply.code(201).send(deps.manager.start(project, {
         continueLatest: body?.continueConversation ?? true,
         permissionMode,
         model,
         engine,
-      })
-      // Iniciar pela tela é mexer no terminal (a coluna de rostinhos ordena por
-      // isso). O agendador e os outros agentes chamam o manager direto e não contam.
-      deps.manager.touchInput(info.localId)
-      return reply.code(201).send(deps.manager.get(info.localId) ?? info)
+      }))
     } catch (err) {
       return reply.code(409).send(errorBody(err))
     }
@@ -184,9 +180,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     const { localId } = req.params as { localId: string }
     if (!guardSession(req, reply, localId)) return
     try {
-      deps.manager.revive(localId)
-      deps.manager.touchInput(localId)
-      return deps.manager.get(localId)
+      return deps.manager.revive(localId)
     } catch (err) {
       return reply.code(400).send(errorBody(err))
     }

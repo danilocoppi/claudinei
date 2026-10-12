@@ -3,14 +3,10 @@ import type { SessionManager } from '../claude/manager.js'
 import type { TerminalManager } from '../terminal/manager.js'
 import { requireProjectAccess } from '../auth/guards.js'
 import { watchSocketAccess } from '../auth/socket-access.js'
-import { isTyping } from '../terminal/typing.js'
 import { errorBody, fail } from '../user-error.js'
 
-/** Digitação no terminal grava a última interação no máximo uma vez por minuto. */
-const TYPING_TOUCH_MS = 60_000
-
 export interface TerminalRouteDeps {
-  manager: Pick<SessionManager, 'openInTerminal' | 'get' | 'touchInput'>
+  manager: Pick<SessionManager, 'openInTerminal' | 'get'>
   terminalManager: Pick<TerminalManager, 'close' | 'closeAndWait' | 'attach' | 'detach' | 'write' | 'resize' | 'refreshToken'>
 }
 
@@ -42,8 +38,6 @@ export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRoute
     if (existing) return reply.send({ token: existing, wsUrl: `/ws/terminal/${localId}` })
     try {
       const info = await deps.manager.openInTerminal(localId)
-      // Subir o programa no terminal é mexer nele; reconectar (acima) é só olhar.
-      deps.manager.touchInput(localId)
       return reply.send({ token: info.token, wsUrl: `/ws/terminal/${localId}` })
     } catch (err) {
       return reply.code(400).send(errorBody(err))
@@ -74,11 +68,7 @@ export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRoute
     socket.on('message', (data: Buffer, isBinary: boolean) => {
       if (!access.allowed()) return
       if (isBinary) {
-        const text = data.toString('utf8')
-        deps.terminalManager.write(localId, text)
-        // Foco, mouse e respostas automáticas do xterm não são a pessoa mexendo; e
-        // gravar a cada tecla seria um UPDATE por caractere.
-        if (isTyping(text)) deps.manager.touchInput(localId, { atMostEveryMs: TYPING_TOUCH_MS })
+        deps.terminalManager.write(localId, data.toString('utf8'))
       } else {
         try {
           const m = JSON.parse(data.toString('utf8'))

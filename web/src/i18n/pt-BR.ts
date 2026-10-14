@@ -149,7 +149,6 @@ export const ptBR: typeof en = {
     collapseAll: 'Recolher tudo', expandAll: 'Expandir tudo',
     collapseCard: 'Recolher', expandCard: 'Expandir',
     onThisMachine: 'Nesta máquina', terminalApp: 'Terminal', terminalAppSystem: 'Padrão do sistema',
-    quickColumn: 'Terminais ligados',
     revive: 'Reviver', startSession: 'Iniciar sessão', editTerminal: 'Editar', deleteTerminal: 'Excluir', options: 'Opções',
   },
   status: {

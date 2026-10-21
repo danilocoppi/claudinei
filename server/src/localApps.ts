@@ -125,7 +125,13 @@ function candidatesFor(app: LocalApp, dir: string, platform: NodeJS.Platform): L
   // "&" (que o Windows permite) emendaria um segundo comando. Por isso a pasta vai
   // como `cwd`, que não passa por interpretação nenhuma, em vez de ser interpolada.
   if (win) return [{ cmd: 'wt', args: ['-d', dir] }, { cmd: 'cmd', args: ['/c', 'start', '', 'cmd'], cwd: dir }]
-  return TERMINALS.map((t) => ({ cmd: t.id, args: t.args(dir) }))
+  // A pasta vai em argumento E como `cwd`. O argumento sozinho não basta: o
+  // `x-terminal-emulator` do Debian/Ubuntu aponta para o gnome-terminal.wrapper,
+  // um script que só entende opções do xterm e DESCARTA `--working-directory`
+  // sem avisar. O terminal então herdava o diretório do serviço (a pasta do
+  // próprio Claudinei) — "Abrir terminal" abria lá em qualquer terminal clicado.
+  // Com o `cwd`, quem perde o argumento ainda nasce na pasta certa.
+  return TERMINALS.map((t) => ({ cmd: t.id, args: t.args(dir), cwd: dir }))
 }
 
 /**

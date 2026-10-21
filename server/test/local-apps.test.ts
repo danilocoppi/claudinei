@@ -42,6 +42,27 @@ describe('escolha do comando', () => {
     expect(l!.args).toContain('/tmp/meu projeto')
   })
 
+  /**
+   * O x-terminal-emulator do Debian/Ubuntu é o gnome-terminal.wrapper, que só
+   * entende opções do xterm e descarta `--working-directory` em silêncio — o
+   * terminal herdava a pasta do SERVIÇO em qualquer terminal clicado. O `cwd`
+   * garante a pasta mesmo quando o argumento se perde.
+   */
+  it('terminal também nasce com cwd na pasta (wrapper que descarta o argumento)', () => {
+    for (const bin of ['x-terminal-emulator', 'gnome-terminal', 'konsole', 'kitty']) {
+      const l = resolveLauncher('terminal', '/tmp/meu projeto', { platform: 'linux', available: has(bin) })
+      expect(l!.cwd).toBe('/tmp/meu projeto')
+    }
+  })
+
+  it('e o cwd chega ao spawn', async () => {
+    const child = fakeChild()
+    const spawnFn = vi.fn(() => child) as never
+    await launchApp('terminal', '/tmp/proj-x', { platform: 'linux', available: has('x-terminal-emulator'), spawnFn, env: {}, graphical: () => ({ DISPLAY: ':0' }) })
+    expect(spawnFn).toHaveBeenCalledWith('x-terminal-emulator', ['--working-directory', '/tmp/proj-x'],
+      expect.objectContaining({ cwd: '/tmp/proj-x' }))
+  })
+
   it('sem nada instalado, não há o que abrir', () => {
     expect(resolveLauncher('vscode', '/p', { platform: 'linux', available: () => false })).toBeNull()
   })

@@ -180,6 +180,9 @@ export const es: typeof en = {
     namePlaceholder: 'Nombre del proyecto', choosePath: 'Elegir carpeta…', previewTag: 'vista previa',
     sharedPathWarning: 'Esta carpeta ya tiene un terminal. El nuevo empieza en una conversación nueva, con contexto separado.',
     newFolder: 'Crear una carpeta nueva dentro de esta', newFolderName: 'Nombre de la carpeta nueva', newFolderPreview: 'Se creará: {{path}}',
+    placement: 'Dónde va', placementRoot: 'Suelto (sin grupo ni sector)', placementSectors: 'Sectores', placementGroups: 'Grupos', placementCreate: 'Crear junto',
+    placementNewSector: '＋ Nuevo sector…', placementNewGroup: '＋ Nuevo grupo…', placementGroupSector: 'Dentro del sector',
+    placementFailed: 'El terminal fue creado, pero no se pudo colocar donde elegiste: {{msg}}. Intenta de nuevo o cierra — queda suelto en la barra lateral.', retry: 'Intentar de nuevo',
   },
   folder: { title: 'Elegir carpeta', empty: 'Sin subcarpetas.', select: 'Seleccionar esta carpeta', up: 'Subir' },
   session: {

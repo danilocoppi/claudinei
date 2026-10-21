@@ -2999,3 +2999,9 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .cm-md-table th, .cm-md-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
 .cm-md-table th { background: color-mix(in srgb, var(--sheen) calc(7% * var(--sheen-k)), transparent); font-weight: 600; white-space: nowrap; }
 .cm-md-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--sheen) calc(2.5% * var(--sheen-k)), transparent); }
+
+/* "Onde fica" no modal de terminal novo: rótulo + select na mesma linha. */
+.placement { display: flex; flex-direction: column; gap: 8px; }
+.placement__row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); }
+.placement__row > span { flex: none; min-width: 92px; }
+.placement__row select { flex: 1; min-width: 0; }

@@ -178,6 +178,9 @@ export const en = {
     namePlaceholder: 'Project name', choosePath: 'Choose folder…', previewTag: 'preview',
     sharedPathWarning: 'This folder already has a terminal. The new one starts a fresh conversation, with separate context.',
     newFolder: 'Create a new folder inside this one', newFolderName: 'New folder name', newFolderPreview: 'Will be created: {{path}}',
+    placement: 'Where it goes', placementRoot: 'Loose (no group or sector)', placementSectors: 'Sectors', placementGroups: 'Groups', placementCreate: 'Create with it',
+    placementNewSector: '＋ New sector…', placementNewGroup: '＋ New group…', placementGroupSector: 'Inside sector',
+    placementFailed: 'The terminal was created, but it could not be placed where you chose: {{msg}}. Try again or close — it stays loose in the sidebar.', retry: 'Try again',
   },
   folder: { title: 'Choose folder', empty: 'No subfolders.', select: 'Select this folder', up: 'Up' },
   session: {

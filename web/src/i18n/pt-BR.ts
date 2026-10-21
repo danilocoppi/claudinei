@@ -180,6 +180,9 @@ export const ptBR: typeof en = {
     namePlaceholder: 'Nome do projeto', choosePath: 'Escolher pasta…', previewTag: 'pré-visualização',
     sharedPathWarning: 'Esta pasta já tem um terminal. O novo começa em uma conversa nova, com contexto separado.',
     newFolder: 'Criar pasta nova dentro desta', newFolderName: 'Nome da nova pasta', newFolderPreview: 'Será criada: {{path}}',
+    placement: 'Onde fica', placementRoot: 'Solto (sem grupo nem setor)', placementSectors: 'Setores', placementGroups: 'Grupos', placementCreate: 'Criar junto',
+    placementNewSector: '＋ Novo setor…', placementNewGroup: '＋ Novo grupo…', placementGroupSector: 'Dentro do setor',
+    placementFailed: 'O terminal foi criado, mas não deu para colocá-lo no lugar escolhido: {{msg}}. Tente de novo ou feche — ele fica solto na lateral.', retry: 'Tentar de novo',
   },
   folder: { title: 'Escolher pasta', empty: 'Nenhuma subpasta.', select: 'Selecionar esta pasta', up: 'Subir' },
   session: {

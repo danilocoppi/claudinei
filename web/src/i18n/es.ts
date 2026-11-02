@@ -357,7 +357,7 @@ export const es: typeof en = {
   usage: {
     claude: 'Claude', plans: 'Planes', weekly: 'semanal', tokens: 'tokens', tokensToday: '{{n}} hoy', tokensTip: 'Tokens reportados en las sesiones de Claudinei. Las barras muestran los límites de toda la cuenta.', tokenBreakdown: '{{in}} entrada · {{out}} salida · {{reasoning}} razonamiento',
     title: 'Uso', advanced: 'Avanzado', session: 'Sesión actual', weeklyAll: 'Todos los modelos',
-    resets: 'reinicia {{when}}', pace: '{{percent}}% usado · ritmo {{ratio}}× sostenible',
+    resets: 'reinicia {{when}}', updatedAt: 'actualizado a las {{time}}', pace: '{{percent}}% usado · ritmo {{ratio}}× sostenible',
   },
   accessHours: {
     limited: 'Acceso limitado', timeZone: 'Zona horaria',

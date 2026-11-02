@@ -358,7 +358,7 @@ export const ptBR: typeof en = {
   usage: {
     claude: 'Claude', plans: 'Planos', weekly: 'semanal', tokens: 'tokens', tokensToday: '{{n}} hoje', tokensTip: 'Tokens reportados nas sessões do Claudinei. As barras mostram os limites da conta inteira.', tokenBreakdown: '{{in}} entrada · {{out}} saída · {{reasoning}} raciocínio',
     title: 'Uso', advanced: 'Avançado', session: 'Sessão atual', weeklyAll: 'Todos os modelos',
-    resets: 'reseta {{when}}', pace: '{{percent}}% usado · ritmo {{ratio}}× do sustentável',
+    resets: 'reseta {{when}}', updatedAt: 'atualizado às {{time}}', pace: '{{percent}}% usado · ritmo {{ratio}}× do sustentável',
   },
   accessHours: {
     limited: 'Acesso limitado', timeZone: 'Fuso horário',

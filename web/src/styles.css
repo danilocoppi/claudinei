@@ -1729,6 +1729,8 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 
 /* ⓘ do card de Usage (explica as cores de ritmo) + amostras no modal. */
 .usage-card__group { display: flex; align-items: center; gap: 6px; }
+/* Número guardado de quando a Anthropic recusou a consulta: diz de quando é. */
+.usage-card__stale { margin-left: auto; text-transform: none; letter-spacing: 0; }
 button.usage-info-btn {
   font-size: 12px; padding: 0 3px; line-height: 1.4; font-weight: 400;
   color: var(--text-dim); border: none; background: transparent; cursor: pointer;

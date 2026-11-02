@@ -92,6 +92,12 @@ Ao criar ou editar, `ScheduleEditor` monta `.modal-overlay` diretamente em `docu
 
 O Claudinei consulta `model/list` da CLI para mostrar somente os modelos liberados à conta, com os nomes, esforços e padrão informados por ela. Ao iniciar ou alterar uma sessão, o valor enviado continua sendo o ID do modelo. Se a consulta falhar, o catálogo de reserva oferece GPT-6.1 Sol como padrão, seguido pelos modelos anteriores ainda presentes no catálogo da CLI em 2026-09-29; uma consulta posterior bem-sucedida substitui essa reserva.
 
+## Uso do Claude sem sumir
+
+Pedido do usuário em 2026-11-02: a seção do Claude no cartão de Uso sumia com frequência. A causa era o 429 do endpoint de uso da Anthropic, cujo limite de consultas é da conta e dividido com os próprios terminais do Claude CLI; o Claudinei consultava a cada minuto e, a cada falha, apagava os números.
+
+Agora a fonte principal é o `rate_limit_event` que todo terminal do Claude recebe no stream-json a cada turno (utilização e reset das janelas de 5 h e semanal): zero consultas. O endpoint, que traz as linhas por modelo, vai no máximo a cada 10 minutos e, depois de um 429, espera 2, 4, 8… até 30 minutos (ou o `retry-after`, se maior). Janela por janela, o dado mais novo das duas fontes vence. O último valor bom fica no servidor e em disco (`claude-usage.json`, ao lado do banco), então nem uma falha nem um reinício apagam a seção; só some uma janela que já virou. Quando o número do Claude tem mais de 15 minutos, o grupo mostra "atualizado às HH:MM".
+
 ## Cores do ritmo de uso
 
 O multiplicador aparece ao lado do nome de cada limite, com uma casa decimal e separador do idioma ativo (ex.: `All Models (1.5×)` / `Todos os modelos (1,5×)`), conforme pedido posterior do usuário em 2026-09-25. Ele usa o mesmo cálculo da cor e do tooltip. Nome longo pode receber reticências; multiplicador e percentual permanecem visíveis. Sem ritmo finito calculável, o multiplicador é omitido.

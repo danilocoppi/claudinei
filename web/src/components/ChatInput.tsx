@@ -1,7 +1,7 @@
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WsContext } from '../wsContext'
-import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
+import { useStore, useEngineFor, useSessionSlashCommands, type FileMenuAction } from '../store'
 import { uploadFile } from '../api'
 import { SessionControls } from './SessionControls'
 import { filterCommands } from '../slash'
@@ -9,7 +9,7 @@ import { readDraft, saveDraft } from '../drafts'
 import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
 import { FileMentionMenu } from './FileMentionMenu'
-import { applyFileMention, applyMention, mentionAt } from '../mentions'
+import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
 import { isForeignField } from '../keyboard'
 import { mergeTranscript } from '../speech/insert'
@@ -284,6 +284,16 @@ export function ChatInput({
     setText(next.text)
     setFileCursor(null)
   }
+  /** Abriu ou copiou o arquivo pelo seletor: nada foi referenciado, o `@!` sai. */
+  const fileActionDone = (action: FileMenuAction) => {
+    if (fileCursor === null) return
+    const el = areaRef.current
+    const next = dropFileMention(el?.value ?? text, fileCursor)
+    // O popup leva o foco; nos outros casos o cursor volta para onde estava o `@!`.
+    if (action !== 'popup') fileSelection.current = next.cursor
+    setText(next.text)
+    setFileCursor(null)
+  }
   const openReference = (value: string, cursor: number) => {
     if (mentionAt(value, cursor, '@!') !== null && meuProjeto !== undefined) {
       setMencaoAberta(false); setFileCursor(cursor)
@@ -367,7 +377,7 @@ export function ChatInput({
         {fileCursor !== null && meuProjeto !== undefined && !disabled && (
           <FileMentionMenu projectId={meuProjeto}
             projectName={todosProjetos.find(project => project.id === meuProjeto)?.name ?? './'}
-            anchorRef={areaRef} onPick={chooseFile} onClose={closeFiles} />
+            localId={localId} anchorRef={areaRef} onPick={chooseFile} onAction={fileActionDone} onClose={closeFiles} />
         )}
         <textarea
           ref={areaRef}

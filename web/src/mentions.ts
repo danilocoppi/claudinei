@@ -34,6 +34,13 @@ export function applyFileMention(text: string, cursor: number, path: string): { 
   return { text: text.slice(0, start) + reference + text.slice(cursor), cursor: start + reference.length }
 }
 
+/** Tira o `@!` quando nada foi referenciado (abrir ou copiar o arquivo pelo seletor). */
+export function dropFileMention(text: string, cursor: number): { text: string; cursor: number } {
+  const start = mentionAt(text, cursor, '@!')
+  if (start === null) return { text, cursor }
+  return { text: text.slice(0, start) + text.slice(cursor), cursor: start }
+}
+
 /** Troca o `@@` pela referência, e devolve onde o cursor deve ficar. */
 export function applyMention(
   text: string, cursor: number, nome: string,

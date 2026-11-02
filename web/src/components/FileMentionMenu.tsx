@@ -2,15 +2,28 @@ import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { fetchProjectFiles } from '../api'
+import { kindOfPath } from '../files'
+import { useStore, type FileMenuAction } from '../store'
 import { ViewportPopover } from './ViewportPopover'
 import type { ProjectFileEntry, ProjectFileListing } from '../../../shared/project-files'
 
-/** Navegação por pastas: botões nativos, com busca, sem tratar pastas como valores. */
-export function FileMentionMenu({ projectId, projectName, anchorRef, onPick, onClose }: {
+/** O menu de ações de arquivo (FileOpenMenu) fica num portal próprio, fora deste painel. */
+const inFileActions = (node: EventTarget | null) => node instanceof Element && !!node.closest('[data-file-actions]')
+
+/**
+ * Navegação por pastas: botões nativos, com busca, sem tratar pastas como valores.
+ * Clicar num arquivo referencia; o ⋯ (ou o clique direito, ou a tecla de menu)
+ * abre as mesmas ações do link de arquivo do chat.
+ */
+export function FileMentionMenu({ projectId, projectName, localId, anchorRef, onPick, onAction, onClose }: {
   projectId: number
   projectName: string
+  /** Chat de onde o seletor abriu: habilita "Ver inline no chat". */
+  localId?: string
   anchorRef: RefObject<HTMLElement>
   onPick: (path: string) => void
+  /** Uma ação que não referencia (abrir, copiar…): quem abriu tira o `@!` e fecha. */
+  onAction: (action: FileMenuAction) => void
   onClose: (restoreFocus: boolean) => void
 }) {
   const { t } = useTranslation()
@@ -32,15 +45,21 @@ export function FileMentionMenu({ projectId, projectName, anchorRef, onPick, onC
   const visibleEntries = current && !composing && (ready || offset > 0) ? current.entries : []
   const closeRef = useRef(onClose)
   closeRef.current = onClose
+  const openFileMenu = useStore((s) => s.openFileMenu)
 
   useEffect(() => {
     input.current?.focus({ preventScroll: true })
     const outside = (event: PointerEvent) => {
-      if (!panel.current?.contains(event.target as Node)) closeRef.current(false)
+      if (!panel.current?.contains(event.target as Node) && !inFileActions(event.target)) closeRef.current(false)
     }
     document.addEventListener('pointerdown', outside)
-    return () => document.removeEventListener('pointerdown', outside)
-  }, [])
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      // O menu de ações que este seletor abriu não fica órfão quando ele some.
+      const { fileMenu, closeFileMenu } = useStore.getState()
+      if (fileMenu?.origin === id) closeFileMenu()
+    }
+  }, [id])
 
   useEffect(() => {
     let disposed = false
@@ -84,6 +103,17 @@ export function FileMentionMenu({ projectId, projectName, anchorRef, onPick, onC
     if (entry.isDir) navigate(entry.path)
     else onPick(entry.path)
   }
+  const openActions = (entry: ProjectFileEntry, x: number, y: number, focus: boolean) => {
+    if (!ready || entry.isDir) return
+    openFileMenu({
+      x, y, path: entry.path, kind: kindOfPath(entry.path), projectId, localId, focus, origin: id,
+      reference: () => onPick(entry.path), afterAction: onAction,
+    })
+  }
+  const actionsFromKeyboard = (entry: ProjectFileEntry, button: HTMLElement) => {
+    const rect = button.getBoundingClientRect()
+    openActions(entry, rect.right - 200, rect.bottom, true)
+  }
   const errorText = error === 'forbidden_project' || error === 'outside_project' || error === 'directory_unreadable'
     ? t('chat.fileMentionDenied') : error === 'directory_not_found'
       ? t('chat.fileMentionMissing') : t('chat.fileMentionError')
@@ -93,7 +123,8 @@ export function FileMentionMenu({ projectId, projectName, anchorRef, onPick, onC
       <div ref={panel} className="file-mention" role="dialog" aria-labelledby={`${id}-title`}
            data-testid="file-mention-menu"
            onBlur={(event) => {
-             if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) onClose(false)
+             if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)
+               && !inFileActions(event.relatedTarget)) onClose(false)
            }}
            onKeyDown={(event) => {
              if (event.nativeEvent.isComposing || event.keyCode === 229) return
@@ -118,7 +149,7 @@ export function FileMentionMenu({ projectId, projectName, anchorRef, onPick, onC
                  onChange={event => { setQuery(event.target.value); setOffset(0) }}
                  onKeyDown={event => {
                    if (event.nativeEvent.isComposing || composing || event.keyCode === 229) return
-                   if (event.key === 'ArrowDown' && ready) { event.preventDefault(); list.current?.querySelector('button')?.focus() }
+                   if (event.key === 'ArrowDown' && ready) { event.preventDefault(); list.current?.querySelector<HTMLElement>('.file-mention__item')?.focus() }
                    if (event.key === 'Enter') {
                      event.preventDefault()
                      if (ready && current?.entries[0]) choose(current.entries[0])
@@ -142,19 +173,32 @@ export function FileMentionMenu({ projectId, projectName, anchorRef, onPick, onC
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return
                 if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
                 event.preventDefault()
-                const buttons = [...event.currentTarget.querySelectorAll('button')]
+                // O ⋯ fica fora do percurso das setas: elas andam de item em item.
+                const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.file-mention__item')]
                 const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
                 const next = index + (event.key === 'ArrowDown' ? 1 : -1)
                 if (next < 0) input.current?.focus()
                 else buttons[Math.min(next, buttons.length - 1)]?.focus()
               }}>
-            {visibleEntries.map(entry => <li key={entry.path}>
-              <button type="button" className="mention-item file-mention__item" disabled={!ready} onClick={() => choose(entry)}>
+            {visibleEntries.map(entry => <li key={entry.path} className="file-mention__row">
+              <button type="button" className="mention-item file-mention__item" disabled={!ready} onClick={() => choose(entry)}
+                      onContextMenu={entry.isDir ? undefined : (event) => { event.preventDefault(); openActions(entry, event.clientX, event.clientY, false) }}
+                      onKeyDown={entry.isDir ? undefined : (event) => {
+                        if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+                          event.preventDefault(); actionsFromKeyboard(entry, event.currentTarget)
+                        }
+                      }}>
                 <span aria-hidden="true">{entry.isDir ? '📁' : '📄'}</span>
                 <span className="file-mention__name">{entry.name}</span>
                 <span className="file-mention__kind">{t(entry.isDir ? 'chat.fileMentionFolder' : 'chat.fileMentionFile')}</span>
                 {entry.isDir && <span aria-hidden="true">›</span>}
               </button>
+              {!entry.isDir && <button type="button" className="ghost file-mention__actions" tabIndex={-1} disabled={!ready}
+                      aria-label={t('chat.fileMentionActions', { name: entry.name })} title={t('chat.fileMentionActions', { name: entry.name })}
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        openActions(entry, rect.right - 200, rect.bottom, event.detail === 0)
+                      }}>⋯</button>}
             </li>)}
           </ul>
           {current?.nextOffset !== null && visibleEntries.length > 0 && !error && <button type="button" className="ghost file-mention__more"

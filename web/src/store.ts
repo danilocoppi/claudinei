@@ -54,6 +54,27 @@ function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>):
   return Object.fromEntries(kept.map((k) => [k, map[k]]))
 }
 
+/** O que o menu do arquivo fez, para quem o abriu decidir o resto (o `@!` sai do campo). */
+export type FileMenuAction = 'popup' | 'inline' | 'copy' | 'reveal'
+
+/** Menu de ações de um arquivo: o link do chat, ou o ⋯ do seletor do `@!`. */
+export interface FileMenu {
+  x: number
+  y: number
+  path: string
+  kind: FileKind
+  projectId?: number
+  localId?: string
+  /** Aberto pelo seletor do `@!`: "Referenciar na mensagem" vem em primeiro. */
+  reference?: () => void
+  /** Avisado depois de qualquer outra ação. */
+  afterAction?: (action: FileMenuAction) => void
+  /** Aberto pelo teclado: o primeiro item já vem com o foco. */
+  focus?: boolean
+  /** Quem abriu: o seletor fecha junto o menu que é dele. */
+  origin?: string
+}
+
 interface State {
   authStatus: 'loading' | 'setup' | 'login' | 'ready' | 'locked'
   me: import('./api').Me | null
@@ -90,7 +111,7 @@ interface State {
   /** Há edição não salva num documento aberto? O modal consulta antes de fechar. */
   fileEditDirty: boolean
   /** Menu de contexto do link de arquivo (escolha popup × inline), na posição do clique. */
-  fileMenu: { x: number; y: number; path: string; kind: FileKind; projectId?: number; localId?: string } | null
+  fileMenu: FileMenu | null
   /** Arquivo aberto INLINE (painel dockado acima do input do chat), por sessão. */
   inlineFile: { localId: string; path: string; kind: FileKind; projectId?: number } | null
   /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
@@ -162,7 +183,7 @@ interface State {
   openFile(path: string, kind: FileKind, projectId?: number): void
   closeFile(): void
   setFileEditDirty(v: boolean): void
-  openFileMenu(menu: { x: number; y: number; path: string; kind: FileKind; projectId?: number; localId?: string }): void
+  openFileMenu(menu: FileMenu): void
   closeFileMenu(): void
   openFileInline(localId: string, path: string, kind: FileKind, projectId?: number): void
   closeFileInline(): void

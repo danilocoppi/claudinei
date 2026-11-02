@@ -27,12 +27,15 @@ const okFetch = () => vi.fn(async () => new Response(JSON.stringify(API_RESPONSE
 describe('createUsageService', () => {
   it('normaliza os limits (label do scoped, resets_at → resetsAt)', async () => {
     const fetchFn = okFetch()
-    const svc = createUsageService({ credentialsPath: makeCreds(), fetchFn })
+    // relógio no dia da resposta capturada: janela que já virou não é mostrada
+    const at = Date.parse('2026-07-12T12:00:00Z')
+    const svc = createUsageService({ credentialsPath: makeCreds(), fetchFn, now: () => at })
     const limits = await svc.getLimits()
+    const updatedAt = new Date(at).toISOString()
     expect(limits).toEqual([
-      { kind: 'session', group: 'session', label: null, percent: 10, severity: 'normal', resetsAt: '2026-07-12T13:20:00Z' },
-      { kind: 'weekly_all', group: 'weekly', label: null, percent: 43, severity: 'normal', resetsAt: '2026-07-14T00:00:00Z' },
-      { kind: 'weekly_scoped', group: 'weekly', label: 'Fable', percent: 48, severity: 'normal', resetsAt: '2026-07-14T00:00:00Z' },
+      { kind: 'session', group: 'session', label: null, percent: 10, severity: 'normal', resetsAt: '2026-07-12T13:20:00Z', updatedAt },
+      { kind: 'weekly_all', group: 'weekly', label: null, percent: 43, severity: 'normal', resetsAt: '2026-07-14T00:00:00Z', updatedAt },
+      { kind: 'weekly_scoped', group: 'weekly', label: 'Fable', percent: 48, severity: 'normal', resetsAt: '2026-07-14T00:00:00Z', updatedAt },
     ])
     // headers corretos
     const [url, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0]

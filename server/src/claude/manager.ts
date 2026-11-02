@@ -78,6 +78,8 @@ interface Deps {
   onSessionAvailable?: (projectId: number) => void
   /** Chamado quando um evento result traz tokens (Codex e demais engines que os expõem). Claude não seta tokens → nunca dispara. */
   onEngineUsage?: (engine: EngineId, tokens: { input: number; cachedInput: number; output: number; reasoning: number; total: number }) => void
+  /** `rate_limit_info` dos `rate_limit_event` dos terminais do Claude: o uso do plano sem consultar o endpoint. */
+  onRateLimit?: (info: unknown) => void
   /**
    * Limiar do auto-compact em % da janela de contexto (0/ausente = desligado),
    * lido A CADA result — mudar a configuração vale na hora, sem recriar sessão.
@@ -256,6 +258,11 @@ export function createSessionManager(deps: Deps) {
         // Métrica nunca derruba o processo: isto roda dentro do handler de
         // stdout da engine — um erro do SQLite aqui viraria uncaughtException.
         try { deps.onEngineUsage?.(engine, event.tokens) } catch {}
+      }
+      if (engine === 'claude' && event.kind === 'raw') {
+        const raw = event.raw as { type?: unknown; rate_limit_info?: unknown } | null
+        // Mesmo cuidado da métrica acima: nada aqui pode derrubar o stdout.
+        if (raw?.type === 'rate_limit_event') { try { deps.onRateLimit?.(raw.rate_limit_info) } catch {} }
       }
       // Compactação: a conversa encolheu, mas ninguém remede o contexto aqui — o
       // result do próprio /compact vem com o usage TODO ZERADO (ordem empírica,

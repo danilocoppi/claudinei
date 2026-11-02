@@ -200,6 +200,8 @@ export async function transcribeAudio(wav: Blob): Promise<{ text: string }> {
 export interface UsageLimit {
   kind: string; group: string; label: string | null
   percent: number; severity: string; resetsAt: string
+  /** Quando o número chegou ao servidor (ISO); velho, o cartão avisa. */
+  updatedAt?: string
   /** Ausente = Claude (default histórico); 'kimi' etc. quando a lista mistura planos. */
   provider?: string
   windowMinutes?: number

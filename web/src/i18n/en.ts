@@ -356,7 +356,7 @@ export const en = {
   usage: {
     claude: 'Claude', plans: 'Plans', weekly: 'weekly', tokens: 'tokens', tokensToday: '{{n}} today', tokensTip: 'Tokens reported in Claudinei sessions. The bars show limits for the entire account.', tokenBreakdown: '{{in}} in · {{out}} out · {{reasoning}} reasoning',
     title: 'Usage', advanced: 'Advanced', session: 'Current session', weeklyAll: 'All models',
-    resets: 'resets {{when}}', pace: '{{percent}}% used · pace {{ratio}}× sustainable',
+    resets: 'resets {{when}}', updatedAt: 'updated at {{time}}', pace: '{{percent}}% used · pace {{ratio}}× sustainable',
   },
   accessHours: {
     limited: 'Limited access', timeZone: 'Time zone',

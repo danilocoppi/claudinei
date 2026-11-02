@@ -151,7 +151,8 @@ if (process.argv.includes('--hermes')) {
     // --hermes) cair no dispatch de cima em vez de tentar abrir um script.
     workerPath: process.env.CLAUDINEI_PKG_NATIVE ? '--speech-worker' : undefined,
   })
-  const usage = createUsageService()
+  // O último uso bom fica junto do banco: sobrevive a reiniciar e a um 429.
+  const usage = createUsageService({ statePath: join(dirname(config.dbPath), 'claude-usage.json') })
   // Limites do plano do Kimi (mesma fonte do /status da CLI) na MESMA lista do card.
   const { createKimiUsageService } = await import('./engine/kimi/kimi-usage.js')
   const kimiUsage = createKimiUsageService()
@@ -171,6 +172,7 @@ if (process.argv.includes('--hermes')) {
     autoCompactPct: () => Number(settings.get('autoCompactPct') || 0),
     onSessionAvailable: (projectId) => drain?.(projectId),
     onEngineUsage: (engine, tokens) => engineUsage.record(engine, tokens),
+    onRateLimit: (info) => usage.observe(info),
     terminalLauncher: (opts) => terminalManager.open(opts.localId, {
       cwd: opts.cwd,
       file: opts.file,

@@ -15,6 +15,8 @@ function fmtTokens(n: number): string {
 }
 
 const POLL_MS = 60_000
+/** Acima disto o número do Claude é velho: o servidor guarda o último bom quando a Anthropic recusa a consulta. */
+const STALE_MS = 15 * 60_000
 const ADVANCED_KEY = 'claudinei.usageAdvanced'
 
 /** Rótulo: label da API (ex.: Fable) > i18n por kind > o próprio kind. */
@@ -114,6 +116,9 @@ export function UsageCard() {
   const engineIds = [...new Set([...tokenEntries.map(([id]) => id), ...barsByEngine.keys()])]
   // Cabeçalho só diz "Claude" quando a lista é só dele; misturada, vira neutro.
   const mixed = limits.some((l) => (l.provider ?? 'claude') !== 'claude')
+  const claudeUpdated = Math.max(...claudeBars.map((l) => (l.updatedAt ? Date.parse(l.updatedAt) : NaN)).filter(Number.isFinite))
+  const staleSince = Number.isFinite(claudeUpdated) && now - claudeUpdated > STALE_MS
+    ? new Date(claudeUpdated).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : null
   return (
     <div className="usage-card glass">
       <div className="usage-card__head">
@@ -133,6 +138,7 @@ export function UsageCard() {
                   aria-label={t('usageInfo.title')} onClick={() => setShowInfo(true)}>
             ⓘ
           </button>
+          {staleSince && <span className="usage-card__stale">{t('usage.updatedAt', { time: staleSince })}</span>}
         </div>
       )}
       {claudeBars.map((l) => {

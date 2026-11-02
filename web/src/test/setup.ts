@@ -3,6 +3,17 @@ import { afterEach } from 'vitest'
 
 afterEach(cleanup)
 
+// O Node 25+ tem Web Storage próprio: `localStorage` vira um getter global que,
+// sem `--localstorage-file`, devolve undefined. O ambiente jsdom do Vitest não
+// sobrescreve globais que já existem, então o do Node escondia o do jsdom e
+// todo teste que toca o armazenamento quebrava ("reading 'clear'").
+const jsdomWindow = (globalThis as { jsdom?: { window: Window } }).jsdom?.window
+for (const key of ['localStorage', 'sessionStorage'] as const) {
+  if (jsdomWindow && globalThis[key] !== jsdomWindow[key]) {
+    Object.defineProperty(globalThis, key, { value: jsdomWindow[key], configurable: true, writable: true })
+  }
+}
+
 import i18n from '../i18n'
 void i18n.changeLanguage('pt-BR') // asserções existentes são pt-BR
 

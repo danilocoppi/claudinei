@@ -300,6 +300,7 @@ export const ptBR: typeof en = {
     manual: 'Manual', auto: 'Auto', acceptEdits: 'Aceitar edições', plan: 'Plano', bypass: 'Pular permissões',
   },
   controls: {
+    headsUp: 'Avisos "You should know"', headsUpHint: 'Avisos do Claude acima do campo, sobre algo importante que pode ter passado batido. Desligar economiza o agente paralelo que procura esses avisos (vale para este terminal).',
     model: 'Modelo', effort: 'Esforço', permission: 'Permissão', applied: 'aplicado',
     workingHint: 'aguarde o turno atual terminar', title: 'Controles da sessão',
     context: 'Contexto', compactNow: 'Compactar agora', compactHint: 'resume a conversa para liberar espaço na janela de contexto (/compact)',
@@ -395,6 +396,7 @@ export const ptBR: typeof en = {
     revokeAll: 'Revogar todas as sessões',
     revokeAllConfirm: 'Todos os navegadores logados (inclusive este) terão que entrar de novo.',
   },
+  headsUp: { region: 'Avisos do Claude', close: 'Fechar aviso' },
   fileViewer: {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',
     tooLarge: 'Arquivo grande demais para prévia — baixe para ver o conteúdo.',

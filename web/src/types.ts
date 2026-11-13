@@ -5,7 +5,7 @@ export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' 
 
 export type PermissionMode = 'default' | 'auto' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
-export interface Project { id: number; name: string; path: string; color: string; icon: string; favorite?: boolean; groupId?: number | null; sectorId?: number | null; sortOrder?: number }
+export interface Project { id: number; name: string; path: string; color: string; icon: string; favorite?: boolean; headsUp?: boolean; groupId?: number | null; sectorId?: number | null; sortOrder?: number }
 
 export interface SessionInfo {
   localId: string
@@ -38,6 +38,8 @@ export interface SessionInfo {
   contextWindow?: number
   /** Pergunta (AskUserQuestion) esperando você. Ausente = nenhuma. */
   pendingQuestion?: PendingQuestion
+  /** Aviso do plugin "You should know" desenhado agora (só Claude vivo). Ausente = nenhum. */
+  headsUp?: HeadsUpNode
   /** Compactação de contexto em curso: epoch ms do início. Vem no session_status/snapshot só enquanto dura; ausente = não está compactando. */
   compactingSince?: number
 }
@@ -127,3 +129,15 @@ export type ChatItem =
    * `run` é o número da execução, que casa com o feed da tela de Agendas.
    */
   | { kind: 'scheduled_message'; name: string; run: number; text: string; fromSubagent?: boolean; parentId?: string }
+
+/**
+ * Um nó do cartão que o plugin "You should know" do Claude desenha (o mesmo que o
+ * app Desktop recebe): Box/Text/div/span/b com filhos, Button com o `press` que o
+ * plugin entende, Markdown, Link, Code… Strings são texto.
+ */
+export type HeadsUpNode = string | {
+  type: string
+  props?: Record<string, unknown>
+  children?: HeadsUpNode[]
+  press?: { plugin: string; handle: number }
+}

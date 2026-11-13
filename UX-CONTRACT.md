@@ -93,6 +93,16 @@ Ao criar ou editar, `ScheduleEditor` monta `.modal-overlay` diretamente em `docu
 
 O Claudinei consulta `model/list` da CLI para mostrar somente os modelos liberados à conta, com os nomes, esforços e padrão informados por ela. Ao iniciar ou alterar uma sessão, o valor enviado continua sendo o ID do modelo. Se a consulta falhar, o catálogo de reserva oferece GPT-6.1 Sol como padrão, seguido pelos modelos anteriores ainda presentes no catálogo da CLI em 2026-09-29; uma consulta posterior bem-sucedida substitui essa reserva.
 
+## Avisos "You should know" acima do campo
+
+Pedido do usuário em 2026-11-13: os avisos do plugin embutido "You should know" do Claude CLI (etiquetas **Heads up** e **You should know**), que o terminal interativo mostra acima do campo de digitação, aparecem no chat do Claudinei no mesmo lugar, destacados, com um **X** para fechar; vários ficam empilhados um embaixo do outro.
+
+Como chegam: o servidor anexa cada terminal do Claude como a superfície `desktop` do plugin (o mesmo protocolo do app Desktop, marcado `@internal` no CLI 2.1.323): `ui_attach`; um `ui_render` do `AbovePrompt` (instância `above-prompt`) ao anexar e a cada `system/ui_invalidate`; `ui_press` nos cliques. A árvore que volta (Box, Text, Button, Markdown, Link, Code…) é desenhada como está, sem os nós do motor; os botões do plugin (Explique, Já sabia, Agora não, Entendi…) voltam a ele. O X aciona o botão de dispensar do próprio plugin (`role: "dismiss"`). Links só abrem se forem http/https, pela confirmação de link externo. Quem abre a tela depois recebe o aviso no snapshot.
+
+Pilha: o plugin mantém um aviso por sessão; o mesmo assunto mudando de estado (oferta → explicando → explicado) atualiza o cartão no lugar. Um assunto novo empilha embaixo, perto do campo, e o anterior fica apagado, só para ler (botões desabilitados), até o X dele, que só fecha na tela. Até 4 cartões. Um cartão fechado no X não volta pelo snapshot.
+
+Custo e interruptor: com a superfície anexada, o plugin passa a fazer o que faz no terminal interativo, com um agente paralelo que lê a conversa durante tarefas longas, consumindo tokens do plano. Em turnos curtos, o ensaio de 2026-11-13 não mostrou chamada extra. Cada terminal tem o interruptor **Avisos "You should know"** nos controles da sessão (só Claude), ligado por padrão e gravado no terminal (`projects.heads_up`); desligar solta a superfície na hora e tira o aviso da tela. Se uma versão nova do CLI mudar o protocolo, os avisos param de aparecer sem afetar o resto da sessão.
+
 ## Uso do Claude sem sumir
 
 Pedido do usuário em 2026-11-02: a seção do Claude no cartão de Uso sumia com frequência. A causa era o 429 do endpoint de uso da Anthropic, cujo limite de consultas é da conta e dividido com os próprios terminais do Claude CLI; o Claudinei consultava a cada minuto e, a cada falha, apagava os números.

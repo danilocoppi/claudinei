@@ -18,6 +18,7 @@ import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
+import { HeadsUpBand } from './HeadsUpBand'
 import { Icon } from './Icon'
 import { isAtBottom } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
@@ -320,6 +321,8 @@ export function ChatView() {
       )}
       <ReauthBanner localId={session.localId} expired={session.authExpired} />
       <InlineFileView localId={session.localId} />
+      {/* Avisos do plugin "You should know" do Claude: logo acima do campo, como no terminal. */}
+      <HeadsUpBand localId={session.localId} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

@@ -3011,3 +3011,36 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .placement__row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); }
 .placement__row > span { flex: none; min-width: 92px; }
 .placement__row select { flex: 1; min-width: 0; }
+
+/* Avisos do plugin "You should know" do Claude, acima do campo (HeadsUpBand).
+   Destacados com o âmbar do aviso; vários empilham, o mais novo embaixo, perto
+   do campo. O antigo fica mais apagado: só para ler, até o X. */
+.heads-up-band { display: flex; flex-direction: column; gap: 6px; margin: 0 12px 8px; }
+.heads-up {
+  position: relative; display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border));
+  border-left: 3px solid var(--warn); border-radius: var(--radius-md);
+  background: linear-gradient(color-mix(in srgb, var(--warn) 9%, transparent), color-mix(in srgb, var(--warn) 9%, transparent)), var(--surface-solid);
+  font-size: 13px; line-height: 1.5; color: var(--text);
+}
+.heads-up--old { opacity: .62; border-left-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.heads-up__body { flex: 1; min-width: 0; max-height: 40vh; overflow-y: auto; overflow-wrap: anywhere; }
+.heads-up__md > :first-child { margin-top: 0; }
+.heads-up__md > :last-child { margin-bottom: 0; }
+.heads-up__md p, .heads-up__md ul, .heads-up__md ol { margin: 2px 0; }
+.heads-up__code { margin: 4px 0; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--surface); font-size: 12px; overflow-x: auto; }
+.heads-up__btn {
+  padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.heads-up__btn:hover:not(:disabled) { background: var(--surface-strong); }
+.heads-up__btn--primary { border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); background: color-mix(in srgb, var(--warn) 18%, var(--surface)); }
+.heads-up__btn:disabled { opacity: .55; cursor: default; }
+.heads-up__close {
+  flex: none; width: 26px; height: 26px; margin: -4px -6px 0 0; padding: 0;
+  border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-dim);
+  font-size: 18px; line-height: 1; cursor: pointer;
+}
+.heads-up__close:hover { background: var(--surface-strong); color: var(--text); }
+.heads-up :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 768px) { .heads-up-band { margin: 0 8px 6px; } }

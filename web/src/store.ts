@@ -10,6 +10,8 @@ import { BUILTIN_FALLBACK } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
+import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
+import type { HeadsUpNode } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
@@ -112,6 +114,10 @@ interface State {
   fileEditDirty: boolean
   /** Menu de contexto do link de arquivo (escolha popup × inline), na posição do clique. */
   fileMenu: FileMenu | null
+  /** Avisos do plugin "You should know" por chat: a pilha da faixa acima do campo. */
+  headsUps: Record<string, HeadsUpCard[]>
+  /** Avisos fechados no X, por chat: o mesmo cartão chegando de novo (snapshot) não volta. */
+  dismissedHeadsUps: Record<string, string[]>
   /** Arquivo aberto INLINE (painel dockado acima do input do chat), por sessão. */
   inlineFile: { localId: string; path: string; kind: FileKind; projectId?: number } | null
   /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
@@ -185,6 +191,8 @@ interface State {
   setFileEditDirty(v: boolean): void
   openFileMenu(menu: FileMenu): void
   closeFileMenu(): void
+  /** Tira um aviso da faixa deste chat (o X). */
+  dismissHeadsUp(localId: string, id: string): void
   openFileInline(localId: string, path: string, kind: FileKind, projectId?: number): void
   closeFileInline(): void
   openExternalLink(url: string): void
@@ -205,7 +213,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null,
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {},
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -229,6 +237,8 @@ export const useStore = create<State>((set, get) => ({
   fileViewer: null,
   fileEditDirty: false,
   fileMenu: null,
+  headsUps: {},
+  dismissedHeadsUps: {},
   inlineFile: null,
   fileResolved: {},
   externalLink: null,
@@ -343,6 +353,14 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
 
   applyWsMessage: (msg) => {
+    // Aviso do plugin: o que o servidor diz que está desenhado agora. Um cartão já
+    // fechado no X conta como nenhum (o snapshot o traria de volta).
+    const applyHeadsUp = (localId: string, tree: HeadsUpNode | null) => set((s) => {
+      const dismissed = tree !== null && (s.dismissedHeadsUps[localId] ?? []).includes(headsUpKey(tree))
+      const next = nextHeadsUps(s.headsUps[localId] ?? [], dismissed ? null : tree)
+      if (next.length === 0 && !s.headsUps[localId]) return {}
+      return { headsUps: { ...s.headsUps, [localId]: next } }
+    })
     if (msg.type === 'error' && typeof msg.localId === 'string' && typeof msg.message === 'string') {
       get().addLocalItem(msg.localId, { kind: 'command_output', text: localizeServerError(msg), isError: true })
     } else if (msg.type === 'action_exit') {
@@ -357,9 +375,12 @@ export const useStore = create<State>((set, get) => ({
       // deve reabrir a janela de um processo que já não existe.
       saveRuns(restantes.filter((r) => !r.exited))
       set({ actionRuns: restantes })
+    } else if (msg.type === 'heads_up' && typeof msg.localId === 'string') {
+      applyHeadsUp(msg.localId, (msg.tree ?? null) as HeadsUpNode | null)
     } else if (msg.type === 'sessions_snapshot') {
       const sessions: Record<string, SessionInfo> = {}
       for (const info of msg.sessions as SessionInfo[]) sessions[info.localId] = info
+      for (const info of msg.sessions as SessionInfo[]) applyHeadsUp(info.localId, info.headsUp ?? null)
       // Sessão que sumiu do snapshot foi deletada: leva junto as entradas dela nos
       // mapas por-sessão — sem esta poda, chat/unread/etc. crescem para sempre.
       set((s) => ({
@@ -368,6 +389,8 @@ export const useStore = create<State>((set, get) => ({
         unread: pruneOrphans(s.unread, sessions),
         historyLoadedFor: pruneOrphans(s.historyLoadedFor, sessions),
         streaming: pruneOrphans(s.streaming, sessions),
+        headsUps: pruneOrphans(s.headsUps, sessions),
+        dismissedHeadsUps: pruneOrphans(s.dismissedHeadsUps, sessions),
       }))
     } else if (msg.type === 'session_status') {
       const prev = get().sessions[msg.localId]?.status
@@ -572,6 +595,15 @@ export const useStore = create<State>((set, get) => ({
   openFileMenu: (menu) => set({ fileMenu: menu }),
 
   closeFileMenu: () => set({ fileMenu: null }),
+  dismissHeadsUp: (localId, id) => set((s) => {
+    const card = (s.headsUps[localId] ?? []).find((c) => c.id === id)
+    return {
+      headsUps: { ...s.headsUps, [localId]: (s.headsUps[localId] ?? []).filter((c) => c.id !== id) },
+      dismissedHeadsUps: card
+        ? { ...s.dismissedHeadsUps, [localId]: [...(s.dismissedHeadsUps[localId] ?? []), headsUpKey(card.tree)].slice(-20) }
+        : s.dismissedHeadsUps,
+    }
+  }),
 
   openFileInline: (localId, path, kind, projectId) => set({ inlineFile: { localId, path, kind, projectId } }),
 

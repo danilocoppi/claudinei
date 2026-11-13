@@ -297,6 +297,7 @@ export const en = {
     manual: 'Manual', auto: 'Auto', acceptEdits: 'Accept edits', plan: 'Plan', bypass: 'Skip permissions',
   },
   controls: {
+    headsUp: 'Heads-ups "You should know"', headsUpHint: 'Claude heads-ups above the input, about something important you may have missed. Turning off saves the parallel agent that looks for them (this terminal only).',
     model: 'Model', effort: 'Effort', permission: 'Permission', applied: 'applied',
     workingHint: 'wait for the current turn to finish', title: 'Session controls',
     context: 'Context', compactNow: 'Compact now', compactHint: 'summarizes the conversation to free context-window space (/compact)',
@@ -392,6 +393,7 @@ export const en = {
     revokeAll: 'Revoke all sessions',
     revokeAllConfirm: 'Every signed-in browser (including this one) will need to sign in again.',
   },
+  headsUp: { region: 'Claude heads-ups', close: 'Close heads-up' },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
     tooLarge: 'File too large to preview — download it instead.',

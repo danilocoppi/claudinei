@@ -302,6 +302,25 @@ rl.on('line', (line) => {
     out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'trabalhando…' }] } })
     return
   }
+  // Conversa longa para medir o peso do chat: `rajada <ciclos> <ms>` manda, por
+  // ciclo, um texto em Markdown, uma chamada de ferramenta e o resultado dela,
+  // espaçados de <ms> (0 = de uma vez); o result fecha o turno.
+  const rajada = text.match(/rajada (\d+)(?: (\d+))?/)
+  if (rajada) {
+    const ciclos = Number(rajada[1]); const ms = Number(rajada[2] ?? 0)
+    let n = 0
+    const ciclo = () => {
+      const id = `toolu_r_${Date.now()}_${n}`
+      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: `Passo **${n}**: conferindo \`src/arquivo-${n}.ts\` e seguindo.\n\n- item um\n- item dois com \`código\`` }], usage: ctxUsage() } })
+      out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'tool_use', id, name: n % 2 ? 'Read' : 'Bash', input: n % 2 ? { file_path: `/tmp/x/arquivo-${n}.ts` } : { command: `grep -rn coisa src/ | head -${n}` } }] } })
+      out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `linha 1 do resultado ${n}\nlinha 2\nlinha 3` }] } })
+      n++
+      if (n < ciclos) { if (ms) setTimeout(ciclo, ms); else ciclo() }
+      else out({ type: 'result', subtype: 'success', is_error: false, result: 'fim', session_id: sid, num_turns: 1, total_cost_usd: 0, usage: turnUsage(), modelUsage: modelUsage() })
+    }
+    ciclo()
+    return
+  }
   if (text.includes('demorada')) {
     // turno fica aberto: responde assistant mas NUNCA emite result (até um interrupt)
     out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'trabalhando…' }] } })

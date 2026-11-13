@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { Profiler } from 'react'
+import { render, cleanup, screen, fireEvent, act } from '@testing-library/react'
 import { ChatInput } from '../components/ChatInput'
 import { MessageBlock } from '../components/MessageBlock'
 import { WsContext } from '../wsContext'
@@ -105,5 +106,58 @@ describe('MessageBlock não refaz o markdown à toa', () => {
     const item = { kind: 'user_text' as const, text: 'antigo' }
     render(<MessageBlock item={item} currentLocalId="s1" editable={false} onEdit={() => {}} />)
     expect(screen.queryByTitle(/edit|editar/i)).toBeNull()
+  })
+})
+
+/**
+ * Conversa longa ficava lenta com o tempo, e reabrir a página "resolvia" (o
+ * histórico volta limitado). Medido no Chrome com o CLI falso: com ~1.200
+ * entradas no chat, cada evento novo custava ~190 ms de JavaScript, contra
+ * ~7 ms no começo; 70% disso era o react-markdown refazendo TODAS as mensagens.
+ * O memo do MessageBlock existia, mas peças de dentro dele assinavam mapas
+ * GLOBAIS do store — o cache de arquivos resolvidos (muda a cada mensagem que
+ * cita um caminho), as sessões (mudam a cada evento: status, contexto) e os
+ * projetos —, e assinatura do store re-renderiza por cima do memo.
+ */
+describe('mensagens antigas não re-renderizam com o que muda no store', () => {
+  const conversa = () => Array.from({ length: 12 }, (_, i) => [
+    { kind: 'user_text' as const, text: `pedido ${i} sobre src/pedido-${i}.ts` },
+    { kind: 'user_text' as const, text: `# skill ${i}\n\ninjetada`, fromEngine: true },
+    { kind: 'assistant_text' as const, text: `Mexi em **src/arquivo-${i}.ts** e segui.` },
+  ]).flat()
+  const montar = () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const commits = { n: 0 }
+    const items = conversa()
+    render(
+      <WsContext.Provider value={ws}>
+        <Profiler id="conversa" onRender={() => { commits.n++ }}>
+          {items.map((item, i) => <MessageBlock key={i} item={item} currentLocalId="s1" />)}
+        </Profiler>
+      </WsContext.Provider>,
+    )
+    commits.n = 0
+    return commits
+  }
+
+  it('um caminho novo resolvido (citado em outra mensagem) não refaz a conversa', async () => {
+    const commits = montar()
+    act(() => useStore.getState().setFilesResolved([{ path: 'src/novo.ts', exists: true, inScope: true, kind: 'text' } as never], 1))
+    expect(commits.n, 'mensagens re-renderizaram por um arquivo que nenhuma cita').toBe(0)
+  })
+
+  it('evento de sessão (status, contexto) e projeto mexido não refazem a conversa', () => {
+    const commits = montar()
+    act(() => useStore.setState((s) => ({ sessions: { ...s.sessions, s1: { ...s.sessions.s1, status: 'working', contextTokens: 1234 } } })))
+    act(() => useStore.setState((s) => ({ sessions: { ...s.sessions, s2: sess('s2', 1) } })))
+    act(() => useStore.setState((s) => ({ projects: s.projects.map((p) => ({ ...p })) })))
+    expect(commits.n, 'mensagens re-renderizaram por evento de sessão/projeto').toBe(0)
+  })
+
+  it('o caminho que a mensagem cita, quando resolve, ainda vira link', async () => {
+    montar()
+    expect(screen.queryByRole('link', { name: 'src/arquivo-3.ts' })).toBeNull()
+    act(() => useStore.getState().setFilesResolved([{ path: 'src/arquivo-3.ts', exists: true, inScope: true, kind: 'text' } as never], 1))
+    expect(screen.getByText('src/arquivo-3.ts').closest('a')).not.toBeNull()
   })
 })

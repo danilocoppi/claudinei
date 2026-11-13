@@ -170,6 +170,19 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     return project ?? reply.code(404).send(fail('project_not_found', 'projeto não existe'))
   })
 
+  /** Avisos do plugin "You should know" do Claude neste terminal: grava e anexa/solta na hora. */
+  app.patch('/api/projects/:id/heads-up', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isSafeInteger(id) || id <= 0) return reply.code(400).send({ error: 'id inválido' })
+    if (!requireProjectAccess(req, reply, id)) return
+    const headsUp = (req.body as { headsUp?: unknown } | undefined)?.headsUp
+    if (typeof headsUp !== 'boolean') return reply.code(400).send({ error: 'headsUp deve ser booleano' })
+    const project = svc.setHeadsUp(id, headsUp)
+    if (!project) return reply.code(404).send(fail('project_not_found', 'projeto não existe'))
+    await deps.manager.setHeadsUp(id, headsUp)
+    return project
+  })
+
   /**
    * Sessões que impedem excluir o terminal, em todas as engines. Inclui a que
    * está no terminal: ela sai do mapa `live`, mas o PTY continua rodando — o

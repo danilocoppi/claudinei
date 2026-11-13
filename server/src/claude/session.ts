@@ -463,6 +463,20 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   // '' = voltar ao modelo Padrão: o protocolo de controle só troca por um modelo
   // nomeado (não tem "reset"), então no processo vivo é no-op — o Padrão vale no
   // relaunch (argv sem --model). As engines turn-based tratam '' nativamente.
+
+  // Superfície remota (ver heads-up.ts): o Claudinei se apresenta como `desktop`
+  // para o plugin "You should know" desenhar os avisos. Correm no meio do turno,
+  // que é quando o plugin desenha.
+  private static readonly SURFACE = { surface: 'desktop', client_id: 'claudinei' }
+  uiAttach(): Promise<unknown> { return this.sendControl('ui_attach', ClaudeSession.SURFACE, { allowWorking: true }) }
+  uiDetach(): Promise<unknown> { return this.sendControl('ui_detach', ClaudeSession.SURFACE, { allowWorking: true }) }
+  uiRender(props: Record<string, unknown>): Promise<unknown> {
+    return this.sendControl('ui_render', { ...ClaudeSession.SURFACE, component: 'AbovePrompt', instance_id: 'above-prompt', props }, { allowWorking: true })
+  }
+  uiPress(press: { plugin: string; handle: number; key?: string }): Promise<unknown> {
+    return this.sendControl('ui_press', { ...ClaudeSession.SURFACE, ...press }, { allowWorking: true })
+  }
+
   async setModel(model: string): Promise<void> { if (model) await this.sendControl('set_model', { model }) }
   async setPermissionMode(mode: string): Promise<void> { await this.sendControl('set_permission_mode', { mode }) }
   /** No-op: o Claude aplica effort via mensagem /effort do frontend (protocolo próprio, inalterado). */

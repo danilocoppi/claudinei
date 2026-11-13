@@ -173,6 +173,8 @@ export function openDb(path: string): Db {
   db.exec(`UPDATE sessions SET permission_mode = CASE WHEN skip_permissions = 0 THEN 'default' ELSE 'bypassPermissions' END WHERE permission_mode IS NULL`)
   try { db.exec(`ALTER TABLE projects ADD COLUMN sort_order INTEGER`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
+  // Avisos do plugin "You should know" do Claude neste terminal (ligados por padrão).
+  try { db.exec(`ALTER TABLE projects ADD COLUMN heads_up INTEGER NOT NULL DEFAULT 1`) } catch { /* já existe */ }
   db.exec(`UPDATE projects SET sort_order = id WHERE sort_order IS NULL`)
   // Nomenclatura em inglês (Hermes): colunas antigas em PT renomeadas para EN,
   // e valores antigos de status migrados. Idempotente — instalação nova já

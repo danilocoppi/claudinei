@@ -138,6 +138,14 @@ export function createWsHub() {
             // seguinte é a confirmação.
             else if (msg.type === 'answer_question') deps.manager.answerQuestion(msg.localId, msg.answers)
             else if (msg.type === 'dismiss_question') deps.manager.dismissQuestion(msg.localId)
+            // Botão do aviso do plugin "You should know" (heads-up.ts): o plugin
+            // redesenha ou tira o cartão, e o heads_up seguinte confirma.
+            else if (msg.type === 'heads_up_press') {
+              const p = msg.press
+              if (!p || typeof p.plugin !== 'string' || !Number.isSafeInteger(p.handle) || (p.key !== undefined && typeof p.key !== 'string')) return
+              void deps.manager.pressHeadsUp(msg.localId, { plugin: p.plugin, handle: p.handle, ...(p.key ? { key: p.key } : {}) })
+                .catch((err) => access.send(JSON.stringify({ type: 'error', localId: msg.localId, ...wsError(err) })))
+            }
             /**
              * `!comando` do chat: roda na pasta do terminal e a saída volta só
              * para quem pediu.

@@ -111,6 +111,9 @@ export const deleteProject = (id: number, opts: { stopSessions?: boolean } = {})
   req<void>(`/api/projects/${id}${opts.stopSessions ? '?stopSessions=1' : ''}`, { method: 'DELETE' })
 export const updateProject = (id: number, patch: { name?: string; color?: string; icon?: string }) =>
   req<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+/** Avisos do plugin "You should know" do Claude neste terminal (o servidor anexa/solta na hora). */
+export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
+  req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
 export const setProjectFavorite = (id: number, favorite: boolean) =>
   req<Project>(`/api/projects/${id}/favorite`, { method: 'PATCH', body: JSON.stringify({ favorite }) })
 export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number; sectorId?: number | null }

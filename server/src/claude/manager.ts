@@ -9,6 +9,11 @@ import { userEchoEvent } from '../engine/echo.js'
 import { contextWindowFor, windowFromModelUsage, DEFAULT_CONTEXT_WINDOW } from './context-window.js'
 import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '../project-threads.js'
 import { UserError } from '../user-error.js'
+import { createHeadsUp, type HeadsUpNode, type HeadsUpPress, type HeadsUpSurface } from './heads-up.js'
+
+/** A sessão sabe ser uma superfície remota (só a do Claude). */
+const isHeadsUpSurface = (s: unknown): s is HeadsUpSurface =>
+  !!s && typeof (s as HeadsUpSurface).uiAttach === 'function' && typeof (s as HeadsUpSurface).uiRender === 'function'
 
 export interface SessionInfo {
   localId: string
@@ -37,6 +42,8 @@ export interface SessionInfo {
   pendingQuestion?: PendingQuestion
   /** Compactação de contexto em curso: epoch ms do início — só sessão VIVA, só memória. Ausente = não está compactando. */
   compactingSince?: number
+  /** Aviso do plugin "You should know" desenhado agora (árvore do plugin) — só sessão VIVA do Claude. Ausente = nenhum. */
+  headsUp?: HeadsUpNode
 }
 
 export interface TerminalLauncherOpts {
@@ -129,7 +136,11 @@ function waitForResult(session: EngineSession, timeoutMs: number): Promise<strin
 }
 
 export function createSessionManager(deps: Deps) {
-  const live = new Map<string, { session: EngineSession; projectId: number; engine: EngineId; contextTokens?: number; contextWindow?: number; autoCompacting?: boolean; initModel?: string }>()
+  const live = new Map<string, {
+    session: EngineSession; projectId: number; engine: EngineId; contextTokens?: number; contextWindow?: number; autoCompacting?: boolean; initModel?: string
+    /** Avisos do plugin You should know (só Claude): o cartão de agora e o controlador da superfície. */
+    headsUp?: HeadsUpNode | null; headsUpCtl?: ReturnType<typeof createHeadsUp>; setHeadsUp?: (on: boolean) => Promise<void>
+  }>()
   // Resolve a sessão pela engine (registry) — ou, em teste, pelo override sessionFactory.
   const makeSession = (engineId: EngineId, opts: EngineSessionOptions): EngineSession =>
     deps.sessionFactory ? deps.sessionFactory(opts) : getEngine(engineId).createSession(opts)
@@ -200,6 +211,36 @@ export function createSessionManager(deps: Deps) {
 
   const wire = (localId: string, projectId: number, engine: EngineId, session: EngineSession) => {
     live.set(localId, { session, projectId, engine })
+    // Avisos do plugin "You should know" (heads-up.ts): só no Claude, e só com o
+    // interruptor do terminal ligado — lido do banco na hora, para valer o atual.
+    const surface = engine === 'claude' && isHeadsUpSurface(session) ? session : undefined
+    const headsUpWanted = () => {
+      const row = deps.db.prepare('SELECT heads_up FROM projects WHERE id=?').get(projectId) as { heads_up?: number } | undefined
+      return (row?.heads_up ?? 1) !== 0
+    }
+    const setHeadsUp = async (on: boolean) => {
+      const entry = live.get(localId)
+      if (!entry || !surface) return
+      if (!on) {
+        const ctl = entry.headsUpCtl
+        entry.headsUpCtl = undefined
+        await ctl?.stop()
+        return
+      }
+      if (entry.headsUpCtl || !session.sessionId) return // antes do init, o init liga
+      const ctl = createHeadsUp({
+        surface,
+        onChange: (tree) => {
+          const e = live.get(localId)
+          if (e) e.headsUp = tree
+          deps.broadcast({ type: 'heads_up', localId, projectId, tree })
+        },
+        log: (m) => console.info(`[avisos] ${localId}: ${m}`),
+      })
+      entry.headsUpCtl = ctl
+      await ctl.start()
+    }
+    live.get(localId)!.setHeadsUp = setHeadsUp
     // Um lugar só monta o session_status do wire(): cada campo novo do SessionInfo
     // (hoje, pendingQuestion) entra aqui e chega igual nos três momentos em que
     // ele publica — mudança de status, init e arranque.
@@ -225,12 +266,18 @@ export function createSessionManager(deps: Deps) {
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
       deps.broadcast(statusMsg({ status, detail }))
-      if (status === 'dead' || status === 'stopped') live.delete(localId)
+      if (status === 'dead' || status === 'stopped') {
+        // O processo saiu: o aviso que estava na tela some com ele.
+        if (live.get(localId)?.headsUp) deps.broadcast({ type: 'heads_up', localId, projectId, tree: null })
+        live.delete(localId)
+      }
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => deps.onSessionAvailable?.(projectId))
       }
     })
     session.on('event', (event) => {
+      if (event.kind === 'system' && event.subtype === 'ui_invalidate') { live.get(localId)?.headsUpCtl?.invalidate(); return }
+      if (event.kind === 'init' && surface && headsUpWanted()) void setHeadsUp(true).catch(() => {})
       if (event.kind === 'init') {
         // A janela sai do modelo que o CLI reporta aqui (o stream não anuncia o
         // tamanho). Vale para o modelo EM USO: trocar de modelo emite novo init,
@@ -363,6 +410,7 @@ export function createSessionManager(deps: Deps) {
       contextWindow: liveEntry?.contextWindow,
       pendingQuestion: liveEntry?.session.pendingQuestion,
       compactingSince: liveEntry?.session.compactingSince,
+      headsUp: liveEntry?.headsUp ?? undefined,
     }
   }
 
@@ -441,6 +489,19 @@ export function createSessionManager(deps: Deps) {
       ).run(localId, project.id, engine, permissionMode, model ?? null, continueLatest ? 1 : 0, opts?.effort ?? null, sharedResume ?? null)
       wire(localId, project.id, engine, session)
       return infoOf(localId)!
+    },
+
+    /** Clique num botão do aviso: vai ao plugin, que redesenha (ou tira) o cartão. */
+    async pressHeadsUp(localId: string, press: HeadsUpPress): Promise<void> {
+      const ctl = live.get(localId)?.headsUpCtl
+      if (!ctl) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
+      await ctl.press(press)
+    },
+
+    /** Interruptor dos avisos de um terminal: anexa ou solta a superfície das sessões vivas dele. */
+    async setHeadsUp(projectId: number, on: boolean): Promise<void> {
+      const entries = [...live.values()].filter((e) => e.projectId === projectId && e.setHeadsUp)
+      await Promise.all(entries.map((e) => e.setHeadsUp!(on).catch(() => {})))
     },
 
     send(localId: string, text: string): void {

@@ -299,6 +299,7 @@ export const es: typeof en = {
     manual: 'Manual', auto: 'Auto', acceptEdits: 'Aceptar ediciones', plan: 'Plan', bypass: 'Omitir permisos',
   },
   controls: {
+    headsUp: 'Avisos "You should know"', headsUpHint: 'Avisos de Claude sobre el campo, de algo importante que puede haber pasado desapercibido. Desactivar ahorra el agente paralelo que los busca (solo en este terminal).',
     model: 'Modelo', effort: 'Esfuerzo', permission: 'Permiso', applied: 'aplicado',
     workingHint: 'espera a que termine el turno actual', title: 'Controles de sesión',
     context: 'Contexto', compactNow: 'Compactar ahora', compactHint: 'resume la conversación para liberar espacio en la ventana de contexto (/compact)',
@@ -394,6 +395,7 @@ export const es: typeof en = {
     revokeAll: 'Revocar todas las sesiones',
     revokeAllConfirm: 'Todos los navegadores conectados (incluido este) deberán iniciar sesión de nuevo.',
   },
+  headsUp: { region: 'Avisos de Claude', close: 'Cerrar aviso' },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',
     tooLarge: 'Archivo demasiado grande para vista previa — descárgalo para verlo.',

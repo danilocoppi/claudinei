@@ -26,6 +26,12 @@
 //   contém "pedido-interativo" -> can_use_tool de ExitPlanMode com requires_user_interaction (espera deny)
 //   contém "pedido-comum"      -> can_use_tool de Bash sem interação (espera allow)
 //   interrupt com pergunta pendente -> control_cancel_request antes do control_response (probe H)
+//   contém "faz-aviso" -> responde normal e, como o plugin "You should know", passa a
+//                         desenhar um cartão no AbovePrompt (system ui_invalidate; o
+//                         ui_render seguinte devolve a árvore). "faz-outro-aviso" troca por outro.
+//   ui_attach / ui_detach / ui_render / ui_press -> superfície remota (desktop): o
+//                         press no botão de handle 1 (dismiss) tira o cartão; o de
+//                         handle 2 (Explique) troca pela explicação.
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -38,6 +44,25 @@ const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
 // Pergunta (AskUserQuestion) esperando o control_response do host. Replica a CLI
 // real: o turno fica bloqueado até a resposta chegar pelo stdin.
 let pendingQuestion = null
+
+// Cartão do plugin You should know, como o ui_render o devolve a uma superfície desktop.
+let aviso = null
+const PLUGIN = 'cc-plugin-you-should-know'
+const btn = (handle, label, extra = {}) => ({ type: 'Button', props: { key: `b${handle}`, label, ...extra }, press: { plugin: PLUGIN, handle } })
+const cartao = (titulo, corpo, botoes) => ({ type: 'Box', props: { flexDirection: 'column', gap: 1 }, children: [
+  { type: 'engine', ref: 2 },
+  { type: 'Box', props: { flexDirection: 'row' }, children: [{ type: 'Text', props: { bold: true, color: 'warning' }, children: ['Heads up'] }] },
+  { type: 'Text', props: { bold: true }, children: [titulo] },
+  { type: 'Markdown', props: { text: corpo } },
+  { type: 'Box', props: { flexDirection: 'row', gap: 2 }, children: botoes },
+  btn(1, 'Dispensar', { role: 'dismiss' }),
+] })
+const avisoOferta = () => cartao('O lucro de 27% esconde um risco de perda grande',
+  '- A posição aberta está em **-19%**.\n- O robô não usa stop.', [btn(2, 'Explique', { variant: 'primary' }), btn(3, 'Já sabia'), btn(4, 'Agora não')])
+const avisoOutro = () => cartao('O backup de ontem não rodou', 'O cron parou às 02:00 e ninguém viu.', [btn(5, 'Explique'), btn(6, 'Já sabia')])
+const avisoExplicado = () => cartao('O lucro de 27% esconde um risco de perda grande',
+  'Explicação curta: somando a posição aberta, a queda real passa de 20%.', [btn(7, 'Entendi', { variant: 'primary' })])
+const invalida = () => out({ type: 'system', subtype: 'ui_invalidate', event: 'ui.render', session_id: sid })
 
 // --slash a,b,c injeta a lista de slash_commands no init (testa a captura)
 const slashArg = process.argv.indexOf('--slash')
@@ -174,6 +199,20 @@ rl.on('line', (line) => {
       out({ type: 'system', subtype: 'task_updated', task_id: r.task_id, patch: { status: 'completed' } })
       return
     }
+    if (r.subtype === 'ui_attach') { out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: { surfaces: [r.surface] } } }); return }
+    if (r.subtype === 'ui_detach') { out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: { wasAttached: true, surfaces: [] } } }); return }
+    if (r.subtype === 'ui_render') {
+      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {
+        tree: aviso ?? { type: 'engine', ref: 2 }, props: r.props ?? {}, rewritten: false, hooked: true, drawn_by: aviso ? [PLUGIN] : [] } } })
+      return
+    }
+    if (r.subtype === 'ui_press') {
+      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: { handled: true } } })
+      if (r.handle === 2) aviso = avisoExplicado()
+      else aviso = null
+      invalida()
+      return
+    }
     if (r.mode === 'timeout-test') return            // simula não-resposta (testa timeout)
     if (r.mode === 'fail-test') { out({ type: 'control_response', response: { subtype: 'error', request_id: msg.request_id, error: 'modo inválido' } }); return }
     out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: r.mode ? { mode: r.mode } : {} } })
@@ -289,5 +328,7 @@ rl.on('line', (line) => {
   }
   if (text.includes('devagar')) setTimeout(respond, 300)
   else respond()
+  if (text.includes('faz-outro-aviso')) { aviso = avisoOutro(); invalida() }
+  else if (text.includes('faz-aviso')) { aviso = avisoOferta(); invalida() }
 })
 rl.on('close', () => process.exit(0))

@@ -9,6 +9,8 @@ export interface Project {
   color: string
   icon: string
   favorite: boolean
+  /** Avisos do plugin "You should know" do Claude neste terminal. */
+  headsUp: boolean
   /** Grupo visual na sidebar (null = solto na raiz). */
   groupId: number | null
   /** Setor do terminal quando ele está SOLTO num setor (fora de grupo). */
@@ -21,7 +23,7 @@ export type ProjectsService = ReturnType<typeof createProjectsService>
 
 export function createProjectsService(db: Db) {
   const rowToProject = (r: any): Project => ({
-    id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, favorite: !!r.favorite, groupId: r.group_id ?? null, sectorId: r.sector_id ?? null, sortOrder: r.sort_order ?? 0,
+    id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, favorite: !!r.favorite, headsUp: r.heads_up === undefined ? true : !!r.heads_up, groupId: r.group_id ?? null, sectorId: r.sector_id ?? null, sortOrder: r.sort_order ?? 0,
   })
 
   return {
@@ -50,6 +52,11 @@ export function createProjectsService(db: Db) {
         .run(next.name, next.path, next.color, next.icon, id)
       return next
     },
+    setHeadsUp(id: number, headsUp: boolean): Project | undefined {
+      const updated = db.prepare('UPDATE projects SET heads_up = ? WHERE id = ?').run(headsUp ? 1 : 0, id)
+      return updated.changes ? this.get(id) : undefined
+    },
+
     setFavorite(id: number, favorite: boolean): Project | undefined {
       const updated = db.prepare('UPDATE projects SET favorite = ? WHERE id = ?').run(favorite ? 1 : 0, id)
       return updated.changes ? this.get(id) : undefined

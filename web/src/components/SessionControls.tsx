@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { SessionInfo } from '../types'
-import { fetchAutoCompact, putAutoCompact, setSessionOptions, type PermissionMode } from '../api'
+import { fetchAutoCompact, putAutoCompact, setProjectHeadsUp, setSessionOptions, type PermissionMode } from '../api'
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
 import { MODE_KEY, MODE_COLOR } from '../permissionLabels'
@@ -63,6 +63,15 @@ export function SessionControls({ session }: { session: SessionInfo }) {
   const me = useStore((st) => st.me)
   const isAdmin = !me || me.isAdmin !== false
   const [autoCompact, setAutoCompact] = useState<number | null>(null)
+  // Avisos do plugin "You should know": só o Claude tem, e o interruptor é do terminal.
+  const project = useStore((st) => st.projects.find((p) => p.id === session.projectId))
+  const headsUpOn = project?.headsUp !== false
+  const toggleHeadsUp = () => {
+    setError(null)
+    setProjectHeadsUp(session.projectId, !headsUpOn)
+      .then((saved) => useStore.setState((st) => ({ projects: st.projects.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)) })))
+      .catch((err: Error) => setError(err.message))
+  }
   useEffect(() => {
     if (!open || !supportsContext) return
     fetchAutoCompact().then((r) => setAutoCompact(typeof r.pct === 'number' ? r.pct : null)).catch(() => setAutoCompact(null))
@@ -169,6 +178,16 @@ export function SessionControls({ session }: { session: SessionInfo }) {
                   </div>
                 )}
               </>
+            )}
+            {(session.engine ?? 'claude') === 'claude' && (
+              <label className="sess-pop__item sess-pop__item--row" title={t('controls.headsUpHint')}>
+                <span style={{ flex: 1 }}>{t('controls.headsUp')}</span>
+                <span className="switch switch--sm">
+                  <input type="checkbox" checked={headsUpOn} onChange={toggleHeadsUp} aria-label={t('controls.headsUp')} />
+                  <span className="track" />
+                  <span className="thumb" />
+                </span>
+              </label>
             )}
             {permissions.length > 0 && mode !== 'bypassPermissions' && <div className="sess-pop__warn">{t('session.permWarning')}</div>}
             {error && <div className="sess-pop__error">⚠ {error}</div>}

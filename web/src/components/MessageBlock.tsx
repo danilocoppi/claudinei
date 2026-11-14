@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useState, memo } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -10,7 +11,7 @@ import type { ChatItem } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
 import { WsContext } from '../wsContext'
-import { extractCandidatePaths, kindOfPath, resolveFiles, resolvedKey, splitCandidatePaths } from '../files'
+import { extractCandidatePaths, kindOfPath, resolveFiles, resolvedKey, splitCandidatePaths, type ScopeResult } from '../files'
 import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
 import rehypeFilePaths from '../rehypeFilePaths'
 import { MarkdownPre } from './MarkdownPre'
@@ -85,13 +86,29 @@ function useResolveFileCandidates(candidates: string[], projectId?: number): voi
 }
 
 /**
+ * Só as resoluções dos caminhos que ESTA mensagem cita. Assinar o mapa inteiro
+ * (`s.fileResolved`) re-renderizava a conversa toda — e refazia o markdown de
+ * cada mensagem — a cada arquivo resolvido em qualquer mensagem nova: numa
+ * conversa longa, ~190 ms por evento (ver perf-render.test.tsx).
+ */
+function useResolvedFor(paths: string[], projectId?: number): Record<string, ScopeResult | undefined> {
+  return useStore(useShallow((s) => {
+    const out: Record<string, ScopeResult | undefined> = {}
+    for (const p of paths) {
+      const k = resolvedKey(p, projectId)
+      out[k] = s.fileResolved[k]
+    }
+    return out
+  }))
+}
+
+/**
  * Texto puro com os paths de arquivo clicáveis. A bolha do operador não passa
  * por markdown (texto digitado não deve virar HTML), então o rehypeFilePaths do
  * lado do assistente não a alcança — sem isto o anexo que o envio transforma em
  * caminho (`[📎 nome]` → /home/.../uploads/x.png) fica como texto morto.
  */
 function TextWithFileLinks({ text, projectId, localId }: { text: string; projectId?: number; localId?: string }) {
-  const fileResolved = useStore((s) => s.fileResolved)
   const openFileMenu = useStore((s) => s.openFileMenu)
   const segments = useMemo(() => splitCandidatePaths(text), [text])
   const candidates = useMemo(
@@ -99,6 +116,7 @@ function TextWithFileLinks({ text, projectId, localId }: { text: string; project
     [segments],
   )
   useResolveFileCandidates(candidates, projectId)
+  const fileResolved = useResolvedFor(candidates, projectId)
 
   return (
     <div style={{ whiteSpace: 'pre-wrap' }}>
@@ -174,7 +192,10 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const engines = useStore((s) => s.engines)
-  const sessions = useStore((s) => s.sessions)
+  // Só o que a bolha usa da sessão: o mapa inteiro muda a cada evento de
+  // qualquer terminal e re-renderizava todas as bolhas da conversa.
+  const sessionEngine = useStore((s) => (currentLocalId ? s.sessions[currentLocalId]?.engine : undefined))
+  const sessionProjectId = useStore((s) => (currentLocalId ? s.sessions[currentLocalId]?.projectId : undefined))
 
   const displayText = useMemo(() => item.fromEngine ? formatEngineMessage(item.text) : item.text, [item.text, item.fromEngine])
   const lines = displayText.split('\n')
@@ -184,9 +205,8 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
     ? (item.fromEngine || item.fromSubagent ? collapseMarkdown(lines, COLLAPSE_LINES) : lines.slice(0, COLLAPSE_LINES).join('\n') + '\n…')
     : displayText
 
-  const session = currentLocalId ? sessions[currentLocalId] : undefined
   const engineLabel = item.fromEngine
-    ? (engines.find((e) => e.id === session?.engine)?.label ?? 'engine')
+    ? (engines.find((e) => e.id === sessionEngine)?.label ?? 'engine')
     : null
   // Aparece do lado do operador mas NÃO foi ele quem escreveu: skill/harness
   // (fromEngine) ou a instrução que o orquestrador mandou ao subagente
@@ -213,7 +233,7 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
             ? <div className="markdown" style={{ lineHeight: 1.6 }}>
                 <AssistantMarkdown text={shown} currentLocalId={currentLocalId} />
               </div>
-            : <TextWithFileLinks text={shown} projectId={session?.projectId} localId={currentLocalId} />}
+            : <TextWithFileLinks text={shown} projectId={sessionProjectId} localId={currentLocalId} />}
           {overflow > 0 && (
             <button type="button" className="msg-expand" onClick={() => setExpanded(!expanded)}>
               {collapsed ? `▾ ${t('chat.showAll', { n: overflow })}` : `▴ ${t('chat.collapse')}`}
@@ -443,7 +463,6 @@ function linkHrefCandidates(text: string): string[] {
 
 export function AssistantMarkdown({ text, currentLocalId }: { text: string; currentLocalId?: string }) {
   const projectId = useStore((s) => currentLocalId ? s.sessions[currentLocalId]?.projectId : undefined)
-  const fileResolved = useStore((s) => s.fileResolved)
   const openFileMenu = useStore((s) => s.openFileMenu)
   const openExternalLink = useStore((s) => s.openExternalLink)
 
@@ -452,6 +471,7 @@ export function AssistantMarkdown({ text, currentLocalId }: { text: string; curr
     [text],
   )
   useResolveFileCandidates(candidates, projectId)
+  const fileResolved = useResolvedFor(candidates, projectId)
 
   const components: Components = {
     // Blocos de código (sugestões de comandos etc.) ganham o botão de copiar.
@@ -463,7 +483,10 @@ export function AssistantMarkdown({ text, currentLocalId }: { text: string; curr
       // pra uma página nova em vez de abrir o FileViewerModal.
       const fileTarget = dataFile ?? (href && !isWebHref(href) ? normalizeHref(href) : undefined)
       if (fileTarget) {
-        const resolved = fileResolved[resolvedKey(fileTarget, projectId)]
+        // O rehypeFilePaths acha os caminhos nó a nó; os candidatos, no texto
+        // cru. Se um escapar da assinatura, lê o cache na hora (sem assinar).
+        const k = resolvedKey(fileTarget, projectId)
+        const resolved = fileResolved[k] ?? useStore.getState().fileResolved[k]
         const confirmed = resolved?.exists && resolved.inScope && resolved.kind
         // Path detectado em TEXTO puro (data-file): só vira link quando confirmado
         // (sem links quebrados no meio da prosa).
@@ -523,18 +546,11 @@ export function AssistantMarkdown({ text, currentLocalId }: { text: string; curr
 function ForwardButton({ text, currentLocalId }: { text: string; currentLocalId?: string }) {
   const { t } = useTranslation()
   const ws = useContext(WsContext)
-  const sessions = useStore((s) => s.sessions)
-  const projects = useStore((s) => s.projects)
   const addLocalUserText = useStore((s) => s.addLocalUserText)
   const [open, setOpen] = useState(false)
   const [sentTo, setSentTo] = useState<string | null>(null)
 
   if (!currentLocalId) return null
-
-  const currentProjectId = sessions[currentLocalId]?.projectId
-  const targets = Object.values(sessions)
-    .filter((s) => (s.status === 'idle' || s.status === 'needs_attention') && s.projectId !== currentProjectId)
-    .map((s) => ({ localId: s.localId, name: projects.find((p) => p.id === s.projectId)?.name ?? t('chat.unknownProject') }))
 
   const forward = (targetLocalId: string, name: string) => {
     ws?.send({ type: 'send_message', localId: targetLocalId, text })
@@ -550,7 +566,25 @@ function ForwardButton({ text, currentLocalId }: { text: string; currentLocalId?
         {t('chat.forward')}
       </button>
       {sentTo && <div style={{ color: 'var(--ok)', marginTop: 4, whiteSpace: 'nowrap' }}>{t('chat.forwardedTo', { name: sentTo })}</div>}
-      {open && (
+      {open && <ForwardTargets currentLocalId={currentLocalId} onPick={forward} />}
+    </div>
+  )
+}
+
+/**
+ * Os destinos só existem com o menu aberto: é aqui, e não no botão, que se
+ * assinam sessões e projetos — no botão, cada evento de qualquer terminal
+ * re-renderizava todas as mensagens da conversa.
+ */
+function ForwardTargets({ currentLocalId, onPick }: { currentLocalId: string; onPick: (localId: string, name: string) => void }) {
+  const { t } = useTranslation()
+  const sessions = useStore((s) => s.sessions)
+  const projects = useStore((s) => s.projects)
+  const currentProjectId = sessions[currentLocalId]?.projectId
+  const targets = Object.values(sessions)
+    .filter((s) => (s.status === 'idle' || s.status === 'needs_attention') && s.projectId !== currentProjectId)
+    .map((s) => ({ localId: s.localId, name: projects.find((p) => p.id === s.projectId)?.name ?? t('chat.unknownProject') }))
+  return (
         <div className="glass" style={{ position: 'absolute', zIndex: 10, right: 0, marginTop: 4, borderRadius: 10,
                                           padding: 6, minWidth: 200 }}>
           {targets.length === 0 && (
@@ -558,13 +592,11 @@ function ForwardButton({ text, currentLocalId }: { text: string; currentLocalId?
           )}
           {targets.map((target) => (
             <div key={target.localId} className="option-row" style={{ padding: '6px 8px', marginBottom: 2 }}
-                 onClick={() => forward(target.localId, target.name)}>
+                 onClick={() => onPick(target.localId, target.name)}>
               <span className="opt-text opt-title">{target.name}</span>
             </div>
           ))}
         </div>
-      )}
-    </div>
   )
 }
 

@@ -82,7 +82,11 @@ export class CodexSession extends EventEmitter implements EngineSession {
       // O Codex não lê as instructions dos servidores MCP (CLI 0.159): a regra
       // do terminal errado, que os outros motores recebem do Hermes, vai aqui.
       const hermes = this.opts.hermes
-      const developerInstructions = hermes ? await loadInstructions({ api: hermes.apiUrl, projectId: hermes.projectId, token: hermesToken(hermes) }) : undefined
+      const rule = hermes ? await loadInstructions({ api: hermes.apiUrl, projectId: hermes.projectId, token: hermesToken(hermes) }) : undefined
+      // O parâmetro da conversa SUBSTITUI o developer_instructions do config.toml
+      // do operador: as dele vêm primeiro, a regra depois.
+      const own = typeof config?.config?.developer_instructions === 'string' ? config.config.developer_instructions.trim() : ''
+      const developerInstructions = rule && own ? `${own}\n\n${rule}` : rule
       const params = {
         ...(developerInstructions ? { developerInstructions } : {}),
         cwd: this.opts.projectPath, approvalPolicy: 'never', sandbox: 'danger-full-access',

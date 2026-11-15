@@ -246,6 +246,12 @@ describe('mensagens enviadas durante o trabalho', () => {
       const s = mk({ hermes: { command: 'x', args: [], apiUrl: 'http://127.0.0.1:1', projectId: 1 } }); const events = eventsOf(s); s.start()
       expect(await instructionsOf(s, events)).toMatch(/belongs here/i)
     })
+    it('as developer_instructions do config.toml do operador continuam, junto com a regra', async () => {
+      const s = mk({ hermes: { command: 'x', args: [], apiUrl: 'http://127.0.0.1:1', projectId: 1 } }, ['--dev-instructions']); const events = eventsOf(s); s.start()
+      const txt = await instructionsOf(s, events)
+      expect(txt).toContain('INSTRUÇÕES DO OPERADOR')
+      expect(txt).toMatch(/belongs here/i)
+    })
     it('sem Hermes (testes, motor isolado): nada é acrescentado', async () => {
       const s = mk(); const events = eventsOf(s); s.start()
       expect(await instructionsOf(s, events)).toBeNull()

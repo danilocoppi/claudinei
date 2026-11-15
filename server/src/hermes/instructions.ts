@@ -19,9 +19,16 @@ export interface HermesProject {
 
 /** Teto da lista de outros projetos: o resto o agente vê com list_projects. */
 const MAX_LISTED = 60
+/**
+ * Orçamento do texto inteiro. O Claude Code corta as instructions de servidor
+ * MCP em 4096 caracteres guardando o começo (CLI 2.1.323); por isso a regra vem
+ * primeiro e a lista, que cresce com os projetos, ocupa só o que sobra.
+ */
+const MAX_CHARS = 3800
 
 const RULE = `## Messages that belong to another project
 The operator runs one terminal per project and sometimes sends a message to the wrong one.
+Messages that start with [Task from …] or [Question from agent of …] come from another project's agent and were routed here on purpose: do not apply this check to them.
 Before acting on a message, check whether the request itself is work for another project: it is about another project's code, product or task, and nothing ties it to this one. Mentioning another project in passing (a comparison, a reference, asking you to consult its agent) does not count; when in doubt, it belongs here.
 When it looks like another project's work, do not act on it yet. Ask the operator one question, in the operator's language, with these options:
 1. Forward it to <project> and drop the subject here
@@ -41,17 +48,26 @@ function describe(p: HermesProject): string {
 export function buildInstructions(selfId: number, projects: HermesProject[] | undefined): string {
   const self = projects?.find((p) => p.id === selfId)
   const others = (projects ?? []).filter((p) => p.id !== selfId)
-  const lines: string[] = []
-  lines.push(self
-    ? `This terminal belongs to project ${describe(self)}.`
-    : 'This terminal belongs to one Claudinei project; list_projects shows the others.')
-  if (others.length > 0) {
-    const listed = others.slice(0, MAX_LISTED).map(describe).join('; ')
-    const rest = others.length - MAX_LISTED
-    lines.push(`Other projects: ${listed}${rest > 0 ? `; …and ${rest} more (see list_projects)` : ''}.`)
+  const head = [
+    self
+      ? `This terminal belongs to project ${describe(self)}.`
+      : 'This terminal belongs to one Claudinei project; list_projects shows the others.',
+    '',
+    RULE,
+  ].join('\n')
+  if (others.length === 0) return head
+  // Cabe quem couber no orçamento (e no teto de nomes); o resto vira contagem.
+  const prefix = '\n\nOther projects: '
+  const listed: string[] = []
+  for (const p of others.slice(0, MAX_LISTED)) {
+    const next = [...listed, describe(p)].join('; ')
+    const suffix = `; …and ${others.length - listed.length - 1} more (see list_projects).`
+    if (head.length + prefix.length + next.length + suffix.length > MAX_CHARS) break
+    listed.push(describe(p))
   }
-  lines.push('', RULE)
-  return lines.join('\n')
+  const rest = others.length - listed.length
+  const tail = rest > 0 ? `${listed.length ? '; ' : ''}…and ${rest} more (see list_projects).` : '.'
+  return `${head}${prefix}${listed.join('; ')}${tail}`
 }
 
 /**

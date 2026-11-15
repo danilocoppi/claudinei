@@ -62,4 +62,23 @@ describe('instructions do Hermes: mensagem de outro projeto', () => {
     expect(txt).toContain('"Projeto 61"')
     expect(txt).not.toContain('"Projeto 62"')
   })
+  // O Claude Code corta as instructions de servidor MCP em 4096 caracteres,
+  // guardando o COMEÇO: a regra não pode ficar depois de uma lista que cresce.
+  it('a regra vem antes da lista, e o texto cabe no teto do Claude (4096) com nomes longos', () => {
+    const longo = (s: string, n: number) => (s + ' ').repeat(n).slice(0, n)
+    const muitos = Array.from({ length: 80 }, (_, i) => ({ id: i + 1, name: longo(`Projeto ${i}`, 80), group: longo('Grupo', 60), sector: longo('Setor', 60) }))
+    const txt = buildInstructions(1, muitos)
+    expect(txt.length).toBeLessThan(4096)
+    expect(txt).toContain('ask again instead of assuming')
+    expect(txt.indexOf('ask again instead of assuming')).toBeLessThan(txt.indexOf('Other projects'))
+    expect(txt).toMatch(/and \d+ more \(see list_projects\)/)
+  })
+
+  // Pergunta (ask_agent) e tarefa (dispatch_task) de outro agente já foram
+  // roteadas; perguntar ao operador ali travaria a colaboração entre agentes.
+  it('mensagem de outro agente ([Task from …]/[Question from agent of …]) não dispara a pergunta', () => {
+    const txt = buildInstructions(1, PROJETOS)
+    expect(txt).toContain('[Task from')
+    expect(txt).toContain('[Question from agent of')
+  })
 })

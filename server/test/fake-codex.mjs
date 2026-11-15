@@ -22,7 +22,7 @@ let developerInstructions = null
 createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params: p } = JSON.parse(line)
   if (method === 'initialize') reply(id, { userAgent: 'fake' })
-  else if (method === 'config/read') reply(id, { config: { model: 'default-model', model_reasoning_effort: 'medium' } })
+  else if (method === 'config/read') reply(id, { config: { model: 'default-model', model_reasoning_effort: 'medium', ...(process.argv.includes('--dev-instructions') ? { developer_instructions: 'INSTRUÇÕES DO OPERADOR' } : {}) } })
   else if (method === 'thread/start' || method === 'thread/resume') {
     // Outro Codex com a conversa aberta: a CLI real recusa a retomada até soltá-la.
     if (method === 'thread/resume' && writerConflict && (writerConflict === 'always' || refusals < Number(writerConflict))) {

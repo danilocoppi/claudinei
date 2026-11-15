@@ -17,6 +17,8 @@ const answerSteer = (text) => {
   notify('item/completed', { item: { id: 'steered', type: 'agentMessage', text } })
   completed()
 }
+// developerInstructions da thread (Claudinei passa a regra do terminal errado por aqui).
+let developerInstructions = null
 createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params: p } = JSON.parse(line)
   if (method === 'initialize') reply(id, { userAgent: 'fake' })
@@ -31,6 +33,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       out({ id, error: { code: -32600, message: `no rollout found for thread id ${p.threadId}` } }); return
     }
     if (p.threadId) threadId = p.threadId
+    developerInstructions = p.developerInstructions ?? null
     reply(id, { thread: { id: threadId }, model: p.model ?? 'default-model' })
     if (method === 'thread/resume') { total = 900000; context = 120000; usage() }
   } else if (method === 'turn/start') {
@@ -42,7 +45,9 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (text === '__fail__') { completed('failed', { message: 'test turn failed' }); return }
     // Dados de subagente nunca pertencem à thread principal.
     out({ method: 'thread/tokenUsage/updated', params: { threadId: 'CHILD', tokenUsage: { total: counts(9999999), last: counts(999999), modelContextWindow: 1 } } })
-    const answer = text === '__options__' ? JSON.stringify({ model: p.model, effort: p.effort }) : `echo:${text}`
+    const answer = text === '__options__' ? JSON.stringify({ model: p.model, effort: p.effort })
+      : text === '__instructions__' ? JSON.stringify(developerInstructions)
+      : `echo:${text}`
     notify('item/agentMessage/delta', { delta: answer })
     notify('item/completed', { item: { id: 'answer', type: 'agentMessage', text: answer } })
     context = text === '__large__' ? 300000 : 120000

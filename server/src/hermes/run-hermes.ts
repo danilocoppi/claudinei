@@ -8,7 +8,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { readFileSync } from 'node:fs'
 import { z } from 'zod'
-import { buildInstructions, type HermesProject } from './instructions.js'
+import { loadInstructions } from './instructions.js'
 
 interface Project {
   name: string
@@ -69,13 +69,10 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
   const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] })
 
   // Quem é este terminal e quem são os outros, para as instructions. Nunca
-  // segura a subida: sem resposta em 3 s (API fora do ar, servidor ocupado),
-  // sobe com a regra genérica.
-  const projects = await (call('/api/hermes/projects', { signal: AbortSignal.timeout(3000) }) as Promise<HermesProject[]>)
-    .then((list) => (Array.isArray(list) ? list : undefined))
-    .catch(() => undefined)
+  // segura a subida: sem resposta em 3 s, sobe com a regra genérica.
+  const instructions = await loadInstructions({ api: API, projectId: PROJECT_ID, token: currentToken() })
 
-  const server = new McpServer({ name: 'hermes', version: '1.0.0' }, { instructions: buildInstructions(PROJECT_ID, projects) })
+  const server = new McpServer({ name: 'hermes', version: '1.0.0' }, { instructions })
 
   server.registerTool(
     'list_projects',

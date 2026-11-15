@@ -53,3 +53,20 @@ export function buildInstructions(selfId: number, projects: HermesProject[] | un
   lines.push('', RULE)
   return lines.join('\n')
 }
+
+/**
+ * Busca os projetos na API e monta o texto. Para motores que não leem as
+ * instructions dos servidores MCP (o Codex) e recebem a regra pela própria
+ * conversa. Nunca falha nem segura a sessão: sem resposta em `timeoutMs`,
+ * devolve a regra genérica.
+ */
+export async function loadInstructions(opts: { api: string; projectId: number; token?: string; timeoutMs?: number }): Promise<string> {
+  const projects = await fetch(`${opts.api}/api/hermes/projects`, {
+    headers: opts.token ? { Authorization: `Bearer ${opts.token}` } : {},
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 3000),
+  })
+    .then((res) => (res.ok ? res.json() : undefined))
+    .then((list) => (Array.isArray(list) ? (list as HermesProject[]) : undefined))
+    .catch(() => undefined)
+  return buildInstructions(opts.projectId, projects)
+}

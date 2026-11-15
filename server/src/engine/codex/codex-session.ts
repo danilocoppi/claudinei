@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
 import type { EngineSession, EngineSessionOptions, AgentEvent } from '../types.js'
 import type { SessionStatus } from '../../claude/session.js'
 import { userEchoEvent } from '../echo.js'
@@ -6,6 +7,16 @@ import { buildAppServerArgs } from './codex-args.js'
 import { CodexRpc, CodexRpcError } from './codex-rpc.js'
 import { codexItemEvents, tokenNumber, usageTotals, type CodexUsage } from './codex-items.js'
 import { latestThreadForCwd, sessionsRoot } from './rollout.js'
+import { loadInstructions } from '../../hermes/instructions.js'
+import type { HermesOptions } from '../../claude/session.js'
+
+/** O token de serviço do Hermes: do arquivo 0600 quando houver (é o que o servidor reescreve no revoke-all). */
+function hermesToken(h: HermesOptions): string | undefined {
+  if (h.serviceTokenFile) {
+    try { return readFileSync(h.serviceTokenFile, 'utf8').trim() } catch { /* cai no token direto */ }
+  }
+  return h.serviceToken
+}
 
 /** Uma conexão App Server por sessão, com o mesmo id/storage das conversas do TUI. */
 export class CodexSession extends EventEmitter implements EngineSession {
@@ -68,7 +79,16 @@ export class CodexSession extends EventEmitter implements EngineSession {
       this.configuredModel = config?.config?.model ?? undefined
       this.configuredEffort = config?.config?.model_reasoning_effort ?? undefined
       const resumed = !!this.sessionId
+      // O Codex não lê as instructions dos servidores MCP (CLI 0.159): a regra
+      // do terminal errado, que os outros motores recebem do Hermes, vai aqui.
+      const hermes = this.opts.hermes
+      const rule = hermes ? await loadInstructions({ api: hermes.apiUrl, projectId: hermes.projectId, token: hermesToken(hermes) }) : undefined
+      // O parâmetro da conversa SUBSTITUI o developer_instructions do config.toml
+      // do operador: as dele vêm primeiro, a regra depois.
+      const own = typeof config?.config?.developer_instructions === 'string' ? config.config.developer_instructions.trim() : ''
+      const developerInstructions = rule && own ? `${own}\n\n${rule}` : rule
       const params = {
+        ...(developerInstructions ? { developerInstructions } : {}),
         cwd: this.opts.projectPath, approvalPolicy: 'never', sandbox: 'danger-full-access',
         ...(this.model ? { model: this.model } : {}),
         config: this.effort ? { model_reasoning_effort: this.effort } : {},

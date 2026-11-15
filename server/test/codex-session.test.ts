@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { CodexSession } from '../src/engine/codex/codex-session.js'
 import type { AgentEvent } from '../src/engine/types.js'
 import { fileURLToPath } from 'node:url'
+import http from 'node:http'
 
 const FAKE = fileURLToPath(new URL('./fake-codex.mjs', import.meta.url))
 const sessions: CodexSession[] = []
@@ -219,5 +220,41 @@ describe('mensagens enviadas durante o trabalho', () => {
     await waitFor(() => s.status === 'idle')
     expect(events.some((e) => e.kind === 'system' && e.subtype === 'message_error' && JSON.stringify(e.raw).includes('pendente'))).toBe(true)
     expect(events.filter((e) => e.kind === 'result')).toHaveLength(1)
+  })
+  // O Codex não lê as instructions dos servidores MCP (conferido no CLI 0.159):
+  // a regra do terminal errado vai como developerInstructions da conversa.
+  describe('regra do terminal errado (developerInstructions)', () => {
+    const instructionsOf = async (s: CodexSession, events: AgentEvent[]) => {
+      s.send('__instructions__'); await waitFor(() => s.status === 'needs_attention')
+      return JSON.parse(events.filter((e) => e.kind === 'result').at(-1)!.resultText!) as string | null
+    }
+    it('com o Hermes: vai na conversa, com o projeto do terminal e os outros', async () => {
+      const srv = http.createServer((req, res) => {
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify(req.headers.authorization === 'Bearer TK' ? [{ id: 1, name: 'Padaria', sector: 'Vendas' }, { id: 2, name: 'Financeiro' }] : []))
+      })
+      await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()))
+      const apiUrl = `http://127.0.0.1:${(srv.address() as { port: number }).port}`
+      const s = mk({ hermes: { command: 'x', args: [], apiUrl, projectId: 1, serviceToken: 'TK' } }); const events = eventsOf(s); s.start()
+      const txt = await instructionsOf(s, events)
+      srv.close()
+      expect(txt).toContain('This terminal belongs to project "Padaria"')
+      expect(txt).toContain('"Financeiro"')
+      expect(txt).toMatch(/belongs here/i)
+    })
+    it('API fora do ar: vai a regra genérica, e a sessão sobe', async () => {
+      const s = mk({ hermes: { command: 'x', args: [], apiUrl: 'http://127.0.0.1:1', projectId: 1 } }); const events = eventsOf(s); s.start()
+      expect(await instructionsOf(s, events)).toMatch(/belongs here/i)
+    })
+    it('as developer_instructions do config.toml do operador continuam, junto com a regra', async () => {
+      const s = mk({ hermes: { command: 'x', args: [], apiUrl: 'http://127.0.0.1:1', projectId: 1 } }, ['--dev-instructions']); const events = eventsOf(s); s.start()
+      const txt = await instructionsOf(s, events)
+      expect(txt).toContain('INSTRUÇÕES DO OPERADOR')
+      expect(txt).toMatch(/belongs here/i)
+    })
+    it('sem Hermes (testes, motor isolado): nada é acrescentado', async () => {
+      const s = mk(); const events = eventsOf(s); s.start()
+      expect(await instructionsOf(s, events)).toBeNull()
+    })
   })
 })

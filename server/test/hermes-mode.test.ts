@@ -68,4 +68,55 @@ describe('entry multi-modo (--hermes)', () => {
     srv.close()
     expect(gotAuth).toBe('Bearer TOKEN-XYZ')
   }, 15000)
+  // Instructions do MCP: dizem ao agente em que projeto está e a regra da
+  // mensagem de outro projeto (ver src/hermes/instructions.ts).
+  const initialize = async (api: string, projectId: string) => {
+    const child = spawn(process.execPath, [join(serverDir, 'hermes', 'hermes-mcp.mjs')], {
+      env: { ...process.env, CLAUDINEI_API: api, CLAUDINEI_PROJECT_ID: projectId },
+      stdio: ['pipe', 'pipe', 'ignore'],
+    })
+    const t0 = Date.now()
+    let out = ''
+    child.stdout.on('data', (d) => { out += d })
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } }) + '\n')
+    const line = await new Promise<string>((resolve) => {
+      const i = setInterval(() => {
+        const l = out.split('\n').find((x) => x.includes('"id":1'))
+        if (l || Date.now() - t0 > 12000) { clearInterval(i); resolve(l ?? '') }
+      }, 25)
+    })
+    const ms = Date.now() - t0
+    child.kill()
+    return { result: line ? JSON.parse(line).result : undefined, ms }
+  }
+
+  it('initialize traz as instructions com o projeto do terminal', async () => {
+    const srv = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json')
+      res.end(req.url?.startsWith('/api/hermes/projects')
+        ? JSON.stringify([{ id: 1, name: 'Claudinei', group: 'Ferramentas' }, { id: 2, name: 'Loja' }])
+        : '[]')
+    })
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()))
+    const port = (srv.address() as { port: number }).port
+    const { result } = await initialize(`http://127.0.0.1:${port}`, '1')
+    srv.close()
+    expect(result?.instructions).toContain('This terminal belongs to project "Claudinei"')
+    expect(result?.instructions).toContain('"Loja"')
+    expect(result?.instructions).toMatch(/belongs here/i)
+  }, 15000)
+
+  it('API fora do ar ou muda: sobe com a regra genérica em menos de 5 s', async () => {
+    const fora = await initialize('http://127.0.0.1:1', '1')
+    expect(fora.result?.instructions).toMatch(/belongs here/i)
+    expect(fora.ms).toBeLessThan(5000)
+
+    const muda = http.createServer(() => { /* aceita e nunca responde */ })
+    await new Promise<void>((r) => muda.listen(0, '127.0.0.1', () => r()))
+    const port = (muda.address() as { port: number }).port
+    const lenta = await initialize(`http://127.0.0.1:${port}`, '1')
+    muda.closeAllConnections(); muda.close()
+    expect(lenta.result?.instructions).toMatch(/belongs here/i)
+    expect(lenta.ms).toBeLessThan(5000)
+  }, 20000)
 })

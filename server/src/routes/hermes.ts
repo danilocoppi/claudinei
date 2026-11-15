@@ -3,6 +3,7 @@ import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
 import { createProjectsService } from '../projects.js'
 import { createMuralService } from '../mural.js'
+import { createGroupsService } from '../groups.js'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
 
 // Teto de tamanho: título/conteúdo/pergunta vão direto ao SQLite e ao
@@ -16,15 +17,29 @@ export function registerHermesRoutes(
 ) {
   const projects = createProjectsService(deps.db)
   const board = createMuralService(deps.db)
+  const groups = createGroupsService(deps.db)
 
+  // Grupo e setor vão junto: o Hermes os põe nas instructions, para o agente
+  // saber a que projeto (e a que área) o terminal pertence. O setor de um
+  // projeto dentro de grupo é o do grupo.
   app.get('/api/hermes/projects', async (req) => {
+    const groupList = groups.list()
+    const groupById = new Map(groupList.map((g) => [g.id, g]))
+    const sectorName = new Map(groups.listSectors().map((s) => [s.id, s.name]))
     return projects.list()
       .filter((p) => canAccessProject(req.authUser, p.id))
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        hasActiveSession: deps.manager.hasActiveSession(p.id),
-      }))
+      .map((p) => {
+        const group = p.groupId != null ? groupById.get(p.groupId) : undefined
+        const sectorId = p.sectorId ?? group?.sectorId ?? null
+        const sector = sectorId != null ? sectorName.get(sectorId) : undefined
+        return {
+          id: p.id,
+          name: p.name,
+          hasActiveSession: deps.manager.hasActiveSession(p.id),
+          ...(group ? { group: group.name } : {}),
+          ...(sector ? { sector } : {}),
+        }
+      })
   })
 
   app.get('/api/hermes/board', async (req) => {

@@ -66,6 +66,19 @@ describe('rotas hermes', () => {
     await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
   })
 
+  it('GET /api/hermes/projects traz grupo e setor, e o setor herdado do grupo', async () => {
+    const sector = (await app.inject({ method: 'POST', url: '/api/sectors', payload: { name: 'Interno' } })).json()
+    const group = (await app.inject({ method: 'POST', url: '/api/groups', payload: { name: 'Ferramentas' } })).json()
+    await app.inject({ method: 'PATCH', url: `/api/groups/${group.id}/sector`, payload: { sectorId: sector.id } })
+    await app.inject({ method: 'PATCH', url: `/api/projects/${fromId}/group`, payload: { groupId: group.id } })
+    const list = (await app.inject({ method: 'GET', url: '/api/hermes/projects' })).json()
+    const origem = list.find((p: any) => p.id === fromId)
+    const destino = list.find((p: any) => p.id === toId)
+    expect(origem).toMatchObject({ name: 'Origem', group: 'Ferramentas', sector: 'Interno' })
+    expect(destino.group).toBeUndefined()
+    expect(destino.sector).toBeUndefined()
+  })
+
   it('POST /api/hermes/board cria post, GET lista newest-first', async () => {
     const post1 = await app.inject({
       method: 'POST', url: '/api/hermes/board',

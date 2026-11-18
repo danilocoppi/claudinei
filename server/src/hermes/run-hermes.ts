@@ -199,7 +199,7 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
     {
       description:
         "Publishes the progress of a long task to the operator's progress column in Claudinei, so they can follow it without reading the chat. "
-        + 'Use it only for work with several steps (a feature, a migration, a review with fixes), never for a quick answer or a single command. '
+        + 'Use it when the work has three or more steps or will take more than a few minutes (a feature, a migration, a set of pages, a review with fixes), never for a quick answer or a single command. '
         + 'Call it when the long task starts (with all planned tasks), each time a task finishes or changes status, when you get blocked or need the operator, and when the whole task ends (every task done). '
         + 'Do not call it on every tool use. Each call replaces the whole state, so always send the full list. '
         + 'Carry over into `waiting` every item from the previous state that still depends on the operator, unless they answered it. '

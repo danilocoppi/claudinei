@@ -88,7 +88,7 @@ describe('instructions do Hermes: mensagem de outro projeto', () => {
     const txt = buildInstructions(1, PROJETOS)
     expect(txt).toContain('update_progress')
     expect(txt).toContain('ToolSearch')
-    expect(txt).toMatch(/several steps/)
+    expect(txt).toContain('three or more steps')
     expect(txt.indexOf('update_progress')).toBeLessThan(txt.indexOf('Other projects'))
   })
 })

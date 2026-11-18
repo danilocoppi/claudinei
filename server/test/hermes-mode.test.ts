@@ -188,7 +188,7 @@ describe('entry multi-modo (--hermes)', () => {
   it('a descrição orienta: tarefas longas, carregar o que espera o operador, subagentes não', async () => {
     const [r] = await hermesCall('http://127.0.0.1:1', {}, [{ method: 'tools/list', params: {} }])
     const tool = r.result.tools.find((t: any) => t.name === 'update_progress')
-    expect(tool.description).toContain('several steps')
+    expect(tool.description).toContain('three or more steps')
     expect(tool.description).toContain('Carry over')
     expect(tool.description).toContain('subagents never')
     expect(tool.description.length).toBeLessThanOrEqual(2000)

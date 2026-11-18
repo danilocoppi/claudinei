@@ -45,7 +45,7 @@ After options 1 or 4, disregard that subject from then on: do not bring it up, a
  * quando usar update_progress tem de estar aqui; os detalhes ficam na descrição.
  */
 const PROGRESS_RULE = `## Progress of long tasks
-For work with several steps, publish its progress with update_progress (load it with ToolSearch first if it is deferred): when it starts, when each step finishes or changes status, when you are blocked or need the operator, and at the end. Not for quick answers or single commands; subagents never call it. Its description has the details.`
+When the work has three or more steps or will take more than a few minutes, publish its progress with update_progress (load it with ToolSearch first if it is deferred): when it starts, when each step finishes or changes status, when you are blocked or need the operator, and at the end. Not for quick answers or single commands; subagents never call it. Its description has the details.`
 
 /** Nome entre aspas (JSON): aspas e quebras de linha num nome não viram texto de instrução. */
 function describe(p: HermesProject): string {

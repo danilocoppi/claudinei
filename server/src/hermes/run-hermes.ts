@@ -38,7 +38,7 @@ interface OrchestratorTask {
   result?: string
 }
 
-/** Sobe o servidor MCP hermes (stdio) com as 6 tools de colaboração entre agentes. Resolve quando o transporte fecha. */
+/** Sobe o servidor MCP hermes (stdio) com as tools de colaboração entre agentes e o acompanhamento de tarefas. Resolve quando o transporte fecha. */
 export async function runHermes(opts: { api: string; projectId: number; serviceToken?: string; serviceTokenFile?: string; engine?: string }): Promise<void> {
   const { api: API, projectId: PROJECT_ID, engine: ENGINE } = opts
 
@@ -189,6 +189,47 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
           .map((t) => `#${t.id} [${t.status}] ${t.toProjectName}${t.toEngine ? ` (${t.toEngine})` : ''}: ${t.description}${t.result ? ` → ${t.result}` : ''}`)
           .join('\n') || 'no tasks',
       )
+    },
+  )
+
+  // Acompanhamento de tarefas longas (src/progress.ts): o estado inteiro do
+  // terminal — projeto + motor desta sessão — vai à coluna do Claudinei.
+  server.registerTool(
+    'update_progress',
+    {
+      description:
+        "Publishes the progress of a long task to the operator's progress column in Claudinei, so they can follow it without reading the chat. "
+        + 'Use it only for work with several steps (a feature, a migration, a review with fixes), never for a quick answer or a single command. '
+        + 'Call it when the long task starts (with all planned tasks), each time a task finishes or changes status, when you get blocked or need the operator, and when the whole task ends (every task done). '
+        + 'Do not call it on every tool use. Each call replaces the whole state, so always send the full list. '
+        + 'Carry over into `waiting` every item from the previous state that still depends on the operator, unless they answered it. '
+        + 'A newer long task (yours, a scheduled routine or a task dispatched by another project) replaces the previous one. '
+        + 'Only the main agent calls this; subagents never do. Write the texts in the operator\'s language. '
+        + 'If the call is rejected, fix what the error says and call again.',
+      inputSchema: {
+        title: z.string().describe('the long task, in a few words'),
+        now: z.object({
+          title: z.string().describe('what you are doing right now'),
+          detail: z.string().optional().describe('one or two sentences of detail'),
+        }),
+        tasks: z.array(z.object({
+          name: z.string(),
+          status: z.enum(['pending', 'in_progress', 'review', 'blocked', 'done']),
+          note: z.string().optional().describe('short note: commit, finding, why it is blocked'),
+        })).describe('every planned task, in order (at most 40)'),
+        waiting: z.array(z.string()).optional().describe('what depends on the operator: decisions, answers, approvals (at most 10)'),
+      },
+    },
+    async (state) => {
+      try {
+        await call('/api/hermes/progress', {
+          method: 'POST',
+          body: JSON.stringify({ projectId: PROJECT_ID, engine: ENGINE || 'claude', state }),
+        })
+        return text('progress updated')
+      } catch (err) {
+        return { ...text(`progress rejected: ${(err as Error).message}`), isError: true }
+      }
     },
   )
 

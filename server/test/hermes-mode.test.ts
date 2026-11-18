@@ -119,4 +119,78 @@ describe('entry multi-modo (--hermes)', () => {
     expect(lenta.result?.instructions).toMatch(/belongs here/i)
     expect(lenta.ms).toBeLessThan(5000)
   }, 20000)
+  // Acompanhamento de tarefas longas: update_progress publica o estado do
+  // terminal (projeto + motor) no Claudinei — ver src/progress.ts.
+  const hermesCall = async (api: string, env: Record<string, string>, calls: object[]) => {
+    const child = spawn(process.execPath, [join(serverDir, 'hermes', 'hermes-mcp.mjs')], {
+      env: { ...process.env, CLAUDINEI_API: api, CLAUDINEI_PROJECT_ID: '1', ...env },
+      stdio: ['pipe', 'pipe', 'ignore'],
+    })
+    let out = ''
+    child.stdout.on('data', (d) => { out += d })
+    const send = (o: object) => child.stdin.write(JSON.stringify(o) + '\n')
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } })
+    const wait = (id: number) => new Promise<any>((resolve) => {
+      const t0 = Date.now()
+      const i = setInterval(() => {
+        const l = out.split('\n').find((x) => x.includes(`"id":${id}`))
+        if (l || Date.now() - t0 > 10000) { clearInterval(i); resolve(l ? JSON.parse(l) : undefined) }
+      }, 25)
+    })
+    await wait(1)
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' })
+    const results: any[] = []
+    for (const [k, c] of calls.entries()) { send({ jsonrpc: '2.0', id: 10 + k, ...c }); results.push(await wait(10 + k)) }
+    child.kill()
+    return results
+  }
+  const fakeApi = async (respond: (body: any) => [number, object]) => {
+    const got: any[] = []
+    const srv = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (d) => { raw += d })
+      req.on('end', () => {
+        res.setHeader('content-type', 'application/json')
+        if (req.url === '/api/hermes/progress') {
+          const body = JSON.parse(raw)
+          got.push(body)
+          const [code, payload] = respond(body)
+          res.statusCode = code; res.end(JSON.stringify(payload)); return
+        }
+        res.end('[]')
+      })
+    })
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()))
+    return { got, url: `http://127.0.0.1:${(srv.address() as { port: number }).port}`, close: () => srv.close() }
+  }
+  const ESTADO = { title: 'Três páginas', now: { title: 'cardápio' }, tasks: [{ name: 'cardapio.html', status: 'in_progress' }], waiting: [] }
+
+  it('update_progress manda o estado com o projeto e o motor do terminal', async () => {
+    const api = await fakeApi((b) => [200, { ...b.state, updatedAt: 'x' }])
+    const [r] = await hermesCall(api.url, { CLAUDINEI_ENGINE: 'codex' }, [{ method: 'tools/call', params: { name: 'update_progress', arguments: ESTADO } }])
+    api.close()
+    expect(api.got).toHaveLength(1)
+    expect(api.got[0]).toMatchObject({ projectId: 1, engine: 'codex', state: { title: 'Três páginas' } })
+    expect(api.got[0].state.tasks[0].status).toBe('in_progress')
+    expect(r.result.isError).toBeFalsy()
+    expect(r.result.content[0].text).toContain('progress updated')
+  }, 20000)
+
+  it('erro da API volta ao agente como erro legível', async () => {
+    const api = await fakeApi(() => [400, { error: 'tasks[0].status must be one of pending, in_progress, review, blocked, done' }])
+    const [r] = await hermesCall(api.url, {}, [{ method: 'tools/call', params: { name: 'update_progress', arguments: ESTADO } }])
+    api.close()
+    expect(api.got[0].engine).toBe('claude')
+    expect(r.result.isError).toBe(true)
+    expect(r.result.content[0].text).toContain('tasks[0].status')
+  }, 20000)
+
+  it('a descrição orienta: tarefas longas, carregar o que espera o operador, subagentes não', async () => {
+    const [r] = await hermesCall('http://127.0.0.1:1', {}, [{ method: 'tools/list', params: {} }])
+    const tool = r.result.tools.find((t: any) => t.name === 'update_progress')
+    expect(tool.description).toContain('several steps')
+    expect(tool.description).toContain('Carry over')
+    expect(tool.description).toContain('subagents never')
+    expect(tool.description.length).toBeLessThanOrEqual(2000)
+  }, 20000)
 })

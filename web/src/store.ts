@@ -185,6 +185,8 @@ interface State {
   /** Coluna do acompanhamento aberta (lembrada entre visitas). */
   progressOpen: boolean
   toggleProgress(): void
+  /** Sobe a cada reconexão: quem mostra o acompanhamento relê do servidor (o que chegou fora se perdeu). */
+  progressEpoch: number
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
@@ -285,7 +287,7 @@ export const useStore = create<State>((set, get) => ({
   markHistoryLoaded: (localId, engineSessionId) =>
     set((s) => ({ historyLoadedFor: { ...s.historyLoadedFor, [localId]: engineSessionId } })),
 
-  resyncOnReconnect: () => set({ historyLoadedFor: {}, streaming: {} }),
+  resyncOnReconnect: () => set((s) => ({ historyLoadedFor: {}, streaming: {}, progress: {}, progressEpoch: s.progressEpoch + 1 })),
 
   // Já nasce com o que ficou de um recarregamento; quem restaura de fato é a
   // janela, que só se mantém se o servidor confirmar que o processo continua de pé.
@@ -347,6 +349,7 @@ export const useStore = create<State>((set, get) => ({
     }),
 
   progress: {},
+  progressEpoch: 0,
   setProgress: (projectId, engine, progress) =>
     set((s) => ({ progress: { ...s.progress, [progressKey(projectId, engine)]: progress } })),
   progressOpen: (() => {

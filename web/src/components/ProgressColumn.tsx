@@ -29,11 +29,39 @@ function useProgress(projectId: number, engine: string) {
   return useStore((s) => s.progress[progressKey(projectId, engine)])
 }
 
+/**
+ * Lê do servidor o acompanhamento do terminal ao montar, ao trocar de terminal e
+ * a cada reconexão (`progressEpoch`) — o botão e a coluna o usam, para a bolinha
+ * acender depois de recarregar mesmo com a coluna fechada. Uma leitura que chega
+ * depois de um estado mais novo do WebSocket não o desfaz. Devolve o caminho do
+ * arquivo (vazio enquanto não chega, inclusive ao trocar de terminal).
+ */
+function useProgressSync(projectId: number, engine: string): string {
+  const epoch = useStore((s) => s.progressEpoch)
+  const [path, setPath] = useState('')
+  useEffect(() => {
+    let alive = true
+    setPath('')
+    fetchProgress(projectId, engine)
+      .then((r) => {
+        if (!alive) return
+        const atual = useStore.getState().progress[progressKey(projectId, engine)]
+        const maisNovo = atual && r.progress && atual.updatedAt > r.progress.updatedAt
+        if (!maisNovo) useStore.getState().setProgress(projectId, engine, r.progress)
+        setPath(r.path)
+      })
+      .catch(() => { /* sem acompanhamento legível: fica o que já havia (ou o vazio) */ })
+    return () => { alive = false }
+  }, [projectId, engine, epoch])
+  return path
+}
+
 export function ProgressButton({ projectId, engine, sessionStatus }: Props) {
   const { t } = useTranslation()
   const progress = useProgress(projectId, engine)
   const open = useStore((s) => s.progressOpen)
   const toggle = useStore((s) => s.toggleProgress)
+  useProgressSync(projectId, engine)
   const running = hasOpenTask(progress) && !isHalted(sessionStatus)
   return (
     <button className="ghost progress-btn" aria-label={t('progress.open')} aria-pressed={open}
@@ -60,18 +88,10 @@ export function ProgressColumn({ projectId, engine, sessionStatus }: Props) {
   const progress = useProgress(projectId, engine)
   const setProgress = useStore((s) => s.setProgress)
   const toggle = useStore((s) => s.toggleProgress)
-  const [path, setPath] = useState('')
+  const path = useProgressSync(projectId, engine)
   const [confirm, setConfirm] = useState(false)
   // O relógio do rodapé ("há X min") anda sozinho, uma vez por minuto.
   const [, tick] = useState(0)
-
-  useEffect(() => {
-    let alive = true
-    fetchProgress(projectId, engine)
-      .then((r) => { if (alive) { setProgress(projectId, engine, r.progress); setPath(r.path) } })
-      .catch(() => { /* sem acompanhamento legível: a coluna mostra o vazio */ })
-    return () => { alive = false }
-  }, [projectId, engine, setProgress])
 
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 60_000)

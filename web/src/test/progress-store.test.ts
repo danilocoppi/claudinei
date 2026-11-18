@@ -39,4 +39,13 @@ describe('estado do acompanhamento', () => {
     useStore.getState().toggleProgress()
     expect(localStorage.getItem('claudinei:progressOpen')).toBe('0')
   })
+  // Conexão que volta (notebook acordando): o que chegou enquanto estava fora
+  // se perdeu; a coluna tem de reler, não seguir mostrando o estado velho.
+  it('reconectar zera o acompanhamento e pede releitura', () => {
+    useStore.getState().setProgress(1, 'claude', andamento('velho'))
+    const antes = useStore.getState().progressEpoch
+    useStore.getState().resyncOnReconnect()
+    expect(useStore.getState().progress).toEqual({})
+    expect(useStore.getState().progressEpoch).toBe(antes + 1)
+  })
 })

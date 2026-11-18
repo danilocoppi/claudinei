@@ -119,4 +119,28 @@ describe('coluna do acompanhamento', () => {
     act(() => useStore.getState().setProgress(1, 'claude', andamento()))
     expect(container.querySelector('.progress__updated--old')).toBeNull()
   })
+  it('ao reconectar, a coluna relê o estado do servidor', async () => {
+    const spy = api(andamento())
+    render(<ProgressColumn projectId={1} engine="claude" sessionStatus="idle" />)
+    await screen.findByText('2 de 3')
+    spy.mockImplementation(async () => new Response(JSON.stringify({ progress: andamento({ tasks: andamento().tasks.map((t) => ({ ...t, status: 'done' as const })) }), path: PATH }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    act(() => useStore.getState().resyncOnReconnect())
+    expect(await screen.findByText('3 de 3')).toBeTruthy()
+  })
+
+  it('depois de recarregar, o botão sabe do estado sem abrir a coluna', async () => {
+    useStore.setState({ progressOpen: false })
+    api(andamento())
+    const { container } = render(<ProgressButton projectId={1} engine="claude" sessionStatus="working" />)
+    await waitFor(() => expect(container.querySelector('.progress-btn__dot')).not.toBeNull())
+  })
+
+  it('uma leitura que chega atrasada não desfaz um estado mais novo do WebSocket', async () => {
+    let solta: (r: Response) => void = () => {}
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { solta = r }))
+    render(<ProgressColumn projectId={1} engine="claude" sessionStatus="idle" />)
+    act(() => useStore.getState().setProgress(1, 'claude', andamento({ title: 'novo', updatedAt: new Date(Date.now()).toISOString() })))
+    await act(async () => solta(new Response(JSON.stringify({ progress: andamento({ title: 'velho', updatedAt: new Date(Date.now() - 60_000).toISOString() }), path: PATH }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    expect(screen.getByText('novo')).toBeTruthy()
+  })
 })

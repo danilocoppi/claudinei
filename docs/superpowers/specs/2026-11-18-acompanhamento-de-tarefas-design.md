@@ -123,6 +123,18 @@ que subagentes não chamam a ferramenta (o servidor não os distingue).
 - **Abrir o arquivo.** O rodapé mostra o caminho com botão de copiar; abrir pelo
   visualizador do Claudinei não entra (a pasta fica fora do escopo dele).
 
+### Mudança depois do ensaio (decidida pelo operador)
+
+No ensaio com os CLIs reais, a regra como sugestão não bastou: o Claude adiava a
+ferramenta (só via o nome) e, mesmo vendo a descrição, julgava curtas tarefas de
+40-80 s. O operador escolheu tornar o acompanhamento **obrigatório** em todo
+pedido que muda arquivos ou tem três etapas ou mais (só perguntas, explicações e
+um comando rápido ficam de fora). A regra vai nas instructions do Hermes, no
+prompt de sistema do Claude (`--append-system-prompt`), e a ferramenta é marcada
+para nunca ser adiada (`_meta["anthropic/alwaysLoad"]`). Limite conhecido: o
+Claude congela o prompt de sistema por conversa, então conversas anteriores à
+instalação só recebem a regra pelo Hermes e pela descrição da ferramenta.
+
 ## Verificação
 
 - Testes do servidor: validação e limites da ferramenta; gravação no arquivo;

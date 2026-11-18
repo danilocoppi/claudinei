@@ -158,7 +158,8 @@ O lint de `DESIGN.md` terminou sem erros/avisos. A auditoria estática global em
 
 ## Acompanhamento de tarefas longas
 
-- Em trabalho com várias etapas, o agente publica o andamento pela ferramenta `update_progress` do Hermes: ao começar, a cada etapa concluída, ao travar ou precisar do operador, e no fim. Pedido rápido não ganha acompanhamento.
+- Obrigatório em todo pedido que muda arquivos ou tem três etapas ou mais: o agente publica o andamento pela ferramenta `update_progress` do Hermes antes de começar, a cada etapa concluída, ao travar ou precisar do operador, e no fim. Só perguntas, explicações e um comando rápido ficam de fora.
+- A regra vai nas instruções do Hermes (todos os motores; no Codex, como instruções da conversa) e, no Claude, também no prompt de sistema. O Claude congela o prompt de sistema de cada conversa: conversas abertas antes da instalação recebem a regra só pelo Hermes e pela descrição da ferramenta, até um `/compact` ou uma conversa nova.
 - Um acompanhamento por terminal (projeto + motor); o mais recente vence — rotina agendada e tarefa encaminhada também atualizam. O agente carrega para o estado novo o que ainda espera o operador.
 - O botão "Acompanhamento" no cabeçalho do chat abre e fecha a coluna à direita (lembrada entre visitas); a bolinha nele aparece com tarefa em andamento e o terminal rodando.
 - A coluna empurra o chat (não o cobre) e, no celular, ocupa a tela. Mostra título com "N de M" e barra, **Agora**, **Tarefas** com estado e nota, **Esperando você** (só quando há itens), e o rodapé com "atualizado há X", o caminho do arquivo (copiável) e "Descartar" (com confirmação).

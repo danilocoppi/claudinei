@@ -3127,5 +3127,5 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .progress__path code { font-family: var(--font-code); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .progress__discard { align-self: flex-start; font-size: 12px; padding: 4px 10px; }
 @media (max-width: 768px) {
-  .progress { position: fixed; inset: 0; z-index: 45; width: auto; border-left: none; background: var(--surface-solid); }
+  .progress { position: fixed; inset: 0; z-index: 45; width: auto; border-left: none; background: var(--surface-solid); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 }

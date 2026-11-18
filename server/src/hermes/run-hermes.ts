@@ -219,6 +219,10 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
         })).describe('every planned task, in order (at most 40)'),
         waiting: z.array(z.string()).optional().describe('what depends on the operator: decisions, answers, approvals (at most 10)'),
       },
+      // O Claude adia ferramentas de MCP (o modelo só vê o nome) — e, adiada,
+      // esta nunca era usada. Sempre carregada, com a descrição; as outras do
+      // Hermes seguem adiadas.
+      _meta: { 'anthropic/alwaysLoad': true },
     },
     async (state) => {
       try {

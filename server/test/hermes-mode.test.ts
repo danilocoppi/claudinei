@@ -192,5 +192,10 @@ describe('entry multi-modo (--hermes)', () => {
     expect(tool.description).toContain('Carry over')
     expect(tool.description).toContain('subagents never')
     expect(tool.description.length).toBeLessThanOrEqual(2000)
+    // O Claude adia ferramentas de MCP (só o nome): esta sempre carrega, com a
+    // descrição — numa sessão real, adiada, ela nunca era usada.
+    expect(tool._meta?.['anthropic/alwaysLoad']).toBe(true)
+    const outra = r.result.tools.find((t: any) => t.name === 'read_board')
+    expect(outra._meta?.['anthropic/alwaysLoad']).toBeUndefined()
   }, 20000)
 })

@@ -393,6 +393,16 @@ export const en = {
     revokeAll: 'Revoke all sessions',
     revokeAllConfirm: 'Every signed-in browser (including this one) will need to sign in again.',
   },
+  progress: {
+    open: 'Progress', title: 'Progress', close: 'Close progress',
+    empty: 'This terminal has no long task being tracked yet. The agent starts one when the work has several steps.',
+    count: '{{done}} of {{total}}', now: 'Now', tasks: 'Tasks', waiting: 'Waiting for you',
+    stale: 'This terminal is not running in the chat; the progress may be out of date.',
+    updated: 'updated {{when}}', agoNow: 'just now', agoMin: '{{n}} min ago', agoHour: '{{h}} h {{m}} min ago',
+    discard: 'Discard', discardConfirm: 'Discard progress', discardTitle: 'Discard the progress?',
+    discardMsg: "This terminal's progress file will be deleted. The agent creates a new one on the next long task.",
+    status: { pending: 'pending', in_progress: 'in progress', review: 'in review', blocked: 'blocked', done: 'done' },
+  },
   headsUp: { region: 'Claude heads-ups', close: 'Close heads-up' },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',

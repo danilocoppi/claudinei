@@ -23,6 +23,7 @@ import { Icon } from './Icon'
 import { isAtBottom } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
+import { ProgressButton, ProgressColumn } from './ProgressColumn'
 
 const EMPTY_ITEMS: ChatItem[] = []
 
@@ -58,6 +59,7 @@ export function ChatView() {
   const setHistory = useStore((s) => s.setHistory)
   const markHistoryLoaded = useStore((s) => s.markHistoryLoaded)
   const openTerminal = useStore((s) => s.openTerminal)
+  const progressOpen = useStore((s) => s.progressOpen)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
@@ -206,8 +208,12 @@ export function ChatView() {
 
   if (!session || !project) return <div style={{ padding: 24 }}>{t('chat.select')}</div>
 
+  // O acompanhamento de tarefas longas é do terminal: projeto + motor da aba.
+  const engine = session.engine
+
   return (
-    <>
+    <div className="chat-layout">
+    <div className="chat-main">
       <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
         {/* O mesmo menu do cartão da lista, aqui no título: quem está lendo a
             conversa não devia ter que voltar à barra lateral para renomear o
@@ -235,7 +241,8 @@ export function ChatView() {
         {session.status === 'dead' && session.detail && (
           <span style={{ color: 'var(--err)' }}>{session.detail.slice(0, 140)}</span>
         )}
-        <button className="ghost" style={{ marginLeft: 'auto' }}
+        <ProgressButton projectId={session.projectId} engine={engine} sessionStatus={session.status} />
+        <button className="ghost"
                 title={t('schedules.openTitle')}
                 onClick={() => useStore.getState().openSchedules()}>
           ⏱ <span className="btn-label">{t('schedules.open')}</span>
@@ -359,6 +366,8 @@ export function ChatView() {
           onClose={() => setHandoffDialog(false)}
         />
       )}
-    </>
+    </div>
+    {progressOpen && <ProgressColumn projectId={session.projectId} engine={engine} sessionStatus={session.status} />}
+    </div>
   )
 }

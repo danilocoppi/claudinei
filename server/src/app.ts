@@ -15,6 +15,8 @@ import { registerProjectRoutes } from './routes/projects.js'
 import { registerSessionRoutes } from './routes/sessions.js'
 import { registerEngineRoutes } from './routes/engines.js'
 import { registerHermesRoutes } from './routes/hermes.js'
+import { registerProgressRoutes } from './routes/progress.js'
+import { createProgressStore } from './progress.js'
 import { registerOrchestratorRoutes } from './routes/orchestrator.js'
 import { registerFsRoutes } from './routes/fs.js'
 import { registerGroupRoutes } from './routes/groups.js'
@@ -114,6 +116,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerSessionRoutes(app, deps)
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
+  registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })
   const { drain } = registerOrchestratorRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
   deps.onOrchestratorReady?.(drain)
   registerFsRoutes(app)

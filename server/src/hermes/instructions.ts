@@ -39,6 +39,14 @@ Use your question tool when you have one (AskUserQuestion); otherwise ask as tex
 To forward, use dispatch_task and rewrite the request so it stands on its own: the other agent cannot see this conversation.
 After options 1 or 4, disregard that subject from then on: do not bring it up, act on it or let it shape later work here. If the operator returns to it, ask again instead of assuming.`
 
+/**
+ * Acompanhamento de tarefas longas (src/progress.ts). O Claude carrega as
+ * ferramentas de MCP adiadas — só o nome, sem a descrição —, então a regra de
+ * quando usar update_progress tem de estar aqui; os detalhes ficam na descrição.
+ */
+const PROGRESS_RULE = `## Progress of long tasks
+For work with several steps, publish its progress with update_progress (load it with ToolSearch first if it is deferred): when it starts, when each step finishes or changes status, when you are blocked or need the operator, and at the end. Not for quick answers or single commands; subagents never call it. Its description has the details.`
+
 /** Nome entre aspas (JSON): aspas e quebras de linha num nome não viram texto de instrução. */
 function describe(p: HermesProject): string {
   const where = [p.group && `group ${JSON.stringify(p.group)}`, p.sector && `sector ${JSON.stringify(p.sector)}`].filter(Boolean)
@@ -54,6 +62,8 @@ export function buildInstructions(selfId: number, projects: HermesProject[] | un
       : 'This terminal belongs to one Claudinei project; list_projects shows the others.',
     '',
     RULE,
+    '',
+    PROGRESS_RULE,
   ].join('\n')
   if (others.length === 0) return head
   // Cabe quem couber no orçamento (e no teto de nomes); o resto vira contagem.

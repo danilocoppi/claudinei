@@ -11,10 +11,14 @@ import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
-import type { HeadsUpNode } from './types'
+import type { HeadsUpNode, Progress } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
+const PROGRESS_OPEN_KEY = 'claudinei:progressOpen'
+
+/** Chave do acompanhamento de um terminal: projeto + motor. */
+export const progressKey = (projectId: number, engine: string) => `${projectId}:${engine}`
 
 /**
  * Fallback embutido para `store.engines`, usado até `GET /api/engines` resolver (ou se falhar).
@@ -175,6 +179,12 @@ interface State {
   /** Barra lateral em modo régua (62px, só estados e ícones). */
   railMode: boolean
   toggleRail(): void
+  /** Acompanhamento de tarefas longas por terminal (`progressKey`); null = sem acompanhamento. */
+  progress: Record<string, Progress | null>
+  setProgress(projectId: number, engine: string, progress: Progress | null): void
+  /** Coluna do acompanhamento aberta (lembrada entre visitas). */
+  progressOpen: boolean
+  toggleProgress(): void
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
@@ -213,7 +223,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {},
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {},
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -336,6 +346,19 @@ export const useStore = create<State>((set, get) => ({
       return { railMode }
     }),
 
+  progress: {},
+  setProgress: (projectId, engine, progress) =>
+    set((s) => ({ progress: { ...s.progress, [progressKey(projectId, engine)]: progress } })),
+  progressOpen: (() => {
+    try { return localStorage.getItem(PROGRESS_OPEN_KEY) === '1' } catch { return false }
+  })(),
+  toggleProgress: () =>
+    set((s) => {
+      const progressOpen = !s.progressOpen
+      try { localStorage.setItem(PROGRESS_OPEN_KEY, progressOpen ? '1' : '0') } catch { /* só não persiste */ }
+      return { progressOpen }
+    }),
+
   addLocalUserText: (localId, text) =>
     set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text }] } })),
 
@@ -375,6 +398,8 @@ export const useStore = create<State>((set, get) => ({
       // deve reabrir a janela de um processo que já não existe.
       saveRuns(restantes.filter((r) => !r.exited))
       set({ actionRuns: restantes })
+    } else if (msg.type === 'progress' && typeof msg.projectId === 'number' && typeof msg.engine === 'string') {
+      get().setProgress(msg.projectId, msg.engine, (msg.progress ?? null) as Progress | null)
     } else if (msg.type === 'heads_up' && typeof msg.localId === 'string') {
       applyHeadsUp(msg.localId, (msg.tree ?? null) as HeadsUpNode | null)
     } else if (msg.type === 'sessions_snapshot') {

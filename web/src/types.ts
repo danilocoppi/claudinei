@@ -141,3 +141,13 @@ export type HeadsUpNode = string | {
   children?: HeadsUpNode[]
   press?: { plugin: string; handle: number }
 }
+
+/** Acompanhamento de tarefas longas, por terminal (projeto + motor). Ver server/src/progress.ts. */
+export type ProgressStatus = 'pending' | 'in_progress' | 'review' | 'blocked' | 'done'
+export interface Progress {
+  title: string
+  now: { title: string; detail?: string }
+  tasks: { name: string; status: ProgressStatus; note?: string }[]
+  waiting: string[]
+  updatedAt: string
+}

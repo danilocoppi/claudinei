@@ -396,6 +396,16 @@ export const ptBR: typeof en = {
     revokeAll: 'Revogar todas as sessões',
     revokeAllConfirm: 'Todos os navegadores logados (inclusive este) terão que entrar de novo.',
   },
+  progress: {
+    open: 'Acompanhamento', title: 'Acompanhamento', close: 'Fechar acompanhamento',
+    empty: 'Este terminal ainda não tem tarefa longa em acompanhamento. O agente o cria quando o trabalho tem várias etapas.',
+    count: '{{done}} de {{total}}', now: 'Agora', tasks: 'Tarefas', waiting: 'Esperando você',
+    stale: 'Este terminal não está rodando no chat; o andamento pode estar desatualizado.',
+    updated: 'atualizado {{when}}', agoNow: 'agora há pouco', agoMin: 'há {{n}} min', agoHour: 'há {{h}} h {{m}} min',
+    discard: 'Descartar', discardConfirm: 'Descartar acompanhamento', discardTitle: 'Descartar o acompanhamento?',
+    discardMsg: 'O arquivo do acompanhamento deste terminal será apagado. O agente cria outro na próxima tarefa longa.',
+    status: { pending: 'pendente', in_progress: 'em andamento', review: 'em revisão', blocked: 'bloqueada', done: 'concluída' },
+  },
   headsUp: { region: 'Avisos do Claude', close: 'Fechar aviso' },
   fileViewer: {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',

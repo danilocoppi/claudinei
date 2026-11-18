@@ -39,6 +39,15 @@ Use your question tool when you have one (AskUserQuestion); otherwise ask as tex
 To forward, use dispatch_task and rewrite the request so it stands on its own: the other agent cannot see this conversation.
 After options 1 or 4, disregard that subject from then on: do not bring it up, act on it or let it shape later work here. If the operator returns to it, ask again instead of assuming.`
 
+/**
+ * Acompanhamento de tarefas longas (src/progress.ts), obrigatório por decisão do
+ * operador. Como sugestão, o Claude pulava tarefas de 40-80 s (medido em sessões
+ * reais); por isso o texto é de obrigação, vai nas instructions (todos os
+ * motores) e, no Claude, também no prompt de sistema (--append-system-prompt).
+ */
+export const PROGRESS_RULE = `## Progress tracking (required)
+Every request that makes you change files or work through three or more steps must be tracked with update_progress (load it with ToolSearch first if it is deferred): call it before you start, listing every planned step; again each time a step finishes or changes status; when you are blocked or need the operator; and at the end, with every step done. Skip it only for questions, explanations and a single quick command. Subagents never call it.`
+
 /** Nome entre aspas (JSON): aspas e quebras de linha num nome não viram texto de instrução. */
 function describe(p: HermesProject): string {
   const where = [p.group && `group ${JSON.stringify(p.group)}`, p.sector && `sector ${JSON.stringify(p.sector)}`].filter(Boolean)
@@ -54,6 +63,8 @@ export function buildInstructions(selfId: number, projects: HermesProject[] | un
       : 'This terminal belongs to one Claudinei project; list_projects shows the others.',
     '',
     RULE,
+    '',
+    PROGRESS_RULE,
   ].join('\n')
   if (others.length === 0) return head
   // Cabe quem couber no orçamento (e no teto de nomes); o resto vira contagem.

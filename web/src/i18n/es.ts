@@ -395,6 +395,16 @@ export const es: typeof en = {
     revokeAll: 'Revocar todas las sesiones',
     revokeAllConfirm: 'Todos los navegadores conectados (incluido este) deberán iniciar sesión de nuevo.',
   },
+  progress: {
+    open: 'Seguimiento', title: 'Seguimiento', close: 'Cerrar seguimiento',
+    empty: 'Este terminal aún no tiene una tarea larga en seguimiento. El agente lo crea cuando el trabajo tiene varias etapas.',
+    count: '{{done}} de {{total}}', now: 'Ahora', tasks: 'Tareas', waiting: 'Esperándote',
+    stale: 'Este terminal no está corriendo en el chat; el avance puede estar desactualizado.',
+    updated: 'actualizado {{when}}', agoNow: 'hace un momento', agoMin: 'hace {{n}} min', agoHour: 'hace {{h}} h {{m}} min',
+    discard: 'Descartar', discardConfirm: 'Descartar seguimiento', discardTitle: '¿Descartar el seguimiento?',
+    discardMsg: 'Se borrará el archivo de seguimiento de este terminal. El agente crea otro en la próxima tarea larga.',
+    status: { pending: 'pendiente', in_progress: 'en curso', review: 'en revisión', blocked: 'bloqueada', done: 'terminada' },
+  },
   headsUp: { region: 'Avisos de Claude', close: 'Cerrar aviso' },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',

@@ -81,4 +81,14 @@ describe('instructions do Hermes: mensagem de outro projeto', () => {
     expect(txt).toContain('[Task from')
     expect(txt).toContain('[Question from agent of')
   })
+  // O Claude carrega as ferramentas de MCP "adiadas" (só o nome, sem descrição):
+  // a orientação de usar update_progress precisa estar nas instructions, que
+  // ele sempre lê — conferido numa sessão real do acompanhamento de tarefas.
+  it('manda publicar o andamento de tarefas longas com update_progress, antes da lista', () => {
+    const txt = buildInstructions(1, PROJETOS)
+    expect(txt).toContain('update_progress')
+    expect(txt).toContain('ToolSearch')
+    expect(txt).toContain('three or more steps')
+    expect(txt.indexOf('update_progress')).toBeLessThan(txt.indexOf('Other projects'))
+  })
 })

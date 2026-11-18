@@ -1,4 +1,4 @@
-import type { ClaudeEvent, EngineMeta, PermissionMode, Project, SessionInfo } from './types'
+import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -112,6 +112,11 @@ export const deleteProject = (id: number, opts: { stopSessions?: boolean } = {})
 export const updateProject = (id: number, patch: { name?: string; color?: string; icon?: string }) =>
   req<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
 /** Avisos do plugin "You should know" do Claude neste terminal (o servidor anexa/solta na hora). */
+/** Acompanhamento de tarefas longas do terminal (projeto + motor). */
+export const fetchProgress = (projectId: number, engine: string) =>
+  req<{ progress: Progress | null; path: string }>(`/api/projects/${projectId}/progress?engine=${encodeURIComponent(engine)}`)
+export const clearProgress = (projectId: number, engine: string) =>
+  req<void>(`/api/projects/${projectId}/progress?engine=${encodeURIComponent(engine)}`, { method: 'DELETE' })
 export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
   req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
 export const setProjectFavorite = (id: number, favorite: boolean) =>

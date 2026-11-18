@@ -5,6 +5,7 @@ import { createLineParser } from './parser.js'
 import type { ClaudeEvent } from './events.js'
 import type { EngineSession } from '../engine/types.js'
 import { userEchoEvent } from '../engine/echo.js'
+import { PROGRESS_RULE } from '../hermes/instructions.js'
 
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' | 'stopped' | 'dead' | 'in_terminal'
 
@@ -108,6 +109,9 @@ export function buildClaudeArgs(opts: {
       },
     })
     args.push('--mcp-config', mcpConfig)
+    // Acompanhamento de tarefas: no prompt de sistema a regra pesa mais do que
+    // nas instructions do MCP, que o Claude tratava como sugestão.
+    args.push('--append-system-prompt', PROGRESS_RULE)
   }
   return args
 }

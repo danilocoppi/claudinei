@@ -189,6 +189,7 @@ describe('entry multi-modo (--hermes)', () => {
     const [r] = await hermesCall('http://127.0.0.1:1', {}, [{ method: 'tools/list', params: {} }])
     const tool = r.result.tools.find((t: any) => t.name === 'update_progress')
     expect(tool.description).toContain('three or more steps')
+    expect(tool.description).toContain('Required')
     expect(tool.description).toContain('Carry over')
     expect(tool.description).toContain('subagents never')
     expect(tool.description.length).toBeLessThanOrEqual(2000)

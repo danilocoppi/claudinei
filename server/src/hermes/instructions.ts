@@ -40,12 +40,13 @@ To forward, use dispatch_task and rewrite the request so it stands on its own: t
 After options 1 or 4, disregard that subject from then on: do not bring it up, act on it or let it shape later work here. If the operator returns to it, ask again instead of assuming.`
 
 /**
- * Acompanhamento de tarefas longas (src/progress.ts). O Claude carrega as
- * ferramentas de MCP adiadas — só o nome, sem a descrição —, então a regra de
- * quando usar update_progress tem de estar aqui; os detalhes ficam na descrição.
+ * Acompanhamento de tarefas longas (src/progress.ts), obrigatório por decisão do
+ * operador. Como sugestão, o Claude pulava tarefas de 40-80 s (medido em sessões
+ * reais); por isso o texto é de obrigação, vai nas instructions (todos os
+ * motores) e, no Claude, também no prompt de sistema (--append-system-prompt).
  */
-const PROGRESS_RULE = `## Progress of long tasks
-When the work has three or more steps or will take more than a few minutes, publish its progress with update_progress (load it with ToolSearch first if it is deferred): when it starts, when each step finishes or changes status, when you are blocked or need the operator, and at the end. Not for quick answers or single commands; subagents never call it. Its description has the details.`
+export const PROGRESS_RULE = `## Progress tracking (required)
+Every request that makes you change files or work through three or more steps must be tracked with update_progress (load it with ToolSearch first if it is deferred): call it before you start, listing every planned step; again each time a step finishes or changes status; when you are blocked or need the operator; and at the end, with every step done. Skip it only for questions, explanations and a single quick command. Subagents never call it.`
 
 /** Nome entre aspas (JSON): aspas e quebras de linha num nome não viram texto de instrução. */
 function describe(p: HermesProject): string {

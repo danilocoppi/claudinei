@@ -170,3 +170,20 @@ estático "🎯 n/20" (sem animação — AGENTS.md).
 - Nomes de colunas, tabelas e o formato exato do estado do aviso e do goal.
 - Os textos exatos (agente em inglês; tela em pt-BR, en, es).
 - Como o CLI falso simula o `goal_done` nos testes.
+
+## Decisões depois da revisão do desenho (de quem escreveu)
+
+- **Goal esperando tarefas delegadas não gira em falso.** Enquanto o terminal do goal tiver tarefas suas em andamento ou na fila (`from_project_id` + `from_engine`), o laço **não** manda "continue": o goal fica "esperando tarefas" (estado visível na coluna e no selo) e não gasta turnos. O aviso do resultado acorda o terminal e conta como turno do goal; daí o laço volta.
+- **Turnos que não são do goal não contam no teto**: tarefa de outro agente, agendamento e auto-compactação rodam no meio do goal sem consumir os 20 turnos.
+- **Resultado pendente com o terminal no limite de uso:** fica guardado até o terminal voltar a trabalhar por iniciativa do operador ou da retomada armada do limite; o Claudinei nunca gasta tokens sozinho só para entregar um resultado. Com horário de reabertura desconhecido, segue guardado (aparece no aviso do limite: "1 resultado de tarefa esperando").
+
+## Ordem única do "próximo envio" de um terminal (combinada entre as trilhas da onda B)
+
+Quando um turno termina e a sessão fica livre, um único árbitro por terminal escolhe o que vai a seguir, nesta ordem:
+1. auto-compactação (não conta como turno);
+2. mensagem de retomada do Claudinei (reinício/limite), quando houver;
+3. próximo item da fila do operador (projeto 5);
+4. aviso de resultado de tarefa delegada por este terminal (projeto 10);
+5. tarefa de outro agente para este terminal (fila existente do orchestrator);
+6. "continue rumo ao objetivo" do goal (projeto 12) — sempre por último.
+Enquanto houver aviso aberto esperando o operador (reinício sem retomada automática, ou limite), os itens 3 a 6 seguram. As duas trilhas implementam cada uma a sua parte respeitando esta ordem; a integração as junta num árbitro só.

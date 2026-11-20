@@ -170,3 +170,10 @@ cada pedido, com modelo e pasta.
 - Nomes das tabelas e das rotas.
 - Textos e chaves de i18n (pt-BR, en, es) e o visual das barras (variáveis de
   tema, sem animação).
+
+## Decisões depois da revisão do desenho (de quem escreveu)
+
+- **Codex repete o mesmo uso em linhas seguidas.** O indexador ignora a repetição quando o total acumulado não mudou (ou usa o uso por resposta, quando o rollout o traz).
+- **Mesma base de cache para os dois motores.** O Codex conta os tokens do cache dentro da entrada; o Claude não. Para o Codex, a entrada nova = entrada − cache, e o percentual de cache e o ranking significam a mesma coisa nos dois.
+- **"Nunca contar duas vezes" vale entre arquivos**: o mesmo id de resposta do Claude aparece em mais de um arquivo de subagente; a deduplicação é global (id da mensagem + requestId), não por arquivo.
+- **Subagentes em subpastas**: o indexador procura `subagents/` recursivamente (há `subagents/workflows/wf_*/`).

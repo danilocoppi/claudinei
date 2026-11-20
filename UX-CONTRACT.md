@@ -174,3 +174,15 @@ O lint de `DESIGN.md` terminou sem erros/avisos. A auditoria estática global em
 - **Continuar** revive a sessão, se preciso, e manda a mensagem de retomada; se a chamada falha, o erro aparece no próprio aviso, que fica. O × tira o aviso sem retomar. Mandar qualquer mensagem também o tira. O aviso some quando o servidor manda o estado sem interrupção.
 - A mensagem de retomada vai ao agente em inglês e aparece no chat como cartão com o selo "Claudinei", no idioma da tela, e não como mensagem do operador (sem lápis de editar).
 - O aviso é estático, sem animação: a interface precisa andar sem GPU.
+
+## Bateu o limite
+
+- Um interruptor por terminal no ⚙ do campo, só no Claude, logo abaixo de "Retomar trabalho interrompido": **Continuar sozinho quando o limite reabrir**. Começa desligado e tem dica ao passar o mouse. Ligado, o turno que bateu no limite continua sozinho 1 minuto depois que a janela reabre, uma vez por janela, e só quando foi o operador ou o próprio Claudinei que o disparou.
+- Turno que bateu no limite mostra um aviso âmbar logo acima do campo, abaixo do aviso do reinício: "O Claude bateu no limite de uso. A janela reabre às 15:00 (daqui a 2 h 10 min).", com **Continuar quando reabrir**, **Adiar até reabrir**, **Continuar agora** e um × de fechar. A hora é a local, em 24 h no português e no espanhol e no formato do idioma no inglês; o "daqui a" é recalculado a cada 30 s.
+- Sem hora de reabertura conhecida (ou já passada), o aviso diz só "O Claude bateu no limite de uso." e oferece só **Continuar agora** e o ×.
+- **Continuar quando reabrir** arma a retomada: o aviso passa ao tom de destaque e diz "Retomada armada para 15:01", com **Cancelar** (volta ao aviso) e **Continuar agora**.
+- **Adiar até reabrir** esconde o aviso até a reabertura, sem mandar nada.
+- O × tira o aviso sem retomar. **Continuar agora** revive a sessão, se preciso, e manda a mensagem de retomada; se a chamada falha (por exemplo, a sessão está trabalhando), o erro aparece no próprio aviso, que fica. Mandar qualquer mensagem pelo campo também tira o aviso, e um turno que termina sem erro também.
+- O cartão da lateral mostra uma marca estática enquanto o terminal está no limite, em qualquer ação: "limite até 15:00" ("limite de uso" sem a hora) e, armado, "retoma às 15:01". Com o aviso adiado, é o único sinal que fica.
+- A mensagem de retomada vai ao agente em inglês e aparece no chat como cartão com o selo "Claudinei", no idioma da tela ("A janela do limite de uso reabriu…"), e não como mensagem do operador.
+- O aviso e a marca são estáticos, sem animação: a interface precisa andar sem GPU.

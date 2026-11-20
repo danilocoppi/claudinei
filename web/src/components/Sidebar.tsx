@@ -21,6 +21,7 @@ import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
 import { InterruptedCardMarker } from './InterruptedNotice'
+import { UsageLimitCardMarker } from './UsageLimitNotice'
 import { MoreIcon, GearIcon, StarIcon, SearchIcon, BoltIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { BrandMark } from './BrandMark'
@@ -410,6 +411,7 @@ export function Sidebar() {
           )}
           {isCollapsed && playButton}
           <InterruptedCardMarker projectId={p.id} />
+          <UsageLimitCardMarker projectId={p.id} />
           {(() => {
             const sch = schedulesOf(p.id)
             if (!sch) return null

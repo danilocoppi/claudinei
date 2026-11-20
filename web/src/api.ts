@@ -119,12 +119,22 @@ export const clearProgress = (projectId: number, engine: string) =>
   req<void>(`/api/projects/${projectId}/progress?engine=${encodeURIComponent(engine)}`, { method: 'DELETE' })
 /** Reinício sem prejuízo: estado de todos os terminais com algo gravado (os demais estão no padrão: tudo desligado). */
 export const fetchTerminalStates = () => req<TerminalState[]>('/api/terminals/state')
-/** Liga/desliga "Iniciar com o Claudinei" e "Retomar trabalho interrompido" no terminal (projeto + motor). */
-export const setTerminalRestart = (projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean }) =>
+/**
+ * Liga/desliga "Iniciar com o Claudinei", "Retomar trabalho interrompido" e
+ * "Continuar sozinho quando o limite reabrir" no terminal (projeto + motor).
+ */
+export const setTerminalRestart = (projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean; autoResumeLimit?: boolean }) =>
   req<TerminalState>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/restart`, { method: 'PATCH', body: JSON.stringify(p) })
 /** Continuar do aviso: revive a sessão, se preciso, e manda a mensagem de retomada. */
 export const continueTerminal = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/continue`, { method: 'POST' })
+/**
+ * Ações do aviso do limite de uso: armar a retomada na reabertura, adiar o aviso
+ * até ela, cancelar (de armado ou adiado o aviso volta; sem ação, ele sai) e
+ * continuar agora. Devolve o estado do terminal.
+ */
+export const usageLimitAction = (projectId: number, engine: string, action: 'arm' | 'snooze' | 'cancel' | 'continue') =>
+  req<TerminalState>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/limit`, { method: 'POST', body: JSON.stringify({ action }) })
 /** O × do aviso: tira a marca de interrompido sem retomar. */
 export const dismissInterruption = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/interruption`, { method: 'DELETE' })

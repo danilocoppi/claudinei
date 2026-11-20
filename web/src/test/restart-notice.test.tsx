@@ -31,7 +31,7 @@ import type { ChatItem, SessionInfo, TerminalState } from '../types'
 const RESUME_TEXT = '[Claudinei: resume after restart]: The Claudinei service restarted in the middle of your turn. Continue where you left off; check the current state of the files before redoing anything.'
 
 const estado = (o: Partial<TerminalState> = {}): TerminalState =>
-  ({ projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null, ...o })
+  ({ projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null, autoResumeLimit: false, usageLimit: null, ...o })
 const interrompido = (reason: NonNullable<TerminalState['interruption']>['reason'], extra: object = {}): TerminalState =>
   estado({ interruption: { at: '2026-11-20T10:00:00.000Z', reason, ...extra } })
 
@@ -50,7 +50,7 @@ afterEach(() => { cleanup() })
 
 describe('cartão da mensagem do Claudinei', () => {
   it('cartão do Claudinei mostra o texto traduzido, não o inglês', () => {
-    const item: ChatItem = { kind: 'claudinei_message', text: 'The Claudinei service restarted in the middle of your turn.' }
+    const item: ChatItem = { kind: 'claudinei_message', reason: 'restart', text: 'The Claudinei service restarted in the middle of your turn.' }
     const { container } = render(<MessageBlock item={item} />)
     expect(screen.getByText(/O serviço do Claudinei reiniciou no meio do seu turno/)).toBeTruthy()
     expect(screen.queryByText(/The Claudinei service restarted/)).toBeNull()

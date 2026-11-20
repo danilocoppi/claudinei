@@ -77,7 +77,9 @@ export function SessionControls({ session }: { session: SessionInfo }) {
   const restartState = useStore((st) => st.terminalStates[progressKey(session.projectId, tabEngine)])
   const autostartOn = restartState?.autostart === true
   const autoResumeOn = restartState?.autoResume === true
-  const toggleRestart = (p: { autostart: boolean } | { autoResume: boolean }) => {
+  // "Continuar sozinho quando o limite reabrir": só o Claude tem o limite detectado.
+  const autoResumeLimitOn = restartState?.autoResumeLimit === true
+  const toggleRestart = (p: { autostart: boolean } | { autoResume: boolean } | { autoResumeLimit: boolean }) => {
     setError(null)
     setTerminalRestart(session.projectId, tabEngine, p)
       .then((saved) => useStore.getState().setTerminalState(saved))
@@ -216,6 +218,16 @@ export function SessionControls({ session }: { session: SessionInfo }) {
                 <span className="thumb" />
               </span>
             </label>
+            {tabEngine === 'claude' && (
+              <label className="sess-pop__item sess-pop__item--row" title={t('controls.autoResumeLimitHint')}>
+                <span style={{ flex: 1 }}>{t('controls.autoResumeLimit')}</span>
+                <span className="switch switch--sm">
+                  <input type="checkbox" checked={autoResumeLimitOn} onChange={() => toggleRestart({ autoResumeLimit: !autoResumeLimitOn })} aria-label={t('controls.autoResumeLimit')} />
+                  <span className="track" />
+                  <span className="thumb" />
+                </span>
+              </label>
+            )}
             {permissions.length > 0 && mode !== 'bypassPermissions' && <div className="sess-pop__warn">{t('session.permWarning')}</div>}
             {error && <div className="sess-pop__error">⚠ {error}</div>}
           </div>

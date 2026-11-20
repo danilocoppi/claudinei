@@ -163,3 +163,14 @@ animação.
 - **Quem pega a sessão livre primeiro: a fila do operador.** Um único árbitro decide no "sessão livre": primeiro o próximo item da fila daquela sessão, depois as tarefas de outros agentes (que já vão para a primeira sessão livre do projeto, como hoje). Fila pausada ou segurando não bloqueia as tarefas de outros agentes.
 - **Anexos de rascunho e fila não podem sumir.** A limpeza de uploads deixa de ser "só os 100 mais novos" e passa a ser por idade (apaga o que tem mais de 30 dias, com um teto alto de segurança). Ao trazer de volta um rascunho cujo anexo já foi apagado, o token aparece marcado "anexo não disponível", sem quebrar o envio.
 - **Kimi e OpenCode com a fila pausada:** Enter no meio do turno entra na fila pausada e o campo mostra "fila pausada — Retomar fila".
+
+## Ordem única do "próximo envio" de um terminal (combinada entre as trilhas da onda B)
+
+Quando um turno termina e a sessão fica livre, um único árbitro por terminal escolhe o que vai a seguir, nesta ordem:
+1. auto-compactação (não conta como turno);
+2. mensagem de retomada do Claudinei (reinício/limite), quando houver;
+3. próximo item da fila do operador (projeto 5);
+4. aviso de resultado de tarefa delegada por este terminal (projeto 10);
+5. tarefa de outro agente para este terminal (fila existente do orchestrator);
+6. "continue rumo ao objetivo" do goal (projeto 12) — sempre por último.
+Enquanto houver aviso aberto esperando o operador (reinício sem retomada automática, ou limite), os itens 3 a 6 seguram. As duas trilhas implementam cada uma a sua parte respeitando esta ordem; a integração as junta num árbitro só.

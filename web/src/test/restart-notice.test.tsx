@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, renderHook, cleanup, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { Profiler } from 'react'
+import { render, renderHook, cleanup, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 
 vi.mock('../api', async (importOriginal) => {
   const real = await importOriginal<typeof import('../api')>()
@@ -16,6 +17,7 @@ import * as api from '../api'
 import { InterruptedNotice } from '../components/InterruptedNotice'
 import { SessionControls } from '../components/SessionControls'
 import { MessageBlock } from '../components/MessageBlock'
+import { Sidebar } from '../components/Sidebar'
 import { useTerminalStatesSync } from '../useTerminalStatesSync'
 import { WsContext } from '../wsContext'
 import { useStore, progressKey } from '../store'
@@ -121,11 +123,16 @@ describe('aviso de trabalho interrompido', () => {
     expect(screen.getByRole('button', { name: 'Continuar' })).toBeTruthy()
   })
 
-  it('aviso queued não tem botões', () => {
+  // Uma subida que falhou ou parou no meio deixa o aviso em `queued`: o × é a saída.
+  it('aviso queued não tem Continuar, mas tem o × que chama dismissInterruption', async () => {
     poe(interrompido('queued'))
     render(<InterruptedNotice projectId={1} engine="claude" />)
     expect(screen.getByText('Retomando o trabalho interrompido…')).toBeTruthy()
-    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Continuar' })).toBeNull()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar aviso' }))
+    await waitFor(() => expect(api.dismissInterruption).toHaveBeenCalledWith(1, 'claude'))
+    await waitFor(() => expect(screen.queryByText('Retomando o trabalho interrompido…')).toBeNull())
   })
 
   it.each([
@@ -179,6 +186,63 @@ describe('aviso de trabalho interrompido', () => {
     poe(interrompido('off'))
     const { container } = render(<InterruptedNotice projectId={1} engine="codex" />)
     expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('marca no cartão da lateral', () => {
+  const projetos = () => useStore.setState({
+    projects: [
+      { id: 1, name: 'Alpha', path: '/tmp/a', color: '#ff0000', icon: '📁' },
+      { id: 2, name: 'Beta', path: '/tmp/b', color: '#00ff00', icon: '📁' },
+    ],
+    groups: [], sectors: [], schedules: [],
+    sessions: {}, chat: {}, unread: {}, streaming: {}, historyLoadedFor: {},
+    view: 'dashboard', activeLocalId: undefined,
+  })
+  const cartao = (nome: string) => screen.getAllByTestId('term-card').find((c) => within(c).queryByText(nome))!
+  beforeEach(() => {
+    projetos()
+    localStorage.removeItem('claudinei:collapsedCards')
+  })
+
+  it('cartão com trabalho interrompido (qualquer motor) mostra a marca; o outro não', () => {
+    useStore.setState({ terminalStates: {
+      [progressKey(1, 'codex')]: { ...interrompido('failed'), engine: 'codex' },
+      [progressKey(1, 'claude')]: interrompido('off'),
+    } })
+    render(<Sidebar />)
+    const marcas = within(cartao('Alpha')).getAllByTestId('restart-marker')
+    expect(marcas).toHaveLength(1)
+    expect(marcas[0].getAttribute('aria-label')).toBe('Trabalho interrompido pelo reinício')
+    expect(marcas[0].getAttribute('title')).toBe('Trabalho interrompido pelo reinício')
+    expect(within(cartao('Beta')).queryByTestId('restart-marker')).toBeNull()
+  })
+
+  it('na fila para retomar sozinho, ou sem interrupção, não marca', () => {
+    useStore.setState({ terminalStates: {
+      [progressKey(1, 'claude')]: interrompido('queued'),
+      [progressKey(2, 'claude')]: estado({ projectId: 2 }),
+    } })
+    render(<Sidebar />)
+    expect(screen.queryByTestId('restart-marker')).toBeNull()
+  })
+
+  it('a marca aparece e some com o estado; mudança alheia à marca não redesenha a lateral', () => {
+    let commits = 0
+    render(<Profiler id="lateral" onRender={() => { commits++ }}><Sidebar /></Profiler>)
+    expect(screen.queryByTestId('restart-marker')).toBeNull()
+
+    act(() => useStore.getState().setTerminalState(interrompido('off')))
+    expect(within(cartao('Alpha')).getByTestId('restart-marker')).toBeTruthy()
+
+    const antes = commits
+    // Interruptor mudado e motivo trocado: a marca continua a mesma.
+    act(() => useStore.getState().setTerminalState({ ...interrompido('failed'), autostart: true }))
+    act(() => useStore.getState().setTerminalState(estado({ projectId: 2, autoResume: true })))
+    expect(commits).toBe(antes)
+
+    act(() => useStore.getState().setTerminalState(estado()))
+    expect(screen.queryByTestId('restart-marker')).toBeNull()
   })
 })
 

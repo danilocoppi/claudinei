@@ -417,6 +417,7 @@ export const ptBR: typeof en = {
     limit: 'Retomado 3 vezes sem concluir; esperando você.',
     failed: 'Não foi possível retomar sozinho.',
     continue: 'Continuar', dismiss: 'Fechar aviso',
+    cardMarker: 'Trabalho interrompido pelo reinício',
   },
   fileViewer: {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',
@@ -472,6 +473,7 @@ export const ptBR: typeof en = {
     invalid_sector_name: 'Nome do setor inválido (de 1 a 60 caracteres).',
     project_not_found: 'Este terminal não existe mais.',
     nothing_to_continue: 'Não há trabalho interrompido para continuar.',
+    shutting_down: 'O Claudinei está reiniciando; tente de novo quando ele voltar.',
     group_not_found: 'Este grupo não existe mais.',
     sector_not_found: 'Este setor não existe mais.',
     scratch_folder_unavailable: 'Não foi possível reservar uma pasta temporária.',

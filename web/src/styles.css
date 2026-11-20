@@ -1802,6 +1802,14 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .restart-notice__lost { color: var(--text-dim); font-size: 12.5px; }
 .restart-notice__lost ul { margin: 4px 0 0; padding-left: 18px; color: var(--text); }
 .restart-notice__error { color: var(--err); font-size: 12px; }
+/* ↻ do cartão da lateral: trabalho interrompido pelo reinício esperando o
+   operador. ESTÁTICO de propósito: a interface precisa andar sem GPU (AGENTS.md),
+   e o anel pulsante já é a língua de "esperando você agora". */
+.term-card__restart {
+  flex: none; font-size: 11px; line-height: 1.4; color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 12%, transparent); padding: 0 4px;
+}
 
 /* Pergunta do agente (AskUserQuestion), acima da caixa de mensagem. É um PEDIDO,
    não um alerta: o tom é o de destaque, não o âmbar de aviso do .reauth. */

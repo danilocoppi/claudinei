@@ -416,6 +416,7 @@ export const es: typeof en = {
     limit: 'Retomado 3 veces sin concluir; esperándote.',
     failed: 'No se pudo retomar solo.',
     continue: 'Continuar', dismiss: 'Cerrar aviso',
+    cardMarker: 'Trabajo interrumpido por el reinicio',
   },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',
@@ -471,6 +472,7 @@ export const es: typeof en = {
     invalid_sector_name: 'Nombre de sector no válido (de 1 a 60 caracteres).',
     project_not_found: 'Este terminal ya no existe.',
     nothing_to_continue: 'No hay trabajo interrumpido para continuar.',
+    shutting_down: 'Claudinei se está reiniciando; inténtalo de nuevo cuando vuelva.',
     group_not_found: 'Este grupo ya no existe.',
     sector_not_found: 'Este sector ya no existe.',
     scratch_folder_unavailable: 'No se pudo reservar una carpeta temporal.',

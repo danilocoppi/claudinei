@@ -20,6 +20,7 @@ import { ColorField } from './ColorField'
 import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
+import { InterruptedCardMarker } from './InterruptedNotice'
 import { MoreIcon, GearIcon, StarIcon, SearchIcon, BoltIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { BrandMark } from './BrandMark'
@@ -408,6 +409,7 @@ export function Sidebar() {
             </span>
           )}
           {isCollapsed && playButton}
+          <InterruptedCardMarker projectId={p.id} />
           {(() => {
             const sch = schedulesOf(p.id)
             if (!sch) return null

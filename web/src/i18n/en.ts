@@ -414,6 +414,7 @@ export const en = {
     limit: 'Resumed 3 times without finishing; waiting for you.',
     failed: 'Could not resume on its own.',
     continue: 'Continue', dismiss: 'Close notice',
+    cardMarker: 'Work interrupted by the restart',
   },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
@@ -469,6 +470,7 @@ export const en = {
     invalid_sector_name: 'Invalid sector name (1 to 60 characters).',
     project_not_found: 'This terminal no longer exists.',
     nothing_to_continue: 'There is no interrupted work to continue.',
+    shutting_down: 'Claudinei is restarting; try again once it is back.',
     group_not_found: 'This group no longer exists.',
     sector_not_found: 'This sector no longer exists.',
     scratch_folder_unavailable: "Couldn't reserve a temporary folder.",

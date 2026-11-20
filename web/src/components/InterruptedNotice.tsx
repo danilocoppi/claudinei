@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { continueTerminal, dismissInterruption } from '../api'
 import { progressKey, useStore } from '../store'
+import type { TerminalState } from '../types'
 
 /**
  * Aviso de trabalho interrompido pelo reinício do Claudinei, logo acima do campo
  * do chat, para o terminal da aba (projeto + motor).
  *
- * Na fila para retomar sozinho (`queued`), só informa. Nos demais motivos o turno
- * ficou esperando o operador: **Continuar** revive a sessão, se preciso, e manda a
- * mensagem de retomada; o × tira o aviso sem retomar. O aviso some quando o
- * servidor manda o estado sem interrupção (`terminal_state`).
+ * Na fila para retomar sozinho (`queued`), informa e oferece só o ×: uma subida
+ * que falhou ou parou no meio deixaria o aviso preso sem ele. Nos demais motivos
+ * o turno ficou esperando o operador: **Continuar** revive a sessão, se preciso, e
+ * manda a mensagem de retomada; o × tira o aviso sem retomar. O aviso some quando
+ * o servidor manda o estado sem interrupção (`terminal_state`).
  *
  * Estático de propósito: a interface precisa andar sem GPU (AGENTS.md), e um aviso
  * que pulsa enquanto espera custaria quadros o tempo todo.
@@ -46,13 +48,21 @@ export function InterruptedNotice({ projectId, engine }: { projectId: number; en
     } finally { setBusy(false) }
   }
 
+  const closeButton = (
+    <button type="button" className="ghost restart-notice__close" disabled={busy}
+            aria-label={t('restart.dismiss')} title={t('restart.dismiss')} onClick={() => void run('dismiss')}>×</button>
+  )
+  const errorLine = error?.at === interruption.at && <div className="restart-notice__error">{error.message}</div>
+
   if (interruption.reason === 'queued') {
     return (
       <div className="restart-notice restart-notice--queued" role="status">
         <div className="restart-notice__head">
           <span aria-hidden="true">↻</span>
           <span className="restart-notice__text">{t('restart.queued')}</span>
+          {closeButton}
         </div>
+        {errorLine}
       </div>
     )
   }
@@ -68,8 +78,7 @@ export function InterruptedNotice({ projectId, engine }: { projectId: number; en
         <span aria-hidden="true">↻</span>
         <span className="restart-notice__text">{message}</span>
         <button type="button" disabled={busy} onClick={() => void run('continue')}>{t('restart.continue')}</button>
-        <button type="button" className="ghost restart-notice__close" disabled={busy}
-                aria-label={t('restart.dismiss')} title={t('restart.dismiss')} onClick={() => void run('dismiss')}>×</button>
+        {closeButton}
       </div>
       {interruption.reason === 'question' && (
         <div className="restart-notice__lost">
@@ -79,7 +88,29 @@ export function InterruptedNotice({ projectId, engine }: { projectId: number; en
           )}
         </div>
       )}
-      {error?.at === interruption.at && <div className="restart-notice__error">{error.message}</div>}
+      {errorLine}
     </div>
   )
 }
+
+/** Algum terminal do projeto (qualquer motor) tem trabalho interrompido esperando o operador. */
+const hasHeldInterruption = (states: Record<string, TerminalState>, projectId: number): boolean =>
+  Object.values(states).some((st) => st.projectId === projectId && !!st.interruption && st.interruption.reason !== 'queued')
+
+/**
+ * Marca do cartão da lateral: o aviso só aparece com a aba do terminal aberta, e
+ * esta marca diz em qual cartão procurar. Uma por cartão, qualquer que seja o
+ * motor. Na fila (`queued`) não marca: ali o Claudinei já está retomando.
+ *
+ * O seletor devolve só um booleano: a lateral não se redesenha a cada mudança do
+ * estado dos terminais, só quando a marca acende ou apaga. Estática (sem GPU).
+ */
+export const InterruptedCardMarker = memo(function InterruptedCardMarker({ projectId }: { projectId: number }) {
+  const { t } = useTranslation()
+  const on = useStore((s) => hasHeldInterruption(s.terminalStates, projectId))
+  if (!on) return null
+  return (
+    <span data-testid="restart-marker" className="term-card__restart" role="img"
+          aria-label={t('restart.cardMarker')} title={t('restart.cardMarker')}>↻</span>
+  )
+})

@@ -129,7 +129,7 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
     setup(['claude'])
     useStore.setState({
       terminalStates: {
-        '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' } },
+        '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null },
       },
     })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)

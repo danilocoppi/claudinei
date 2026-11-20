@@ -60,6 +60,17 @@ function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>):
   return Object.fromEntries(kept.map((k) => [k, map[k]]))
 }
 
+/** A ação de triagem que o `Ctrl+Z` e o botão "Desfazer" ainda podem desfazer. */
+export interface TriageUndo {
+  /** O texto do aviso, já traduzido ("Alpha assentado"). */
+  label: string
+  projectId: number
+  /** O estado de antes da ação: o desfazer devolve os três campos. */
+  before: TriageItem
+  /** Epoch ms; passado o prazo, não desfaz mais. */
+  expiresAt: number
+}
+
 /** O que o menu do arquivo fez, para quem o abriu decidir o resto (o `@!` sai do campo). */
 export type FileMenuAction = 'popup' | 'inline' | 'copy' | 'reveal'
 
@@ -202,6 +213,13 @@ interface State {
    */
   triage: Record<number, TriageItem>
   setTriageItem(item: TriageItem): void
+  /**
+   * A última ação de triagem do operador, desfazível até `expiresAt` (5 s). Só no
+   * navegador; quem escreve e lê é `triageActions.ts`, e o `UndoToast` mostra.
+   */
+  undo: TriageUndo | null
+  /** Chave i18n do aviso de falha da última ação de triagem; some na próxima. */
+  triageError: 'sidebar.pinSaveError' | 'sidebar.triageSaveError' | null
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
@@ -240,7 +258,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {},
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -369,6 +387,8 @@ export const useStore = create<State>((set, get) => ({
   setTerminalState: (state) =>
     set((s) => ({ terminalStates: { ...s.terminalStates, [progressKey(state.projectId, state.engine)]: state } })),
   triage: {},
+  undo: null,
+  triageError: null,
   setTriageItem: (item) => set((s) => ({ triage: { ...s.triage, [item.projectId]: item } })),
   setProgress: (projectId, engine, progress) =>
     set((s) => ({ progress: { ...s.progress, [progressKey(projectId, engine)]: progress } })),

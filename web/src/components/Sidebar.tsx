@@ -2,12 +2,13 @@ import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import type { Project, SessionInfo, TriageItem } from '../types'
-import { createScratchProject, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setTriage, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
+import type { Project, SessionInfo } from '../types'
+import { createScratchProject, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, railRows, type Entry, type RailGuide } from '../sidebarEntries'
 import { nextExpiry, splitSections, triageStateOf } from '../triageSections'
+import { applyTriage } from '../triageActions'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { EngineIcon } from './EngineIcon'
@@ -157,14 +158,14 @@ export function Sidebar() {
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
   const [favoritesOnly, setFavoritesOnly] = useState(loadFavoritesOnly)
-  const [favoriteError, setFavoriteError] = useState(false)
+  // O aviso de falha de qualquer ação de triagem (⭐ ou menu), daqui ou do chat.
+  const triageError = useStore((s) => s.triageError)
   // Busca pelo nome: estado TRANSITÓRIO, de propósito fora do localStorage. Uma
   // busca esquecida que voltasse no próximo carregamento faria a lista parecer
   // vazia sem motivo aparente.
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const [scratchDraft, setScratchDraft] = useState<Pick<Project, 'name' | 'icon' | 'color'> | null>(null)
-  const pendingFavorites = useRef(new Set<number>())
   const [pendingFavoriteIds, setPendingFavoriteIds] = useState<number[]>([])
   const railMode = useStore((s) => s.railMode)
   const toggleRail = useStore((s) => s.toggleRail)
@@ -186,25 +187,17 @@ export function Sidebar() {
     })
   }
   /**
-   * A ⭐ fixa e desafixa, para o usuário logado (triagem). O cartão muda de seção
-   * na hora; se o servidor recusar, volta e o aviso aparece.
+   * A ⭐ fixa e desafixa, para o usuário logado (triagem), pela mesma porta do
+   * menu: muda na hora, entra no desfazer, e se o servidor recusar volta e o aviso
+   * aparece. A estrela fica desabilitada enquanto o pedido não volta.
    */
   const togglePin = async (p: Project) => {
-    if (pendingFavorites.current.has(p.id)) return
-    const before: TriageItem = useStore.getState().triage[p.id] ?? { projectId: p.id, pinned: false, settled: false, snoozedUntil: null }
-    const pinned = !before.pinned
-    pendingFavorites.current.add(p.id)
+    const pinned = !useStore.getState().triage[p.id]?.pinned
     setPendingFavoriteIds((ids) => [...ids, p.id])
-    setFavoriteError(false)
-    // Como no servidor: fixar tira o assentado; o adiamento fica.
-    setTriageItem(pinned ? { ...before, pinned, settled: false } : { ...before, pinned })
     try {
-      setTriageItem(await setTriage(p.id, { pinned }))
-    } catch {
-      setTriageItem(before)
-      setFavoriteError(true)
+      // Fixar não marca como lido: não há o que mandar pelo WebSocket.
+      await applyTriage(p.id, { pinned }, t(pinned ? 'triage.didPin' : 'triage.didUnpin', { name: p.name }), null)
     } finally {
-      pendingFavorites.current.delete(p.id)
       setPendingFavoriteIds((ids) => ids.filter((id) => id !== p.id))
     }
   }
@@ -921,7 +914,7 @@ export function Sidebar() {
       )}
 
       <div className="term-list">
-        {favoriteError && <div className="term-list__error" role="alert">{t('sidebar.pinSaveError')}</div>}
+        {triageError && <div className="term-list__error" role="alert">{t(triageError)}</div>}
         {/* De cima para baixo: Trabalhando, Fixados, a árvore, Adiados, Assentados.
             Cada uma num contêiner fixo nesta ordem — trocar de seção é trocar de
             pai, então só a triagem (nunca o status de uma sessão) faz isso. */}

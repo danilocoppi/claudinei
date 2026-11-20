@@ -130,6 +130,7 @@ export const en = {
     pin: 'Pin {{name}}', unpin: 'Unpin {{name}}',
     emptyPinned: 'No pinned terminals yet.', emptyFiltered: 'No terminals match these filters.',
     pinSaveError: 'Could not pin or unpin the terminal. Try again.',
+    triageSaveError: 'Could not change the terminal triage. Try again.',
     sectionWorking: 'Working', sectionPinned: 'Pinned', sectionSnoozed: 'Snoozed', sectionSettled: 'Settled',
     snoozedBackAt: 'back at {{time}}', snoozedBackOn: 'back {{day}} {{time}}',
     search: 'Search terminals', searchPlaceholder: 'Search terminal…', searchClear: 'Clear search',
@@ -409,6 +410,14 @@ export const en = {
     status: { pending: 'pending', in_progress: 'in progress', review: 'in review', blocked: 'blocked', done: 'done' },
   },
   headsUp: { region: 'Claude heads-ups', close: 'Close heads-up' },
+  triage: {
+    pin: 'Pin', unpin: 'Unpin', settle: 'Settle', unsettle: 'Remove from settled',
+    snooze: 'Snooze', snooze1h: '1 hour', snoozeTomorrow: 'Until tomorrow at 9:00', snoozeMonday: 'Until Monday at 9:00',
+    unsnooze: 'Cancel snooze',
+    didPin: '{{name}} pinned', didUnpin: '{{name}} unpinned', didSettle: '{{name}} settled',
+    didUnsettle: '{{name}} removed from settled', didSnooze: '{{name}} snoozed', didUnsnooze: 'Snooze of {{name}} canceled',
+    undo: 'Undo',
+  },
   restart: {
     queued: 'Resuming the interrupted work…',
     interrupted: 'The work was interrupted by the Claudinei restart.',

@@ -132,6 +132,7 @@ export const es: typeof en = {
     pin: 'Fijar {{name}}', unpin: 'Dejar de fijar {{name}}',
     emptyPinned: 'Aún no hay terminales fijados.', emptyFiltered: 'Ninguna terminal coincide con los filtros.',
     pinSaveError: 'No se pudo fijar o dejar de fijar la terminal. Inténtalo de nuevo.',
+    triageSaveError: 'No se pudo cambiar la clasificación de la terminal. Inténtalo de nuevo.',
     sectionWorking: 'Trabajando', sectionPinned: 'Fijados', sectionSnoozed: 'Pospuestos', sectionSettled: 'Asentados',
     snoozedBackAt: 'vuelve a las {{time}}', snoozedBackOn: 'vuelve el {{day}} {{time}}',
     search: 'Buscar terminales', searchPlaceholder: 'Buscar terminal…', searchClear: 'Limpiar búsqueda',
@@ -411,6 +412,14 @@ export const es: typeof en = {
     status: { pending: 'pendiente', in_progress: 'en curso', review: 'en revisión', blocked: 'bloqueada', done: 'terminada' },
   },
   headsUp: { region: 'Avisos de Claude', close: 'Cerrar aviso' },
+  triage: {
+    pin: 'Fijar', unpin: 'Dejar de fijar', settle: 'Asentar', unsettle: 'Quitar de asentados',
+    snooze: 'Posponer', snooze1h: '1 h', snoozeTomorrow: 'Hasta mañana a las 9:00', snoozeMonday: 'Hasta el lunes a las 9:00',
+    unsnooze: 'Cancelar el aplazamiento',
+    didPin: '{{name}} fijado', didUnpin: '{{name}} dejó de estar fijado', didSettle: '{{name}} asentado',
+    didUnsettle: '{{name}} salió de asentados', didSnooze: '{{name}} pospuesto', didUnsnooze: 'Aplazamiento de {{name}} cancelado',
+    undo: 'Deshacer',
+  },
   restart: {
     queued: 'Retomando el trabajo interrumpido…',
     interrupted: 'El trabajo fue interrumpido por el reinicio de Claudinei.',

@@ -15,6 +15,7 @@ import { OrphanActions } from './components/OrphanActions'
 import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
 import { MobileTopbar } from './components/MobileTopbar'
+import { UndoToast } from './components/UndoToast'
 import { initNotifications } from './notifications'
 import { installIndicatorMotion } from './indicatorMotion'
 import { useAccessHours } from './useAccessHours'
@@ -186,6 +187,7 @@ export default function App() {
         <FileViewerGate />
         <FileOpenMenu />
         <ExternalLinkConfirm />
+        <UndoToast />
       </div>
     </WsContext.Provider>
   )

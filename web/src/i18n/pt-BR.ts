@@ -132,6 +132,7 @@ export const ptBR: typeof en = {
     pin: 'Fixar {{name}}', unpin: 'Desafixar {{name}}',
     emptyPinned: 'Nenhum terminal fixado ainda.', emptyFiltered: 'Nenhum terminal atende aos filtros.',
     pinSaveError: 'Não foi possível fixar ou desafixar o terminal. Tente novamente.',
+    triageSaveError: 'Não foi possível mudar a triagem do terminal. Tente novamente.',
     sectionWorking: 'Trabalhando', sectionPinned: 'Fixados', sectionSnoozed: 'Adiados', sectionSettled: 'Assentados',
     snoozedBackAt: 'volta às {{time}}', snoozedBackOn: 'volta {{day}} {{time}}',
     search: 'Buscar terminais', searchPlaceholder: 'Buscar terminal…', searchClear: 'Limpar busca',
@@ -412,6 +413,14 @@ export const ptBR: typeof en = {
     status: { pending: 'pendente', in_progress: 'em andamento', review: 'em revisão', blocked: 'bloqueada', done: 'concluída' },
   },
   headsUp: { region: 'Avisos do Claude', close: 'Fechar aviso' },
+  triage: {
+    pin: 'Fixar', unpin: 'Desafixar', settle: 'Assentar', unsettle: 'Tirar dos assentados',
+    snooze: 'Adiar', snooze1h: '1 h', snoozeTomorrow: 'Até amanhã às 9:00', snoozeMonday: 'Até segunda às 9:00',
+    unsnooze: 'Cancelar o adiamento',
+    didPin: '{{name}} fixado', didUnpin: '{{name}} desafixado', didSettle: '{{name}} assentado',
+    didUnsettle: '{{name}} saiu dos assentados', didSnooze: '{{name}} adiado', didUnsnooze: 'Adiamento de {{name}} cancelado',
+    undo: 'Desfazer',
+  },
   restart: {
     queued: 'Retomando o trabalho interrompido…',
     interrupted: 'O trabalho foi interrompido pelo reinício do Claudinei.',

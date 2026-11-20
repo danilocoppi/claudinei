@@ -111,3 +111,17 @@ export const BoltIcon = ({ size }: { size?: number }) => (
     <path d="M13 2 4 14h7l-1 8 9-12h-7z" />
   </Glyph>
 )
+
+/** Assentar: o visto de "já tratei, pode descer". */
+export const SettleIcon = ({ size }: { size?: number }) => (
+  <Glyph size={size}>
+    <circle cx="12" cy="12" r="9" /><path d="m8 12.5 2.8 2.8L16.5 9.5" />
+  </Glyph>
+)
+
+/** Adiar: o relógio de "volta mais tarde". */
+export const ClockIcon = ({ size }: { size?: number }) => (
+  <Glyph size={size}>
+    <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+  </Glyph>
+)

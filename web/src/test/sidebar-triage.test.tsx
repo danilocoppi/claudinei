@@ -277,7 +277,7 @@ describe('Sidebar — desempenho da triagem (AGENTS.md)', () => {
   })
 })
 
-// O erro de gravação da ⭐ usa o aviso de sempre (o desfazer vem na Task 5).
+// O erro de gravação da ⭐ usa o aviso de sempre (o desfazer: triage-actions.test.tsx).
 describe('Sidebar — falha ao fixar', () => {
   it('erro de gravação devolve o cartão e avisa', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>

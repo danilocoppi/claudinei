@@ -17,6 +17,7 @@ import { ReauthBanner } from './ReauthBanner'
 import { InterruptedNotice } from './InterruptedNotice'
 import { UsageLimitNotice } from './UsageLimitNotice'
 import { TaskResultNotice } from './TaskResultNotice'
+import { GoalNotice } from './GoalNotice'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
@@ -341,6 +342,8 @@ export function ChatView() {
       <UsageLimitNotice projectId={session.projectId} engine={engine} />
       {/* Tarefas que este terminal delegou terminaram, com ele parado: Continuar/×. */}
       <TaskResultNotice projectId={session.projectId} engine={engine} />
+      {/* Goal pausado ou no teto: o motivo, com Retomar/Encerrar (`/goal resume`/`stop`). */}
+      <GoalNotice projectId={session.projectId} engine={engine} localId={session.localId} sessionStatus={session.status} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

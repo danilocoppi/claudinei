@@ -204,3 +204,20 @@ Verificação: `web/src/test/triage-actions.test.tsx` (menu, horário absoluto, 
 - O cartão da lateral mostra uma marca estática enquanto o terminal está no limite, em qualquer ação: com o aviso à vista (`none`), sempre "limite de uso", sem a hora (a marca não se atualiza quando a janela reabre, e o aviso já mostra a hora); adiado, "limite até 15:00"; armado, "retoma às 15:01". Com o aviso adiado, é o único sinal que fica.
 - A mensagem de retomada vai ao agente em inglês e aparece no chat como cartão com o selo "Claudinei", no idioma da tela ("A janela do limite de uso reabriu…"), e não como mensagem do operador.
 - O aviso e a marca são estáticos, sem animação: a interface precisa andar sem GPU.
+
+## Delegar e goals
+
+Spec: `docs/superpowers/specs/2026-11-20-delegar-e-goals-design.md`.
+
+- **Resultado de tarefa delegada**: quando uma tarefa que o terminal delegou termina, o Claudinei entrega o resultado ao agente no fim do turno. No chat, a entrega aparece como cartão com o selo "Claudinei" ("Resultado de tarefa"), com `#id · Projeto`, "concluída" ou "falhou" e o texto do resultado, dobrado em 13 linhas. Não é mensagem do operador, então o cartão não tem lápis.
+- **Aviso "A tarefa terminou"**: aparece acima do campo quando o resultado não sai sozinho. Isso acontece com o terminal parado, ou com a entrega segurada pela marca do limite de uso. O aviso tem **Continuar** (revive o terminal, se preciso, e entrega) e × (dispensa; o agente ainda lê em `list_tasks`). Com o limite ainda ativo, só informa e oferece o ×. Com o aviso do limite na tela, a contagem de resultados esperando aparece dentro dele.
+- **`/goal <critério>`** é digitado no campo, em qualquer motor, e aparece no autocomplete do `/`. Ele faz o terminal seguir turno após turno até o agente chamar `goal_done`, com teto de 20 turnos. `/goal resume` retoma o goal e `/goal stop` o encerra. No chat, cada "continue" é um cartão "Objetivo · turno n/20".
+- **Bloco "Objetivo"**: fica no topo da coluna de acompanhamento, fora da rolagem, e aparece mesmo sem `update_progress` do agente. Mostra o critério, "turno n/20" e o estado: ativo, esperando tarefas, "pausado: <motivo>", chegou ao teto ou cumprido. Quando cumprido, mostra também a evidência do `goal_done`.
+- **Aviso do goal**: com o goal pausado ou no teto, um aviso âmbar acima do campo dá o motivo. Os textos são "Objetivo pausado: você mandou uma mensagem." (ou: o turno terminou com erro, o terminal bateu o limite de uso, o turno foi interrompido) e "O objetivo chegou ao teto de 20 turnos sem ser cumprido.".
+  - **Retomar** manda `/goal resume` e **Encerrar** manda `/goal stop`, pelo mesmo caminho do campo. O servidor intercepta os dois e nada vai à conversa.
+  - Os botões ficam desligados até o estado do goal mudar, e o aviso some quando o goal volta a ativo ou deixa de existir.
+  - Com o terminal parado, morto ou aberto no terminal interativo, o envio seria recusado. Nesse caso o aviso mostra o motivo e "Inicie o terminal para retomar ou encerrar o objetivo.", sem botões.
+- **Selo no cartão da lateral**: "🎯 n/20", na linha do nome, junto das marcas de interrupção e de limite, nos dois modos do cartão. A dica traz o estado ("Objetivo: turno 7/20 · ativo"). O tom é de destaque enquanto o goal gira, âmbar quando está pausado ou no teto e verde quando foi cumprido. Com mais de um motor com goal, vale o que não acabou. O selo some quando o terminal fica sem goal.
+- Selo, bloco e avisos são estáticos, sem animação nem transição: a interface precisa andar sem GPU. Os seletores devolvem valores simples, e o selo de um cartão não redesenha com a mudança de outro terminal.
+
+Verificação: `web/src/test/delegate-cards.test.tsx` (cartões e aviso de resultado) e `web/src/test/goal-ui.test.tsx` (bloco, aviso com Retomar/Encerrar, selo sem animação, Profiler da lateral e `/goal` no autocomplete de todos os motores).

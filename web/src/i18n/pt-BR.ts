@@ -343,6 +343,7 @@ export const ptBR: typeof en = {
     share: 'compartilha a sessão',
     redo: 'refaz a última edição desfeita',
     models: 'lista os modelos disponíveis',
+    goal: 'segue turno após turno até cumprir um objetivo (/goal <critério>, resume, stop)',
   },
   interactionInfo: {
     title: 'Board & Tasks — colaboração entre agentes',
@@ -473,6 +474,26 @@ export const ptBR: typeof en = {
     continue: 'Continuar', continueHint: 'Liga o terminal e entrega o resultado ao agente',
     dismiss: 'Dispensar aviso (o agente ainda lê o resultado em list_tasks)',
     heldByLimit: 'O resultado espera o terminal voltar a trabalhar depois do limite de uso.',
+  },
+  goal: {
+    title: 'Objetivo',
+    turn: 'turno {{turns}}/{{max}}',
+    status: {
+      active: 'ativo', waiting: 'esperando tarefas', paused: 'pausado', cap: 'chegou ao teto', done: 'cumprido',
+    },
+    pausedBy: 'pausado: {{reason}}',
+    pause: {
+      operator: 'você mandou uma mensagem', error: 'o turno terminou com erro',
+      limit: 'o terminal bateu o limite de uso', interrupt: 'o turno foi interrompido',
+    },
+    evidence: 'Evidência',
+    noticePaused: 'Objetivo pausado: {{reason}}.',
+    noticePausedPlain: 'Objetivo pausado.',
+    noticeCap: 'O objetivo chegou ao teto de {{max}} turnos sem ser cumprido.',
+    resume: 'Retomar', resumeHint: 'Manda /goal resume: o laço volta a girar com novos turnos',
+    stop: 'Encerrar', stopHint: 'Manda /goal stop: encerra o objetivo',
+    needsSession: 'Inicie o terminal para retomar ou encerrar o objetivo.',
+    cardMarker: 'Objetivo: turno {{turns}}/{{max}} · {{status}}',
   },
   stash: {
     button: '{{count}} prompt guardado. Ctrl+S guarda o que está no campo; com o campo vazio, traz o último.',

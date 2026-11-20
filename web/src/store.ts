@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { CODEX_FALLBACK_CATALOG } from '../../shared/codex-models'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
@@ -6,7 +7,7 @@ import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import { resolvedKey, type FileKind, type ScopeResult } from './files'
 import { applyEvent } from './chat/applyEvent'
 import { notifyQuestion, notifySessionChange } from './notifications'
-import { BUILTIN_FALLBACK } from './slash'
+import { BUILTIN_FALLBACK, CLAUDINEI_COMMANDS } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
@@ -751,7 +752,8 @@ export function useEngineFor(session: SessionInfo | undefined): EngineMeta | und
  * Lista de slash commands efetiva da sessão, dirigida pela engine:
  * - `slashSource === 'protocol'` → `store.slashCommands` (hoje só o Claude; farejado do evento `init`).
  * - `slashSource === 'curated'` → `engine.slashCommands` (lista fixa da engine, ex.: Codex).
- * - `slashSource === 'none'` → nenhum autocomplete.
+ * - `slashSource === 'none'` → só os do Claudinei.
+ * Em todos, mais os comandos do próprio Claudinei (`CLAUDINEI_COMMANDS`: `/goal`).
  * Sem engine resolvida ainda (boot) → cai no protocolo (comportamento idêntico ao de hoje).
  * Reativa: use dentro do corpo de componentes.
  */
@@ -759,7 +761,9 @@ export function useSessionSlashCommands(session: SessionInfo | undefined): strin
   const engine = useEngineFor(session)
   const protocolCommands = useStore((s) => s.slashCommands)
   const source = engine?.slashSource ?? 'protocol'
-  if (source === 'none') return []
-  if (source === 'curated') return engine?.slashCommands ?? []
-  return protocolCommands
+  const base = source === 'none' ? EMPTY_COMMANDS : source === 'curated' ? engine?.slashCommands ?? EMPTY_COMMANDS : protocolCommands
+  // Os do Claudinei (`/goal`) valem em todo motor; filterCommands tira o repetido.
+  return useMemo(() => [...base, ...CLAUDINEI_COMMANDS], [base])
 }
+/** Referência estável: o useMemo acima não refaz a lista a cada render. */
+const EMPTY_COMMANDS: string[] = []

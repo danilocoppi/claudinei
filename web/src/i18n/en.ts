@@ -340,6 +340,7 @@ export const en = {
     share: 'share the session',
     redo: 'redo the last undone edit',
     models: 'list available models',
+    goal: 'keeps going turn after turn until a goal is met (/goal <criterion>, resume, stop)',
   },
   interactionInfo: {
     title: 'Board & Tasks — agent collaboration',
@@ -470,6 +471,26 @@ export const en = {
     continue: 'Continue', continueHint: 'Starts the terminal and hands the result to the agent',
     dismiss: 'Dismiss notice (the agent can still read the result in list_tasks)',
     heldByLimit: 'The result waits for the terminal to work again after the usage limit.',
+  },
+  goal: {
+    title: 'Goal',
+    turn: 'turn {{turns}}/{{max}}',
+    status: {
+      active: 'active', waiting: 'waiting for tasks', paused: 'paused', cap: 'reached the cap', done: 'met',
+    },
+    pausedBy: 'paused: {{reason}}',
+    pause: {
+      operator: 'you sent a message', error: 'the turn ended with an error',
+      limit: 'the terminal hit the usage limit', interrupt: 'the turn was interrupted',
+    },
+    evidence: 'Evidence',
+    noticePaused: 'Goal paused: {{reason}}.',
+    noticePausedPlain: 'Goal paused.',
+    noticeCap: 'The goal reached the cap of {{max}} turns without being met.',
+    resume: 'Resume', resumeHint: 'Sends /goal resume: the loop starts again with new turns',
+    stop: 'End', stopHint: 'Sends /goal stop: ends the goal',
+    needsSession: 'Start the terminal to resume or end the goal.',
+    cardMarker: 'Goal: turn {{turns}}/{{max}} · {{status}}',
   },
   stash: {
     button: '{{count}} saved prompt. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',

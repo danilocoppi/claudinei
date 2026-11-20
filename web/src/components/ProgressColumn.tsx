@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useStore, progressKey } from '../store'
 import { fetchProgress, clearProgress } from '../api'
-import type { Progress, ProgressStatus, SessionStatus } from '../types'
+import type { GoalStatus, Progress, ProgressStatus, SessionStatus } from '../types'
 import { CopyButton } from './CopyButton'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -83,6 +83,53 @@ function ago(t: TFunction, iso: string): string {
   return t('progress.agoHour', { h: Math.floor(min / 60), m: min % 60 })
 }
 
+/** Tom do estado do goal no bloco, com as fichas das tarefas: girando, destaque; esperando, neutro; parado, âmbar. */
+const GOAL_CHIP: Record<GoalStatus, ProgressStatus> = {
+  active: 'in_progress', waiting: 'pending', paused: 'review', cap: 'review', done: 'done',
+}
+
+/**
+ * Bloco "Objetivo" no topo da coluna: o goal (`/goal`) do terminal, que é estado
+ * do servidor (não vem do `update_progress` do agente) — por isso aparece mesmo
+ * sem acompanhamento. Critério, "turno n/20", estado (ativo, esperando tarefas,
+ * pausado com o motivo, teto, cumprido) e, cumprido, a evidência do `goal_done`.
+ *
+ * Seletores de valores simples, num componente à parte: um estado novo do
+ * terminal com o mesmo goal não redesenha a coluna. Estático (sem GPU).
+ */
+const GoalBlock = memo(function GoalBlock({ projectId, engine }: { projectId: number; engine: string }) {
+  const { t } = useTranslation()
+  const key = progressKey(projectId, engine)
+  const criterion = useStore((s) => s.terminalStates[key]?.goal?.criterion ?? null)
+  const status = useStore((s) => s.terminalStates[key]?.goal?.status ?? null)
+  const pause = useStore((s) => s.terminalStates[key]?.goal?.pause ?? null)
+  const turns = useStore((s) => s.terminalStates[key]?.goal?.turns ?? 0)
+  const max = useStore((s) => s.terminalStates[key]?.goal?.max ?? 0)
+  const evidence = useStore((s) => s.terminalStates[key]?.goal?.evidence ?? null)
+  if (criterion == null || status == null) return null
+  const state = status === 'paused' && pause
+    ? t('goal.pausedBy', { reason: t(`goal.pause.${pause}`) })
+    : t(`goal.status.${status}`)
+  return (
+    <div className="progress__goal-slot">
+      <section className="progress__card progress__goal" data-testid="goal-block">
+        <h3>{t('goal.title')}</h3>
+        <div className="progress__goal-criterion">{criterion}</div>
+        <div className="progress__goal-meta">
+          <span>{t('goal.turn', { turns, max })}</span>
+          <span className={`progress__chip progress__chip--${GOAL_CHIP[status]}`}>{state}</span>
+        </div>
+        {status === 'done' && evidence && (
+          <div className="progress__goal-evidence">
+            <h3>{t('goal.evidence')}</h3>
+            <div>{evidence}</div>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+})
+
 export function ProgressColumn({ projectId, engine, sessionStatus }: Props) {
   const { t } = useTranslation()
   const progress = useProgress(projectId, engine)
@@ -115,6 +162,8 @@ export function ProgressColumn({ projectId, engine, sessionStatus }: Props) {
         <button className="ghost progress__back" aria-label={t('progress.close')} title={t('progress.close')} onClick={toggle}>×</button>
         <strong>{t('progress.title')}</strong>
       </header>
+      {/* No topo, fora da rolagem do acompanhamento: o goal fica sempre à vista. */}
+      <GoalBlock projectId={projectId} engine={engine} />
       {!progress ? (
         <p className="progress__empty">{t('progress.empty')}</p>
       ) : (

@@ -24,6 +24,8 @@ export const SLASH_DESCRIPTIONS: Record<string, string> = {
   models: 'slash.models',
   share: 'slash.share',
   redo: 'slash.redo',
+  // Do Claudinei, não do motor: o servidor intercepta o /goal em todos os motores.
+  goal: 'slash.goal',
 }
 
 /**
@@ -32,7 +34,14 @@ export const SLASH_DESCRIPTIONS: Record<string, string> = {
  * comandos curados de outras engines (approvals/init/review/diff/undo são
  * Codex-only; nunca fizeram parte do protocolo do Claude).
  */
-export const BUILTIN_FALLBACK: string[] = ['compact', 'cost', 'context', 'usage', 'clear', 'model', 'mcp', 'agents']
+export const BUILTIN_FALLBACK: string[] = ['compact', 'cost', 'context', 'usage', 'clear', 'model', 'mcp', 'agents', 'goal']
+
+/**
+ * Comandos do próprio Claudinei, que valem em todo motor (o servidor os trata
+ * antes de chegar ao agente): entram na lista de qualquer sessão, mesmo quando
+ * a lista do protocolo chega sem eles ou o motor não tem slash nenhum.
+ */
+export const CLAUDINEI_COMMANDS: string[] = ['goal']
 
 /** Comandos só-TUI que não fazem nada útil no chat headless. */
 export const HIDDEN = new Set(['exit', 'help'])

@@ -21,11 +21,15 @@ export type BootAction =
 const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 
 /**
- * Limite de uso ainda ativo: gravado e sem reabertura conhecida, ou com a
- * reabertura (`limitResetsAt`, epoch SEGUNDOS) ainda no futuro.
+ * Limite de uso ainda ativo: gravado e sem reabertura conhecida, com a
+ * reabertura (`limitResetsAt`, epoch SEGUNDOS) ainda no futuro, ou com a
+ * retomada armada, mesmo já vencida: quem manda a mensagem é o serviço do
+ * limite, e a marca do reinício é absorvida (nunca duas retomadas). Em `none`
+ * ou `snoozed` com a reabertura passada, o reinício retoma como sempre.
  */
 export function limitActive(r: TerminalStateRow, now: number = Date.now()): boolean {
-  return r.limitHitAt != null && (r.limitResetsAt == null || r.limitResetsAt * 1000 > now)
+  if (r.limitHitAt == null) return false
+  return r.limitAction === 'armed' || r.limitResetsAt == null || r.limitResetsAt * 1000 > now
 }
 
 /**

@@ -9,7 +9,7 @@ import { createProjectsService, type Project } from '../src/projects.js'
 import { createSessionManager } from '../src/claude/manager.js'
 import { ClaudeSession, type SessionOptions } from '../src/claude/session.js'
 import { createTerminalStateStore, type TerminalStateStore } from '../src/restart/terminal-state.js'
-import { createRestartService } from '../src/restart/boot.js'
+import { createRestartService, RESUME_PREFIX } from '../src/restart/boot.js'
 import { createUsageLimitService } from '../src/limit/usage-limit.js'
 import { LIMIT_RESUME_PREFIX, LIMIT_RESUME_TEXT } from '../src/limit/texts.js'
 import '../src/engine/index.js'
@@ -39,6 +39,8 @@ let clock: number
 let timers: { fn: () => void; ms: number; cleared: boolean }[]
 let sleeps: number[]
 let logs: string[]
+let onSleep: (() => void) | null
+let restartSvc: ReturnType<typeof createRestartService>
 
 const fakeFactory = (opts: SessionOptions) => {
   if (brokenPaths.has(opts.projectPath)) throw new Error('motor recusou')
@@ -54,6 +56,7 @@ beforeEach(() => {
   timers = []
   sleeps = []
   logs = []
+  onSleep = null
   mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => mgrBroadcasts.push(m) })
   store = createTerminalStateStore(db)
 })
@@ -61,7 +64,7 @@ beforeEach(() => {
 afterEach(async () => { await mgr.stopAll() })
 
 const makeService = () => {
-  const restart = createRestartService({
+  const restart = restartSvc = createRestartService({
     db, manager: mgr, store,
     orchestrator: () => undefined,
     broadcast: (m) => stateBroadcasts.push(m),
@@ -76,7 +79,8 @@ const makeService = () => {
       timers.push(t)
       return { clear() { t.cleared = true } }
     },
-    sleep: async (ms) => { sleeps.push(ms) },
+    // A espera entre lotes registra e pode rodar algo "no meio" (o operador agindo).
+    sleep: async (ms) => { sleeps.push(ms); onSleep?.() },
     log: (m) => logs.push(m),
   })
 }
@@ -213,6 +217,56 @@ describe('serviço do limite de uso', () => {
     expect(pending()).toHaveLength(0)
   })
 
+  /** Quatro armados vencendo juntos: o quarto fica no segundo lote, depois da espera. */
+  const fourArmed = (svc: ReturnType<typeof makeService>) =>
+    [0, 1, 2, 3].map((i) => limited(svc, { name: `P${i}`, auto: true }))
+  const echoesTo = (localId: string) => limitEchoes().filter((b) => b.localId === localId)
+
+  it('cancel durante a espera entre lotes: o segundo lote não manda', async () => {
+    const svc = makeService()
+    const ps = fourArmed(svc)
+    onSleep = () => svc.cancel(ps[3].p.id, 'claude')
+    await fire()
+    await waitUntil(() => limitEchoes().length === 3)
+    await pause()
+    expect(echoesTo(ps[3].localId)).toHaveLength(0)
+    expect(store.get(ps[3].p.id, 'claude')).toMatchObject({ limitAction: 'none', limitTries: 0 })
+    expect(store.get(ps[3].p.id, 'claude').limitHitAt).not.toBeNull()
+    expect(pending()).toHaveLength(0)
+  })
+
+  it('mensagem do operador durante a espera entre lotes: o segundo lote não manda', async () => {
+    const svc = makeService()
+    const ps = fourArmed(svc)
+    onSleep = () => svc.onOperatorMessage(ps[3].p.id, 'claude')
+    await fire()
+    await waitUntil(() => limitEchoes().length === 3)
+    await pause()
+    expect(echoesTo(ps[3].localId)).toHaveLength(0)
+    expect(store.get(ps[3].p.id, 'claude')).toMatchObject({ limitHitAt: null, limitTries: 0 })
+  })
+
+  it('Continuar durante a espera que bate outro limite: o segundo lote não manda na janela fechada', async () => {
+    const svc = makeService()
+    const ps = fourArmed(svc)
+    const semanal = segs(T0) + 7 * 24 * 3600
+    onSleep = () => {
+      // O clique retoma (sem contar tentativa) e o turno bate no limite semanal: rearma.
+      expect(svc.continueNow(ps[3].p.id, 'claude')).toBe(true)
+      svc.onUsageLimit(ps[3].p.id, 'claude', { localId: ps[3].localId, resetsAt: semanal, origin: 'claudinei' })
+      expect(store.get(ps[3].p.id, 'claude').limitAction).toBe('armed')
+    }
+    await fire()
+    await waitUntil(() => limitEchoes().length === 4)
+    await pause()
+    // Só a do clique: o lote viu que a linha rearmada ainda não venceu.
+    expect(echoesTo(ps[3].localId)).toHaveLength(1)
+    expect(store.get(ps[3].p.id, 'claude')).toMatchObject({ limitAction: 'armed', limitResetsAt: semanal, limitTries: 0 })
+    // O relógio vai para a reabertura semanal.
+    expect(pending()).toHaveLength(1)
+    expect(pending()[0].ms).toBe(semanal * 1000 + 60_000 - clock)
+  })
+
   it('no lote, um terminal que falha não para os outros', async () => {
     const svc = makeService()
     const ruim = limited(svc, { name: 'Ruim', auto: true })
@@ -298,6 +352,29 @@ describe('serviço do limite de uso', () => {
     expect(store.get(p.id, 'claude').limitAction).toBe('armed')
     expect(pending()[0].ms).toBe(40_000)
     expect(limitEchoes()).toHaveLength(0)
+  })
+
+  it('boot do reinício e do limite juntos: marca com retomada armada vencida manda uma mensagem só', async () => {
+    const p = newProject('P')
+    const localId = seedSession(p)
+    store.setPrefs(p.id, 'claude', { autoResume: true, autoResumeLimit: true })
+    store.markInterrupted(p.id, 'claude', localId, null)
+    // Vencida no relógio real (o do reinício) e no falso (o do limite).
+    store.recordUsageLimit(p.id, 'claude', { resetsAt: segs(Date.now()) - 3600, origin: 'operator' })
+    store.setLimitAction(p.id, 'claude', 'armed')
+
+    const svc = makeService()
+    await restartSvc.boot()
+    await svc.boot()
+
+    await waitUntil(() => limitEchoes().length === 1)
+    await pause()
+    const resumes = mgrBroadcasts.filter((b) =>
+      b.type === 'session_event' && b.event?.kind === 'user' &&
+      String(b.event.message?.content?.[0]?.text ?? '').startsWith(RESUME_PREFIX))
+    expect(resumes).toHaveLength(0)
+    expect(limitEchoes()).toHaveLength(1)
+    expect(store.get(p.id, 'claude')).toMatchObject({ interruptedAt: null, limitHitAt: null, limitTries: 1 })
   })
 
   it('arm/snooze sem resetsAt ou com resetsAt passado: reset_unknown', () => {

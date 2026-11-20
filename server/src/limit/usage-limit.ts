@@ -96,7 +96,13 @@ export function createUsageLimitService(deps: {
       if (opts.auto) return false
       throw new UserError('no_usage_limit', 'o terminal não está no limite de uso')
     }
-    if (opts.auto && current.limitAction !== 'armed') return false
+    if (opts.auto) {
+      // A lista do lote foi tirada antes das esperas: confere de novo que a linha
+      // segue armada E vencida. Um Continuar no meio que bateu outro limite
+      // (rearmado para a próxima janela) não pode receber a retomada agora.
+      const deadline = deadlineOf(current)
+      if (current.limitAction !== 'armed' || deadline == null || deadline > now()) return false
+    }
     const live = liveOf(projectId, engine)
     if (live && (live.status === 'working' || live.compactingSince !== undefined)) {
       if (!opts.auto) throw new UserError('session_busy', 'sessão está trabalhando; aguarde o turno terminar')

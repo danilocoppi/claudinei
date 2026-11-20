@@ -168,6 +168,18 @@ describe('planBoot', () => {
       { kind: 'hold', projectId: 1, engine: 'claude', reason: 'off', alsoIdle: false, localId: 'loc-int' },
     ])
   })
+
+  it('planBoot pula interrupção com retomada armada já vencida', () => {
+    const passado = AGORA / 1000 - 3600
+    const armado = { ...limitado(passado), limitAction: 'armed' as const }
+    // A mensagem é do serviço do limite: o reinício não retoma, não segura nem sobe.
+    expect(planBoot([interrupted({ autoResume: true, ...armado })], latest(), AGORA)).toEqual([])
+    expect(planBoot([interrupted({ autostart: true, ...armado })], latest(), AGORA)).toEqual([])
+    // Adiado com a reabertura passada segue o caminho de sempre.
+    expect(planBoot([interrupted({ autoResume: true, ...limitado(passado), limitAction: 'snoozed' })], latest(), AGORA)).toEqual([
+      { kind: 'resume', projectId: 1, engine: 'claude', localId: 'loc-int' },
+    ])
+  })
 })
 
 // ---------------------------------------------------------------- executor

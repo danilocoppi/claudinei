@@ -16,7 +16,7 @@ import {
   type TerminalStateRow, type TerminalStateStore,
 } from '../src/restart/terminal-state.js'
 import {
-  planBoot, createRestartService, RESUME_PREFIX, RESUME_TEXT, MAX_AUTO_RESUMES,
+  planBoot, createRestartService, startAfterListen, RESUME_PREFIX, RESUME_TEXT, MAX_AUTO_RESUMES,
 } from '../src/restart/boot.js'
 import type { OrchestratorHooks } from '../src/routes/orchestrator.js'
 import '../src/engine/index.js'
@@ -179,7 +179,7 @@ const makeService = (over: { sleep?: (ms: number) => Promise<void>; closeInterru
     orchestrator: () => orch,
     broadcast: (m) => stateBroadcasts.push(m),
     sleep: over.sleep ?? (async (ms) => { sleeps.push(ms) }),
-    closeInterruptedRuns: over.closeInterruptedRuns,
+    closeInterruptedRuns: over.closeInterruptedRuns ?? (() => 0),
     log: () => {},
   })
   return { svc, sleeps }
@@ -392,6 +392,25 @@ describe('createRestartService.boot', () => {
     expect(resto.resumeCount).toBe(0)
   })
 
+  it('encerramento iniciado durante a espera para os lotes seguintes', async () => {
+    const ps: Project[] = []
+    for (let i = 0; i < 4; i++) {
+      const p = newProject(`P${i}`)
+      store.setPrefs(p.id, 'claude', { autoResume: true })
+      store.markInterrupted(p.id, 'claude', seedSession(p), null)
+      ps.push(p)
+    }
+    // A espera padrão resolve normalmente; o que segura o resto é o modo de encerramento.
+    const { svc } = makeService({ sleep: async () => { mgr.beginShutdown() } })
+    await svc.boot()
+
+    for (const p of ps.slice(0, 3)) expect(store.get(p.id, 'claude').interruptedAt).toBeNull()
+    const resto = store.get(ps[3].id, 'claude')
+    expect(resto.interruptedAt).not.toBeNull()
+    expect(resto.holdReason).toBeNull()
+    expect(activeOf(ps[3])).toBeUndefined()
+  })
+
   it('autostart sem sessão anterior chama start', async () => {
     const p = newProject('P')
     store.setPrefs(p.id, 'claude', { autostart: true })
@@ -432,6 +451,7 @@ describe('createRestartService: mensagens e interruptores', () => {
     let release!: () => void
     const svc = createRestartService({
       db, manager: mgr, store, orchestrator: () => orch, broadcast: (m) => stateBroadcasts.push(m),
+      closeInterruptedRuns: () => 0,
       batchSize: 1, sleep: () => new Promise<void>((r) => { release = r }), log: () => {},
     })
     const booting = svc.boot()
@@ -480,5 +500,48 @@ describe('createRestartService: mensagens e interruptores', () => {
     expect(dto).toEqual({ projectId: p.id, engine: 'claude', autostart: true, autoResume: false, interruption: null })
     expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: dto })
     expect(svc.list()).toEqual([dto])
+  })
+})
+
+describe('startAfterListen', () => {
+  it('agendador liga só depois do boot', async () => {
+    const ordem: string[] = []
+    let terminar!: () => void
+    const restart = { boot: () => new Promise<void>((r) => { terminar = () => { ordem.push('boot'); r() } }) }
+    const scheduler = { start: vi.fn(() => { ordem.push('scheduler') }) }
+
+    const pronto = startAfterListen({ restart, scheduler })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(scheduler.start).not.toHaveBeenCalled()
+    terminar()
+    await pronto
+    expect(ordem).toEqual(['boot', 'scheduler'])
+  })
+
+  it('boot que falha é registrado e o agendador liga mesmo assim', async () => {
+    const logs: string[] = []
+    const scheduler = { start: vi.fn() }
+    await expect(startAfterListen({
+      restart: { boot: () => Promise.reject(new Error('banco travado')) },
+      scheduler,
+      log: (m) => logs.push(m),
+    })).resolves.toBeUndefined()
+    expect(scheduler.start).toHaveBeenCalledTimes(1)
+    expect(logs.join('\n')).toContain('banco travado')
+  })
+
+  it('sem agendador nem serviço não quebra', async () => {
+    await expect(startAfterListen({ restart: undefined, scheduler: undefined })).resolves.toBeUndefined()
+  })
+
+  it('encerramento começado durante o boot não liga o agendador', async () => {
+    const scheduler = { start: vi.fn() }
+    let encerrando = false
+    await startAfterListen({
+      restart: { boot: async () => { encerrando = true } },
+      scheduler,
+      isShuttingDown: () => encerrando,
+    })
+    expect(scheduler.start).not.toHaveBeenCalled()
   })
 })

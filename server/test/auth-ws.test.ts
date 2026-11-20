@@ -127,6 +127,19 @@ describe('broadcast filtrado', () => {
     anaWs.close(); rootWs.close()
   })
 
+  it('terminal_state chega a quem tem acesso ao projeto do estado', async () => {
+    const anaWs = openWs(await loginCookie('ana'))
+    await opened(anaWs); await nextMsg(anaWs)
+    const estado = (projectId: number) =>
+      ({ type: 'terminal_state', state: { projectId, engine: 'claude', autostart: true, autoResume: false, interruption: null } })
+    hub.broadcast(estado(p2.id))
+    hub.broadcast(estado(p1.id))
+    // Só o do projeto dela chega; o alheio ficou para trás.
+    await expect(nextMsg(anaWs)).resolves.toMatchObject({ type: 'terminal_state', state: { projectId: p1.id } })
+    await expect(nextMsg(anaWs, 300)).rejects.toThrow('timeout')
+    anaWs.close()
+  })
+
   it('evento sem projeto resolvível é admin-only', async () => {
     const anaWs = openWs(await loginCookie('ana'))
     await opened(anaWs); await nextMsg(anaWs)

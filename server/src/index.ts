@@ -104,6 +104,9 @@ if (process.argv.includes('--hermes')) {
   const { createUsageService } = await import('./usage.js')
   const { createEngineUsageService } = await import('./engine-usage.js')
   const { createAuthService } = await import('./auth/index.js')
+  const { captureCrashed, createTerminalStateStore } = await import('./restart/terminal-state.js')
+  const { captureShutdown } = await import('./restart/capture.js')
+  const { startAfterListen } = await import('./restart/boot.js')
 
   migrateLegacyDataDir()
   const config = loadConfig()
@@ -163,6 +166,15 @@ if (process.argv.includes('--hermes')) {
   // libera. Guarda numa referência mutável que buildApp preenche via
   // onOrchestratorReady, e o hook do manager sempre lê o valor atual dela.
   let drain: ((projectId: number) => void) | undefined
+  // Mesmo padrão para o serviço do reinício, que nasce no buildApp: os ganchos
+  // do manager (fim de turno, mensagem do operador) leem a referência atual.
+  let restart: import('./restart/boot.js').RestartService | undefined
+  const terminalState = createTerminalStateStore(db)
+  // Queda brusca da vez anterior: quem ficou `working` no banco estava no meio
+  // de um turno. Tem que ler ANTES do createSessionManager, que reescreve esses
+  // status para `dead` ao subir.
+  const caidas = captureCrashed(db)
+  if (caidas > 0) console.log(`[reinício] ${caidas} terminal(is) caíram no meio de um turno`)
   const manager = createSessionManager({
     db,
     broadcast: (m) => wsHub.broadcast(m),
@@ -173,6 +185,8 @@ if (process.argv.includes('--hermes')) {
     onSessionAvailable: (projectId) => drain?.(projectId),
     onEngineUsage: (engine, tokens) => engineUsage.record(engine, tokens),
     onRateLimit: (info) => usage.observe(info),
+    onTurnResult: (projectId, engine) => restart?.onTurnResult(projectId, engine),
+    onOperatorMessage: (projectId, engine) => restart?.onOperatorMessage(projectId, engine),
     terminalLauncher: (opts) => terminalManager.open(opts.localId, {
       cwd: opts.cwd,
       file: opts.file,
@@ -219,6 +233,7 @@ if (process.argv.includes('--hermes')) {
     webDist: existsSync(webDist) ? webDist : undefined,
     onOrchestratorReady: (o) => { drain = o.drain },
     onSchedulerReady: (s) => { scheduler = s },
+    onRestartReady: (r) => { restart = r },
     onRevokeAll: () => {
       wsHub.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
@@ -228,9 +243,14 @@ if (process.argv.includes('--hermes')) {
     onUserInvalidated: (id) => wsHub.closeUser(id),
   })
   await app.listen({ port, host })
-  // Depois do listen: o primeiro tick pode subir sessões, e isso não deve atrasar
-  // o momento em que a porta começa a aceitar conexões.
-  scheduler?.start()
+  // Depois do listen: a subida dos terminais (retomadas e "iniciar com o
+  // Claudinei", em lotes) e o primeiro tick do agendador sobem sessões, e isso
+  // não deve atrasar o momento em que a porta começa a aceitar conexões. O
+  // agendador só liga depois da subida: um agendamento não disputa a sessão com
+  // a retomada. Sem await: a subida espera entre lotes, e nem o log abaixo nem
+  // os ouvintes de SIGINT/SIGTERM (que registram a interrupção) podem esperar.
+  void startAfterListen({ restart, scheduler, isShuttingDown: () => manager.isShuttingDown() })
+    .catch((err) => console.error('[reinício] arranque depois do listen falhou', err))
   console.log(
     `Termaster server em ${https ? 'https' : 'http'}://${host}:${port}` +
     (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : '') +
@@ -249,6 +269,11 @@ if (process.argv.includes('--hermes')) {
   for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     process.on(sig, async () => {
       console.log('encerrando sessões...')
+      // Antes de parar qualquer coisa: registra quem estava no meio de um turno
+      // (e liga o modo de encerramento, que segura a subida em lotes e mantém as
+      // tarefas encaminhadas abertas para a próxima subida religar).
+      const marcadas = captureShutdown(manager, terminalState)
+      if (marcadas > 0) console.log(`[reinício] ${marcadas} terminal(is) interrompidos no meio de um turno`)
       scheduler?.stop()
       await manager.stopAll()
       await speech.stop()

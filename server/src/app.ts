@@ -39,6 +39,9 @@ import { createSettingsService } from './settings.js'
 import { createSchedulesStore } from './schedules/store.js'
 import { createScheduler, type Scheduler } from './schedules/scheduler.js'
 import { registerStatic } from './static.js'
+import { registerTerminalStateRoutes } from './routes/terminals.js'
+import { createTerminalStateStore } from './restart/terminal-state.js'
+import { createRestartService, type RestartService } from './restart/boot.js'
 
 export interface AppDeps {
   config: Config
@@ -90,6 +93,13 @@ export interface AppDeps {
   onSchedulerReady?: (scheduler: Scheduler) => void
   /** Acervo de ícones (Iconify). Injetável para o teste não falar com a internet. */
   iconify?: IconifyDeps
+  /**
+   * Recebe o serviço do reinício assim que ele nasce. Mesmo motivo do
+   * `onOrchestratorReady`: o manager já existe, e os ganchos dele
+   * (`onTurnResult`, `onOperatorMessage`) leem uma referência que index.ts
+   * preenche aqui. index.ts também roda a subida (`boot`) depois do listen.
+   */
+  onRestartReady?: (restart: RestartService) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -143,6 +153,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)
+  // O reinício nasce depois do orchestrator (religa as tarefas do turno
+  // interrompido) e dos agendamentos (fecha as execuções que o reinício matou).
+  const restart = createRestartService({
+    db: deps.db, manager: deps.manager, store: createTerminalStateStore(deps.db),
+    orchestrator: () => orchestrator,
+    broadcast: (m) => deps.wsHub?.broadcast(m),
+    closeInterruptedRuns: () => schedulesStore.closeInterruptedRuns(),
+  })
+  registerTerminalStateRoutes(app, { db: deps.db, restart })
+  deps.onRestartReady?.(restart)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })

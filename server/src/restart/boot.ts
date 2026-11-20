@@ -67,8 +67,12 @@ export function createRestartService(deps: {
   db: Db; manager: SessionManager; store: TerminalStateStore
   orchestrator: () => Orchestrator | undefined
   broadcast: (msg: object) => void          // { type: 'terminal_state', state: TerminalStateDto }
-  /** Fecha as execuções de agendamento que o reinício matou (o store dos agendamentos vive no app). */
-  closeInterruptedRuns?: () => number
+  /**
+   * Fecha as execuções de agendamento que o reinício matou (o store dos
+   * agendamentos vive no app). Obrigatório: esquecê-lo deixaria execuções
+   * `running` para sempre, travando o agendamento.
+   */
+  closeInterruptedRuns: () => number
   batchSize?: number; gapMs?: number; sleep?: (ms: number) => Promise<void>
   log?: (msg: string) => void
 }) {
@@ -192,11 +196,11 @@ export function createRestartService(deps: {
     /**
      * A subida: fecha as execuções de agendamento interrompidas, decide cada
      * terminal, fecha as tarefas de quem não retoma e sobe em lotes, primeiro as
-     * retomadas. Se a espera entre lotes rejeitar (novo encerramento), o resto
-     * fica marcado e é tratado na próxima subida.
+     * retomadas. Se um encerramento começar (ou a espera entre lotes rejeitar),
+     * os lotes param e o resto fica marcado para a próxima subida.
      */
     async boot(): Promise<void> {
-      deps.closeInterruptedRuns?.()
+      deps.closeInterruptedRuns()
       const actions = planBoot(store.list(), latestLocalId)
       for (const a of actions) {
         if (a.kind !== 'hold') continue
@@ -213,6 +217,11 @@ export function createRestartService(deps: {
       const risers = actions.filter((a) => a.kind !== 'hold' || a.alsoIdle)
       for (let i = 0; i < risers.length; i += batchSize) {
         if (i > 0) await sleep(gapMs)
+        // Serviço encerrando: subir mais terminais só para derrubá-los logo depois.
+        if (manager.isShuttingDown()) {
+          log(`[reinício] encerramento em curso: ${risers.length - i} terminal(is) ficam para a próxima subida`)
+          return
+        }
         for (const a of risers.slice(i, i + batchSize)) runAction(a)
       }
     },
@@ -245,3 +254,25 @@ export function createRestartService(deps: {
 }
 
 export type RestartService = ReturnType<typeof createRestartService>
+
+/**
+ * O que roda depois do `listen`: primeiro a subida dos terminais, depois o
+ * agendador, para que um agendamento não dispute a sessão com a retomada. Falha
+ * da subida é registrada e nunca sobe: ela não pode impedir o agendador. Se o
+ * encerramento começou durante a subida, o agendador fica desligado.
+ */
+export async function startAfterListen(deps: {
+  restart: Pick<RestartService, 'boot'> | undefined
+  scheduler: { start(): void } | undefined
+  isShuttingDown?: () => boolean
+  log?: (msg: string) => void
+}): Promise<void> {
+  const log = deps.log ?? ((msg: string) => console.error(msg))
+  try {
+    await deps.restart?.boot()
+  } catch (err) {
+    log(`[reinício] a subida dos terminais falhou: ${(err as Error)?.message ?? err}`)
+  }
+  if (deps.isShuttingDown?.()) return
+  deps.scheduler?.start()
+}

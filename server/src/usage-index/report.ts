@@ -1,6 +1,5 @@
 import type { Db } from '../db.js'
 import type { Project } from '../projects.js'
-import { createUsageIndexStore } from './store.js'
 
 export type UsagePeriod = '24h' | '7d' | '30d' | '90d'
 
@@ -90,15 +89,14 @@ const byTotals = (a: { totals: UsageTotals }, b: { totals: UsageTotals }): numbe
 
 /**
  * Relatório de uso do período: um SELECT agrupado por hora, motor, modelo e pasta a partir do
- * início do período; o casamento com os projetos e a montagem ficam em memória.
+ * início do período; o casamento com os projetos e a montagem ficam em memória. As tabelas
+ * precisam existir: quem chama roda `ensureUsageSchema` uma vez antes (a rota faz isso ao registrar).
  */
 export function buildUsageReport(
   db: Db,
   opts: { period: UsagePeriod; now: Date; tzOffsetMin: number; projects: ProjectRef[] },
 ): UsageReport {
   const { period, now, projects } = opts
-  // Garante as tabelas mesmo se o indexador ainda não rodou nesta base.
-  createUsageIndexStore(db)
 
   // Início do período: agora menos N dias, arredondado para baixo na hora UTC.
   const startMs = Math.floor((now.getTime() - PERIOD_DAYS[period] * DAY_MS) / HOUR_MS) * HOUR_MS
@@ -108,10 +106,10 @@ export function buildUsageReport(
     SELECT hour, engine, model, cwd,
       SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cacheRead,
       SUM(cache_write) AS cacheWrite, SUM(reasoning) AS reasoning
-    FROM usage_hourly WHERE hour >= ?
+    FROM usage_index_hourly WHERE hour >= ?
     GROUP BY hour, engine, model, cwd
   `).all(start) as AggRow[]
-  const oldest = db.prepare('SELECT MIN(hour) AS h FROM usage_hourly').get() as { h: string | null }
+  const oldest = db.prepare('SELECT MIN(hour) AS h FROM usage_index_hourly').get() as { h: string | null }
 
   // Série local, crescente e preenchida com zero do balde do início até o balde de agora.
   const hourly = period === '24h'

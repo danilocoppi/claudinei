@@ -3,6 +3,7 @@ import type { Db } from '../db.js'
 import { requireAdmin } from '../auth/guards.js'
 import { createProjectsService } from '../projects.js'
 import { buildUsageReport, type UsagePeriod } from '../usage-index/report.js'
+import { ensureUsageSchema } from '../usage-index/store.js'
 import type { IndexStatus, UsageIndexer } from '../usage-index/indexer.js'
 
 export interface UsageReportRouteDeps {
@@ -22,6 +23,8 @@ function parseTz(raw: unknown): number {
 
 export function registerUsageReportRoutes(app: FastifyInstance, deps: UsageReportRouteDeps): void {
   const projects = createProjectsService(deps.db)
+  // As tabelas do índice são criadas uma vez aqui, mesmo que o indexador ainda não tenha rodado.
+  ensureUsageSchema(deps.db)
   // Só lê o índice: nunca dispara nem espera uma passada, que roda sozinha no indexador.
   app.get('/api/usage/report', async (req, reply) => {
     if (!requireAdmin(req, reply)) return

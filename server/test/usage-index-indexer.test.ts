@@ -83,8 +83,8 @@ const tokenCount = (input: number, total: number): string =>
 
 const soma = (engine?: 'claude' | 'codex'): number =>
   (engine
-    ? db.prepare('SELECT COALESCE(SUM(input), 0) AS n FROM usage_hourly WHERE engine = ?').get(engine) as { n: number }
-    : db.prepare('SELECT COALESCE(SUM(input), 0) AS n FROM usage_hourly').get() as { n: number }).n
+    ? db.prepare('SELECT COALESCE(SUM(input), 0) AS n FROM usage_index_hourly WHERE engine = ?').get(engine) as { n: number }
+    : db.prepare('SELECT COALESCE(SUM(input), 0) AS n FROM usage_index_hourly').get() as { n: number }).n
 
 const immediate = (): Promise<void> => new Promise((r) => setImmediate(r))
 
@@ -330,6 +330,86 @@ describe('createUsageIndexer', () => {
     expect(msgs.some((m) => m.includes(b) && m.includes('EACCES'))).toBe(true)
     expect(store.file(c)?.offset).toBe(statSync(c).size)
     expect(ix.status()).toMatchObject({ filesDone: 3, filesTotal: 3 })
+  })
+
+  it('arquivo ilegível é registrado uma vez só, não a cada passada', async () => {
+    const b = write(join(claudeDir, 'proj-a', 's2.jsonl'), claudeLine('m2', 20))
+    write(join(claudeDir, 'proj-a', 's3.jsonl'), claudeLine('m3', 5))
+    chmodSync(b, 0o000)
+    const log = vi.fn()
+    const ix = indexer({ log })
+    try {
+      await ix.runPass()
+      await ix.runPass()
+      await ix.runPass()
+    } finally {
+      chmodSync(b, 0o644)
+    }
+    const msgs = log.mock.calls.map((c) => String(c[0]))
+    expect(msgs.filter((m) => m.includes(b) && m.includes('EACCES'))).toHaveLength(1)
+    expect(soma()).toBe(5)
+    // legível de novo, ele entra na próxima passada
+    await ix.runPass()
+    expect(soma()).toBe(25)
+  })
+
+  it('a passada concluída só vai para o log quando muda algo', async () => {
+    const f = write(join(claudeDir, 'proj-a', 's1.jsonl'), claudeLine('m1', 10))
+    const log = vi.fn()
+    const ix = indexer({ log })
+    const concluidas = () => log.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('passada do índice concluída'))
+    await ix.runPass()
+    expect(concluidas()).toHaveLength(1)
+    // nada mudou: a passada rápida fica fora do log
+    await ix.runPass()
+    await ix.runPass()
+    expect(concluidas()).toHaveLength(1)
+    expect(ix.status().lastPassAt).not.toBeNull()
+    appendFileSync(f, claudeLine('m2', 5))
+    await ix.runPass()
+    expect(concluidas()).toHaveLength(2)
+  })
+
+  it('a passada demorada vai para o log mesmo sem mudança', async () => {
+    write(join(claudeDir, 'proj-a', 's1.jsonl'), claudeLine('m1', 10))
+    const log = vi.fn()
+    const ix = indexer({ log })
+    await ix.runPass()
+    // cada leitura do relógio avança 2 s: a passada sem mudança passa de 1 s
+    let t = 0
+    const relogio = vi.spyOn(performance, 'now').mockImplementation(() => (t += 2000))
+    try {
+      await ix.runPass()
+    } finally {
+      relogio.mockRestore()
+    }
+    expect(log.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('passada do índice concluída'))).toHaveLength(2)
+  })
+
+  it('Codex reescrito menor: o leitor recomeça do zero, sem herdar modelo, pasta nem último total', async () => {
+    const f = write(
+      join(codexDir, '2026', '11', '20', 'rollout-1.jsonl'),
+      turnContext('/p/velha', 'gpt-velho') + tokenCount(40, 40) + tokenCount(40, 80) + tokenCount(10, 90),
+    )
+    const ix = indexer()
+    await ix.runPass()
+    expect(soma('codex')).toBe(90)
+    // Conteúdo novo e menor. O primeiro total é igual ao último do conteúdo velho (90): com o
+    // estado herdado ele seria tomado por repetição; o turn_context só chega depois dele.
+    writeFileSync(f, tokenCount(90, 90) + tokenCount(90, 90) + turnContext('/p/nova', 'gpt-novo') + tokenCount(7, 97))
+    expect(statSync(f).size).toBeLessThan(store.file(f)!.offset)
+    await ix.runPass()
+    const linhas = db.prepare('SELECT model, cwd, SUM(input) AS input FROM usage_index_hourly GROUP BY model, cwd ORDER BY model').all()
+    expect(linhas).toEqual([
+      { model: 'desconhecido', cwd: '', input: 90 },
+      { model: 'gpt-novo', cwd: '/p/nova', input: 7 },
+    ])
+    const estado = JSON.parse(store.file(f)!.parser!)
+    expect(estado).toMatchObject({ model: 'gpt-novo', cwd: '/p/nova' })
+    expect(estado.lastTotal.total_tokens).toBe(97)
+    // passada sem mudança não soma de novo
+    await ix.runPass()
+    expect(soma('codex')).toBe(97)
   })
 
   it('start roda uma passada já, e stop para o relógio', async () => {

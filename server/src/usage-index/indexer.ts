@@ -77,6 +77,18 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
   let current: Promise<void> | null = null
   let currentPass: Pass | null = null
   let timer: NodeJS.Timeout | null = null
+  // Arquivos gravados na passada em curso: sem nenhum, a passada rápida não vai para o log.
+  let updated = 0
+
+  // Uma falha que se repete (arquivo ou pasta sem permissão) vai para o log uma vez por
+  // caminho e código enquanto o processo vive, e não a cada passada de 10 min.
+  const reported = new Set<string>()
+  const logOnce = (path: string, code: string, msg: string): void => {
+    const key = `${path}\u0000${code}`
+    if (reported.has(key)) return
+    reported.add(key)
+    log(msg)
+  }
 
   // Orçamento da fatia em curso, acumulado entre arquivos.
   let usedBytes = 0
@@ -95,7 +107,8 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
       const entries = await fsp.readdir(dir, { withFileTypes: true })
       return entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     } catch (e) {
-      if (errCode(e) !== 'ENOENT') log(`uso: pasta ignorada ${dir}: ${errCode(e)}`)
+      const code = errCode(e)
+      if (code !== 'ENOENT') logOnce(dir, code, `uso: pasta ignorada ${dir}: ${code}`)
       return []
     }
   }
@@ -149,6 +162,7 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
     const codex: CodexParser | null = t.engine === 'codex' ? createCodexParser(saved?.parser ?? null) : null
     let offset = saved?.offset ?? 0 // byte logo depois da última linha completa consumida
     let hits: Hit[] = []
+    let touched = false // já contado em `updated` nesta passada
     const commit = (final: boolean): void => {
       // Uma fatia intermediária grava `size` = offset: se a passada parar aqui, o arquivo
       // não parece inalterado na próxima e a leitura continua do offset.
@@ -157,6 +171,8 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
       }
       const batch = hits
       hits = []
+      if (!touched) updated++
+      touched = true
       inStore(() => {
         if (resetPending) store.resetFile(t.path)
         resetPending = false
@@ -221,6 +237,7 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
     st.running = true
     st.filesDone = 0
     st.filesTotal = 0
+    updated = 0
     resetBudget()
     try {
       const targets = await discover(p)
@@ -232,13 +249,18 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
         } catch (e) {
           if (e instanceof StoreFailure) throw e.original
           // Só o caminho e o código (ou o nome) do erro: a mensagem pode trazer texto da linha.
-          log(`uso: arquivo ignorado ${t.path}: ${errCode(e)}`)
+          const code = errCode(e)
+          logOnce(t.path, code, `uso: arquivo ignorado ${t.path}: ${code}`)
         }
         st.filesDone++
         if (spent() && (await cede(p))) return
       }
       st.lastPassAt = new Date().toISOString()
-      log(`uso: passada do índice concluída (${targets.length} arquivos, ${Math.round(performance.now() - t0)} ms)`)
+      // Passada sem nada novo e rápida (a de quase todo relógio de 10 min) não vai para o log.
+      const ms = Math.round(performance.now() - t0)
+      if (updated > 0 || ms > 1000) {
+        log(`uso: passada do índice concluída (${targets.length} arquivos, ${updated} atualizados, ${ms} ms)`)
+      }
     } finally {
       st.running = false
     }

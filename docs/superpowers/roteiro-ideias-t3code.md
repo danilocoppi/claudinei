@@ -25,10 +25,9 @@ aprovação do Danilo para integrar, instalar e reiniciar. A ordem foi aprovada.
 | 14 | Atalhos configuráveis | Atalhos editáveis, com detecção de conflito | médio | — |
 | 15 | Respostas visuais | O agente responde com página HTML em sandbox (e MCP Apps) | médio | — |
 | 16 | Navegador embutido | O agente navega e o operador vê, anota e manda o recorte ao chat; servidores locais com Parar | grande | — |
-| 17 | Simuladores | Emulador ao vivo no painel | grande | — |
 
 ## Limites já conhecidos
 
-- **Simuladores (17):** o simulador de iOS só existe no macOS; nesta máquina (Linux) só o emulador Android. Transmitir o vídeo a um Chrome sem GPU pesa.
+- **Simuladores (17): retirado do roteiro pelo Danilo em 20/11/2026.** (No Linux só haveria o emulador Android, e transmitir o vídeo a um Chrome sem GPU pesa.)
 - **Desfazer (9):** no T3, reverter arquivos só vale em worktree isolado. No Claudinei vários terminais podem trabalhar na mesma pasta, e reverter pode apagar o trabalho de outro agente.
 - **Retomar sozinho (1):** continuar um turno gasta tokens, então cada terminal terá um interruptor. Nada disso muda a regra do AGENTS.md: reiniciar o serviço continua exigindo autorização expressa.

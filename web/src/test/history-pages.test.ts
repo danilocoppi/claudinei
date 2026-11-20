@@ -232,6 +232,62 @@ describe('setHistoryTail / prependHistory', () => {
     expect(keys(st().chat.s).filter((k) => k!.startsWith('p'))).toEqual(['p100', 'p110', 'p130', 'p140', 'p150', 'p160'])
   })
 
+  describe('ao vivo que o transcript ainda não alcançou', () => {
+    const st = () => useStore.getState()
+    const ao = (event: ClaudeEvent) => st().applyWsMessage({ type: 'session_event', localId: 's', event })
+    const textos = () => st().chat.s.map((it) => (it as { text?: string }).text)
+
+    it('o que veio depois do último ao vivo casado fica, inclusive resposta do agente e texto com cara de comando', () => {
+      st().setHistoryTail('s', tail1, 'c')
+      st().addLocalUserText('s', 'pergunta')
+      ao(texto('parte 1'))
+      st().addLocalUserText('s', '/tmp está cheio')
+      ao(texto('parte 2'))
+      // O servidor leu a página antes de "/tmp está cheio" chegar ao transcript.
+      st().setHistoryTail('s', page([texto('a-130', 130), pedido('pergunta', 140), texto('parte 1', 150)], 130), 'c')
+      expect(textos().slice(3)).toEqual(['pergunta', 'parte 1', '/tmp está cheio', 'parte 2'])
+      expect(keys(st().chat.s).slice(3, 5)).toEqual(['p140', 'p150'])
+      // Na releitura seguinte, já gravados, casam e trocam de chave — sem duplicar.
+      st().setHistoryTail('s', page([
+        texto('a-130', 130), pedido('pergunta', 140), texto('parte 1', 150), pedido('/tmp está cheio', 160), texto('parte 2', 170),
+      ], 130), 'c')
+      expect(textos().slice(3)).toEqual(['pergunta', 'parte 1', '/tmp está cheio', 'parte 2'])
+      expect(keys(st().chat.s).slice(3)).toEqual(['p140', 'p150', 'p160', 'p170'])
+    })
+
+    it('reconexão no meio do turno: a resposta que chegou depois da leitura não some', () => {
+      st().setHistoryTail('s', tail1, 'c')
+      st().addLocalUserText('s', 'p-140')
+      ao(texto('a-150'))
+      ao(chamada('t9'))
+      ao(texto('a-170'))
+      st().setHistoryTail('s', page([texto('a-130', 130), pedido('p-140', 140)], 130), 'c')
+      const visto = st().chat.s.map((it) => (it.kind === 'tool_call' ? `tool ${it.id}` : (it as { text?: string }).text))
+      expect(visto.slice(3)).toEqual(['p-140', 'a-150', 'tool t9', 'a-170'])
+    })
+
+    it('mensagem do Claudinei que começa um turno enquanto a releitura anda: nada do turno novo some', () => {
+      st().setHistoryTail('s', tail1, 'c')
+      ao(pedido('[Task from Outro]: rode os testes'))
+      ao(texto('rodando'))
+      // A página foi lida antes do turno novo: nenhum ao vivo casa.
+      st().setHistoryTail('s', page([texto('a-130', 130)], 130), 'c')
+      const kinds = st().chat.s.slice(3).map((it) => it.kind)
+      expect(kinds).toEqual(['task_message', 'assistant_text'])
+    })
+
+    it('comando de verdade enviado no meio do turno (o transcript não o grava) fica como texto do operador', () => {
+      // Sessão do Claude via SDK: o prompt do meio do turno vira `queued_command`, que o parser ignora.
+      st().setHistoryTail('s', tail1, 'c')
+      st().addLocalUserText('s', 'p-140')
+      ao(texto('a-150'))
+      st().addLocalUserText('s', '/effort high')
+      ao(texto('a-170'))
+      st().setHistoryTail('s', page([texto('a-130', 130), pedido('p-140', 140), texto('a-150', 150), texto('a-170', 170)], 130), 'c')
+      expect(textos().slice(3)).toEqual(['p-140', 'a-150', '/effort high', 'a-170'])
+    })
+  })
+
   describe('slash command enviado pelo chat', () => {
     const st = () => useStore.getState()
     const ao = (event: ClaudeEvent) => st().applyWsMessage({ type: 'session_event', localId: 's', event })
@@ -279,10 +335,12 @@ describe('setHistoryTail / prependHistory', () => {
   it('prompt de subagente ao vivo sem par não fica (não é texto do operador)', () => {
     const st = () => useStore.getState()
     st().setHistoryTail('s', tail1, 'c')
+    st().addLocalUserText('s', 'pedido do operador')
     st().applyWsMessage({ type: 'session_event', localId: 's', event: user([{ type: 'text', text: 'investigue o módulo X' }], undefined, { parent_tool_use_id: 'toolu_agent' }) })
     expect(st().chat.s[st().chat.s.length - 1]).toMatchObject({ kind: 'user_text', fromSubagent: true })
-    st().addLocalUserText('s', 'pedido do operador')
-    st().setHistoryTail('s', page([texto('a-130', 130)], 130), 'c')
+    // O transcript principal não guarda o subagente; a resposta depois dele casa.
+    st().applyWsMessage({ type: 'session_event', localId: 's', event: texto('pronto') })
+    st().setHistoryTail('s', page([texto('a-130', 130), texto('pronto', 150)], 130), 'c')
     const textos = st().chat.s.map((it) => (it as { text?: string }).text)
     expect(textos).not.toContain('investigue o módulo X')
     expect(textos).toContain('pedido do operador')
@@ -473,6 +531,53 @@ describe('loadHistoryTail: turno maior que uma página', () => {
     expect(keys(st().chat.s)[0]).toBe(`p${tail.before}`)
     // a mensagem do operador que o transcript não tem continua na tela
     expect(st().chat.s.some((it) => it.kind === 'user_text' && it.text === 'p-140')).toBe(true)
+  })
+
+  describe('terminal novo: o primeiro turno passa de uma página', () => {
+    /** Primeiro turno só ao vivo: a abertura e as respostas. */
+    const turnoAoVivo = () => {
+      st().addLocalUserText('s', 'abertura')
+      for (const t of ['a-10', 'a-20', 'a-300', 'a-310']) st().applyWsMessage({ type: 'session_event', localId: 's', event: texto(t) })
+    }
+    const paginas = () => ({
+      fim: page([texto('a-300', 300), texto('a-310', 310)], 300),
+      300: page([pedido('abertura', 0), texto('a-10', 10), texto('a-20', 20)], 0, true),
+    })
+    const textos = () => st().chat.s.map((it) => (it as { text?: string }).text)
+
+    it('sem cursor (a carga inicial veio vazia): lê para trás até achar a abertura', async () => {
+      // Carga inicial vazia: a tela não ganha cursor.
+      st().setHistoryTail('s', page([], 0, true), 'c')
+      expect(st().historyCursor.s).toBeUndefined()
+      turnoAoVivo()
+      const pedidos = rota(paginas())
+      const tail = (await reler('s', 'c'))!
+      expect(pedidos).toEqual(['', '?before=300&limit=500'])
+      st().setHistoryTail('s', tail, 'c')
+      expect(textos()).toEqual(['abertura', 'a-10', 'a-20', 'a-300', 'a-310'])
+      expect(keys(st().chat.s)).toEqual(['p0', 'p10', 'p20', 'p300', 'p310'])
+      expect(st().historyCursor.s).toEqual({ before: 0, atStart: true, conv: 'c' })
+    })
+
+    it('cursor sem nenhum item confirmado na tela também lê para trás', async () => {
+      // Prévia → conversa real com página vazia: cursor no começo, nada confirmado.
+      st().setHistoryTail('s', page([pedido('da prévia', 0)], 0, true), '(preview)')
+      st().setHistoryTail('s', page([], 0, true), 'c')
+      expect(st().chat.s).toEqual([])
+      expect(st().historyCursor.s).toEqual({ before: 0, atStart: true, conv: 'c' })
+      turnoAoVivo()
+      const pedidos = rota(paginas())
+      st().setHistoryTail('s', (await reler('s', 'c'))!, 'c')
+      expect(pedidos).toEqual(['', '?before=300&limit=500'])
+      expect(textos()).toEqual(['abertura', 'a-10', 'a-20', 'a-300', 'a-310'])
+    })
+
+    it('a página que já tem a abertura não pede mais nada', async () => {
+      turnoAoVivo()
+      const pedidos = rota({ fim: page([pedido('abertura', 0), texto('a-10', 10)], 0, false) })
+      await reler('s', 'c')
+      expect(pedidos).toEqual([''])
+    })
   })
 
   it('outra conversa não lê para trás (as chaves são de outro arquivo)', async () => {

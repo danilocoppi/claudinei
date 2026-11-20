@@ -1,6 +1,6 @@
 import { fetchHistory } from '../api'
 import { useStore } from '../store'
-import { lastConfirmedPos } from './reconcile'
+import { lastConfirmedPos, liveOperatorMissing, pageSigs } from './reconcile'
 import type { HistoryPage } from '../types'
 
 /** Teto de páginas extras que a releitura do fim busca para trás até alcançar a tela. */
@@ -22,9 +22,14 @@ let seq = 0
  * substituir tudo: sumiam as páginas antigas que o operador tinha carregado e o
  * começo do próprio turno, inclusive o pedido que o iniciou.
  *
- * Só busca para trás na MESMA conversa e com itens confirmados na tela mais
- * antigos que a página. Passado o teto, entrega o que juntou e a reconciliação
- * substitui, sem deixar buraco. As páginas juntadas viram uma cauda só.
+ * Só busca para trás na MESMA conversa (sem cursor ainda, a tela é só o turno
+ * ao vivo dela). Com itens confirmados na tela, até a página encostar no mais
+ * recente deles. Sem nenhum (terminal novo, ou a carga inicial veio vazia), o
+ * primeiro turno inteiro só existe ao vivo: lê enquanto houver texto do
+ * operador ao vivo que as páginas ainda não têm — senão a abertura do turno,
+ * sem par, iria parar no fim da lista, e de novo no topo ao subir. Passado o
+ * teto, entrega o que juntou e a reconciliação substitui, sem deixar buraco.
+ * As páginas juntadas viram uma cauda só.
  *
  * Releituras concorrentes (o efeito do ChatView dispara de novo antes de a
  * anterior terminar): só a mais recente chama `apply`. Uma resposta velha que
@@ -39,16 +44,25 @@ export async function loadHistoryTail(localId: string, conv: string, apply: (pag
   const stale = () => latest[localId] !== mine
   let page = await fetchHistory(localId)
   if (stale()) return false
-  if (useStore.getState().historyCursor[localId]?.conv === conv) {
+  const cursor = useStore.getState().historyCursor[localId]
+  if (cursor ? cursor.conv === conv : true) {
+    let sigs: Set<string> | undefined
     for (let extra = 0; extra < TAIL_CATCHUP_PAGES; extra++) {
       if (page.atStart || page.events.length === 0) break
+      const screen = useStore.getState().chat[localId] ?? []
       // A tela cobre um trecho contínuo até a última posição confirmada: se ela
       // alcança o começo da página, a 1ª chave da página está na tela.
-      const last = lastConfirmedPos(useStore.getState().chat[localId] ?? [])
-      if (last < 0 || last >= page.before) break
+      const last = lastConfirmedPos(screen)
+      if (last >= 0) {
+        if (last >= page.before) break
+      } else {
+        sigs ??= pageSigs(page.events)
+        if (!liveOperatorMissing(screen, sigs)) break
+      }
       const older = await fetchHistory(localId, page.before, TAIL_CATCHUP_LIMIT)
       if (stale()) return false
       if (older.events.length === 0 && !older.atStart) break
+      if (sigs) pageSigs(older.events, sigs)
       page = { events: [...older.events, ...page.events], before: older.before, atStart: older.atStart }
     }
   }

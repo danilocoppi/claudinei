@@ -73,17 +73,23 @@ function contentSig(it: ChatItem): string {
 }
 
 /**
- * Ao vivo sem par no transcript que FICA na tela. A mensagem do operador (o
- * transcript ainda não a gravou, ou o motor a perdeu) e o que o transcript nunca
- * guarda: aviso de erro (`message_error`, falha de envio do WebSocket, "Mensagem
- * pendente…" com o texto que se perdeu) e o `!comando` com a saída dele. O resto
- * (texto do agente, raciocínio, ferramentas, injeções da engine) tem par no
- * transcript; sem par, foi reescrito — ou o leitor não o guarda, como as
- * ferramentas no rollout do Codex — e sai, como saía quando o refetch
- * substituía a lista.
+ * Ao vivo sem par no transcript que FICA na tela mesmo ANTES do último ao vivo
+ * que casou (depois dele, fica tudo: o transcript só não chegou lá ainda). A
+ * mensagem do operador (o transcript ainda não a gravou, ou o motor a perdeu)
+ * e o que o transcript nunca guarda: aviso de erro (`message_error`, falha de
+ * envio do WebSocket, "Mensagem pendente…" com o texto que se perdeu) e o
+ * `!comando` com a saída dele. O resto (texto do agente, raciocínio,
+ * ferramentas, injeções da engine) tem par no transcript; sem par, foi
+ * reescrito — ou o leitor não o guarda, como as ferramentas no rollout do
+ * Codex — e sai, como saía quando o refetch substituía a lista.
+ *
+ * O texto do operador com cara de slash command também fica (o Claude via SDK
+ * grava o prompt do meio do turno como `queued_command`, que o parser ignora;
+ * e "/tmp está cheio" é só texto); quem decide se o chip o representa é
+ * `representado`.
  */
 function keepsUnmatched(it: ChatItem): boolean {
-  if (it.kind === 'user_text') return isOperatorText(it) && slashSig(it.text) === undefined
+  if (it.kind === 'user_text') return isOperatorText(it)
   return it.kind === 'command_output' || it.kind === 'local_command'
 }
 
@@ -109,14 +115,36 @@ function slashSig(text: string): string | undefined {
 }
 
 /**
+ * O slash command ao vivo sem par já está na tela de outro jeito: o chip
+ * confirmado dele (ou, no `/compact`, a fronteira de compactação — o Codex não
+ * grava texto nenhum) depois do ponto onde a bolha voltaria. Antes desse ponto
+ * seria o de uma vez anterior do mesmo comando.
+ */
+function representado(it: ChatItem, items: ChatItem[], desde: number): boolean {
+  if (it.kind !== 'user_text') return false
+  const sig = slashSig(it.text)
+  if (sig === undefined) return false
+  const compact = sig === 'local_command\0/compact\0'
+  for (let i = desde; i < items.length; i++) {
+    const n = items[i]
+    if (n.kind === 'local_command' && contentSig(n) === sig) return true
+    if (compact && n.kind === 'compact_boundary') return true
+  }
+  return false
+}
+
+/**
  * Reaproveita o objeto de `prev` quando a chave casa e o conteúdo é igual. Os
  * itens ao vivo (`l…`) de `prev` casam com os confirmados de `next` por
  * kind+texto, em ordem, e entram em `renamed` (velha → nova), para quem guarda
  * estado por chave (as dobras) acompanhar a troca.
  *
- * O ao vivo sem par que fica (`keepsUnmatched`) volta ancorado logo depois do
- * item que o precedia e sobreviveu; sem âncora (a lista inteira mudou), vai
- * para o fim, que é onde a mensagem otimista estava.
+ * O ao vivo sem par que fica volta ancorado logo depois do item que o precedia
+ * e sobreviveu; sem âncora (a lista inteira mudou), vai para o fim, que é onde
+ * a mensagem otimista estava. Fica todo ao vivo depois do último que casou —
+ * chegou depois de o servidor ler a página (reconexão no meio do turno, turno
+ * que o Claudinei começou enquanto a releitura andava) — e, antes dele, só o
+ * que `keepsUnmatched` diz.
  */
 export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: ChatItem[]; renamed: Record<string, string> } {
   const byKey = new Map<string, ChatItem>()
@@ -142,6 +170,7 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
   })
   // Chave confirmada de cada item ao vivo que casou ('' = casou com item sem chave).
   const matchedTo: (string | undefined)[] = []
+  let lastMatched = -1
   const renamed: Record<string, string> = {}
   const items = next.map((n) => {
     const old = n.key !== undefined ? byKey.get(n.key) : undefined
@@ -153,6 +182,7 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
     if (q && q.at < q.idx.length) {
       const i = q.idx[q.at++]
       matchedTo[i] = n.key ?? ''
+      if (i > lastMatched) lastMatched = i
       const k = live[i].key
       if (k && n.key) renamed[k] = n.key
     }
@@ -163,6 +193,12 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
   // Âncora: o último item de `prev` antes do ao vivo que continua na lista nova.
   const inNext = new Set<string>()
   for (const it of items) if (it.key) inNext.add(it.key)
+  let posIdx: Map<string, number> | undefined
+  const posDe = (key: string | undefined) => {
+    if (key === undefined) return 0
+    if (!posIdx) { posIdx = new Map(); items.forEach((it, i) => { if (it.key) posIdx!.set(it.key, i) }) }
+    return (posIdx.get(key) ?? -1) + 1
+  }
   const after = new Map<string, ChatItem[]>()
   const loose: ChatItem[] = []
   let anchor: string | undefined
@@ -175,7 +211,8 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
     const i = li++
     const to = matchedTo[i]
     if (to !== undefined) { if (to) anchor = to; continue }
-    if (!keepsUnmatched(it)) continue
+    if (i < lastMatched && !keepsUnmatched(it)) continue
+    if (representado(it, items, posDe(anchor))) continue
     if (anchor === undefined) loose.push(it)
     else {
       const bucket = after.get(anchor)
@@ -192,6 +229,29 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
   }
   out.push(...loose)
   return { items: out, renamed }
+}
+
+/**
+ * Para a releitura do fim decidir se ainda lê para trás quando a tela não tem
+ * nada confirmado (terminal novo, primeiro turno maior que uma página): há
+ * texto do operador ao vivo que as páginas juntadas ainda não têm? `sigs` são
+ * as assinaturas dos itens dessas páginas (`pageSigs`).
+ */
+export function liveOperatorMissing(screen: ChatItem[], sigs: Set<string>): boolean {
+  for (const it of screen) {
+    if (!isLive(it) || it.kind !== 'user_text' || !isOperatorText(it)) continue
+    if (sigs.has(contentSig(it))) continue
+    const slash = slashSig(it.text)
+    if (slash !== undefined && sigs.has(slash)) continue
+    return true
+  }
+  return false
+}
+
+/** Assinaturas (as do casamento ao vivo × confirmado) dos itens de uma página, somadas a `into`. */
+export function pageSigs(events: ClaudeEvent[], into = new Set<string>()): Set<string> {
+  for (const it of reducePage(events).items) into.add(contentSig(it))
+  return into
 }
 
 /** Reduz uma página do histórico numa lista só (linear) e separa os resultados sem chamada. */

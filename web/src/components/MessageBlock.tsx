@@ -420,7 +420,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
         </div>
       )
     case 'thinking':
-      return <Thinking text={item.text} />
+      return <Thinking text={item.text} itemKey={item.key} currentLocalId={currentLocalId} />
     case 'local_command':
       return (
         <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '6px 0' }}>
@@ -626,9 +626,9 @@ function ForwardTargets({ currentLocalId, onPick }: { currentLocalId: string; on
   )
 }
 
-function Thinking({ text }: { text: string }) {
+function Thinking({ text, itemKey, currentLocalId }: { text: string; itemKey?: string; currentLocalId?: string }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFold(currentLocalId, itemKey, 'thinking')
   return (
     <div style={{ margin: '8px 0' }}>
       <span onClick={() => setOpen(!open)}

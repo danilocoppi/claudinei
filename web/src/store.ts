@@ -140,7 +140,8 @@ interface State {
   orphanResults: Record<string, OrphanResults>
   /**
    * Dobras abertas do chat, por localId: `foldId` (chave do item + nome da
-   * dobra, ver chat/folds.ts) → aberta. Fechada não fica no mapa. Mora aqui, e
+   * dobra: grupo, ferramenta, "mostrar tudo", resumo da compactação ou
+   * raciocínio; ver chat/folds.ts) → aberta. Fechada não fica no mapa. Mora aqui, e
    * não no bloco, porque a lista virtual desmonta o que sai da tela.
    */
   folds: Record<string, Record<string, true>>
@@ -205,7 +206,11 @@ interface State {
    */
   prependHistory(localId: string, page: HistoryPage, requestedBefore: number): void
   setFold(localId: string, id: string, open: boolean): void
-  /** Leva as dobras das chaves ao vivo para as confirmadas (`renamed` de `reconcileByKey`). */
+  /**
+   * Leva as dobras das chaves ao vivo para as confirmadas (`renamed` de `reconcileByKey`).
+   * O `setHistoryTail` faz a mesma troca por dentro (`moveFolds`), no mesmo `set`
+   * dos itens; esta ação é para quem trocar chaves fora dele.
+   */
   renameFolds(localId: string, renamed: Record<string, string>): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
   /** Reconexão do WS: eventos podem ter se perdido na queda. Invalida os históricos

@@ -2,15 +2,15 @@ import { useCallback, useState } from 'react'
 import { useStore } from '../store'
 
 /**
- * Dobras do chat (grupo de ações, cartão de ferramenta, "mostrar tudo" e
- * resumo da compactação) guardadas no store pela chave estável do item.
+ * Dobras do chat (grupo de ações, cartão de ferramenta, "mostrar tudo",
+ * resumo da compactação e raciocínio) guardadas no store pela chave estável do item.
  *
  * Com a lista virtual, o bloco que sai da tela desmonta: um `useState` voltaria
  * fechado quando o operador rolasse de volta. A chave ao vivo (`l<n>`) troca
  * pela confirmada quando o histórico chega, e o store leva a dobra junto (ver
  * `renameFolds` e `setHistoryTail`).
  */
-export type FoldName = 'group' | 'tool' | 'more' | 'summary'
+export type FoldName = 'group' | 'tool' | 'more' | 'summary' | 'thinking'
 
 /** Id da dobra no store: a chave do item não tem ':', então o sufixo é o nome. */
 export function foldId(itemKey: string, name: FoldName): string {

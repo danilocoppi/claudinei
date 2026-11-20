@@ -92,6 +92,17 @@ describe('dobras no store', () => {
     expect(screen.getByText('saida t1')).toBeTruthy()
   })
 
+  it('o raciocínio aberto sobrevive a desmontar e montar e grava p<n>:thinking', () => {
+    const item: ChatItem = { kind: 'thinking', text: 'pensando no plano', key: 'p42' }
+    const { unmount } = render(<MessageBlock item={item} currentLocalId="s1" />)
+    expect(screen.queryByText('pensando no plano')).toBeNull()
+    fireEvent.click(screen.getByText(/Pensamento/))
+    expect(st().folds.s1).toEqual({ 'p42:thinking': true })
+    unmount()
+    render(<MessageBlock item={item} currentLocalId="s1" />)
+    expect(screen.getByText('pensando no plano')).toBeTruthy()
+  })
+
   it('o grupo aberto também sobrevive a desmontar e montar', () => {
     const items = [tool('a', 'p1'), tool('b', 'p2'), tool('c', 'p3')].map((item, index) => ({ item, index }))
     const { unmount } = render(<ActionGroup items={items} currentLocalId="s1" />)
@@ -163,19 +174,23 @@ describe('dobras no store', () => {
     expect(screen.getByText('saida t2')).toBeTruthy()
   })
 
-  it('resumo da compactação, mostrar tudo e cartão de ferramenta usam a mesma dobra do store', () => {
+  it('resumo da compactação, mostrar tudo, cartão de ferramenta e raciocínio usam a mesma dobra do store', () => {
     const resumo: ChatItem = { kind: 'user_text', text: 'Summary:\n\n**Primary Request**', compactSummary: true, fromEngine: true, key: 'p1' }
     const operador: ChatItem = { kind: 'user_text', text: longo(20), key: 'p2' }
     const tarefa: ChatItem = { kind: 'task_message', text: longo(20), from: 'Outro', key: 'p3' }
     const agendada: ChatItem = { kind: 'scheduled_message', text: longo(20), name: 'Diária', run: 1, key: 'p4' }
     const cartao = tool('t5', 'p5')
-    const blocos = [resumo, operador, tarefa, agendada, cartao]
+    const raciocinio: ChatItem = { kind: 'thinking', text: 'pesando opções', key: 'p6' }
+    const blocos = [resumo, operador, tarefa, agendada, cartao, raciocinio]
     const { unmount } = render(<>{blocos.map((it) => <MessageBlock key={it.key} item={it} currentLocalId="s1" />)}</>)
 
     fireEvent.click(screen.getByText('Contexto compactado'))
     for (const b of screen.getAllByText(/mostrar tudo/)) fireEvent.click(b)
     fireEvent.click(screen.getByText('Bash'))
-    expect(st().folds.s1).toEqual({ 'p1:summary': true, 'p2:more': true, 'p3:more': true, 'p4:more': true, 'p5:tool': true })
+    fireEvent.click(screen.getByText(/Pensamento/))
+    expect(st().folds.s1).toEqual({
+      'p1:summary': true, 'p2:more': true, 'p3:more': true, 'p4:more': true, 'p5:tool': true, 'p6:thinking': true,
+    })
     unmount()
 
     // E o caminho inverso: o store manda, o bloco obedece.
@@ -183,7 +198,9 @@ describe('dobras no store', () => {
     expect(screen.getByText('Primary Request')).toBeTruthy()
     expect(screen.getAllByText(/linha 20/)).toHaveLength(3)
     expect(screen.getByText('saida t5')).toBeTruthy()
-    act(() => { st().setFold('s1', 'p5:tool', false); st().setFold('s1', 'p1:summary', false) })
+    expect(screen.getByText('pesando opções')).toBeTruthy()
+    act(() => { st().setFold('s1', 'p5:tool', false); st().setFold('s1', 'p1:summary', false); st().setFold('s1', 'p6:thinking', false) })
+    expect(screen.queryByText('pesando opções')).toBeNull()
     expect(screen.queryByText('saida t5')).toBeNull()
     expect(screen.queryByText('Primary Request')).toBeNull()
   })

@@ -316,6 +316,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend,
     // O goal esperando só volta sozinho sem aviso de resultado por sair (é o aviso que o acorda).
     hasPendingResults: (projectId, engine) => taskWake?.hasPending(projectId, engine) ?? false,
+    // O gancho da fila roda antes do goal no fim de turno (index.ts): a marca já está posta.
+    queueInterrupted: (projectId, engine) => queue.wasOwnInterrupt(projectId, engine),
   })
   const wake = createTaskWake({
     db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend, holds,

@@ -306,7 +306,13 @@ export interface Progress {
  * aviso do limite segura a fila enquanto está aberto.
  */
 export type QueuePauseReason = 'error' | 'interrupted' | 'dead' | 'manual'
-export interface QueueItem { id: number; text: string; createdAt: string }
+/**
+ * Como o item entrou na fila: `alt-enter`, enfileirado de propósito (o goal não
+ * pausa quando ele sai); `enter-busy`, o Enter com o motor ocupado (Kimi,
+ * OpenCode), que sai como mensagem do operador e pausa o goal.
+ */
+export type QueueVia = 'alt-enter' | 'enter-busy'
+export interface QueueItem { id: number; text: string; createdAt: string; via: QueueVia }
 export interface OperatorQueue {
   projectId: number
   engine: string

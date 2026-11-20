@@ -380,6 +380,11 @@ export function openDb(path: string): Db {
   db.exec(`CREATE TABLE IF NOT EXISTS operator_queue_state (
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, engine TEXT NOT NULL,
     paused INTEGER NOT NULL DEFAULT 0, pause_reason TEXT, PRIMARY KEY (project_id, engine))`)
+  // Como o item entrou na fila: 'alt-enter' (enfileirado de propósito) ou
+  // 'enter-busy' (Enter com o motor ocupado, que só aceita na fila). O goal só
+  // não pausa pelos de propósito.
+  const queueCols = db.prepare('PRAGMA table_info(operator_queue)').all() as { name: string }[]
+  if (!queueCols.some((c) => c.name === 'via')) db.exec(`ALTER TABLE operator_queue ADD COLUMN via TEXT NOT NULL DEFAULT 'alt-enter'`)
 
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).

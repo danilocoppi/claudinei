@@ -563,6 +563,7 @@ export const ptBR: typeof en = {
     queue_full: 'A fila já tem {{max}} mensagens.',
     queue_item_too_large: 'Mensagem grande demais para a fila (máximo de {{max}} bytes).',
     queue_item_empty: 'Mensagem vazia não entra na fila.',
+    queue_item_via: 'Mensagem de origem desconhecida não entra na fila.',
     queue_item_not_found: 'Esta mensagem não está mais na fila.',
     queue_order_mismatch: 'A fila mudou enquanto você reordenava; tente de novo.',
     unknown_engine: 'Motor desconhecido: {{engine}}.',

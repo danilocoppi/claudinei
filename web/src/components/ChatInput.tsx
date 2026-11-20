@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { WsContext } from '../wsContext'
 import { queueSeqOf, useStore, useEngineFor, useSessionSlashCommands, type FileMenuAction } from '../store'
 import { addToQueue, checkUploads, uploadFile } from '../api'
+import type { QueueVia } from '../types'
 import { SessionControls } from './SessionControls'
 import { GOAL_COMMAND, filterCommands } from '../slash'
 import { readDraft, saveDraft } from '../drafts'
@@ -195,8 +196,10 @@ export function ChatInput({
   /**
    * Põe na fila do terminal o texto já pronto (tokens trocados pelos caminhos).
    * O campo limpa na hora; se a fila recusar, o texto e os anexos voltam.
+   * `via`: Alt+Enter (de propósito) ou Enter com o motor ocupado (sai como
+   * mensagem do operador e pausa o goal).
    */
-  const enqueue = (out: string) => {
+  const enqueue = (out: string, via: QueueVia) => {
     if (!session) return
     const { projectId, engine: motor } = session
     const antes = { text, anexos: [...attachments.current] }
@@ -206,7 +209,7 @@ export function ChatInput({
     attachments.current.clear()
     // Um `operator_queue` que chegue antes da resposta é mais novo que ela: a resposta fica de fora.
     const seq = queueSeqOf(projectId, motor)
-    addToQueue(projectId, motor, out)
+    addToQueue(projectId, motor, out, via)
       .then((q) => useStore.getState().applyQueueReply({ ...q, projectId, engine: motor }, seq))
       .catch((err) => {
         // Campo desmontado no meio: o texto volta como rascunho, para não se perder.
@@ -244,7 +247,7 @@ export function ChatInput({
     }
 
     if (disabled) return
-    if (viaQueue || enterQueues) { enqueue(trimmed); return }
+    if (viaQueue || enterQueues) { enqueue(trimmed, viaQueue ? 'alt-enter' : 'enter-busy'); return }
     ws?.send({ type: 'send_message', localId, text: trimmed })
     // O `/goal` é do Claudinei: o servidor o intercepta antes do agente, e nada
     // vai à conversa. Um balão otimista aqui seria falso (e sumiria no reload).

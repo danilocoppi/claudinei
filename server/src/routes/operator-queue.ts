@@ -4,7 +4,7 @@ import { createProjectsService } from '../projects.js'
 import { requireProjectAccess } from '../auth/guards.js'
 import { hasEngine } from '../engine/index.js'
 import { errorBody, fail, UserError } from '../user-error.js'
-import type { OperatorQueueService, OperatorQueueStore, QueueDto } from '../queue/operator-queue.js'
+import type { OperatorQueueService, OperatorQueueStore, QueueDto, QueueVia } from '../queue/operator-queue.js'
 
 /**
  * A fila do operador de um terminal (projeto + motor): ver, acrescentar, editar,
@@ -70,9 +70,10 @@ export function registerOperatorQueueRoutes(
   app.post(base, async (req, reply) => {
     const t = target(req, reply)
     if (!t) return
-    const { text } = (req.body ?? {}) as { text?: unknown }
-    // O serviço recusa o que não é texto (queue_item_empty), como o vazio.
-    return run(reply, () => deps.queue.add(t.projectId, t.engine, text as string), 201)
+    const { text, via } = (req.body ?? {}) as { text?: unknown; via?: unknown }
+    // O serviço recusa o que não é texto (queue_item_empty), como o vazio, e a
+    // origem desconhecida (queue_item_via). Sem `via`: enfileirado de propósito.
+    return run(reply, () => deps.queue.add(t.projectId, t.engine, text as string, via as QueueVia | undefined), 201)
   })
 
   app.put(`${base}/order`, async (req, reply) => {

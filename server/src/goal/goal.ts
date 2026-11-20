@@ -57,6 +57,12 @@ export function createGoalService(deps: {
    * é o aviso que o acorda. Ausente = nenhum.
    */
   hasPendingResults?: (projectId: number, engine: string) => boolean
+  /**
+   * O fim de turno é a interrupção que a própria fila fez para o "enviar
+   * agora": não pausa nem conta (a mensagem que sai em seguida é do operador e
+   * pausa por ele). Lido no mesmo fim de turno, depois do gancho da fila.
+   */
+  queueInterrupted?: (projectId: number, engine: string) => boolean
   log?: (msg: string) => void
 }) {
   const { manager, store } = deps
@@ -189,6 +195,8 @@ export function createGoalService(deps: {
       const row = store.get(projectId, engine)
       if (row.goalCriterion == null || row.goalStatus == null) return
       const status = row.goalStatus
+      // A interrupção do "enviar agora" não é o Esc do operador: nem pausa nem conta.
+      if (info.interrupted && deps.queueInterrupted?.(projectId, engine)) return
       if (RUNNING.has(status)) {
         const pause = info.interrupted ? 'interrupt' : info.limited ? 'limit' : info.isError ? 'error' : null
         if (pause) {
@@ -211,9 +219,10 @@ export function createGoalService(deps: {
 
     /**
      * Mensagem do operador que não é `/goal`: o goal que não acabou pausa. O item
-     * da fila do operador (`queued`) não pausa: a ordem única do próximo envio
-     * põe a fila (lugar 3) antes do continue (lugar 6), e o goal segue depois
-     * dela; o turno do item não conta.
+     * enfileirado de propósito (Alt+Enter, `queued`) não pausa: a ordem única do
+     * próximo envio põe a fila (lugar 3) antes do continue (lugar 6), e o goal
+     * segue depois dela; o turno do item não conta. O "enviar agora" e o Enter
+     * com o motor ocupado chegam aqui sem `queued` e pausam.
      */
     onOperatorMessage(projectId: number, engine: string, info?: { queued?: boolean }): void {
       if (info?.queued) return

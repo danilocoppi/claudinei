@@ -560,6 +560,7 @@ export const en = {
     queue_full: 'The queue already has {{max}} messages.',
     queue_item_too_large: 'Message too large for the queue (at most {{max}} bytes).',
     queue_item_empty: 'An empty message cannot be queued.',
+    queue_item_via: 'This message came from an unknown source and was not queued.',
     queue_item_not_found: 'This message is no longer in the queue.',
     queue_order_mismatch: 'The queue changed while you were reordering; try again.',
     unknown_engine: 'Unknown engine: {{engine}}.',

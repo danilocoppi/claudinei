@@ -15,15 +15,23 @@ import { UserError } from '../user-error.js'
  */
 
 export type PauseReason = 'error' | 'interrupted' | 'dead' | 'manual'
-export interface QueueItem { id: number; text: string; createdAt: string }
+/**
+ * Como o item entrou: `alt-enter`, enfileirado de propósito (sai como item da
+ * fila: o goal não pausa); `enter-busy`, o Enter com o motor ocupado (Kimi,
+ * OpenCode), que só tinha a fila (sai como mensagem do operador: pausa o goal).
+ */
+export type QueueVia = 'alt-enter' | 'enter-busy'
+export const QUEUE_VIAS: readonly QueueVia[] = ['alt-enter', 'enter-busy']
+export interface QueueItem { id: number; text: string; createdAt: string; via: QueueVia }
 export interface QueueDto { projectId: number; engine: string; items: QueueItem[]; paused: boolean; pauseReason: PauseReason | null }
 
 export const QUEUE_MAX = 20
 /** O mesmo teto de mensagem do Kimi e do OpenCode (MAX_PROMPT_BYTES). */
 export const QUEUE_ITEM_MAX_BYTES = 120_000
 
-interface ItemRow { id: number; text: string; created_at: string }
-const toItem = (r: ItemRow): QueueItem => ({ id: r.id, text: r.text, createdAt: r.created_at })
+interface ItemRow { id: number; text: string; created_at: string; via: string }
+const toItem = (r: ItemRow): QueueItem =>
+  ({ id: r.id, text: r.text, createdAt: r.created_at, via: r.via === 'enter-busy' ? 'enter-busy' : 'alt-enter' })
 
 /** Texto vazio ou grande demais é recusado antes de entrar na fila. */
 function checkText(text: string): void {
@@ -37,9 +45,9 @@ const notFound = (id: number) => new UserError('queue_item_not_found', `item ${i
 
 export function createOperatorQueueStore(db: Db) {
   const listStmt = db.prepare(
-    'SELECT id, text, created_at FROM operator_queue WHERE project_id=? AND engine=? ORDER BY position, id',
+    'SELECT id, text, created_at, via FROM operator_queue WHERE project_id=? AND engine=? ORDER BY position, id',
   )
-  const getStmt = db.prepare('SELECT id, text, created_at FROM operator_queue WHERE id=?')
+  const getStmt = db.prepare('SELECT id, text, created_at, via FROM operator_queue WHERE id=?')
   const countStmt = db.prepare('SELECT COUNT(*) AS n FROM operator_queue WHERE project_id=? AND engine=?')
   const maxPosStmt = db.prepare('SELECT MAX(position) AS p FROM operator_queue WHERE project_id=? AND engine=?')
   const minPosStmt = db.prepare('SELECT MIN(position) AS p FROM operator_queue WHERE project_id=? AND engine=?')
@@ -58,15 +66,17 @@ export function createOperatorQueueStore(db: Db) {
   return {
     list,
 
-    add(projectId: number, engine: string, text: string): QueueItem {
+    /** Sem `via`: enfileirado de propósito (`alt-enter`). */
+    add(projectId: number, engine: string, text: string, via: QueueVia = 'alt-enter'): QueueItem {
       checkText(text)
+      if (!QUEUE_VIAS.includes(via)) throw new UserError('queue_item_via', `origem do item desconhecida: ${String(via)}`)
       return db.transaction(() => {
         const n = (countStmt.get(projectId, engine) as { n: number }).n
         if (n >= QUEUE_MAX) throw new UserError('queue_full', `a fila já tem ${QUEUE_MAX} mensagens`, { max: QUEUE_MAX })
         const p = (maxPosStmt.get(projectId, engine) as { p: number | null }).p
         const { lastInsertRowid } = db.prepare(
-          'INSERT INTO operator_queue (project_id, engine, position, text) VALUES (?, ?, ?, ?)',
-        ).run(projectId, engine, p == null ? 0 : p + 1, text)
+          'INSERT INTO operator_queue (project_id, engine, position, text, via) VALUES (?, ?, ?, ?, ?)',
+        ).run(projectId, engine, p == null ? 0 : p + 1, text, via)
         return toItem(getStmt.get(Number(lastInsertRowid)) as ItemRow)
       })()
     },
@@ -114,8 +124,8 @@ export function createOperatorQueueStore(db: Db) {
      */
     putFirst(projectId: number, engine: string, item: QueueItem): void {
       db.prepare(
-        'INSERT INTO operator_queue (id, project_id, engine, position, text, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(item.id, projectId, engine, frontPosition(projectId, engine), item.text, item.createdAt)
+        'INSERT INTO operator_queue (id, project_id, engine, position, text, created_at, via) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(item.id, projectId, engine, frontPosition(projectId, engine), item.text, item.createdAt, item.via)
     },
 
     moveToFront(id: number): void {
@@ -196,6 +206,12 @@ export function createOperatorQueueService(deps: {
    * fila pausada (é ação explícita do operador), sem tirar a pausa.
    */
   const sendNowPending = new Map<string, number>()
+  /**
+   * Terminais cujo último fim de turno foi a interrupção do "enviar agora": o
+   * goal (que roda depois da fila no mesmo fim de turno) não pausa por ela. A
+   * mensagem que sai em seguida é do operador e pausa o goal uma vez só.
+   */
+  const ownInterruptTurn = new Set<string>()
 
   const dto = (projectId: number, engine: string): QueueDto =>
     ({ projectId, engine, items: store.list(projectId, engine), ...store.state(projectId, engine) })
@@ -220,10 +236,13 @@ export function createOperatorQueueService(deps: {
    * o "livre" e o envio, ou o manager recusou), o item volta para a frente e a
    * fila pausa com 'error': nada se perde.
    */
-  const deliver = (projectId: number, engine: string, localId: string, item: QueueItem): boolean => {
+  const deliver = (projectId: number, engine: string, localId: string, item: QueueItem, asOperator = false): boolean => {
     try {
-      // `queued`: o goal não pausa pelo item da fila (lugar 3 vem antes do 6).
-      manager.send(localId, item.text, { echo: true, queued: true })
+      // `queued`: o goal não pausa pelo item enfileirado de propósito (lugar 3
+      // vem antes do 6). O "enviar agora" e o Enter com o motor ocupado são o
+      // operador falando: saem como mensagem dele e pausam o goal.
+      const queued = !asOperator && item.via === 'alt-enter'
+      manager.send(localId, item.text, { echo: true, queued })
     } catch (err) {
       try {
         store.putFirst(projectId, engine, item)
@@ -246,7 +265,7 @@ export function createOperatorQueueService(deps: {
     return true
   }
 
-  /** Tira um item pelo id (não necessariamente o primeiro) e manda. */
+  /** Tira um item pelo id (não necessariamente o primeiro) e manda; é o "enviar agora", do operador. */
   const deliverById = (projectId: number, engine: string, localId: string, id: number): boolean => {
     const item = store.list(projectId, engine).find((i) => i.id === id)
     if (!item) return false
@@ -255,7 +274,7 @@ export function createOperatorQueueService(deps: {
     // se o envio falhar, ele volta à frente com o mesmo id e a fila pausada.
     const k = key(projectId, engine)
     if (sendNowPending.get(k) === id) sendNowPending.delete(k)
-    return deliver(projectId, engine, localId, item)
+    return deliver(projectId, engine, localId, item, true)
   }
 
   /**
@@ -309,9 +328,9 @@ export function createOperatorQueueService(deps: {
     dto,
     offer,
 
-    add(projectId: number, engine: string, text: string): QueueDto {
+    add(projectId: number, engine: string, text: string, via?: QueueVia): QueueDto {
       const wasEmpty = store.list(projectId, engine).length === 0
-      store.add(projectId, engine, text)
+      store.add(projectId, engine, text, via)
       // Fila vazia, sem pausa, sem aviso e sessão livre: é como mandar na hora
       // (o offer confere a pausa e o aviso). O DTO devolvido já vem sem o item.
       if (wasEmpty) offerIfFree(projectId, engine)
@@ -385,12 +404,22 @@ export function createOperatorQueueService(deps: {
       const k = key(projectId, engine)
       // A marca vale para o result logo depois do "enviar agora", seja qual for.
       const ownInterrupt = interruptToSend.delete(k)
+      if (ownInterrupt && info.interrupted) ownInterruptTurn.add(k)
+      else ownInterruptTurn.delete(k)
       // Limite de uso não pausa (nem como erro): o aviso do limite segura a fila
       // enquanto está aberto, e depois da retomada do Claudinei ela continua.
       if (info.limited) return
       if (deps.isShuttingDown?.()) return
       if (info.interrupted) { if (!ownInterrupt) pauseFor(projectId, engine, 'interrupted') }
       else if (info.isError) pauseFor(projectId, engine, 'error')
+    },
+
+    /**
+     * O último fim de turno do terminal foi a interrupção do "enviar agora".
+     * Vale no mesmo fim de turno, para os ganchos que rodam depois deste.
+     */
+    wasOwnInterrupt(projectId: number, engine: string): boolean {
+      return ownInterruptTurn.has(key(projectId, engine))
     },
 
     /** A sessão morreu de verdade (o encerramento do serviço não chama isto). */

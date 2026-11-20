@@ -562,6 +562,7 @@ export const es: typeof en = {
     queue_full: 'La cola ya tiene {{max}} mensajes.',
     queue_item_too_large: 'Mensaje demasiado grande para la cola (máximo {{max}} bytes).',
     queue_item_empty: 'Un mensaje vacío no entra en la cola.',
+    queue_item_via: 'Un mensaje de origen desconocido no entra en la cola.',
     queue_item_not_found: 'Este mensaje ya no está en la cola.',
     queue_order_mismatch: 'La cola cambió mientras reordenabas; inténtalo de nuevo.',
     unknown_engine: 'Motor desconocido: {{engine}}.',

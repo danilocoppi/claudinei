@@ -1,4 +1,4 @@
-import type { EngineMeta, HistoryPage, OperatorQueue, SearchSlice, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
+import type { EngineMeta, HistoryPage, OperatorQueue, QueueVia, SearchSlice, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -161,8 +161,8 @@ const queueUrl = (projectId: number, engine: string) =>
   `/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/queue`
 export const fetchQueue = (projectId: number, engine: string) => req<OperatorQueue>(queueUrl(projectId, engine))
 /** Acrescenta ao fim. Fila vazia, sem pausa nem aviso e sessão livre: o servidor já manda na hora. */
-export const addToQueue = (projectId: number, engine: string, text: string) =>
-  req<OperatorQueue>(queueUrl(projectId, engine), { method: 'POST', body: JSON.stringify({ text }) })
+export const addToQueue = (projectId: number, engine: string, text: string, via: QueueVia) =>
+  req<OperatorQueue>(queueUrl(projectId, engine), { method: 'POST', body: JSON.stringify({ text, via }) })
 export const editQueueItem = (projectId: number, engine: string, itemId: number, text: string) =>
   req<OperatorQueue>(`${queueUrl(projectId, engine)}/${itemId}`, { method: 'PATCH', body: JSON.stringify({ text }) })
 /** `ids` é a fila inteira na ordem nova. */

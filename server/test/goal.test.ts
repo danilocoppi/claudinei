@@ -72,6 +72,8 @@ let logs: string[]
 let scheduleNext: string | null
 /** Limiar do auto-compact (0 = desligado). */
 let compactPct: number
+/** O motor aceita mensagem no meio do turno (false = como o Kimi e o OpenCode). */
+let midTurn: boolean
 let clock: number
 let timers: { fn: () => unknown; ms: number; cleared: boolean }[]
 
@@ -96,6 +98,7 @@ beforeEach(() => {
   logs = []
   scheduleNext = null
   compactPct = 0
+  midTurn = true
   clock = Date.now()
   timers = []
   const projects = createProjectsService(db)
@@ -127,10 +130,10 @@ function build(): void {
       wake?.onTurnResult(projectId, engine, info)
       goal?.onTurnResult(projectId, engine, info)
     },
-    onOperatorMessage: (projectId, engine) => {
+    onOperatorMessage: (projectId, engine, info) => {
       restart?.onOperatorMessage(projectId, engine)
       limit?.onOperatorMessage(projectId, engine)
-      goal?.onOperatorMessage(projectId, engine)
+      goal?.onOperatorMessage(projectId, engine, info)
     },
     onUsageLimit: (projectId, engine, p) => limit?.onUsageLimit(projectId, engine, p),
     interceptCommand: (ctx, text) => goal?.command(ctx, text) ?? false,
@@ -152,7 +155,7 @@ function build(): void {
   const queueStore = createOperatorQueueStore(db)
   queue = createOperatorQueueService({
     store: queueStore, manager: mgr, broadcast: () => {}, holds,
-    acceptsMidTurn: () => true, liveLocalId, isShuttingDown: () => mgr.isShuttingDown(),
+    acceptsMidTurn: () => midTurn, liveLocalId, isShuttingDown: () => mgr.isShuttingDown(),
   })
   nextSend = arbiter = createNextSend({
     providers: [
@@ -207,6 +210,7 @@ function build(): void {
   goal = createGoalService({
     db, manager: mgr, store, restart, nextSend: () => nextSend, log: (m) => logs.push(m),
     hasPendingResults: (projectId, engine) => wake?.hasPending(projectId, engine) ?? false,
+    queueInterrupted: (projectId, engine) => queue.wasOwnInterrupt(projectId, engine),
   })
   wake = createTaskWake({
     db, manager: mgr, store, restart, nextSend: () => nextSend, holds, log: (m) => logs.push(m),
@@ -383,6 +387,68 @@ describe('/goal: pausas não mandam continue', () => {
     await pause(500)
     expect(continues(o)).toHaveLength(1)
     expect(lastState()?.goal).toMatchObject({ status: 'paused', pause: 'operator' })
+  })
+
+  describe('goal e a fila do operador', () => {
+    /** Motivos de pausa que o goal publicou, na ordem. */
+    const pauses = () => states
+      .filter((s) => s.projectId === origem.id && s.engine === 'claude' && s.goal?.status === 'paused')
+      .map((s) => s.goal!.pause)
+
+    it('Alt+Enter: o item sai depois do turno, o goal não pausa e o continue vem depois dele', async () => {
+      const o = await up(origem)
+      mgr.send(o, '/goal devagar alt')
+      await waitUntil(() => mgr.get(o)?.status === 'working')
+      queue.add(origem.id, 'claude', 'enfileirado de propósito', 'alt-enter')
+      await waitUntil(() => continues(o).length === 1)
+      const r = received(o)
+      expect(r.indexOf('enfileirado de propósito')).toBeGreaterThan(-1)
+      expect(r.indexOf('enfileirado de propósito')).toBeLessThan(r.indexOf(continues(o)[0]))
+      expect(goalOf().goalStatus).toBe('active')
+      expect(pauses()).toEqual([])
+      expect((await goalDone('ok')).statusCode).toBe(200)
+    })
+
+    it('Enter com o motor ocupado (Kimi/OpenCode): o item sai como mensagem do operador e pausa o goal', async () => {
+      const o = await up(origem)
+      mgr.send(o, '/goal devagar ocupado')
+      await waitUntil(() => mgr.get(o)?.status === 'working')
+      queue.add(origem.id, 'claude', 'digitado com o motor ocupado', 'enter-busy')
+      await waitUntil(() => received(o).includes('digitado com o motor ocupado'))
+      expect(goalOf()).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
+      await pause(500)
+      expect(continues(o)).toEqual([])
+    })
+
+    it('Claude digitado no meio do turno pausa por operador', async () => {
+      const o = await up(origem)
+      mgr.send(o, '/goal devagar digitado')
+      await waitUntil(() => mgr.get(o)?.status === 'working')
+      mgr.send(o, 'mudei de ideia')
+      expect(goalOf()).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
+    })
+
+    it('"Enviar agora" no Claude (injeta no turno) pausa por operador', async () => {
+      const o = await up(origem)
+      mgr.send(o, '/goal devagar agora')
+      await waitUntil(() => mgr.get(o)?.status === 'working')
+      queue.add(origem.id, 'claude', 'agora mesmo', 'alt-enter')
+      queue.sendNow(queue.dto(origem.id, 'claude').items[0].id)
+      expect(goalOf()).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
+      expect(pauses()).toEqual(['operator'])
+    })
+
+    it('"Enviar agora" no Kimi (interrompe e manda): pausa uma vez, por operador, e não pela interrupção', async () => {
+      midTurn = false
+      const o = await up(origem)
+      mgr.send(o, '/goal demorada kimi')
+      await waitUntil(() => mgr.get(o)?.status === 'working')
+      queue.add(origem.id, 'claude', 'agora no kimi', 'alt-enter')
+      queue.sendNow(queue.dto(origem.id, 'claude').items[0].id)
+      await waitUntil(() => received(o).includes('agora no kimi'))
+      expect(goalOf()).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
+      expect(pauses()).toEqual(['operator'])
+    })
   })
 
   it('turno com erro pausa', async () => {

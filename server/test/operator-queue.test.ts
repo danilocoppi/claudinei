@@ -93,6 +93,21 @@ describe('repositório da fila do operador', () => {
     expect(store.takeFirst(project.id, 'claude')).toBeNull()
   })
 
+  it('guarda como o item entrou (via) e o conserva ao editar e ao voltar à frente', () => {
+    const a = store.add(project.id, 'claude', 'alt', 'alt-enter')
+    const b = store.add(project.id, 'claude', 'ocupado', 'enter-busy')
+    // Sem via (API antiga ou outro cliente): enfileirado de propósito.
+    const c = store.add(project.id, 'claude', 'sem via')
+    expect([a.via, b.via, c.via]).toEqual(['alt-enter', 'enter-busy', 'alt-enter'])
+    expect(store.update(b.id, 'ocupado editado').via).toBe('enter-busy')
+    store.remove(a.id)
+    const taken = store.takeFirst(project.id, 'claude')!
+    expect(taken).toMatchObject({ text: 'ocupado editado', via: 'enter-busy' })
+    store.putFirst(project.id, 'claude', taken)
+    expect(store.list(project.id, 'claude')[0]).toMatchObject({ id: b.id, via: 'enter-busy' })
+    expect(codeOf(() => store.add(project.id, 'claude', 'x', 'outro' as any))).toBe('queue_item_via')
+  })
+
   it('apagar o projeto apaga a fila', () => {
     store.add(project.id, 'claude', 'a')
     store.setPaused(project.id, 'claude', 'error')
@@ -272,6 +287,33 @@ describe('serviço da fila do operador', () => {
     expect(sends()).toHaveLength(1)
   })
 
+  it('item do Enter com o motor ocupado sai como mensagem do operador; o do Alt+Enter, como da fila', () => {
+    mgr.status.set(LOCAL, 'working')
+    svc.add(project.id, 'kimi', 'ocupado', 'enter-busy')
+    svc.add(project.id, 'kimi', 'alt', 'alt-enter')
+    mgr.status.set(LOCAL, 'idle')
+    expect(svc.offer(ctx('kimi'))).toBe(true)
+    mgr.status.set(LOCAL, 'idle')
+    expect(svc.offer(ctx('kimi'))).toBe(true)
+    expect(sends()).toEqual([
+      ['send', LOCAL, 'ocupado', { echo: true, queued: false }],
+      ['send', LOCAL, 'alt', { echo: true, queued: true }],
+    ])
+  })
+
+  it('wasOwnInterrupt: o último fim de turno foi a interrupção do "enviar agora"', () => {
+    queued('kimi', 'a', 'b')
+    svc.sendNow(svc.dto(project.id, 'kimi').items[1].id)
+    expect(svc.wasOwnInterrupt(project.id, 'kimi')).toBe(false)
+    svc.onTurnResult(project.id, 'kimi', { isError: true, interrupted: true, limited: false })
+    expect(svc.wasOwnInterrupt(project.id, 'kimi')).toBe(true)
+    // O fim de turno seguinte já é outro.
+    svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: false, limited: false })
+    expect(svc.wasOwnInterrupt(project.id, 'kimi')).toBe(false)
+    svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
+    expect(svc.wasOwnInterrupt(project.id, 'kimi')).toBe(false)
+  })
+
   it('add com holds=true guarda e não entrega', () => {
     mgr.status.set(LOCAL, 'idle')
     holding = true
@@ -284,7 +326,7 @@ describe('serviço da fila do operador', () => {
     queued('claude', 'a', 'b')
     const b = svc.dto(project.id, 'claude').items[1]
     const dto = svc.sendNow(b.id)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: false }]])
     expect(mgr.calls.some((c) => c[0] === 'interrupt')).toBe(false)
     expect(dto.items.map((i) => i.text)).toEqual(['a'])
     // Com a fila pausada também injeta, e a pausa continua enquanto sobra item.
@@ -300,7 +342,7 @@ describe('serviço da fila do operador', () => {
     queued('claude', 'c', 'd')
     mgr.status.set(LOCAL, 'idle')
     svc.sendNow(svc.dto(project.id, 'claude').items[1].id)
-    expect(sends().at(-1)).toEqual(['send', LOCAL, 'd', { echo: true, queued: true }])
+    expect(sends().at(-1)).toEqual(['send', LOCAL, 'd', { echo: true, queued: false }])
     expect(texts()).toEqual(['c'])
     expect(codeOf(() => svc.sendNow(9999))).toBe('queue_item_not_found')
   })
@@ -316,7 +358,7 @@ describe('serviço da fila do operador', () => {
     expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: false, pauseReason: null })
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: false }]])
     // A marca foi consumida: a próxima interrupção já é do operador.
     svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
     expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: true, pauseReason: 'interrupted' })
@@ -330,7 +372,7 @@ describe('serviço da fila do operador', () => {
     svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: false }]])
     // Só o item do "enviar agora" passou; o resto espera o Retomar.
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(false)
@@ -344,7 +386,7 @@ describe('serviço da fila do operador', () => {
     // Kimi e OpenCode interrompidos só voltam a idle, sem result.
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: false }]])
     // O Esc do turno seguinte é do operador e pausa.
     svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
     expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: true, pauseReason: 'interrupted', items: [{ text: 'a' }] })
@@ -382,7 +424,7 @@ describe('serviço da fila do operador', () => {
     expect(texts('kimi')).toEqual(['b', 'a'])
     holding = false
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: false }]])
   })
 
   it('fila vazia não pausa, e a fila que esvazia perde a pausa', () => {

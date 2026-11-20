@@ -6,10 +6,11 @@ import {
 import { progressKey, queueSeqOf, useStore } from '../store'
 import { useQueueSync } from '../useQueueSync'
 import { queueHeld } from '../queueHold'
-import type { OperatorQueue, QueueItem } from '../types'
+import type { OperatorQueue, QueueItem, QueueVia } from '../types'
 
 /** O item em edição e o texto que o operador está escrevendo. */
-interface Edit { id: number; text: string }
+/** `via` do item editado: o "Pôr na fila de novo" devolve o item com a mesma origem. */
+interface Edit { id: number; text: string; via: QueueVia }
 
 /** A linha do item: a primeira linha com texto (o resto aparece no title e no editor). */
 const firstLine = (text: string) => text.trim().split('\n')[0]
@@ -97,8 +98,8 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
   /** Devolve à fila (no fim) o texto do editor órfão. */
   const requeue = async () => {
     if (!editing) return
-    const { id, text } = editing
-    if (await call(() => addToQueue(projectId, engine, text))) {
+    const { id, text, via } = editing
+    if (await call(() => addToQueue(projectId, engine, text, via))) {
       setEditing((e) => (e?.id === id ? null : e))
     }
   }
@@ -114,7 +115,7 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
             autoFocus
             rows={3}
             value={editing.text}
-            onChange={(e) => setEditing({ id: item.id, text: e.target.value })}
+            onChange={(e) => setEditing({ id: item.id, text: e.target.value, via: item.via })}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.keyCode === 229) return
               if (e.key === 'Escape') { e.preventDefault(); setEditing(null); return }
@@ -134,7 +135,7 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
         <div className="queue-panel__actions">
           {/* Com o editor órfão aberto, editar outro item jogaria fora o texto dele. */}
           <button type="button" className="ghost queue-panel__icon" aria-label={t('queue.edit')} title={t('queue.edit')}
-                  disabled={orphan} onClick={() => setEditing({ id: item.id, text: item.text })}>✎</button>
+                  disabled={orphan} onClick={() => setEditing({ id: item.id, text: item.text, via: item.via })}>✎</button>
           <button type="button" className="ghost queue-panel__icon" aria-label={t('queue.up')} title={t('queue.up')}
                   disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
           <button type="button" className="ghost queue-panel__icon" aria-label={t('queue.down')} title={t('queue.down')}
@@ -167,7 +168,7 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
             aria-label={t('queue.orphanLabel')}
             rows={3}
             value={editing.text}
-            onChange={(e) => setEditing({ id: editing.id, text: e.target.value })}
+            onChange={(e) => setEditing({ ...editing, text: e.target.value })}
           />
           <div className="queue-panel__actions">
             <button type="button" disabled={!editing.text.trim()} onClick={() => void requeue()}>{t('queue.requeue')}</button>

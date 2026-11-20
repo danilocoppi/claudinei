@@ -43,8 +43,8 @@ beforeEach(() => {
   enviadas = []
   localStorage.clear()
   enfileirar.mockReset()
-  enfileirar.mockImplementation(async (projectId, engine, text) =>
-    fila(engine, { items: [{ id: 7, text, createdAt: '2026-11-20 12:00:00' }] }))
+  enfileirar.mockImplementation(async (projectId, engine, text, via) =>
+    fila(engine, { items: [{ id: 7, text, createdAt: '2026-11-20 12:00:00', via }] }))
   useStore.setState({
     projects: [{ id: 1, name: 'Alpha', path: '/a', color: '#fff', icon: '📁' }],
     groups: [], sectors: [], schedules: [],
@@ -68,7 +68,7 @@ describe('a fila no campo', () => {
     abrir('c1')
     digitar('depois disso, rode os testes')
     expect(altEnter(), 'o Alt+Enter não pode virar quebra de linha').toBe(false)
-    expect(enfileirar).toHaveBeenCalledWith(1, 'claude', 'depois disso, rode os testes')
+    expect(enfileirar).toHaveBeenCalledWith(1, 'claude', 'depois disso, rode os testes', 'alt-enter')
     expect(campo().value).toBe('')
     // não entrou no turno atual
     expect(enviadas).toEqual([])
@@ -88,9 +88,17 @@ describe('a fila no campo', () => {
     abrir('k1')
     digitar('próximo passo')
     enter()
-    expect(enfileirar).toHaveBeenCalledWith(1, 'kimi', 'próximo passo')
+    // O Enter com o motor ocupado é o operador falando: sai como mensagem dele (pausa o goal).
+    expect(enfileirar).toHaveBeenCalledWith(1, 'kimi', 'próximo passo', 'enter-busy')
     expect(enviadas).toEqual([])
     expect(campo().value).toBe('')
+  })
+
+  it('Alt+Enter no Kimi trabalhando é enfileirado de propósito', () => {
+    abrir('k1')
+    digitar('depois veja o lint')
+    altEnter()
+    expect(enfileirar).toHaveBeenCalledWith(1, 'kimi', 'depois veja o lint', 'alt-enter')
   })
 
   it('Enter no Kimi livre manda na hora, sem fila', () => {
@@ -122,7 +130,7 @@ describe('a fila no campo', () => {
     await waitFor(() => expect(campo().value).toContain('[📎 001-a.png]'))
     digitar(`olhe ${campo().value}`)
     altEnter()
-    expect(enfileirar).toHaveBeenCalledWith(1, 'claude', 'olhe /ups/001-a.png')
+    expect(enfileirar).toHaveBeenCalledWith(1, 'claude', 'olhe /ups/001-a.png', 'alt-enter')
   })
 
   it('!comando nunca vai para a fila: roda como comando de terminal', () => {
@@ -134,12 +142,12 @@ describe('a fila no campo', () => {
   })
 
   it('fila pausada no Kimi: Enter entra na fila e o campo avisa fila pausada', () => {
-    useStore.setState({ queues: { '1:kimi': fila('kimi', { paused: true, pauseReason: 'error', items: [{ id: 3, text: 'a', createdAt: 'x' }] }) } })
+    useStore.setState({ queues: { '1:kimi': fila('kimi', { paused: true, pauseReason: 'error', items: [{ id: 3, text: 'a', createdAt: 'x', via: 'alt-enter' }] }) } })
     abrir('k1')
     expect(campo().placeholder).toMatch(/fila pausada/)
     digitar('mais um')
     enter()
-    expect(enfileirar).toHaveBeenCalledWith(1, 'kimi', 'mais um')
+    expect(enfileirar).toHaveBeenCalledWith(1, 'kimi', 'mais um', 'enter-busy')
     expect(enviadas).toEqual([])
     expect(campo().placeholder).toMatch(/fila pausada/)
   })
@@ -160,9 +168,9 @@ describe('a fila no campo', () => {
     digitar('um')
     altEnter()
     // Outra aba enfileirou logo depois: o WebSocket já traz os dois.
-    const dois = fila('claude', { items: [{ id: 7, text: 'um', createdAt: 'x' }, { id: 8, text: 'dois', createdAt: 'x' }] })
+    const dois = fila('claude', { items: [{ id: 7, text: 'um', createdAt: 'x', via: 'alt-enter' }, { id: 8, text: 'dois', createdAt: 'x', via: 'alt-enter' }] })
     useStore.getState().applyWsMessage({ type: 'operator_queue', projectId: 1, engine: 'claude', queue: dois })
-    responde(fila('claude', { items: [{ id: 7, text: 'um', createdAt: 'x' }] }))
+    responde(fila('claude', { items: [{ id: 7, text: 'um', createdAt: 'x', via: 'alt-enter' }] }))
     await new Promise((r) => setTimeout(r, 0))
     expect(useStore.getState().queues['1:claude'].items.map((i) => i.id)).toEqual([7, 8])
   })

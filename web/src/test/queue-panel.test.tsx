@@ -28,8 +28,9 @@ import type { OperatorQueue, TerminalState } from '../types'
 
 const fila = (o: Partial<OperatorQueue> = {}): OperatorQueue =>
   ({ projectId: 1, engine: 'claude', items: [], paused: false, pauseReason: null, ...o })
-const A = { id: 11, text: 'primeiro: rode os testes\ne depois o lint', createdAt: '2026-11-20 12:00:00' }
-const B = { id: 12, text: 'segundo: abra o PR', createdAt: '2026-11-20 12:01:00' }
+// A entrou pelo Enter com o motor ocupado; B, pelo Alt+Enter.
+const A = { id: 11, text: 'primeiro: rode os testes\ne depois o lint', createdAt: '2026-11-20 12:00:00', via: 'enter-busy' as const }
+const B = { id: 12, text: 'segundo: abra o PR', createdAt: '2026-11-20 12:01:00', via: 'alt-enter' as const }
 const estado = (o: Partial<TerminalState> = {}): TerminalState => ({
   projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null,
   autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null, ...o,
@@ -221,7 +222,7 @@ describe('edição de um item que saiu da fila no meio', () => {
     // Editar outro item agora jogaria fora o texto órfão: fica bloqueado até decidir.
     expect((within(linha(/^segundo/)).getByRole('button', { name: 'Editar' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Pôr na fila de novo' }))
-    expect(api.addToQueue).toHaveBeenCalledWith(1, 'claude', 'primeiro, editado')
+    expect(api.addToQueue).toHaveBeenCalledWith(1, 'claude', 'primeiro, editado', 'enter-busy')
     await waitFor(() => expect(screen.queryByText(/saiu antes de você salvar/)).toBeNull())
     expect(screen.getByText('primeiro, editado')).toBeTruthy()
     expect(api.editQueueItem).not.toHaveBeenCalled()
@@ -248,7 +249,7 @@ describe('edição de um item que saiu da fila no meio', () => {
   })
 
   it('o editor órfão é do terminal dele: trocar de terminal não o leva junto, e voltar o traz', async () => {
-    const C = { id: 21, text: 'do codex: revise o diff', createdAt: '2026-11-20 12:02:00' }
+    const C = { id: 21, text: 'do codex: revise o diff', createdAt: '2026-11-20 12:02:00', via: 'alt-enter' as const }
     useStore.setState({ queues: { '1:claude': fila({ items: [A, B] }), '1:codex': fila({ engine: 'codex', items: [C] }) } })
     // O ChatView não remonta o painel ao trocar de aba: o mesmo componente recebe outro terminal.
     const { rerender } = render(<QueuePanel projectId={1} engine="claude" />)
@@ -273,7 +274,7 @@ describe('edição de um item que saiu da fila no meio', () => {
     rerender(<QueuePanel projectId={1} engine="claude" />)
     expect((screen.getByRole('textbox', { name: 'Edição da mensagem que saiu da fila' }) as HTMLTextAreaElement).value).toBe('primeiro, editado')
     fireEvent.click(screen.getByRole('button', { name: 'Pôr na fila de novo' }))
-    expect(api.addToQueue).toHaveBeenCalledWith(1, 'claude', 'primeiro, editado')
+    expect(api.addToQueue).toHaveBeenCalledWith(1, 'claude', 'primeiro, editado', 'enter-busy')
     await waitFor(() => expect(screen.queryByText(/saiu antes de você salvar/)).toBeNull())
   })
 

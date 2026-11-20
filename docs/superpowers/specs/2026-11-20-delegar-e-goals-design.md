@@ -126,6 +126,15 @@ bate no limite de uso; o operador interrompe (Esc). Ao chegar a 20 turnos sem
 `goal_done`, para com o motivo "teto". Pausado ou no teto, o terminal mostra um
 aviso com o motivo e **Retomar** (= `/goal resume`).
 
+*Fila do operador (decidido na integração da onda B):* o item enfileirado de
+propósito (**Alt+Enter**) não pausa o objetivo: sai antes do continue (lugar 3
+antes do 6), e o laço segue depois dele; o turno do item não conta. Já o
+**Enviar agora** e o **Enter com o motor ocupado** (Kimi e OpenCode, em que o
+Enter no meio do turno só pode ir à fila) são o operador falando: saem como
+mensagem dele e pausam o objetivo uma vez, com o motivo "você mandou uma
+mensagem". A interrupção que o Enviar agora faz no Kimi e no OpenCode não
+pausa como Esc.
+
 **À vista.** O estado do goal é do servidor (não vem do `update_progress` do
 agente): a coluna de acompanhamento ganha um bloco "Objetivo" no topo (critério,
 turno n/20, estado, evidência quando cumprido), e o cartão da lateral um selo

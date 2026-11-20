@@ -5,6 +5,7 @@ import { Sidebar } from '../components/Sidebar'
 import { UndoToast } from '../components/UndoToast'
 import { WorkingStrip } from '../components/WorkingStrip'
 import { useStore } from '../store'
+import { applyTriage, reorderPins, undoTriage } from '../triageActions'
 import { DEFAULT_APPEARANCE } from '../appearance'
 import type { EngineMeta, Project, SessionInfo, TriageItem } from '../types'
 
@@ -369,6 +370,63 @@ describe('Sidebar — ordem dos Fixados', () => {
     render(<Sidebar />)
     expect(cardOf('Delta').draggable).toBe(true)
     expect(cardOf('Beta').draggable).toBe(false)
+  })
+
+  /** PATCH que responde como o servidor: fixar de novo usa o pinOrder do pedido, senão o fim. */
+  const echoPatch = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    const id = Number(String(url).match(/projects\/(\d+)\/triage/)?.[1])
+    const body = JSON.parse(String(init?.body ?? '{}'))
+    const cur = useStore.getState().triage[id] ?? item(id, {})
+    const pinned = body.pinned ?? (body.settled ? false : cur.pinned)
+    return new Response(JSON.stringify(item(id, {
+      pinned, settled: body.settled ?? false,
+      pinOrder: pinned ? (cur.pinned ? cur.pinOrder : body.pinOrder === undefined ? 9 : body.pinOrder) : null,
+    })), { status: 200 })
+  })
+  const patchBodies = (fetcher: ReturnType<typeof echoPatch>) =>
+    fetcher.mock.calls.filter(([, init]: any[]) => init?.method === 'PATCH').map(([, init]: any[]) => JSON.parse(String(init.body)))
+
+  it('desfazer o desafixar devolve o cartão à posição de antes', async () => {
+    const fetcher = echoPatch()
+    render(<><Sidebar /><UndoToast /></>)
+    fireEvent.click(screen.getByRole('button', { name: 'Desafixar Gama' }))
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Alpha'])
+    fireEvent.click(within(screen.getByTestId('undo-toast')).getByRole('button', { name: 'Desfazer' }))
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    expect(patchBodies(fetcher).at(-1)).toMatchObject({ pinned: true, pinOrder: 1 })
+  })
+
+  it('desfazer o assentar devolve o cartão à posição de antes', async () => {
+    echoPatch()
+    render(<Sidebar />)
+    await act(() => applyTriage(3, { settled: true }, 'Gama assentado', null))
+    expect(pinnedNames()).toEqual(['Delta', 'Alpha'])
+    await act(() => undoTriage())
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+  })
+
+  it('"só fixados" ligado ainda deixa ordenar (a lista dos Fixados está inteira)', () => {
+    localStorage.setItem('claudinei:favoritesOnly', '1')
+    render(<Sidebar />)
+    expect((screen.getByLabelText('Somente fixados') as HTMLInputElement).checked).toBe(true)
+    expect(cardOf('Delta').draggable).toBe(true)
+  })
+
+  it('a resposta da ordem não passa por cima do que o WebSocket mudou no meio do caminho', async () => {
+    let answer: (r: Response) => void = () => {}
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { answer = r }))
+    let done: Promise<void> = Promise.resolve()
+    act(() => { done = reorderPins([3, 4, 1]) })
+    expect(useStore.getState().triage[3]?.pinOrder).toBe(0)
+    // Outro aparelho desafixou Gama enquanto a ordem ia e voltava.
+    const woke = item(3, {})
+    act(() => { useStore.getState().setTriageItem(woke) })
+    answer(new Response(JSON.stringify([3, 4, 1].map((id, i) => item(id, { pinned: true, pinOrder: i }))), { status: 200 }))
+    await act(() => done)
+    expect(useStore.getState().triage[3]).toBe(woke)
+    expect(useStore.getState().triage[4]?.pinOrder).toBe(1)
   })
 
   it('fixar põe o terminal no fim dos Fixados', async () => {

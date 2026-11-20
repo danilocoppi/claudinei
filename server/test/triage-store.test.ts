@@ -128,6 +128,20 @@ describe('ordem dos fixados', () => {
     expect(store.get(1, p3).pinOrder).toBeNull()
   })
 
+  it('fixar de novo com pinOrder (o desfazer) volta à posição de antes', () => {
+    const store = createTriageStore(db)
+    for (const p of [p1, p2, p3]) store.update(1, p, { pinned: true })
+    store.update(1, p2, { pinned: false })
+    expect(store.update(1, p2, { pinned: true, pinOrder: 1 }).pinOrder).toBe(1)
+    store.update(1, p2, { settled: true })
+    expect(store.update(1, p2, { pinned: true, settled: false, pinOrder: 1 }).pinOrder).toBe(1)
+    // Já fixado, o pinOrder do PATCH não move (a ordem é do PUT).
+    expect(store.update(1, p2, { pinned: true, pinOrder: 7 }).pinOrder).toBe(1)
+    // null: pin sem posição, como os de antes da ordem.
+    store.update(1, p3, { pinned: false })
+    expect(store.update(1, p3, { pinned: true, pinOrder: null }).pinOrder).toBeNull()
+  })
+
   it('fixado de antes da ordem (pin_order nulo) vem antes do recém-fixado', () => {
     const store = createTriageStore(db)
     db.prepare(`INSERT INTO user_triage (user_id, project_id, pinned_at) VALUES (1, ?, ?)`).run(p1, new Date().toISOString())

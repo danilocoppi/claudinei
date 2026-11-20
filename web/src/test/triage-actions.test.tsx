@@ -213,8 +213,9 @@ describe('triagem pelo menu do cartão', () => {
 
     fireEvent.click(within(toast() as HTMLElement).getByRole('button', { name: 'Desfazer' }))
     await settle()
-    // Volta os três campos, inclusive o pin que o assentar tinha tirado.
-    expect(patches[1]).toEqual({ projectId: 1, body: { pinned: true, settled: false, snoozedUntil: null } })
+    // Volta os três campos, inclusive o pin que o assentar tinha tirado, na posição
+    // que tinha (aqui nenhuma: pin de antes da ordem dos Fixados).
+    expect(patches[1]).toEqual({ projectId: 1, body: { pinned: true, settled: false, snoozedUntil: null, pinOrder: null } })
     expect(useStore.getState().triage[1]).toEqual(item(1, { pinned: true }))
     expect(within(screen.getByTestId('triage-pinned')).getByText('Alpha')).toBeTruthy()
     expect(toast()).toBeNull()

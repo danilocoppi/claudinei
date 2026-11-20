@@ -27,6 +27,12 @@ export interface TriagePatch {
   pinned?: boolean
   settled?: boolean
   snoozedUntil?: string | null
+  /**
+   * Posição ao fixar (o desfazer devolve a de antes); `null` é pin sem posição,
+   * como os de antes da ordem. Só vale quando o pedido fixa quem não estava
+   * fixado; ausente, o pin novo vai para o fim.
+   */
+  pinOrder?: number | null
 }
 
 interface Row {
@@ -108,7 +114,7 @@ export function createTriageStore(db: Db) {
       // Pin novo vai para o fim dos Fixados; sem pin, a posição se perde (fixar
       // de novo é chegar de novo). Quem já estava fixado fica onde estava.
       if (pinnedAt === null) pinOrder = null
-      else if (!cur?.pinned_at) pinOrder = nextPinOrder(userId)
+      else if (!cur?.pinned_at) pinOrder = p.pinOrder !== undefined ? p.pinOrder : nextPinOrder(userId)
 
       if (pinnedAt === null && settledAt === null && snoozedUntil === null) {
         // Nada aplicado: a ausência de linha já diz isso.

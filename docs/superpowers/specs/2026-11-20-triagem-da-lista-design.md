@@ -78,8 +78,10 @@ por tempo.
   Um WebSocket `triage` vai só para o próprio usuário, para os outros aparelhos
   dele.
 - A ordem dos Fixados: `PUT /api/triage/pin-order` com `{ projectIds }`, os
-  fixados de quem pede de cima para baixo. Só aceita terminais que ele acessa e
-  que estão fixados para ele; os outros usuários não mudam. Responde a triagem
+  fixados de quem pede de cima para baixo. Só aceita terminais que ele acessa; os
+  que já não estão fixados para ele ficam de fora, sem derrubar o resto. Os
+  outros usuários não mudam. O `PATCH` aceita `pinOrder` para fixar numa
+  posição dada (é o que o desfazer usa). Responde a triagem
   inteira e manda um `triage` por posição que mudou.
 
 ### Seções da lateral, de cima para baixo
@@ -146,9 +148,10 @@ ASSENTADOS (11)              ▸  (recolhida)
 - **Arrastar**: os Fixados têm ordem própria, de cada usuário, que ele muda
   arrastando um fixado sobre outro (qualquer usuário, não só o admin: a ordem é
   dele). Um fixado não se solta na árvore, nem um cartão da árvore nos Fixados.
-  Fixar põe o terminal no fim dos Fixados; desafixar esquece a posição. Os pins
-  de antes da ordem existir vêm primeiro, na ordem global da lateral. Filtrando,
-  não arrasta. Adiados e Assentados não arrastam.
+  Fixar põe o terminal no fim dos Fixados; desafixar esquece a posição, mas o
+  desfazer (de desafixar ou de assentar) a devolve. Os pins de antes da ordem
+  existir vêm primeiro, na ordem global da lateral. Com "só ativos" ou a busca,
+  não arrasta; com "só fixados", sim. Adiados e Assentados não arrastam.
 - **Desempenho**: a divisão entre as seções sai da mesma passagem que monta a
   árvore (`buildEntries`). A faixa Trabalhando lê o estado das sessões por
   seletores estreitos, para não renderizar a lateral inteira a cada evento.

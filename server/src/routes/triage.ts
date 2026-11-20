@@ -44,6 +44,12 @@ function parsePatch(body: unknown): TriagePatch | string {
     p.snoozedUntil = s as string | null
   }
   if (Object.keys(p).length === 0) return 'nenhum campo de triagem'
+  // Não é campo de triagem sozinho: só diz onde entra quem o pedido fixa.
+  if (b.pinOrder !== undefined) {
+    const o = b.pinOrder
+    if (o !== null && !(Number.isSafeInteger(o) && (o as number) >= 0)) return 'pinOrder deve ser um inteiro não negativo'
+    p.pinOrder = o as number | null
+  }
   return p
 }
 
@@ -78,7 +84,9 @@ export function registerTriageRoutes(app: FastifyInstance, deps: {
 
   /**
    * A ordem dos Fixados de quem pede (cada usuário tem a sua). Só aceita
-   * terminais que ele acessa e que estão fixados para ele. Responde a triagem
+   * terminais que ele acessa; os que já não estão fixados para ele (desafixados
+   * noutro aparelho enquanto este arrastava) ficam de fora sem derrubar o resto
+   * da ordem. Fixado e adiado entra (adiar mantém o pin). Responde a triagem
    * inteira, como o GET, e avisa os outros aparelhos dele de cada posição que
    * mudou, pela mesma mensagem `triage` do PATCH.
    */
@@ -88,9 +96,9 @@ export function registerTriageRoutes(app: FastifyInstance, deps: {
     const ids = parsePinOrder(req.body)
     if (typeof ids === 'string') return reply.code(400).send({ error: ids })
     if (!ids.every((projectId) => canAccessProject(req.authUser, projectId))) return reply.code(403).send({ error: 'forbidden_project' })
-    if (!ids.every((projectId) => deps.store.get(id, projectId).pinned)) return reply.code(400).send({ error: 'projectIds deve ter só terminais fixados' })
+    const pinned = ids.filter((projectId) => deps.store.get(id, projectId).pinned)
     const before = new Map(deps.store.list(id).map((t) => [t.projectId, t.pinOrder]))
-    deps.store.setPinOrder(id, ids)
+    deps.store.setPinOrder(id, pinned)
     const after = deps.store.list(id).filter((t) => canAccessProject(req.authUser, t.projectId))
     for (const item of after) {
       if (before.get(item.projectId) !== item.pinOrder) deps.broadcast?.(triageMessage(id, item))

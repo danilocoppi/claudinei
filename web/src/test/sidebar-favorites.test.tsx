@@ -47,8 +47,8 @@ describe('Sidebar — fixados', () => {
     // O setor e o grupo esvaziaram (os fixados moram na seção deles): somem.
     expect(screen.queryByTestId('term-group')).toBeNull()
     expect(screen.queryByTestId('term-sector')).toBeNull()
-    // Nos Fixados não se arrasta: a ordem é a global da lateral.
-    expect(screen.getAllByTestId('term-card').every((c) => c.getAttribute('draggable') === 'false')).toBe(true)
+    // Os Fixados estão inteiros na tela: a ordem do usuário continua arrastável.
+    expect(screen.getAllByTestId('term-card').every((c) => c.getAttribute('draggable') === 'true')).toBe(true)
     expect(localStorage.getItem('claudinei:favoritesOnly')).toBe('1')
   })
 

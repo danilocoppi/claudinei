@@ -8,7 +8,11 @@ import type { TriageItem } from './types'
  * no servidor, aplica a resposta dele (que vale mais) e fica desfazível por 5 s.
  * Se a rota falha, o estado de antes volta e a lateral mostra o aviso.
  */
-export type TriagePatch = { pinned?: boolean; settled?: boolean; snoozedUntil?: string | null }
+export type TriagePatch = {
+  pinned?: boolean; settled?: boolean; snoozedUntil?: string | null
+  /** Onde entra quem o pedido fixa (o desfazer devolve a posição de antes); ausente, no fim. */
+  pinOrder?: number | null
+}
 type Ws = { send(m: object): void } | null
 
 /** Quanto tempo uma ação fica desfazível. */
@@ -19,8 +23,8 @@ const blank = (projectId: number): TriageItem => ({ projectId, pinned: false, se
 /**
  * O que o servidor faz com o pedido (`server/src/triage/store.ts`), na mesma
  * ordem: assentar tira o pin e o adiamento; adiar tira o assentado; fixar tira o
- * assentado. Pin novo entra no fim dos Fixados (`endOrder`); sem pin, a posição
- * se perde. Serve só para a mudança imediata; a resposta da rota corrige.
+ * assentado. Pin novo entra no fim dos Fixados (`endOrder`), ou onde o pedido
+ * diz (`pinOrder`); sem pin, a posição se perde. Serve só para a mudança imediata; a resposta da rota corrige.
  */
 function combine(cur: TriageItem, p: TriagePatch, endOrder: number): TriageItem {
   const next = { ...cur }
@@ -37,7 +41,7 @@ function combine(cur: TriageItem, p: TriagePatch, endOrder: number): TriageItem 
     if (p.pinned) next.settled = false
   }
   if (cur.pinned && !next.pinned) next.pinOrder = null
-  else if (!cur.pinned && next.pinned) next.pinOrder = endOrder
+  else if (!cur.pinned && next.pinned) next.pinOrder = p.pinOrder !== undefined ? p.pinOrder : endOrder
   return next
 }
 
@@ -160,7 +164,7 @@ export async function applyTriage(projectId: number, patch: TriagePatch, label: 
 
 /**
  * Devolve os três campos de antes da última ação (desfazer um assentar devolve o
- * pin que ele tirou) e limpa a entrada. Um adiamento de antes que já venceu volta
+ * pin que ele tirou, na posição que ele tinha nos Fixados) e limpa a entrada. Um adiamento de antes que já venceu volta
  * como "não adiado": a rota não aceita horário passado. O desfazer não se desfaz.
  *
  * Se o terminal mudou desde a ação (o servidor o acordou), o desfazer só some:
@@ -173,7 +177,9 @@ export async function undoTriage(): Promise<void> {
   if (!sameTriage(current(u.projectId) ?? blank(u.projectId), u.after)) return
   const { before } = u
   const snoozedUntil = before.snoozedUntil !== null && Date.parse(before.snoozedUntil) > Date.now() ? before.snoozedUntil : null
-  await commit(u.projectId, { pinned: before.pinned, settled: before.settled, snoozedUntil }, 'sidebar.triageSaveError')
+  const patch: TriagePatch = { pinned: before.pinned, settled: before.settled, snoozedUntil }
+  if (before.pinned) patch.pinOrder = before.pinOrder ?? null
+  await commit(u.projectId, patch, 'sidebar.triageSaveError')
 }
 
 /** Uma gravação da ordem dos Fixados por vez: o arraste seguinte, enquanto esta não volta, é ignorado. */

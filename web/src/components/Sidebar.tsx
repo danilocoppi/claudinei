@@ -281,8 +281,9 @@ export function Sidebar() {
   const filtering = activeOnly || favoritesOnly || searching
   const canDrag = isAdmin && !filtering
   // A ordem dos Fixados é de cada usuário (não mexe na árvore de ninguém), então
-  // qualquer um ordena os seus. Filtrando, não: a lista vista não seria a inteira.
-  const canReorderPins = !filtering
+  // qualquer um ordena os seus. Com "só ativos" ou a busca, não: os Fixados vistos
+  // não seriam todos. "Só fixados" mostra os Fixados inteiros, então deixa.
+  const canReorderPins = !(activeOnly || searching)
   // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
   const visibleEntries = filtering ? filterEntries(entries, sessions, activeOnly, favoritesOnly, searching ? query : '', (id) => !!triage[id]?.pinned) : entries
   // As seções dependem só da triagem e da hora, nunca do status das sessões: um

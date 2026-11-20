@@ -232,15 +232,47 @@ describe('ordem dos fixados (PUT /api/triage/pin-order)', () => {
     anaWs.close(); brunoWs.close()
   })
 
-  it('400 com corpo inválido, repetido ou terminal não fixado', async () => {
+  it('400 com corpo inválido ou repetido', async () => {
     const ana = await login('ana')
     await pin(ana, p1)
     for (const body of [{}, { projectIds: 'x' }, { projectIds: [p1, 'x'] }, { projectIds: [1.5] }, { projectIds: [-1] }, { projectIds: [p1, p1] }]) {
       expect((await put(ana, body)).statusCode).toBe(400)
     }
-    // Gama não está fixado para ana.
-    expect((await put(ana, { projectIds: [p3, p1] })).statusCode).toBe(400)
     expect(createTriageStore(db).get(auth!.users.getByUsername('ana')!.id, p1).pinOrder).toBe(0)
+  })
+
+  it('terminal que deixou de estar fixado (desafixado noutro aparelho) é ignorado, sem derrubar a ordem', async () => {
+    const ana = await login('ana')
+    const anaId = auth!.users.getByUsername('ana')!.id
+    await pin(ana, p1)
+    // Gama não está fixado para ana: fica de fora, e Alfa ganha a posição dele.
+    const res = await put(ana, { projectIds: [p3, p1] })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 }])
+    expect(createTriageStore(db).get(anaId, p3)).toMatchObject({ pinned: false, pinOrder: null })
+  })
+
+  it('fixado e adiado também entra na ordem', async () => {
+    const ana = await login('ana')
+    const anaId = auth!.users.getByUsername('ana')!.id
+    await pin(ana, p1); await pin(ana, p3)
+    await app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload: { snoozedUntil: daqui(HORA) } })
+    expect((await put(ana, { projectIds: [p3, p1] })).statusCode).toBe(200)
+    expect(createTriageStore(db).get(anaId, p1)).toMatchObject({ pinned: true, pinOrder: 1 })
+    expect(createTriageStore(db).get(anaId, p3).pinOrder).toBe(0)
+  })
+
+  it('PATCH aceita pinOrder ao fixar de novo (o desfazer) e recusa valor inválido', async () => {
+    const ana = await login('ana')
+    await pin(ana, p1); await pin(ana, p3)
+    await app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload: { pinned: false } })
+    const patch = (payload: object) => app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload })
+    for (const pinOrder of [-1, 1.5, 'x', true]) expect((await patch({ pinned: true, pinOrder })).statusCode).toBe(400)
+    // Só pinOrder, sem campo de triagem, não é pedido.
+    expect((await patch({ pinOrder: 0 })).statusCode).toBe(400)
+    const res = await patch({ pinned: true, pinOrder: 0 })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().pinOrder).toBe(0)
   })
 
   it('403 com projeto sem acesso e para o token de serviço', async () => {

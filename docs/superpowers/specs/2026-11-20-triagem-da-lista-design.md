@@ -174,3 +174,11 @@ ASSENTADOS (11)              ▸  (recolhida)
 - O formato da entrada de desfazer e do aviso.
 - Onde exatamente ficam os ganchos de acordar no servidor: status das sessões,
   aviso do projeto 1 e fim de execução de agendamento.
+
+## Decisões depois da revisão do desenho (de quem escreveu)
+
+- **Lateral estreita (trilho).** Mostra os Fixados no topo e os terminais da faixa Trabalhando como ícones; Assentados e Adiados não aparecem no trilho — ficam a um clique de abrir a lateral larga. Um adiado ou assentado que acorda volta ao trilho na hora.
+- **Um cartão é assentado ou adiado, nunca os dois**: a ação nova substitui a anterior.
+- **Arrastar** só reordena dentro da própria seção; cartões escondidos não ocupam posição.
+- **"Amanhã às 9 h"** escolhido entre 0 h e 5 h significa o mesmo dia às 9 h.
+- **A rota antiga da ⭐** passa a fixar/desfixar para o usuário que clicou (compatível com o que o front chama hoje).

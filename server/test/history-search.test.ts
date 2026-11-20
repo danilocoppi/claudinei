@@ -141,6 +141,59 @@ describe('searchEvents', () => {
     expect(hit.snippet.endsWith('y')).toBe(true)
   })
 
+  it('o trecho vem do original em texto acentuado longo, e cada ocorrência leva o seu', () => {
+    // Texto não-ASCII grande: as ocorrências caem em pedaços diferentes do
+    // texto dobrado, inclusive em cima da emenda entre dois pedaços.
+    const partes: string[] = []
+    for (let i = 0; i < 60; i++) partes.push('ação concluída '.repeat(7 + (i % 5)) + `Reinício-${i} `)
+    let texto = partes.join('')
+    // Uma ocorrência atravessando o índice 1024.
+    texto = 'ç'.repeat(1020) + 'REINÍCIO-X ' + texto
+    const hits = searchEvents(comPos([assistente([{ type: 'text', text: texto }])]), 'reinicio', false)
+    expect(hits).toHaveLength(61)
+    // De baixo para cima: a última do texto primeiro.
+    hits.slice(0, 60).forEach((h, k) => expect(h.snippet).toContain(`Reinício-${59 - k}`))
+    expect(hits[60].snippet).toContain('REINÍCIO-X')
+    for (const h of hits) expect(h.snippet.length).toBeLessThanOrEqual(120)
+  })
+
+  it('texto decomposto: acha e o trecho não separa a letra das marcas', () => {
+    const texto = ('palavra qualquer ' + 'reinício '.normalize('NFD')).repeat(30)
+    const hits = searchEvents(comPos([assistente([{ type: 'text', text: texto }])]), 'Reinício', false)
+    expect(hits).toHaveLength(30)
+    for (const h of hits) {
+      expect(h.snippet).toContain('reinício'.normalize('NFD'))
+      // Nem começa com marca órfã nem termina numa letra cujas marcas ficaram de fora.
+      expect(h.snippet).not.toMatch(/^\p{M}/u)
+      const fim = texto.indexOf(h.snippet.slice(-12))
+      expect(texto.slice(fim + 12).match(/^\p{M}/u)).toBeNull()
+    }
+  })
+
+  it('consulta com caracteres especiais de regex é literal', () => {
+    const evts = comPos([assistente([{ type: 'text', text: 'rode c++ (a-b) [x] ação/feita $1 ^z' }])])
+    for (const q of ['c++', '(a-b)', '[x]', 'ação/feita', '$1', '^z']) {
+      expect(searchEvents(evts, q, false), q).toHaveLength(1)
+    }
+    expect(searchEvents(evts, 'a.b', false)).toHaveLength(0)
+  })
+
+  it('não pesa no laço de eventos: 8 MB acentuados com uma ocorrência em menos de 150 ms', () => {
+    const unidade = 'Teste ✓ passou em função da configuração; ação concluída com êxito. '
+    let grande = ''
+    while (grande.length < 8 * 1024 * 1024) grande += unidade
+    grande = grande.slice(0, 4 * 1024 * 1024) + ' agulha ' + grande.slice(4 * 1024 * 1024)
+    const evts = comPos([usuario([{ type: 'tool_result', tool_use_id: 'tu-1', content: grande }])])
+    searchEvents(comPos([assistente([{ type: 'text', text: 'aquecimento ção' }])]), 'ção', true)
+    const t0 = performance.now()
+    const hits = searchEvents(evts, 'agulha', true)
+    const dt = performance.now() - t0
+    expect(hits).toHaveLength(1)
+    expect(hits[0].snippet).toContain('agulha')
+    // Medido ~45 ms (antes da correção, ~850 ms); a folga cobre máquina carregada.
+    expect(dt).toBeLessThan(150)
+  })
+
   it('consulta curta demais depois de normalizar não acha nada', () => {
     expect(searchEvents(comPos([assistente([{ type: 'text', text: 'abc' }])]), '  ', false)).toEqual([])
   })

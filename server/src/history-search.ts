@@ -94,42 +94,145 @@ export function searchableTexts(evt: AgentEvent, tools: boolean): SearchableText
   return out
 }
 
-/**
- * O texto normalizado junto com, para cada unidade dele, o índice no original —
- * para recortar o trecho do texto como ele é, com acento e caixa. Normaliza
- * código a código: o resultado é o mesmo do `normalizeForSearch` do texto
- * inteiro (as marcas somem, então a reordenação delas não importa, e o sigma
- * final já foi igualado).
+/*
+ * Como a busca acha sem pesar no laço de eventos.
+ *
+ * Tirar as marcas do texto inteiro (o `replace(/\p{M}/gu)` do normalizeForSearch)
+ * é o passo caro: ~90 ms em 8 MB acentuados, e o mapa código a código para
+ * recortar o trecho custava quase 1 s. Então o texto vira só "minúsculo + NFD",
+ * que é nativo e barato, e a consulta vira um padrão que pula as marcas entre
+ * as letras (`r\p{M}*e\p{M}*i…`): casar ali é o mesmo que casar no texto sem
+ * marcas. Conferido código a código, em todo o Unicode: `toLowerCase` e depois
+ * NFD dobra cada caractere igual ao normalizeForSearch, a menos das marcas e do
+ * sigma final — por isso o σ da consulta casa com σ ou ς.
+ *
+ * O texto é dobrado em pedaços de DOBRA_CHARS, guardando onde cada um começa
+ * no original e no dobrado. Para levar uma ocorrência de volta ao original, só
+ * o pedaço dela é percorrido, código a código.
  */
-function normalizeWithMap(s: string): { norm: string; map: number[] } {
-  const partes: string[] = []
-  const map: number[] = []
-  let i = 0
-  for (const ch of s) {
-    // ASCII não tem acento: só a caixa muda, e sem mudar o tamanho.
-    const n = ch.charCodeAt(0) < 0x80 ? ch.toLowerCase() : normalizeForSearch(ch)
-    for (let k = 0; k < n.length; k++) map.push(i)
-    partes.push(n)
-    i += ch.length
-  }
-  map.push(s.length)
-  return { norm: partes.join(''), map }
+const DOBRA_CHARS = 1024
+const NAO_ASCII = /[^\x00-\x7f]/
+const MARCA = /\p{M}/u
+
+interface Dobrado {
+  /** Minúsculo + NFD, com as marcas. */
+  h: string
+  /** Começo de cada pedaço no original e no dobrado; null = texto ASCII, índices iguais. */
+  oInicio: number[] | null
+  hInicio: number[] | null
 }
 
-/** Texto todo ASCII: o normalizado é só o minúsculo, com os mesmos índices. */
-const ASCII = /^[\x00-\x7f]*$/
+function dobrar(text: string): Dobrado {
+  // ASCII não tem acento: só a caixa muda, sem mudar o tamanho.
+  if (!NAO_ASCII.test(text)) return { h: text.toLowerCase(), oInicio: null, hInicio: null }
+  const partes: string[] = []
+  const oInicio: number[] = []
+  const hInicio: number[] = []
+  let h = 0
+  for (let i = 0; i < text.length;) {
+    let j = Math.min(text.length, i + DOBRA_CHARS)
+    if (j < text.length && isLowSurrogate(text.charCodeAt(j))) j++
+    const p = text.slice(i, j).toLowerCase().normalize('NFD')
+    partes.push(p); oInicio.push(i); hInicio.push(h)
+    h += p.length; i = j
+  }
+  return { h: partes.join(''), oInicio, hInicio }
+}
 
-/** Trecho de até SNIPPET_CHARS em volta de `[ini, fim)`, sem partir um par substituto. */
+/** Quantas unidades um caractere vira no dobrado. Memória pequena: CJK e afins repetem muito. */
+const tamanhoDobra = new Map<string, number>()
+function tamanhoDobrado(ch: string): number {
+  let n = tamanhoDobra.get(ch)
+  if (n === undefined) {
+    n = ch.toLowerCase().normalize('NFD').length
+    if (tamanhoDobra.size < 4096) tamanhoDobra.set(ch, n)
+  }
+  return n
+}
+
+/**
+ * Leva índices do dobrado ao original: para cada índice, o `[início, fim)` do
+ * caractere que o gerou. Chamado em ordem crescente; anda só dentro do pedaço
+ * de cada alvo. O alvo é sempre letra da consulta, nunca marca, e as letras
+ * ficam no mesmo lugar dentro do pedaço mesmo quando o NFD reordena as marcas.
+ */
+function mapeador(text: string, d: Dobrado): (alvo: number) => [number, number] {
+  const { oInicio, hInicio } = d
+  if (!oInicio || !hInicio) return (alvo) => [alvo, alvo + 1]
+  let o = 0
+  let hpos = 0
+  return (alvo) => {
+    // Pedaço do alvo: o último que começa até ele (busca binária).
+    let lo = 0, hi = hInicio.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (hInicio[mid] <= alvo) lo = mid
+      else hi = mid - 1
+    }
+    if (o < oInicio[lo] || hpos > alvo) { o = oInicio[lo]; hpos = hInicio[lo] }
+    while (o < text.length) {
+      const c = text.charCodeAt(o)
+      const w = c >= 0xd800 && c <= 0xdbff && o + 1 < text.length ? 2 : 1
+      const n = c < 0x80 ? 1 : tamanhoDobrado(text.slice(o, o + w))
+      if (alvo < hpos + n) return [o, o + w]
+      hpos += n; o += w
+    }
+    return [text.length, text.length]
+  }
+}
+
+/** A consulta normalizada como padrão que pula as marcas entre as letras. */
+function padraoDaConsulta(agulha: string): RegExp {
+  const letras = Array.from(agulha, (ch) =>
+    ch === 'σ' ? '[σς]' : ch.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&'))
+  return new RegExp(letras.join('\\p{M}*'), 'gu')
+}
+
+/**
+ * Trecho de até SNIPPET_CHARS em volta de `[ini, fim)`, sem partir um par
+ * substituto nem separar uma letra das marcas que vêm depois dela.
+ */
 function snippetAround(s: string, ini: number, fim: number): string {
   const sobra = Math.max(0, SNIPPET_CHARS - (fim - ini))
   let a = Math.max(0, ini - Math.floor(sobra / 2))
   let b = Math.min(s.length, a + SNIPPET_CHARS)
   a = Math.max(0, Math.min(a, b - SNIPPET_CHARS))
-  if (a > 0 && isLowSurrogate(s.charCodeAt(a))) a++
-  if (b < s.length && isLowSurrogate(s.charCodeAt(b))) b--
+  // Unidade que não pode abrir nem fechar o trecho: marca (pertence à letra de
+  // antes) ou a metade baixa de um par substituto.
+  const presa = (i: number) =>
+    i < s.length && (isLowSurrogate(s.charCodeAt(i)) || MARCA.test(String.fromCodePoint(s.codePointAt(i)!)))
+  // Começo: a letra das marcas ficou de fora, então elas também saem.
+  while (a < ini && presa(a)) a++
+  // Fim: a primeira unidade de fora está presa à última de dentro — recua até
+  // a letra dona dela e a deixa de fora; se isso cortaria a ocorrência, avança.
+  if (presa(b)) {
+    let c = b
+    while (c > fim && presa(c)) c--
+    if (presa(c)) while (presa(b)) b++
+    else b = c
+  }
   return s.slice(a, b).replace(/\s+/g, ' ').trim()
 }
 const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff
+
+/** Ocorrências `[início, fim)` no dobrado, só as últimas `max` (as de baixo). */
+function ultimasOcorrencias(d: Dobrado, agulha: string, padrao: RegExp, agulhaAscii: boolean, max: number): Array<[number, number]> {
+  let achados: Array<[number, number]> = []
+  const guarda = (ini: number, fim: number) => {
+    achados.push([ini, fim])
+    // Só as de baixo interessam: não acumula além do necessário.
+    if (achados.length > 4 * max + 64) achados = achados.slice(-max)
+  }
+  if (!d.oInicio) {
+    // Texto ASCII: sem marcas, basta o indexOf; consulta com acento não casa.
+    if (!agulhaAscii) return []
+    for (let at = d.h.indexOf(agulha); at !== -1; at = d.h.indexOf(agulha, at + agulha.length)) guarda(at, at + agulha.length)
+  } else {
+    padrao.lastIndex = 0
+    for (let m = padrao.exec(d.h); m; m = padrao.exec(d.h)) guarda(m.index, m.index + m[0].length)
+  }
+  return achados.length > max ? achados.slice(-max) : achados
+}
 
 /**
  * As ocorrências de `q` nos eventos, da mais nova para a mais antiga: `pos`
@@ -138,7 +241,9 @@ const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff
  */
 export function searchEvents(events: PositionedEvent[], q: string, tools: boolean, limit = Infinity): SearchHit[] {
   const agulha = normalizeForSearch(q.trim())
-  if (!agulha) return []
+  if (!agulha || limit <= 0) return []
+  const padrao = padraoDaConsulta(agulha)
+  const agulhaAscii = !NAO_ASCII.test(agulha)
   // Os eventos vêm na ordem do arquivo; a ordenação estável garante o pos
   // decrescente mesmo se não vierem.
   const ordem = events.map((e, i) => ({ e, i })).sort((x, y) => y.e.pos - x.e.pos || y.i - x.i)
@@ -147,27 +252,21 @@ export function searchEvents(events: PositionedEvent[], q: string, tools: boolea
     const textos = searchableTexts(e, tools)
     for (let t = textos.length - 1; t >= 0; t--) {
       const { field, text, toolUseId } = textos[t]
-      // Filtro barato antes de montar o mapa de índices: quase todo texto não casa.
-      if (!normalizeForSearch(text).includes(agulha)) continue
-      const ascii = ASCII.test(text)
-      const { norm, map } = ascii ? { norm: text.toLowerCase(), map: null } : normalizeWithMap(text)
-      const achados: number[] = []
-      for (let at = norm.indexOf(agulha); at !== -1; at = norm.indexOf(agulha, at + agulha.length)) achados.push(at)
-      for (let k = achados.length - 1; k >= 0; k--) {
-        const ini = map ? map[achados[k]] : achados[k]
-        // Fim no original: o começo do código seguinte ao último casado.
-        const fim = map ? nextOriginalIndex(map, achados[k] + agulha.length - 1, text.length) : achados[k] + agulha.length
-        hits.push({ pos: e.pos, ...(toolUseId ? { toolUseId } : {}), field, snippet: snippetAround(text, ini, fim) })
-        if (hits.length >= limit) return hits
+      const d = dobrar(text)
+      const achados = ultimasOcorrencias(d, agulha, padrao, agulhaAscii, limit - hits.length)
+      if (!achados.length) continue
+      // Em ordem crescente (o mapeador só anda para a frente), depois invertidos.
+      const mapa = mapeador(text, d)
+      const trechos = achados.map(([hIni, hFim]) => {
+        const ini = mapa(hIni)[0]
+        const fim = mapa(hFim - 1)[1]
+        return snippetAround(text, ini, fim)
+      })
+      for (let k = trechos.length - 1; k >= 0; k--) {
+        hits.push({ pos: e.pos, ...(toolUseId ? { toolUseId } : {}), field, snippet: trechos[k] })
       }
+      if (hits.length >= limit) return hits
     }
   }
   return hits
-}
-
-/** Índice no original logo depois do código que gerou a unidade `u` do normalizado. */
-function nextOriginalIndex(map: number[], u: number, total: number): number {
-  const origem = map[u]
-  for (let k = u + 1; k < map.length; k++) if (map[k] !== origem) return map[k]
-  return total
 }

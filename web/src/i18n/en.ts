@@ -182,6 +182,7 @@ export const en = {
     placementNewSector: '＋ New sector…', placementNewGroup: '＋ New group…', placementGroupSector: 'Inside sector',
     placementFailed: 'The terminal was created, but it could not be placed where you chose: {{msg}}. Try again or close — it stays loose in the sidebar.', retry: 'Try again',
   },
+  project: { engines: 'Engines', enginesHint: 'Only the checked ones get a tab and show up in this terminal\'s pickers.', enginesRequired: 'Check at least one engine.' },
   folder: { title: 'Choose folder', empty: 'No subfolders.', select: 'Select this folder', up: 'Up' },
   session: {
     title: 'New session',

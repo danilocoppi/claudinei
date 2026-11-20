@@ -59,3 +59,14 @@ export function pickableEngines(engines: EngineMeta[], listed: string[], keep?: 
 export function hiddenEngines(engines: EngineMeta[], listed: string[]): EngineMeta[] {
   return engines.filter((e) => !listed.includes(e.id))
 }
+
+/**
+ * A lista com que um terminal novo nasce: só o Claude. Sem o Claude instalado,
+ * entra o primeiro motor instalado na ordem do store; sem nenhum instalado (ou
+ * com o catálogo ainda vazio), fica o Claude, a mesma leitura do servidor.
+ */
+export function defaultListed(engines: EngineMeta[]): string[] {
+  const installed = engines.filter((e) => e.available !== false)
+  if (installed.some((e) => e.id === 'claude')) return ['claude']
+  return installed.length > 0 ? [installed[0].id] : ['claude']
+}

@@ -184,6 +184,7 @@ export const es: typeof en = {
     placementNewSector: '＋ Nuevo sector…', placementNewGroup: '＋ Nuevo grupo…', placementGroupSector: 'Dentro del sector',
     placementFailed: 'El terminal fue creado, pero no se pudo colocar donde elegiste: {{msg}}. Intenta de nuevo o cierra — queda suelto en la barra lateral.', retry: 'Intentar de nuevo',
   },
+  project: { engines: 'Motores', enginesHint: 'Solo los marcados tienen pestaña y aparecen en las listas de elección de este terminal.', enginesRequired: 'Marca al menos un motor.' },
   folder: { title: 'Elegir carpeta', empty: 'Sin subcarpetas.', select: 'Seleccionar esta carpeta', up: 'Subir' },
   session: {
     title: 'Nueva sesión',

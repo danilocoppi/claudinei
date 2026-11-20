@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { listedOf, tabEngines, pickableEngines, hiddenEngines } from '../terminalEngines'
+import { listedOf, tabEngines, pickableEngines, hiddenEngines, defaultListed } from '../terminalEngines'
 import { primarySessionOf } from '../engineSession'
 import type { EngineMeta, SessionInfo, SessionStatus } from '../types'
 
@@ -120,5 +120,20 @@ describe('primarySessionOf com a lista do terminal', () => {
   it('sem sessão de motor listado, cai na regra atual', () => {
     const sessions = bySession(sess('c1', 'claude', 'stopped'))
     expect(primarySessionOf(1, sessions, ['codex'])?.localId).toBe('c1')
+  })
+})
+
+describe('defaultListed', () => {
+  it('terminal novo nasce só com o Claude quando ele está instalado', () => {
+    expect(defaultListed(ALL)).toEqual(['claude'])
+  })
+
+  it('sem o Claude instalado, entra o primeiro instalado na ordem do store', () => {
+    expect(defaultListed([{ ...CLAUDE, available: false }, { ...CODEX, available: false }, KIMI, OPENCODE])).toEqual(['kimi'])
+  })
+
+  it('nenhum instalado (ou catálogo vazio) volta ao Claude', () => {
+    expect(defaultListed([{ ...CLAUDE, available: false }, { ...CODEX, available: false }])).toEqual(['claude'])
+    expect(defaultListed([])).toEqual(['claude'])
   })
 })

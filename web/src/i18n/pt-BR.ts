@@ -184,6 +184,7 @@ export const ptBR: typeof en = {
     placementNewSector: '＋ Novo setor…', placementNewGroup: '＋ Novo grupo…', placementGroupSector: 'Dentro do setor',
     placementFailed: 'O terminal foi criado, mas não deu para colocá-lo no lugar escolhido: {{msg}}. Tente de novo ou feche — ele fica solto na lateral.', retry: 'Tentar de novo',
   },
+  project: { engines: 'Engines', enginesHint: 'Só as marcadas ganham aba e aparecem nas listas de escolha deste terminal.', enginesRequired: 'Marque pelo menos uma engine.' },
   folder: { title: 'Escolher pasta', empty: 'Nenhuma subpasta.', select: 'Selecionar esta pasta', up: 'Subir' },
   session: {
     title: 'Nova sessão',

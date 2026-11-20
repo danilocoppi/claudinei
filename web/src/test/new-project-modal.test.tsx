@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { NewProjectModal } from '../components/NewProjectModal'
 import { useStore } from '../store'
+import type { EngineMeta, Project } from '../types'
 
 beforeEach(() => {
   vi.spyOn(globalThis, 'fetch').mockImplementation((url: any, init: any) => {
@@ -299,5 +300,130 @@ describe('NewProjectModal — onde fica o terminal novo', () => {
   it('edição não mostra o campo (mover um terminal existente é pelo menu ⋯)', () => {
     render(<NewProjectModal onClose={() => {}} editProject={{ id: 1, name: 'P', path: '/p', color: '#7c5cff', icon: '📁' } as never} />)
     expect(screen.queryByTestId('new-terminal-placement')).toBeNull()
+  })
+})
+
+describe('NewProjectModal — motores do terminal', () => {
+  const meta = (id: string, label: string, extra: Partial<EngineMeta> = {}): EngineMeta => ({
+    id, label, icon: id, models: [''], efforts: [], permissions: [], slashSource: 'none', slashCommands: [], ...extra,
+  })
+  const CLAUDE = meta('claude', 'Claude Code')
+  const CODEX = meta('codex', 'Codex')
+  const KIMI = meta('kimi', 'Kimi Code', { available: false })
+
+  type Call = { url: string; method: string; body: any }
+  let calls: Call[]
+  const json = (b: unknown, status = 200) =>
+    Promise.resolve(new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } }))
+  const editado = (engines: string[]): Project => ({ id: 7, name: 'Velho', path: '/tmp/x', color: '#222222', icon: '📁', engines })
+
+  // O que o servidor tem gravado: a rota de motores muda, a listagem devolve.
+  let gravado: string[]
+  let listagemFalha: boolean
+
+  beforeEach(() => {
+    calls = []
+    gravado = ['claude']
+    listagemFalha = false
+    useStore.setState({ engines: [CLAUDE, CODEX, KIMI], projects: [editado(['claude'])], groups: [], sectors: [] })
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: any, init: any) => {
+      const u = String(url)
+      const method = init?.method ?? 'GET'
+      const body = init?.body ? JSON.parse(init.body) : undefined
+      calls.push({ url: u, method, body })
+      if (u === '/api/projects/7/engines' && method === 'PATCH') { gravado = body.engines; return json(editado(gravado)) }
+      if (u === '/api/projects/7' && method === 'PATCH') return json(editado(gravado))
+      if (u.endsWith('/api/projects') && method === 'POST') return json({ id: 42, name: 'P', path: '/p', color: '#7c5cff', icon: '📁', engines: body.engines }, 201)
+      if (u === '/api/settings/default-folder') return json({ path: '/p', effective: '/p', missing: false })
+      if (u === '/api/projects') return listagemFalha ? json({ error: 'fora do ar' }, 500) : json([editado(gravado)])
+      return json([])
+    })
+  })
+
+  const caixa = (name: RegExp) => screen.getByRole('checkbox', { name }) as HTMLInputElement
+  const enginePatches = () => calls.filter((c) => c.url === '/api/projects/7/engines')
+
+  it('formulário de edição mostra as caixas com a lista e salva com setProjectEngines', async () => {
+    const onClose = vi.fn()
+    render(<NewProjectModal onClose={onClose} editProject={editado(['claude'])} />)
+    expect(caixa(/Claude Code/).checked).toBe(true)
+    expect(caixa(/Codex/).checked).toBe(false)
+    // o não instalado aparece, com o selo
+    expect(caixa(/Kimi Code/).closest('label')?.textContent).toContain('não instalada')
+    fireEvent.click(caixa(/Codex/))
+    fireEvent.click(screen.getByText('Salvar'))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(enginePatches().map((c) => c.body)).toEqual([{ engines: ['claude', 'codex'] }])
+    expect(useStore.getState().projects.find((p) => p.id === 7)?.engines).toEqual(['claude', 'codex'])
+  })
+
+  it('o Project devolvido pela rota entra no store mesmo se a listagem falhar depois', async () => {
+    listagemFalha = true
+    render(<NewProjectModal onClose={() => {}} editProject={editado(['claude'])} />)
+    fireEvent.click(caixa(/Codex/))
+    fireEvent.click(screen.getByText('Salvar'))
+    await waitFor(() => expect(screen.getByText('fora do ar')).toBeTruthy())
+    expect(useStore.getState().projects.find((p) => p.id === 7)?.engines).toEqual(['claude', 'codex'])
+  })
+
+  it('edição sem mexer nos motores não chama setProjectEngines', async () => {
+    const onClose = vi.fn()
+    render(<NewProjectModal onClose={onClose} editProject={editado(['claude'])} />)
+    fireEvent.change(screen.getByPlaceholderText('Nome do projeto'), { target: { value: 'Novo' } })
+    fireEvent.click(screen.getByText('Salvar'))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(enginePatches()).toEqual([])
+  })
+
+  it('formulário não salva sem motor', () => {
+    render(<NewProjectModal onClose={() => {}} editProject={editado(['claude'])} />)
+    fireEvent.click(caixa(/Claude Code/))
+    expect((screen.getByText('Salvar') as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText('Marque pelo menos uma engine.')).toBeTruthy()
+  })
+
+  it('formulário preserva id desconhecido ao salvar', async () => {
+    const onClose = vi.fn()
+    render(<NewProjectModal onClose={onClose} editProject={editado(['claude', 'codex', 'futuro'])} />)
+    fireEvent.click(caixa(/Codex/))
+    fireEvent.click(screen.getByText('Salvar'))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(enginePatches().map((c) => c.body)).toEqual([{ engines: ['claude', 'futuro'] }])
+  })
+
+  it('erro ao gravar os motores aparece no formulário e ele fica aberto', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url: any, init: any) => {
+      const u = String(url)
+      if (u === '/api/projects/7/engines') return json({ error: 'engines_required' }, 400)
+      if (u === '/api/projects/7' && init?.method === 'PATCH') return json(editado(['claude']))
+      return json([])
+    })
+    const onClose = vi.fn()
+    render(<NewProjectModal onClose={onClose} editProject={editado(['claude'])} />)
+    fireEvent.click(caixa(/Codex/))
+    fireEvent.click(screen.getByText('Salvar'))
+    await waitFor(() => expect(screen.getByText('Escolha pelo menos uma engine conhecida.')).toBeTruthy())
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('criação vem com o padrão marcado e envia engines no createProject', async () => {
+    const onClose = vi.fn()
+    render(<NewProjectModal onClose={onClose} />)
+    expect(caixa(/Claude Code/).checked).toBe(true)
+    expect(caixa(/Codex/).checked).toBe(false)
+    fireEvent.change(screen.getByPlaceholderText('Nome do projeto'), { target: { value: 'P' } })
+    await waitFor(() => expect((screen.getByText('Criar') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(caixa(/Codex/))
+    fireEvent.click(screen.getByText('Criar'))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    const post = calls.find((c) => c.url.endsWith('/api/projects') && c.method === 'POST')
+    expect(post?.body.engines).toEqual(['claude', 'codex'])
+  })
+
+  it('sem o Claude instalado, a criação vem com o primeiro instalado', () => {
+    useStore.setState({ engines: [{ ...CLAUDE, available: false }, CODEX, KIMI] })
+    render(<NewProjectModal onClose={() => {}} />)
+    expect(caixa(/Claude Code/).checked).toBe(false)
+    expect(caixa(/Codex/).checked).toBe(true)
   })
 })

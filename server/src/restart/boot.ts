@@ -4,6 +4,7 @@ import { createProjectsService } from '../projects.js'
 import { createTasksService } from '../tasks.js'
 import { UserError } from '../user-error.js'
 import { toDto, type HoldReason, type TerminalStateDto, type TerminalStateRow, type TerminalStateStore } from './terminal-state.js'
+import type { UsageLimitService } from '../limit/usage-limit.js'
 
 /** Marca da mensagem de retomada: a interface a reconhece e mostra como vinda do Claudinei. */
 export const RESUME_PREFIX = '[Claudinei: resume after restart]'
@@ -323,7 +324,10 @@ export function createRestartService(deps: {
       }
     },
 
-    setPrefs(projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean }): TerminalStateDto {
+    setPrefs(
+      projectId: number, engine: string,
+      p: { autostart?: boolean; autoResume?: boolean; autoResumeLimit?: boolean },
+    ): TerminalStateDto {
       store.setPrefs(projectId, engine, p)
       return publish(projectId, engine)
     },
@@ -337,13 +341,17 @@ export function createRestartService(deps: {
 export type RestartService = ReturnType<typeof createRestartService>
 
 /**
- * O que roda depois do `listen`: primeiro a subida dos terminais, depois o
- * agendador, para que um agendamento não dispute a sessão com a retomada. Falha
- * da subida é registrada e nunca sobe: ela não pode impedir o agendador. Se o
- * encerramento começou durante a subida, o agendador fica desligado.
+ * O que roda depois do `listen`: primeiro a subida dos terminais, depois a do
+ * limite de uso, por fim o agendador, para que um agendamento não dispute a
+ * sessão com uma retomada. A ordem entre as duas subidas importa: uma retomada
+ * armada absorve a marca do reinício, e a garantia de uma só mensagem por
+ * janela depende de a subida do reinício ter terminado antes. Falha de uma
+ * subida é registrada e nunca sobe: ela não pode impedir as seguintes. Se o
+ * encerramento começou no meio, o que falta fica desligado.
  */
 export async function startAfterListen(deps: {
   restart: Pick<RestartService, 'boot'> | undefined
+  limit?: Pick<UsageLimitService, 'boot'>
   scheduler: { start(): void } | undefined
   isShuttingDown?: () => boolean
   log?: (msg: string) => void
@@ -353,6 +361,12 @@ export async function startAfterListen(deps: {
     await deps.restart?.boot()
   } catch (err) {
     log(`[reinício] a subida dos terminais falhou: ${(err as Error)?.message ?? err}`)
+  }
+  if (deps.isShuttingDown?.()) return
+  try {
+    await deps.limit?.boot()
+  } catch (err) {
+    log(`[limite] a subida do limite de uso falhou: ${(err as Error)?.message ?? err}`)
   }
   if (deps.isShuttingDown?.()) return
   deps.scheduler?.start()

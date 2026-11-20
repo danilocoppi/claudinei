@@ -42,6 +42,7 @@ import { registerStatic } from './static.js'
 import { registerTerminalStateRoutes } from './routes/terminals.js'
 import { createTerminalStateStore } from './restart/terminal-state.js'
 import { createRestartService, type RestartService } from './restart/boot.js'
+import { createUsageLimitService, type UsageLimitService } from './limit/usage-limit.js'
 
 export interface AppDeps {
   config: Config
@@ -100,6 +101,13 @@ export interface AppDeps {
    * preenche aqui. index.ts também roda a subida (`boot`) depois do listen.
    */
   onRestartReady?: (restart: RestartService) => void
+  /**
+   * Recebe o serviço do limite de uso, pelo mesmo motivo do `onRestartReady`:
+   * os ganchos do manager (`onUsageLimit`, `onTurnResult`, `onOperatorMessage`)
+   * leem a referência que index.ts preenche aqui. index.ts roda a subida dele
+   * (`boot`) depois da do reinício e o desliga (`dispose`) no encerramento.
+   */
+  onLimitReady?: (limit: UsageLimitService) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -155,14 +163,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   deps.onSchedulerReady?.(scheduler)
   // O reinício nasce depois do orchestrator (religa as tarefas do turno
   // interrompido) e dos agendamentos (fecha as execuções que o reinício matou).
+  const terminalState = createTerminalStateStore(deps.db)
   const restart = createRestartService({
-    db: deps.db, manager: deps.manager, store: createTerminalStateStore(deps.db),
+    db: deps.db, manager: deps.manager, store: terminalState,
     orchestrator: () => orchestrator,
     broadcast: (m) => deps.wsHub?.broadcast(m),
     closeInterruptedRuns: () => schedulesStore.closeInterruptedRuns(),
   })
-  registerTerminalStateRoutes(app, { db: deps.db, restart })
+  // O limite nasce junto do reinício: revive e publica pelo serviço dele, e
+  // absorve a marca do reinício quando o limite bate.
+  const limit = createUsageLimitService({ manager: deps.manager, store: terminalState, restart })
+  // Fechar o app desliga o relógio: nenhuma retomada dispara num app fechado.
+  app.addHook('onClose', async () => { limit.dispose() })
+  registerTerminalStateRoutes(app, { db: deps.db, restart, limit })
   deps.onRestartReady?.(restart)
+  deps.onLimitReady?.(limit)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })

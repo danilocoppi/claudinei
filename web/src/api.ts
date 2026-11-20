@@ -1,4 +1,4 @@
-import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState } from './types'
+import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -77,7 +77,7 @@ export const searchIcons = (q: string) =>
 export const fetchSlashCommands = () => req<string[]>('/api/slash-commands')
 export const fetchEngines = () => req<EngineMeta[]>('/api/engines')
 /** `newFolder`: `path` é a pasta-base e o terminal nasce numa pasta nova dentro dela. */
-export const createProject = (input: { name: string; path: string; color?: string; icon?: string; newFolder?: string }) =>
+export const createProject = (input: { name: string; path: string; color?: string; icon?: string; newFolder?: string; engines?: string[] }) =>
   req<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) })
 /** Pasta padrão dos terminais novos (só admin). `effective`: a guardada, ou a home. */
 export interface DefaultFolder { path: string | null; effective: string; missing: boolean }
@@ -86,7 +86,7 @@ export const fetchDefaultFolder = () => req<DefaultFolder>('/api/settings/defaul
 export const saveDefaultFolder = (path: string) =>
   req<DefaultFolder>('/api/settings/default-folder', { method: 'PUT', body: JSON.stringify({ path }) })
 /** Terminal temporário: o servidor escolhe a pasta (nova, em ~/.claudinei/scratch). */
-export const createScratchProject = (input: { name?: string; color?: string; icon?: string } = {}) =>
+export const createScratchProject = (input: { name?: string; color?: string; icon?: string; engines?: string[] } = {}) =>
   req<Project>('/api/projects/scratch', { method: 'POST', body: JSON.stringify(input) })
 export type { PermissionMode }
 export const startSession = (
@@ -119,19 +119,35 @@ export const clearProgress = (projectId: number, engine: string) =>
   req<void>(`/api/projects/${projectId}/progress?engine=${encodeURIComponent(engine)}`, { method: 'DELETE' })
 /** Reinício sem prejuízo: estado de todos os terminais com algo gravado (os demais estão no padrão: tudo desligado). */
 export const fetchTerminalStates = () => req<TerminalState[]>('/api/terminals/state')
-/** Liga/desliga "Iniciar com o Claudinei" e "Retomar trabalho interrompido" no terminal (projeto + motor). */
-export const setTerminalRestart = (projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean }) =>
+/**
+ * Liga/desliga "Iniciar com o Claudinei", "Retomar trabalho interrompido" e
+ * "Continuar sozinho quando o limite reabrir" no terminal (projeto + motor).
+ */
+export const setTerminalRestart = (projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean; autoResumeLimit?: boolean }) =>
   req<TerminalState>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/restart`, { method: 'PATCH', body: JSON.stringify(p) })
 /** Continuar do aviso: revive a sessão, se preciso, e manda a mensagem de retomada. */
 export const continueTerminal = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/continue`, { method: 'POST' })
+/**
+ * Ações do aviso do limite de uso: armar a retomada na reabertura, adiar o aviso
+ * até ela, cancelar (de armado ou adiado o aviso volta; sem ação, ele sai) e
+ * continuar agora. Devolve o estado do terminal.
+ */
+export const usageLimitAction = (projectId: number, engine: string, action: 'arm' | 'snooze' | 'cancel' | 'continue') =>
+  req<TerminalState>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/limit`, { method: 'POST', body: JSON.stringify({ action }) })
 /** O × do aviso: tira a marca de interrompido sem retomar. */
 export const dismissInterruption = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/interruption`, { method: 'DELETE' })
 export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
   req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
-export const setProjectFavorite = (id: number, favorite: boolean) =>
-  req<Project>(`/api/projects/${id}/favorite`, { method: 'PATCH', body: JSON.stringify({ favorite }) })
+/** Grava a lista de motores do terminal. O servidor ordena e devolve o terminal atualizado; não avisa os outros clientes. */
+export const setProjectEngines = (id: number, engines: string[]) =>
+  req<Project>(`/api/projects/${id}/engines`, { method: 'PATCH', body: JSON.stringify({ engines }) })
+/** Triagem da lista do usuário: só os projetos com algo aplicado (os demais estão no normal). */
+export const fetchTriage = () => req<TriageItem[]>('/api/triage')
+/** Fixa, assenta ou adia o projeto para o usuário; `snoozedUntil` é horário absoluto (ISO). */
+export const setTriage = (projectId: number, p: { pinned?: boolean; settled?: boolean; snoozedUntil?: string | null }) =>
+  req<TriageItem>(`/api/projects/${projectId}/triage`, { method: 'PATCH', body: JSON.stringify(p) })
 export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number; sectorId?: number | null }
 /** Setor: um nível acima do grupo, com a mesma anatomia (aceita grupos E terminais). */
 export type Sector = Group
@@ -231,6 +247,37 @@ export interface EngineTokens { input: number; cachedInput: number; output: numb
 export interface EngineUsage { total: EngineTokens; today: EngineTokens }
 /** Barras do /usage (limites do Claude via proxy OAuth) + tokens por engine (total + hoje). */
 export const fetchUsage = () => req<{ limits: UsageLimit[]; tokens?: Record<string, EngineUsage> }>('/api/usage')
+
+/** Espelho de `server/src/usage-index/report.ts` e `indexer.ts` (relatório de uso por período). */
+export type UsagePeriod = '24h' | '7d' | '30d' | '90d'
+/** `spent` = entrada + saída + escrito no cache; no Codex o raciocínio já está dentro da saída. */
+export interface UsageTotals { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number; spent: number }
+export interface IndexStatus { running: boolean; filesDone: number; filesTotal: number; lastPassAt: string | null }
+export interface UsageReport {
+  period: UsagePeriod
+  totals: UsageTotals
+  /** 0..100, uma casa decimal; 0 sem entrada. */
+  cachePct: number
+  terminals: Array<{
+    /** Vazio = "Fora do Claudinei"; vários = pasta compartilhada. */
+    projectIds: number[]
+    names: string[]
+    path: string | null
+    byEngine: Record<string, UsageTotals>
+    totals: UsageTotals
+  }>
+  models: Array<{ model: string; engine: string; totals: UsageTotals }>
+  /** Crescente e preenchida com zero; rótulo LOCAL ('YYYY-MM-DDTHH' em 24h, 'YYYY-MM-DD' nos outros). */
+  series: Array<{ bucket: string; spent: number; cacheRead: number }>
+  /** Hora UTC mais antiga indexada ('YYYY-MM-DDTHH'). */
+  oldestHour: string | null
+}
+/** Relatório do período; `tz` = `new Date().getTimezoneOffset()` (os baldes da série saem no fuso local). */
+export const fetchUsageReport = (period: UsagePeriod, tz: number, signal?: AbortSignal) =>
+  req<UsageReport & { index: IndexStatus }>(
+    `/api/usage/report?period=${encodeURIComponent(period)}&tz=${encodeURIComponent(String(tz))}`,
+    signal ? { signal } : undefined,
+  )
 
 // fetch cru — o req() colocaria Content-Type json e quebraria o boundary do multipart
 export const uploadFile = async (file: File, name?: string): Promise<{ path: string; name: string }> => {

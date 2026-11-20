@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { backfillProjectEngines } from './terminal-engines.js'
+import { migrateFavoritesToPins } from './triage/store.js'
 
 export type Db = Database.Database
 
@@ -121,8 +123,9 @@ function migrarPathNaoUnico(db: Db, dbPath: string): void {
   const cols = (db.prepare(`PRAGMA table_info(projects)`).all() as { name: string }[]).map((c) => `"${c.name}"`).join(', ')
 
   // FORA da transação: dentro, este PRAGMA é no-op silencioso — e sem ele o DROP
-  // abaixo dispararia o ON DELETE CASCADE das sete tabelas que apontam para
-  // projects, levando embora sessões, mural, tarefas, agendamentos e ações.
+  // abaixo dispararia o ON DELETE CASCADE das nove tabelas que apontam para
+  // projects, levando embora sessões, mural, tarefas, acessos, agendamentos,
+  // ações, threads, estado do terminal e triagem.
   db.pragma('foreign_keys = OFF')
   try {
     db.exec('BEGIN')
@@ -312,10 +315,45 @@ export function openDb(path: string): Db {
     interrupted_at TEXT, interrupted_local_id TEXT, lost_question TEXT,
     resume_count INTEGER NOT NULL DEFAULT 0, hold_reason TEXT,
     PRIMARY KEY (project_id, engine))`)
+  // Bateu o limite: o limite de uso que o terminal bateu (hora, reabertura em
+  // epoch segundos, o que fazer quando reabrir e quem disparou o turno), as
+  // tentativas automáticas na janela e o interruptor "Continuar sozinho quando o
+  // limite reabrir". Ver restart/terminal-state.ts.
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_hit_at TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_resets_at INTEGER`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_action TEXT NOT NULL DEFAULT 'none'`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_origin TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_tries INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN auto_resume_limit INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
   // Pergunta (AskUserQuestion) aberta, em JSON, enquanto espera o operador: é o
   // que sobra dela depois de uma queda brusca, quando não há encerramento para
   // registrar nada.
   try { db.exec(`ALTER TABLE sessions ADD COLUMN pending_question TEXT`) } catch { /* já existe */ }
+
+  // Motores de cada terminal (terminal-engines.ts). Depois de project_threads,
+  // que o preenchimento lê, e antes de migrarPathNaoUnico, que recria projects.
+  // O preenchimento roda só quando a coluna acaba de nascer, para não desfazer
+  // a lista que o operador editou. Coluna e preenchimento numa transação só (o
+  // DDL do SQLite é transacional): se o preenchimento falhar, a coluna some
+  // junto e a próxima abertura migra de novo, em vez de deixar a coluna nula e
+  // todo terminal lido como Claude. O erro sobe, para que a falha apareça.
+  const projectCols = db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]
+  if (!projectCols.some((c) => c.name === 'engines')) {
+    db.transaction(() => {
+      db.exec('ALTER TABLE projects ADD COLUMN engines TEXT')
+      backfillProjectEngines(db)
+    })()
+  }
+
+  // Triagem da lista, por usuário: fixado, assentado e adiado (ver triage/store.ts).
+  // Sem FK para users pelo mesmo motivo de user_prefs: a linha 0 é a instalação
+  // sem auth e não corresponde a usuário nenhum.
+  db.exec(`CREATE TABLE IF NOT EXISTS user_triage (
+    user_id INTEGER NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    pinned_at TEXT, settled_at TEXT, snoozed_until TEXT,
+    PRIMARY KEY (user_id, project_id))`)
+  // A ⭐ global vira pin de cada usuário com acesso, uma vez na vida da instalação.
+  migrateFavoritesToPins(db)
 
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).

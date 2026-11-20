@@ -277,18 +277,47 @@ describe('mensagem de retomada do Claudinei ([Claudinei: resume after restart])'
 
   it('prefixo do Claudinei vira claudinei_message', () => {
     const items = applyEvent([], evt(`[Claudinei: resume after restart]: ${BODY}`) as never)
-    expect(items).toEqual([{ kind: 'claudinei_message', text: BODY }])
+    expect(items).toEqual([{ kind: 'claudinei_message', reason: 'restart', text: BODY }])
   })
 
   it('ignora system-reminder anexado pelo harness', () => {
     const items = applyEvent([], evt(`[Claudinei: resume after restart]: ${BODY}<system-reminder>ruído</system-reminder>`) as never)
-    expect(items).toEqual([{ kind: 'claudinei_message', text: BODY }])
+    expect(items).toEqual([{ kind: 'claudinei_message', reason: 'restart', text: BODY }])
   })
 
   it('o mesmo texto no meio da frase segue user_text', () => {
     const text = 'olha isto: [Claudinei: resume after restart]: no meio da frase'
     const items = applyEvent([], evt(text) as never)
     expect(items).toEqual([{ kind: 'user_text', text }])
+  })
+})
+
+describe('mensagem de retomada do limite ([Claudinei: resume after usage limit])', () => {
+  const BODY = 'The usage limit window reopened. Continue where you left off; check the current state of the files before redoing anything.'
+  const RESTART_BODY = 'The Claudinei service restarted in the middle of your turn. Continue where you left off; check the current state of the files before redoing anything.'
+  // Transcript: `content` em string. Eco ao vivo: `content` em lista de blocos.
+  const formatos = [
+    ['content em string', (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } })],
+    ['content em lista (eco ao vivo)', (text: string) => ({ kind: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, raw: {} })],
+  ] as const
+
+  it.each(formatos)('prefixo do limite vira claudinei_message reason limit; o do reinício reason restart (%s)', (_nome, evt) => {
+    expect(applyEvent([], evt(`[Claudinei: resume after usage limit]: ${BODY}`) as never))
+      .toEqual([{ kind: 'claudinei_message', reason: 'limit', text: BODY }])
+    expect(applyEvent([], evt(`[Claudinei: resume after restart]: ${RESTART_BODY}`) as never))
+      .toEqual([{ kind: 'claudinei_message', reason: 'restart', text: RESTART_BODY }])
+  })
+
+  it('ignora system-reminder anexado pelo harness', () => {
+    const [, evt] = formatos[0]
+    expect(applyEvent([], evt(`[Claudinei: resume after usage limit]: ${BODY}<system-reminder>ruído</system-reminder>`) as never))
+      .toEqual([{ kind: 'claudinei_message', reason: 'limit', text: BODY }])
+  })
+
+  it('o mesmo texto no meio da frase segue user_text', () => {
+    const [, evt] = formatos[0]
+    const text = 'veja: [Claudinei: resume after usage limit]: no meio da frase'
+    expect(applyEvent([], evt(text) as never)).toEqual([{ kind: 'user_text', text }])
   })
 })
 

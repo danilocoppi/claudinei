@@ -43,7 +43,8 @@ const stubFetch = (routes: Record<string, unknown> = {}) =>
 
 beforeEach(() => {
   useStore.setState({
-    projects: [{ id: 1, name: 'Alpha', path: '/tmp/a', color: '#fff', icon: '🅰️' }],
+    // Lista com Claude e Codex: os testes de modelo escolhem entre os dois.
+    projects: [{ id: 1, name: 'Alpha', path: '/tmp/a', color: '#fff', icon: '🅰️', engines: ['claude', 'codex'] }],
     sessions: { s1: session }, activeLocalId: 's1', view: 'schedules',
     engines: [CLAUDE], schedules: [], groups: [], sectors: [],
     chat: {}, unread: {}, streaming: {}, historyLoadedFor: {},

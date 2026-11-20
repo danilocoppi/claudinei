@@ -80,7 +80,7 @@ describe('Sidebar — busca', () => {
     fireEvent.change(search(), { target: { value: 'zzz' } })
     expect(screen.getByText('Nenhum terminal encontrado para “zzz”.')).toBeTruthy()
     fireEvent.change(search(), { target: { value: 'admin' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Somente favoritos' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Somente fixados' }))
     expect(screen.getByText('Nenhum terminal com “admin” nos filtros ligados.')).toBeTruthy()
   })
 
@@ -137,6 +137,21 @@ describe('Sidebar — terminal temporário', () => {
     // A busca sai do caminho para o terminal novo não nascer escondido.
     expect(search().value).toBe('')
     await waitFor(() => expect(useStore.getState().activeLocalId).toBe('nova'))
+  })
+
+  it('terminal temporário cria com o motor escolhido', async () => {
+    useStore.setState({
+      engines: [...useStore.getState().engines.filter((e) => e.id !== 'kimi'),
+        { id: 'kimi', label: 'Kimi Code', icon: '🌙', models: [''], efforts: [], permissions: [], slashSource: 'none', slashCommands: [] }],
+    })
+    const fetcher = servidor(() => new Response(JSON.stringify({ ...created, engines: ['kimi'] }), { status: 201 }))
+    render(<Sidebar />)
+    fireEvent.click(scratchButton())
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: /Kimi Code/ }))
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: 'Iniciar sessão' }))
+    await waitFor(() => expect(posts(fetcher)).toEqual(['/api/projects/scratch', '/api/projects/9/sessions']))
+    const body = JSON.parse(String(fetcher.mock.calls.find(([u]) => String(u) === '/api/projects/scratch')![1]?.body))
+    expect(body.engines).toEqual(['kimi'])
   })
 
   it('sessão recusada depois de criar: tentar de novo usa o mesmo terminal, não cria outro', async () => {

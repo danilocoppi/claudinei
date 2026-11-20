@@ -8,6 +8,7 @@ import type { TerminalManager } from './terminal/manager.js'
 import type { SpeechService } from './speech/transcriber.js'
 import type { UsageService } from './usage.js'
 import type { EngineUsageService } from './engine-usage.js'
+import type { UsageIndexer } from './usage-index/indexer.js'
 import type { AuthService } from './auth/index.js'
 import { registerAuth, registerSecurityHeaders } from './auth/plugin.js'
 import { registerAuthRoutes } from './auth/routes.js'
@@ -26,8 +27,12 @@ import { registerTerminalRoutes } from './routes/terminal.js'
 import { registerUploadRoutes } from './routes/uploads.js'
 import { registerTranscribeRoutes } from './routes/transcribe.js'
 import { registerUsageRoutes } from './routes/usage.js'
+import { registerUsageReportRoutes } from './routes/usage-report.js'
 import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerPrefsRoutes } from './routes/prefs.js'
+import { registerTriageRoutes } from './routes/triage.js'
+import { createTriageStore } from './triage/store.js'
+import { createTriageWaker, type TriageWaker } from './triage/wake.js'
 import { registerLocalAppRoutes, type LocalAppsRouteDeps } from './routes/local-apps.js'
 import { registerIconRoutes } from './routes/icons.js'
 import { registerActionRoutes } from './routes/actions.js'
@@ -42,6 +47,7 @@ import { registerStatic } from './static.js'
 import { registerTerminalStateRoutes } from './routes/terminals.js'
 import { createTerminalStateStore } from './restart/terminal-state.js'
 import { createRestartService, type RestartService } from './restart/boot.js'
+import { createUsageLimitService, type UsageLimitService } from './limit/usage-limit.js'
 
 export interface AppDeps {
   config: Config
@@ -55,6 +61,11 @@ export interface AppDeps {
   extraUsage?: Array<Pick<UsageService, 'getLimits'>>
   /** Acumulador de tokens por engine (Codex etc.) exposto ao lado dos limites de plano em /api/usage. */
   engineUsage?: Pick<EngineUsageService, 'all'>
+  /**
+   * Indexador dos históricos locais (Claude e Codex): a rota do relatório só lê o `status()`
+   * dele. Ausente (testes) → a rota continua lá, com o índice dado como parado.
+   */
+  usageIndexer?: Pick<UsageIndexer, 'status'>
   /** Caminho absoluto de web/dist (SPA buildado). Se ausente, o static não é registrado. */
   webDist?: string
   /**
@@ -100,6 +111,19 @@ export interface AppDeps {
    * preenche aqui. index.ts também roda a subida (`boot`) depois do listen.
    */
   onRestartReady?: (restart: RestartService) => void
+  /**
+   * Recebe o despertador da triagem assim que ele nasce. Mesmo motivo do
+   * `onRestartReady`: o gancho `onNeedsOperator` do manager lê uma referência
+   * que index.ts preenche aqui.
+   */
+  onTriageWakerReady?: (waker: TriageWaker) => void
+  /**
+   * Recebe o serviço do limite de uso, pelo mesmo motivo do `onRestartReady`:
+   * os ganchos do manager (`onUsageLimit`, `onTurnResult`, `onOperatorMessage`)
+   * leem a referência que index.ts preenche aqui. index.ts roda a subida dele
+   * (`boot`) depois da do reinício e o desliga (`dispose`) no encerramento.
+   */
+  onLimitReady?: (limit: UsageLimitService) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -123,7 +147,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }
 
   app.get('/api/health', async () => ({ ok: true }))
-  registerProjectRoutes(app, { db: deps.db, manager: deps.manager, terminalManager: deps.terminalManager, scratchDir: deps.config.scratchDir })
+  const triage = createTriageStore(deps.db)
+  registerProjectRoutes(app, {
+    db: deps.db, manager: deps.manager, terminalManager: deps.terminalManager, scratchDir: deps.config.scratchDir,
+    triage, broadcast: deps.wsHub?.broadcast,
+  })
+  registerTriageRoutes(app, { store: triage, db: deps.db, broadcast: deps.wsHub?.broadcast })
+  const triageWaker = createTriageWaker({ store: triage, broadcast: (m) => deps.wsHub?.broadcast(m) })
+  deps.onTriageWakerReady?.(triageWaker)
   registerSessionRoutes(app, deps)
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
@@ -155,18 +186,31 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   deps.onSchedulerReady?.(scheduler)
   // O reinício nasce depois do orchestrator (religa as tarefas do turno
   // interrompido) e dos agendamentos (fecha as execuções que o reinício matou).
+  const terminalState = createTerminalStateStore(deps.db)
   const restart = createRestartService({
-    db: deps.db, manager: deps.manager, store: createTerminalStateStore(deps.db),
+    db: deps.db, manager: deps.manager, store: terminalState,
     orchestrator: () => orchestrator,
     broadcast: (m) => deps.wsHub?.broadcast(m),
     closeInterruptedRuns: () => schedulesStore.closeInterruptedRuns(),
+    onHeld: (projectId) => triageWaker.wake(projectId, 'interrupted'),
   })
-  registerTerminalStateRoutes(app, { db: deps.db, restart })
+  // O limite nasce junto do reinício: revive e publica pelo serviço dele, e
+  // absorve a marca do reinício quando o limite bate.
+  const limit = createUsageLimitService({
+    manager: deps.manager, store: terminalState, restart,
+    onLimitNotice: (projectId) => triageWaker.wake(projectId, 'usage_limit'),
+  })
+  // Fechar o app desliga o relógio: nenhuma retomada dispara num app fechado.
+  app.addHook('onClose', async () => { limit.dispose() })
+  registerTerminalStateRoutes(app, { db: deps.db, restart, limit })
   deps.onRestartReady?.(restart)
+  deps.onLimitReady?.(limit)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })
   if (deps.usage) await registerUsageRoutes(app, { usage: deps.usage, extraUsage: deps.extraUsage, engineUsage: deps.engineUsage })
+  // Fora do `if (deps.usage)`: o relatório lê só o banco, que todo app tem.
+  registerUsageReportRoutes(app, { db: deps.db, usageIndexer: deps.usageIndexer })
   if (deps.terminalManager) registerTerminalRoutes(app, { manager: deps.manager, terminalManager: deps.terminalManager })
   if (deps.wsHub) deps.wsHub.register(app, { manager: deps.manager, db: deps.db })
 

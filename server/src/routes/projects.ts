@@ -14,6 +14,11 @@ import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, resolve } from 'node:path'
 import { UserError, errorBody, fail } from '../user-error.js'
+import { getEngine, hasEngine } from '../engine/index.js'
+import { binAvailableCached } from '../engine/available.js'
+import { defaultEngines, validateEnginesInput } from '../terminal-engines.js'
+import type { TriageStore } from '../triage/store.js'
+import { SERVICE_TRIAGE_ERROR, triageMessage, triageUserId } from './triage.js'
 
 /** Teto do nome de um terminal temporário: o cliente manda um rótulo curto com data. */
 const SCRATCH_NAME_MAX = 120
@@ -27,8 +32,22 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
   terminalManager?: Pick<TerminalManager, 'closeAndWait'>
   /** Base das pastas de terminais temporários. Ausente = a rota não existe. */
   scratchDir?: string
+  /** A ⭐ fixa para o usuário que clicou. */
+  triage: TriageStore
+  broadcast?: (msg: object) => void
 }) {
   const svc = createProjectsService(deps.db)
+
+  /**
+   * Motores de um terminal novo. Ausente no corpo = o padrão (o Claude, ou o
+   * primeiro motor instalado); presente, passa pela mesma régua do PATCH.
+   * Undefined = corpo inválido.
+   */
+  const enginesForNew = (raw: unknown): string[] | undefined =>
+    raw === undefined
+      ? defaultEngines((id) => hasEngine(id) && binAvailableCached(getEngine(id).bin()))
+      : validateEnginesInput(raw, hasEngine) ?? undefined
+  const enginesRequired = () => fail('engines_required', 'escolha pelo menos um motor conhecido')
 
   app.get('/api/projects', async (req) =>
     svc.list().filter((p) => canAccessProject(req.authUser, p.id)))
@@ -40,11 +59,13 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
    */
   app.post('/api/projects', async (req, reply) => {
     if (!requireAdmin(req, reply)) return
-    const body = req.body as { name?: string; path?: string; color?: string; icon?: string; newFolder?: unknown }
+    const body = req.body as { name?: string; path?: string; color?: string; icon?: string; newFolder?: unknown; engines?: unknown }
     if (!body?.name || !body?.path) {
       return reply.code(400).send(fail('name_and_path_required', 'name e path são obrigatórios'))
     }
-    const input = { name: body.name, color: body.color, icon: body.icon }
+    const engines = enginesForNew(body.engines)
+    if (!engines) return reply.code(400).send(enginesRequired())
+    const input = { name: body.name, color: body.color, icon: body.icon, engines }
     try {
       if (body.newFolder === undefined) return reply.code(201).send(svc.create({ ...input, path: body.path }))
       const folder = folderNameOf(body.newFolder)
@@ -100,7 +121,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     const scratchDir = deps.scratchDir
     app.post('/api/projects/scratch', async (req, reply) => {
       if (!requireAdmin(req, reply)) return
-      const body = (req.body ?? {}) as { name?: unknown; icon?: unknown; color?: unknown }
+      const body = (req.body ?? {}) as { name?: unknown; icon?: unknown; color?: unknown; engines?: unknown }
       if (body.name !== undefined && typeof body.name !== 'string') {
         return reply.code(400).send({ error: 'name deve ser texto' })
       }
@@ -117,10 +138,12 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
       if (body.color !== undefined && typeof body.color !== 'string') {
         return reply.code(400).send({ error: 'color deve ser texto' })
       }
+      const engines = enginesForNew(body.engines)
+      if (!engines) return reply.code(400).send(enginesRequired())
       try {
         const path = createScratchDir(scratchDir)
         return reply.code(201).send(svc.create({
-          name: name || basename(path), path, icon, color: body.color as string | undefined,
+          name: name || basename(path), path, icon, color: body.color as string | undefined, engines,
         }))
       } catch (err) {
         return reply.code(500).send(errorBody(err))
@@ -160,14 +183,26 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     }
   })
 
+  /**
+   * Rota antiga da ⭐: hoje fixa ou desafixa PARA QUEM CLICOU (triagem). Devolve
+   * o Project de sempre, com `favorite` = o pin de quem pediu, para o cliente
+   * antigo seguir funcionando; a coluna global `projects.favorite` não é mais
+   * escrita.
+   */
   app.patch('/api/projects/:id/favorite', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     if (!Number.isSafeInteger(id) || id <= 0) return reply.code(400).send({ error: 'id inválido' })
+    const userId = triageUserId(req)
+    if (userId === null) return reply.code(403).send({ error: SERVICE_TRIAGE_ERROR })
     if (!requireProjectAccess(req, reply, id)) return
     const favorite = (req.body as { favorite?: unknown } | undefined)?.favorite
     if (typeof favorite !== 'boolean') return reply.code(400).send({ error: 'favorite deve ser booleano' })
-    const project = svc.setFavorite(id, favorite)
-    return project ?? reply.code(404).send(fail('project_not_found', 'projeto não existe'))
+    const project = svc.get(id)
+    if (!project) return reply.code(404).send(fail('project_not_found', 'projeto não existe'))
+    const item = deps.triage.update(userId, id, { pinned: favorite })
+    // Os outros aparelhos do mesmo usuário ficam sabendo, como no PATCH da triagem.
+    deps.broadcast?.(triageMessage(userId, item))
+    return { ...project, favorite: item.pinned }
   })
 
   /** Avisos do plugin "You should know" do Claude neste terminal: grava e anexa/solta na hora. */
@@ -181,6 +216,20 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     if (!project) return reply.code(404).send(fail('project_not_found', 'projeto não existe'))
     await deps.manager.setHeadsUp(id, headsUp)
     return project
+  })
+
+  /**
+   * Motores do terminal. Mesmo controle de acesso dos avisos: quem tem acesso ao
+   * terminal muda a lista. Ids desconhecidos junto de um conhecido são gravados.
+   */
+  app.patch('/api/projects/:id/engines', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isSafeInteger(id) || id <= 0) return reply.code(400).send({ error: 'id inválido' })
+    if (!requireProjectAccess(req, reply, id)) return
+    const engines = validateEnginesInput((req.body as { engines?: unknown } | undefined)?.engines, hasEngine)
+    if (!engines) return reply.code(400).send(enginesRequired())
+    const project = svc.setEngines(id, engines)
+    return project ?? reply.code(404).send(fail('project_not_found', 'projeto não existe'))
   })
 
   /**

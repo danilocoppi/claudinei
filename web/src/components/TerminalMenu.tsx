@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -8,12 +8,22 @@ import {
 } from '../api'
 import { useStore } from '../store'
 import { copyText } from '../clipboard'
-import { CodeIcon, CopyIcon, EditIcon, FolderIcon, PlayIcon, TerminalIcon, TrashIcon } from './MenuIcons'
+import { ClockIcon, CodeIcon, CopyIcon, EditIcon, FolderIcon, PlayIcon, SettleIcon, StarIcon, TerminalIcon, TrashIcon } from './MenuIcons'
 import { NewProjectModal } from './NewProjectModal'
 import { ActionEditor } from './ActionEditor'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 import type { Project } from '../types'
 import { ViewportPopover } from './ViewportPopover'
+import { WsContext } from '../wsContext'
+import { applyTriage, type TriagePatch } from '../triageActions'
+import { snoozeUntil, triageStateOf } from '../triageSections'
+
+/** As opções de adiar, na ordem do submenu. */
+const SNOOZE_CHOICES = [
+  { id: '1h', label: 'triage.snooze1h' },
+  { id: 'tomorrow', label: 'triage.snoozeTomorrow' },
+  { id: 'monday', label: 'triage.snoozeMonday' },
+] as const
 
 /** Abrir no desktop, na ordem em que aparecem no menu. */
 const LOCAL_ACTIONS: { id: LocalApp; Icon: typeof FolderIcon; label: string }[] = [
@@ -48,6 +58,9 @@ export function TerminalMenu({ project, x, y, onDone }: {
   // Indefinido = criando; definido = editando aquela.
   const [editingAction, setEditingAction] = useState<Action | undefined>()
   const openActionRun = useStore((s) => s.openActionRun)
+  const ws = useContext(WsContext)
+  const triageItem = useStore((s) => s.triage[project.id])
+  const [snoozeOpen, setSnoozeOpen] = useState(false)
 
   const groups = useStore((s) => s.groups)
   const sectors = useStore((s) => s.sectors)
@@ -77,6 +90,14 @@ export function TerminalMenu({ project, x, y, onDone }: {
   }, [project.id])
 
   const fechaEEntao = (fn: () => void | Promise<unknown>) => () => { onDone(); void fn() }
+
+  // Triagem: o menu fecha e a ação segue (o aviso de desfazer vive no App). O
+  // pedido é montado no clique, não ao desenhar: "1 h" conta de quando se clicou.
+  const pinned = !!triageItem?.pinned
+  const settled = !!triageItem?.settled
+  const snoozed = triageStateOf(triageItem, Date.now()) === 'snoozed'
+  const triage = (patch: () => TriagePatch, label: 'triage.didPin' | 'triage.didUnpin' | 'triage.didSettle' | 'triage.didUnsettle' | 'triage.didSnooze' | 'triage.didUnsnooze') =>
+    fechaEEntao(() => applyTriage(project.id, patch(), t(label, { name: project.name }), ws))
 
   const criarGrupoEMover = async () => {
     const name = newGroupName.trim()
@@ -121,6 +142,40 @@ export function TerminalMenu({ project, x, y, onDone }: {
         <div className="sess-pop__item" onClick={() => setPhase('edit')}>
           <EditIcon /><span>{t('sidebar.editTerminal')}</span>
         </div>
+
+        {/* TRIAGEM — fixar, assentar e adiar valem só para quem clicou. O horário
+            do adiamento sai daqui já absoluto, no fuso do navegador. */}
+        <div className="sess-pop__sep" />
+        <div className="sess-pop__item" data-testid="menu-pin"
+             onClick={triage(() => ({ pinned: !pinned }), pinned ? 'triage.didUnpin' : 'triage.didPin')}>
+          <StarIcon filled={pinned} /><span>{t(pinned ? 'triage.unpin' : 'triage.pin')}</span>
+        </div>
+        <div className="sess-pop__item" data-testid="menu-settle"
+             onClick={triage(() => ({ settled: !settled }), settled ? 'triage.didUnsettle' : 'triage.didSettle')}>
+          <SettleIcon /><span>{t(settled ? 'triage.unsettle' : 'triage.settle')}</span>
+        </div>
+        {/* Submenu que abre no próprio menu, no clique: um flyout lateral sairia
+            da tela no cartão encostado na borda e não existe no toque. */}
+        <div className="sess-pop__item" data-testid="menu-snooze" aria-expanded={snoozeOpen}
+             onClick={() => setSnoozeOpen((o) => !o)}>
+          <ClockIcon /><span>{t('triage.snooze')}</span><span className="sess-pop__caret">{snoozeOpen ? '▾' : '▸'}</span>
+        </div>
+        {snoozeOpen && (
+          <>
+            {SNOOZE_CHOICES.map((c) => (
+              <div key={c.id} className="sess-pop__item sess-pop__item--sub" data-testid={`menu-snooze-${c.id}`}
+                   onClick={triage(() => ({ snoozedUntil: snoozeUntil(c.id, new Date()).toISOString() }), 'triage.didSnooze')}>
+                <span>{t(c.label)}</span>
+              </div>
+            ))}
+            {snoozed && (
+              <div className="sess-pop__item sess-pop__item--sub" data-testid="menu-unsnooze"
+                   onClick={triage(() => ({ snoozedUntil: null }), 'triage.didUnsnooze')}>
+                <span>{t('triage.unsnooze')}</span>
+              </div>
+            )}
+          </>
+        )}
 
         {/* NESTA MÁQUINA — o rótulo não é enfeite: estas ações somem quando se
             acessa de outro computador. Sem ele, o menu só encolheria, sem dizer

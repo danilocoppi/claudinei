@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
 import { Sidebar } from '../components/Sidebar'
 import { useStore } from '../store'
 import type { EngineMeta, SessionInfo } from '../types'
@@ -21,7 +21,8 @@ const CODEX: EngineMeta = {
 beforeEach(() => {
   useStore.setState({
     projects: [
-      { id: 1, name: 'Alpha', path: '/tmp/a', color: '#ff0000', icon: '🅰️' },
+      // Alpha lista os dois motores: o menu de Reviver oferece Claude e Codex.
+      { id: 1, name: 'Alpha', path: '/tmp/a', color: '#ff0000', icon: '🅰️', engines: ['claude', 'codex'] },
       { id: 2, name: 'Beta', path: '/tmp/b', color: '#00ff00', icon: '🅱️' },
     ],
     sessions: { s1: sess('s1', 1, 'stopped') },
@@ -29,6 +30,8 @@ beforeEach(() => {
     view: 'dashboard', activeLocalId: undefined,
     engines: [CLAUDE, CODEX],
     groups: [],
+    // Um teste que liga a régua e falha antes de desligá-la não contamina os seguintes.
+    railMode: false,
   })
   localStorage.removeItem('claudinei:collapsedGroups')
   localStorage.removeItem('claudinei:collapsedCards')
@@ -143,7 +146,9 @@ describe('Sidebar Terminais', () => {
       },
     })
     render(<Sidebar />)
-    expect(screen.getByText('trabalhando')).toBeTruthy() // card mostra a viva
+    // card mostra a viva (a faixa Trabalhando também diz "trabalhando", por isso o escopo)
+    const card = screen.getAllByTestId('term-card').find((c) => c.querySelector('.term-card__name')?.textContent === 'Alpha')!
+    expect(within(card).getByText('trabalhando')).toBeTruthy()
     expect(screen.queryByTitle('Reviver')).toBeNull() // não oferece Reviver
   })
 
@@ -473,5 +478,38 @@ describe('uma bolinha por engine viva no card', () => {
     useStore.setState({ projects: projeto, sessions: { s1: sess('s1', 1, 'stopped', 'claude') } })
     render(<Sidebar />)
     expect(screen.getByTestId('term-card').querySelector('[data-face]')!.getAttribute('data-face')).toBe('sleeping')
+  })
+})
+
+describe('motores por terminal no cartão', () => {
+  const alphaSoCodex = { id: 1, name: 'Alpha', path: '/tmp/a', color: '#ff0000', icon: '🅰️', engines: ['codex'] }
+
+  it('menu de motor do cartão oferece só os listados', () => {
+    useStore.setState({ projects: [alphaSoCodex] })
+    render(<Sidebar />)
+    fireEvent.click(screen.getByTitle('Reviver'))
+    expect(screen.getByText('Codex')).toBeTruthy()
+    expect(screen.queryByText('Claude Code')).toBeNull()
+  })
+
+  it('cartão abre a sessão parada do motor listado', () => {
+    useStore.setState({
+      projects: [alphaSoCodex],
+      sessions: {
+        // a do Claude é mais recente, mas ele saiu da lista
+        c1: { ...sess('c1', 1, 'stopped', 'claude'), updatedAt: '2026-11-20T12:00:00Z' },
+        x1: { ...sess('x1', 1, 'stopped', 'codex'), updatedAt: '2026-11-20T09:00:00Z' },
+      },
+    })
+    render(<Sidebar />)
+    // o cartão mostra a sessão do Codex…
+    expect(screen.getByTestId('term-card').querySelector('.engine-badge')?.getAttribute('title')).toBe('Codex')
+    // …e, na régua, clicar nele abre a do Codex, não a do Claude escondido
+    cleanup()
+    useStore.setState({ railMode: true })
+    render(<Sidebar />)
+    fireEvent.click(screen.getByTitle('Alpha'))
+    expect(useStore.getState().activeLocalId).toBe('x1')
+    useStore.setState({ railMode: false })
   })
 })

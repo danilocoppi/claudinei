@@ -477,8 +477,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .engine-picker__icon { font-family: var(--emoji); font-size: 16px; line-height: 1; }
 
 /* Badge do ícone da engine (Sidebar term-card) — distingue múltiplas engines
-   rodando no mesmo projeto. `flex: none` neutraliza a regra
-   `.term-card__status > span:last-of-type { flex: 1 }` (o badge não deve esticar). */
+   rodando no mesmo projeto. `flex: none`: o badge não estica nem encolhe (quem
+   estica é o `.term-card__status-text`). */
 .engine-badge { font-family: var(--emoji); line-height: 1; opacity: .85; flex: none; }
 /* Ícone de engine que é um logo SVG (ex.: OpenAI no Codex): dimensiona ao 1em do
    contexto e herda a cor. Glyphs de texto seguem pelo caminho normal do EngineIcon. */
@@ -535,6 +535,15 @@ button.engine-tab__stop {
   transition: background .15s ease, color .15s ease, opacity .15s ease;
 }
 button.engine-tab__stop:hover { background: var(--surface-strong); color: var(--err); opacity: 1; filter: none; }
+
+/* "+" no fim das abas: acrescenta ao terminal um motor escondido. Tracejado para
+   não parecer mais uma aba; sem transição (a interface roda sem GPU). */
+button.engine-tabs__add {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 30px; padding: 0; border: 1px dashed var(--border); border-radius: var(--radius-md);
+  background: transparent; color: var(--text-dim); line-height: 0; cursor: pointer; transition: none;
+}
+button.engine-tabs__add:hover { background: var(--surface-strong); color: var(--text); filter: none; }
 
 /* Linha de opção (título + descrição + toggle) */
 .option-row {
@@ -632,7 +641,25 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .term-header__favorite-filter:has(input:checked) { color: var(--warn); }
 .term-list { display: flex; flex-direction: column; gap: 6px; }
 .term-list__empty { color: var(--text-dim); font-size: 12px; padding: 8px 4px; }
-.term-list__error { color: var(--err); font-size: 12px; padding: 4px; }
+/* Aviso de desfazer da triagem ("Alpha assentado · Desfazer"). No canto de baixo
+   à esquerda, sobre a lateral onde a ação aconteceu e longe do campo do chat (no
+   celular, acima dele: ver a media query). Estático e opaco: sem animação,
+   transição nem desfoque (a interface anda sem GPU). */
+.undo-toast {
+  position: fixed; left: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 60;
+  display: flex; align-items: center; gap: 12px; max-width: min(360px, calc(100vw - 24px));
+  padding: 8px 8px 8px 14px; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: linear-gradient(var(--surface), var(--surface)), var(--bg);
+  box-shadow: 0 10px 28px var(--shadow); font-size: 13px;
+}
+.undo-toast__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.undo-toast__btn { flex: none; border: 0; border-radius: var(--radius-sm); padding: 5px 10px;
+  background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.undo-toast__btn:hover { background: var(--surface-strong); }
+.undo-toast--error { border-color: color-mix(in srgb, var(--err) 45%, var(--border)); color: var(--err); }
+.undo-toast__close { flex: none; border: 0; border-radius: var(--radius-sm); padding: 2px 8px;
+  background: transparent; color: var(--text-dim); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+.undo-toast__close:hover { background: var(--surface-strong); color: var(--text); }
 /* O raio é SVG, não texto: sem esticar, ele ficava 4px mais baixo que ⌃ ⌄ e + Terminal. */
 .term-header__scratch { display: inline-flex; align-items: center; align-self: stretch; }
 .term-header__scratch svg { display: block; }
@@ -692,9 +719,12 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .term-card.drop-target { box-shadow: 0 -2px 0 0 var(--accent); }
 .term-card__title { display: flex; align-items: center; gap: 6px; }
 .term-card__icon { font-size: 15px; }
-.term-card__name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+/* Base de 2.5em (e não 0): quando a marca do limite divide a linha (cartão
+   colapsado), o nome guarda um pedaço legível em vez de sumir. Sem ela, nada muda: o nome é o
+   único que cresce e encolhe. min-width: 0 — nunca empurra o cartão para fora. */
+.term-card__name { flex: 1 1 2.5em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
 .term-card__status { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 11.5px; margin-top: 2px; }
-.term-card__status > span:last-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* texto do status empurra o ▶ p/ a direita */
+.term-card__status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* texto do status empurra o ▶ p/ a direita */
 /* Bolinhas das engines vivas: juntas entre si (gap menor que o do flex do pai). */
 .term-card__dots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
 
@@ -808,6 +838,59 @@ button.term-card__favorite:disabled { cursor: wait; }
 .usage-tokens__unit { font-size: 11px; color: var(--text-dim); }
 .usage-tokens__today { font-size: 10.5px; color: var(--text-dim); margin-left: auto; }
 .usage-tokens__breakdown { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+/* "Ver detalhes": abre a página de uso. Botão discreto, sem o gradiente padrão. */
+button.usage-card__details {
+  align-self: flex-start; padding: 2px 0; font-size: 11.5px; font-weight: 500; font-family: inherit;
+  background: transparent; color: var(--accent); border: 0; transition: none;
+}
+button.usage-card__details:hover { filter: none; text-decoration: underline; }
+/* Cartão sem limites nem tokens: só o "Ver detalhes", sem ocupar espaço à toa. */
+.usage-card--empty { padding: 6px 12px; }
+
+/* Página de uso. Sem GPU (AGENTS.md): blocos sem backdrop-filter, barras em div
+   com largura em %, nada de transition nem animation. */
+.usage-page { padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.usage-page__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.usage-page__title { margin: 0; }
+.usage-page__periods { display: flex; gap: 4px; }
+button.usage-page__period {
+  padding: 5px 11px; font-size: 13px; font-weight: 500; transition: none;
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+}
+button.usage-page__period:hover { filter: none; background: var(--surface-strong); }
+button.usage-page__period.on { background: var(--surface-strong); border-color: var(--accent); color: var(--text); }
+.usage-page__notice { margin: 0; padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface); font-size: 13px; color: var(--text-dim); }
+.usage-page__error { margin: 0; color: var(--err); font-size: 13px; }
+.usage-page__dim { margin: 0; color: var(--text-dim); font-size: 12px; }
+.usage-page__block {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+}
+.usage-page__block h3 { margin: 0; }
+.usage-page__totals { flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; }
+.usage-page__stat { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+.usage-page__big { font-size: 26px; font-weight: 600; line-height: 1.1; }
+.usage-page__cache { flex: 1 0 100%; margin: 0; font-size: 13px; }
+.usage-page__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.usage-page__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.usage-page__row {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 6px 8px;
+  border-radius: var(--radius-sm); text-align: left; font-size: 13px;
+}
+button.usage-page__row--link {
+  background: transparent; border: 0; color: var(--text); font-weight: 400; transition: none;
+  font-family: inherit; font-size: 13px; line-height: inherit; text-align: left;
+}
+button.usage-page__row--link:hover { filter: none; background: var(--surface-strong); }
+.usage-page__row-head { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }
+.usage-page__row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.usage-page__row-num { flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.usage-page__row-sub { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.usage-page__bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--ink) calc(30% * var(--ink-k)), transparent); }
+.usage-page__seg { display: block; height: 100%; }
+.usage-page__series { display: flex; align-items: flex-end; gap: 2px; height: 120px; border-bottom: 1px solid var(--border); }
+.usage-page__col { display: block; flex: 1 1 0; min-width: 0; background: var(--accent); border-radius: 2px 2px 0 0; }
+.usage-page__axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); }
 
 /* Seletor de idioma */
 .lang-switcher {
@@ -1038,6 +1121,9 @@ button.term-card__favorite:disabled { cursor: wait; }
 .sess-pop__item--off:hover { background:transparent; }
 .sess-pop__hint { text-transform:none; letter-spacing:0; color:var(--warn); }
 .sess-pop__item.active { background:var(--surface-strong); }
+/* Opções do submenu (Adiar ▸): abertas no próprio menu, recuadas sob o pai. */
+.sess-pop__item--sub { padding-left:33px; }
+.sess-pop__caret { margin-left:auto; color:var(--text-dim); }
 /* Fio entre seções. Fino e sem margem lateral: o menu tem 6px de respiro, e um
    divisor com recuo viraria um traço flutuando. */
 .sess-pop__sep { height:1px; margin:6px 0; background:var(--border); }
@@ -1439,6 +1525,48 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .term-group__empty { color: var(--text-dim); font-size: 12px; padding: 6px 4px; font-style: italic; }
 .term-header.drop-target { outline: 1.5px dashed var(--accent); border-radius: var(--radius-sm); }
 
+/* TRIAGEM DA LISTA: a faixa Trabalhando e as seções Fixados, Adiados e Assentados.
+   Nada aqui anima — nem transição, nem keyframe (AGENTS.md: a lateral roda sem
+   GPU). Os botões zeram a transição de `filter` que herdam do `button` global. */
+/* A árvore ganha um contêiner próprio só para ter lugar fixo entre as seções; para
+   o layout, os filhos continuam sendo da .term-list. */
+.term-tree { display: contents; }
+.triage-section, .working-strip { display: flex; flex-direction: column; gap: calc(6px * var(--density)); }
+.triage-section__header {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 2px 4px; margin: 0; border-radius: var(--radius-sm);
+  background: none; border: none; color: var(--text-dim);
+  font: inherit; text-align: left; cursor: pointer; transition: none;
+}
+.triage-section__header:hover { color: var(--text); filter: none; }
+.triage-caret { flex: none; opacity: .7; }
+.triage-caret.open { transform: rotate(90deg); }
+.triage-section__count {
+  flex: none; font-size: 10.5px; font-weight: 600; line-height: 1.6;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 6px; color: var(--text-dim);
+}
+.triage-section__body { display: flex; flex-direction: column; gap: calc(6px * var(--density)); }
+
+/* Uma linha por sessão em atividade: ícone, nome, motor e estado. Sem rosto. */
+.working-strip__rows { display: flex; flex-direction: column; gap: 2px; }
+.working-strip__row {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0;
+  padding: calc(4px * var(--density)) 8px; border-radius: var(--radius-md);
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  font-size: 12px; font-weight: 500; text-align: left; cursor: pointer; transition: none;
+}
+.working-strip__row:hover { background: var(--surface-strong); filter: none; }
+.working-strip__icon { flex: none; }
+.working-strip__name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.working-strip__engine { flex: none; color: var(--text-dim); font-size: 11px; }
+.working-strip__state {
+  flex: 0 1 auto; min-width: 0; max-width: 45%; color: var(--text-dim); font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* O adiado diz quando volta. */
+.term-card__snooze { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
 /* Input inline nos popovers de grupo (novo grupo / renomear). */
 .sess-pop__newgroup { display: flex; gap: 6px; padding: 6px 8px; }
 .sess-pop__newgroup input { flex: 1; min-width: 0; padding: 5px 8px; font-size: 12.5px; border-radius: var(--radius-sm); }
@@ -1543,6 +1671,13 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent);
 }
 .rail-chip.closed { opacity: .55; }
+/* No trilho, Fixados e os ícones da faixa Trabalhando vêm antes da árvore, cada
+   bloco fechado por um fio. */
+.rail-pinned, .rail-working {
+  display: flex; flex-direction: column; flex: none;
+  padding-bottom: 2px; margin-bottom: 2px; border-bottom: 1px solid var(--border);
+}
+.rail-chip--working { --c: var(--accent); }
 .rail-badge {
   position: absolute; top: -1px; right: -1px;
   min-width: 14px; padding: 0 3px; border-radius: 999px;
@@ -1687,6 +1822,10 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
      com 3 linhas de altura. A altura total não cresce: a linha de botões ocupa
      o que a quebra do placeholder ocupava. */
   .chat-foot { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  /* O aviso de desfazer da triagem: aqui o canto de baixo à esquerda é a ponta da
+     caixa de mensagem. Sobe a altura medida do rodapé do chat (que já inclui a
+     área segura); sem chat na tela, volta ao canto. Sem transição. */
+  .undo-toast { bottom: calc(var(--chat-foot-h, env(safe-area-inset-bottom, 0px)) + 12px); }
   .chat-compose { flex-wrap: wrap; row-gap: 8px; justify-content: flex-end; }
   .chat-compose__area {
     flex: 1 0 100%;
@@ -1706,6 +1845,9 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   /* A gaveta tem largura fixa: virar "trilho" não faz sentido aqui. */
   .sidebar__rail-btn { display: none; }
   .sidebar { padding-bottom: calc(14px * var(--density) + env(safe-area-inset-bottom)); }
+  /* Página de uso: os blocos empilham e o recuo encolhe. */
+  .usage-page { padding: 12px; }
+  .usage-page__grid { grid-template-columns: 1fr; }
 }
 
 /* Piso de 16px no campo de mensagem em QUALQUER tela de toque.
@@ -1805,11 +1947,31 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 /* ↻ do cartão da lateral: trabalho interrompido pelo reinício esperando o
    operador. ESTÁTICO de propósito: a interface precisa andar sem GPU (AGENTS.md),
    e o anel pulsante já é a língua de "esperando você agora". */
-.term-card__restart {
-  flex: none; font-size: 11px; line-height: 1.4; color: var(--warn);
+.term-card__restart, .term-card__limit {
+  font-size: 11px; line-height: 1.4; color: var(--warn);
   border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--warn) 12%, transparent); padding: 0 4px;
 }
+.term-card__restart { flex: none; }
+
+/* Limite de uso do terminal, logo abaixo do aviso do reinício: mesma caixa
+   âmbar, com as ações numa linha própria. Armado, no tom de destaque (já está
+   resolvido, é só informação). Sem animação: a interface precisa andar sem GPU. */
+.limit-notice--armed {
+  background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.limit-notice__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Marca do cartão da lateral: "limite até 15:00" / "retoma às 15:01". ESTÁTICA,
+   como a ↻ do reinício (o visual vem da regra dela). No cartão colapsado divide
+   a linha do nome: encolhe mais que ele (4×), com reticências, sem empurrar o
+   cartão para fora; o texto inteiro fica no title. */
+.term-card__limit {
+  flex: 0 4 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* No cartão expandido, na linha de status, depois do texto: o texto do status
+   (base 0) trunca primeiro, e a marca só encolhe se nem ela couber. */
+.term-card__limit--status { flex: 0 1 auto; }
 
 /* Pergunta do agente (AskUserQuestion), acima da caixa de mensagem. É um PEDIDO,
    não um alerta: o tom é o de destaque, não o âmbar de aviso do .reauth. */
@@ -3051,6 +3213,11 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .placement__row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); }
 .placement__row > span { flex: none; min-width: 92px; }
 .placement__row select { flex: 1; min-width: 0; }
+
+/* Motores do terminal no formulário: uma caixa por motor, o selo "não instalada" ao lado. */
+.project-engines { display: flex; flex-direction: column; gap: 6px; }
+.project-engines__title { font-size: 13px; color: var(--text-dim); }
+.project-engines__hint { font-size: 12px; color: var(--text-dim); opacity: .8; }
 
 /* Avisos do plugin "You should know" do Claude, acima do campo (HeadsUpBand).
    Destacados com o âmbar do aviso; vários empilham, o mais novo embaixo, perto

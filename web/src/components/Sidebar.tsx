@@ -1,16 +1,19 @@
 import { useShallow } from 'zustand/react/shallow'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project, SessionInfo } from '../types'
-import { createScratchProject, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, setProjectFavorite, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
+import { createScratchProject, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, railRows, type Entry, type RailGuide } from '../sidebarEntries'
+import { nextExpiry, splitSections, triageStateOf } from '../triageSections'
+import { applyTriage } from '../triageActions'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { EngineIcon } from './EngineIcon'
 import { EnginePickerMenu } from './EnginePickerMenu'
+import { listedOf, pickableEngines } from '../terminalEngines'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { UsageCard } from './UsageCard'
 import { InteractionInfo } from './InteractionInfo'
@@ -21,9 +24,11 @@ import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
 import { InterruptedCardMarker } from './InterruptedNotice'
+import { UsageLimitCardMarker } from './UsageLimitNotice'
 import { MoreIcon, GearIcon, StarIcon, SearchIcon, BoltIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { BrandMark } from './BrandMark'
+import { WorkingStrip, WorkingRail } from './WorkingStrip'
 
 // Grupos colapsados (estado de VISÃO): por navegador, sobrevive ao reload.
 const COLLAPSED_KEY = 'claudinei:collapsedGroups'
@@ -88,10 +93,31 @@ const ACTIVE_ONLY_KEY = 'claudinei:activeOnly'
 const loadActiveOnly = (): boolean => {
   try { return localStorage.getItem(ACTIVE_ONLY_KEY) === '1' } catch { return false }
 }
+// "Só fixados". A chave guarda o nome antigo ("favoritos") para não perder a
+// escolha de quem já a tinha ligado.
 const FAVORITES_ONLY_KEY = 'claudinei:favoritesOnly'
 const loadFavoritesOnly = (): boolean => {
   try { return localStorage.getItem(FAVORITES_ONLY_KEY) === '1' } catch { return false }
 }
+
+// Seções da triagem recolhidas (estado de VISÃO). Adiados e Assentados nascem
+// recolhidos: guardam o que o operador tirou da frente.
+type TriageSection = 'pinned' | 'snoozed' | 'settled'
+const TRIAGE_SECTIONS: readonly TriageSection[] = ['pinned', 'snoozed', 'settled']
+const SECTION_LABEL = { pinned: 'sidebar.sectionPinned', snoozed: 'sidebar.sectionSnoozed', settled: 'sidebar.sectionSettled' } as const
+const COLLAPSED_TRIAGE_KEY = 'claudinei:collapsedTriage'
+const loadCollapsedTriage = (): TriageSection[] => {
+  const byDefault: TriageSection[] = ['snoozed', 'settled']
+  try {
+    const raw = localStorage.getItem(COLLAPSED_TRIAGE_KEY)
+    if (raw === null) return byDefault
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is TriageSection => TRIAGE_SECTIONS.includes(x)) : byDefault
+  } catch { return byDefault }
+}
+
+// O maior atraso que o setTimeout aceita (~24,8 dias); acima disso ele dispara já.
+const MAX_TIMER_MS = 2 ** 31 - 1
 
 
 // O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
@@ -134,17 +160,20 @@ export function Sidebar() {
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
   const [favoritesOnly, setFavoritesOnly] = useState(loadFavoritesOnly)
-  const [favoriteError, setFavoriteError] = useState(false)
   // Busca pelo nome: estado TRANSITÓRIO, de propósito fora do localStorage. Uma
   // busca esquecida que voltasse no próximo carregamento faria a lista parecer
   // vazia sem motivo aparente.
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const [scratchDraft, setScratchDraft] = useState<Pick<Project, 'name' | 'icon' | 'color'> | null>(null)
-  const pendingFavorites = useRef(new Set<number>())
   const [pendingFavoriteIds, setPendingFavoriteIds] = useState<number[]>([])
   const railMode = useStore((s) => s.railMode)
   const toggleRail = useStore((s) => s.toggleRail)
+  const triage = useStore((s) => s.triage)
+  const setTriageItem = useStore((s) => s.setTriageItem)
+  const [collapsedTriage, setCollapsedTriage] = useState<TriageSection[]>(loadCollapsedTriage)
+  // Bate quando o relógio dos adiados dispara (ver o efeito abaixo).
+  const [clock, setClock] = useState(0)
   const toggleActiveOnly = () => {
     setActiveOnly((cur) => {
       try { localStorage.setItem(ACTIVE_ONLY_KEY, cur ? '0' : '1') } catch { /* só não persiste */ }
@@ -157,26 +186,50 @@ export function Sidebar() {
       return !cur
     })
   }
-  const toggleFavorite = async (p: Project) => {
-    if (pendingFavorites.current.has(p.id)) return
-    const favorite = !p.favorite
-    pendingFavorites.current.add(p.id)
+  /**
+   * A ⭐ fixa e desafixa, para o usuário logado (triagem), pela mesma porta do
+   * menu: muda na hora, entra no desfazer, e se o servidor recusar volta e o aviso
+   * aparece (no canto do `UndoToast`, o mesmo do desfazer). A estrela fica
+   * desabilitada enquanto o pedido não volta.
+   */
+  const togglePin = async (p: Project) => {
+    const pinned = !useStore.getState().triage[p.id]?.pinned
     setPendingFavoriteIds((ids) => [...ids, p.id])
-    setFavoriteError(false)
-    const update = (value: boolean) => setProjects(useStore.getState().projects.map((item) =>
-      item.id === p.id ? { ...item, favorite: value } : item))
-    update(favorite)
     try {
-      const saved = await setProjectFavorite(p.id, favorite)
-      update(!!saved.favorite)
-    } catch {
-      update(!!p.favorite)
-      setFavoriteError(true)
+      // Fixar não marca como lido: não há o que mandar pelo WebSocket.
+      await applyTriage(p.id, { pinned }, t(pinned ? 'triage.didPin' : 'triage.didUnpin', { name: p.name }), null)
     } finally {
-      pendingFavorites.current.delete(p.id)
       setPendingFavoriteIds((ids) => ids.filter((id) => id !== p.id))
     }
   }
+
+  const toggleTriageSection = (id: TriageSection) => {
+    setCollapsedTriage((cur) => {
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+      try { localStorage.setItem(COLLAPSED_TRIAGE_KEY, JSON.stringify(next)) } catch { /* só não persiste */ }
+      return next
+    })
+  }
+
+  /**
+   * O relógio dos adiados: UM setTimeout para o próximo vencimento, rearmado
+   * quando a triagem muda — nada de intervalo batendo à toa. Ao vencer, o
+   * `snoozedUntil` sai do store (o servidor já lê o vencido como não adiado), e
+   * com isso a lateral e a faixa Trabalhando releem a triagem. O `clock` rearma
+   * quando o disparo veio antes do vencimento (atraso maior que o do setTimeout).
+   */
+  useEffect(() => {
+    const at = nextExpiry(triage, Date.now())
+    if (at === null) return
+    const id = setTimeout(() => {
+      const now = Date.now()
+      for (const item of Object.values(useStore.getState().triage)) {
+        if (item.snoozedUntil !== null && Date.parse(item.snoozedUntil) <= now) setTriageItem({ ...item, snoozedUntil: null })
+      }
+      setClock((c) => c + 1)
+    }, Math.min(at - Date.now(), MAX_TIMER_MS))
+    return () => clearTimeout(id)
+  }, [triage, clock, setTriageItem])
 
   /**
    * Terminal temporário: abre a escolha de engine/modelo com um RASCUNHO, sem criar
@@ -189,10 +242,11 @@ export function Sidebar() {
     setScratchDraft({ name: t('sidebar.scratchName', { when }), icon: '🧪', color: '#7c5cff' })
   }
 
-  const createScratch = async (name: string): Promise<Project> => {
+  // O terminal temporário nasce com o motor escolhido no modal como a sua lista.
+  const createScratch = async (name: string, engineId: string): Promise<Project> => {
     let created: Project
     try {
-      created = await createScratchProject({ name })
+      created = await createScratchProject({ name, engines: [engineId] })
     } catch (err) {
       throw new Error(t('sidebar.scratchError', { message: (err as Error).message }))
     }
@@ -209,7 +263,8 @@ export function Sidebar() {
 
   // A sessão "cara do projeto" no card: prioridade de status (needs_attention >
   // working > starting > in_terminal > idle > paradas); empate → mais recente.
-  const sessionOf = (projectId: number): SessionInfo | undefined => primarySessionOf(projectId, sessions)
+  // Sem sessão viva, vale a parada mais recente de um motor da lista do terminal.
+  const sessionOf = (p: Project): SessionInfo | undefined => primarySessionOf(p.id, sessions, listedOf(p))
 
   // Árvore na ordem visual (setores, grupos e soltos pelo sortOrder unificado).
   const entries: Entry[] = buildEntries(projects, groups, sectors)
@@ -224,7 +279,13 @@ export function Sidebar() {
   const filtering = activeOnly || favoritesOnly || searching
   const canDrag = isAdmin && !filtering
   // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
-  const visibleEntries = filtering ? filterEntries(entries, sessions, activeOnly, favoritesOnly, searching ? query : '') : entries
+  const visibleEntries = filtering ? filterEntries(entries, sessions, activeOnly, favoritesOnly, searching ? query : '', (id) => !!triage[id]?.pinned) : entries
+  // As seções dependem só da triagem e da hora, nunca do status das sessões: um
+  // cartão só muda de seção por ação do operador, por um adiamento que vence ou
+  // por um assentado que o servidor acorda. A hora é lida a cada render; o relógio
+  // acima garante um render quando um adiamento vence.
+  const now = Date.now()
+  const sections = splitSections(visibleEntries, triage, now)
 
   const toggleGroup = (id: number) => {
     setCollapsed((cur) => {
@@ -335,8 +396,23 @@ export function Sidebar() {
     return { count: active.length, next, failing: active.some((s) => s.consecutiveFailures >= 2) }
   }
 
-  const renderCard = (p: Project) => {
-    const s = sessionOf(p.id)
+  /** "volta às 15:00" hoje; "volta seg. 9:00" em outro dia (adiar vai no máximo até segunda). */
+  const snoozeLabel = (until: string) => {
+    const at = new Date(until)
+    const time = at.toLocaleTimeString(i18n.language, { hour: 'numeric', minute: '2-digit' })
+    return at.toDateString() === new Date(now).toDateString()
+      ? t('sidebar.snoozedBackAt', { time })
+      : t('sidebar.snoozedBackOn', { day: at.toLocaleDateString(i18n.language, { weekday: 'short' }), time })
+  }
+
+  /**
+   * O cartão de terminal, o MESMO nas seções e na árvore (`key={p.id}`). Fora da
+   * árvore (`where = 'section'`) ele não arrasta nem recebe arraste: a ordem dos
+   * Fixados é a global, e soltar num deles mexeria numa posição que não se vê.
+   */
+  const renderCard = (p: Project, where: 'tree' | 'section' = 'tree') => {
+    const inTree = where === 'tree'
+    const s = sessionOf(p)
     const live = liveSessionsOf(p.id, sessions)
     const active = !!s && s.localId === activeLocalId && (view === 'chat' || view === 'terminal')
     const canOpen = !!s && s.status !== 'stopped' && s.status !== 'dead'
@@ -347,6 +423,8 @@ export function Sidebar() {
     const waiting = live.some(isWaitingForYou)
     const isCollapsed = collapsedCards.includes(p.id)
     const key = `p-${p.id}`
+    const pinned = !!triage[p.id]?.pinned
+    const snoozedUntil = triageStateOf(triage[p.id], now) === 'snoozed' ? triage[p.id]!.snoozedUntil : null
 
     /**
      * Iniciar/reviver é a ÚNICA ação de um cartão sem sessão viva. Ela morava na
@@ -381,11 +459,11 @@ export function Sidebar() {
           overKey === key && drag !== null && !(drag.kind === 'project' && drag.id === p.id) ? 'drop-target' : '',
         ].filter(Boolean).join(' ')}
         style={{ ['--term-color' as string]: p.color }}
-        draggable={canDrag}
-        onDragStart={() => setDrag({ kind: 'project', id: p.id })}
-        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setOverKey(key) }}
-        onDragEnd={clearDrag}
-        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropAt(key) }}
+        draggable={canDrag && inTree}
+        onDragStart={inTree ? () => setDrag({ kind: 'project', id: p.id }) : undefined}
+        onDragOver={inTree ? (e) => { e.preventDefault(); e.stopPropagation(); setOverKey(key) } : undefined}
+        onDragEnd={inTree ? clearDrag : undefined}
+        onDrop={inTree ? (e) => { e.preventDefault(); e.stopPropagation(); void dropAt(key) } : undefined}
         onClick={() => {
           if (!s || !canOpen) return
           if (s.status === 'in_terminal') openTerminal(s.localId)
@@ -410,6 +488,8 @@ export function Sidebar() {
           )}
           {isCollapsed && playButton}
           <InterruptedCardMarker projectId={p.id} />
+          {/* Colapsado não há linha de status: a marca do limite sobe para cá. */}
+          {isCollapsed && <UsageLimitCardMarker projectId={p.id} />}
           {(() => {
             const sch = schedulesOf(p.id)
             if (!sch) return null
@@ -428,12 +508,12 @@ export function Sidebar() {
             )
           })()}
           {badge > 0 && <span className="badge">{badge}</span>}
-          <button className={`term-card__action term-card__favorite ${p.favorite ? 'is-favorite' : ''}`}
-                  type="button" disabled={pendingFavoriteIds.includes(p.id)} aria-pressed={!!p.favorite}
-                  aria-label={t(p.favorite ? 'sidebar.removeFavorite' : 'sidebar.addFavorite', { name: p.name })}
-                  title={t(p.favorite ? 'sidebar.removeFavorite' : 'sidebar.addFavorite', { name: p.name })}
-                  onClick={(e) => { e.stopPropagation(); void toggleFavorite(p) }}>
-            <StarIcon size={15} filled={!!p.favorite} />
+          <button className={`term-card__action term-card__favorite ${pinned ? 'is-favorite' : ''}`}
+                  type="button" disabled={pendingFavoriteIds.includes(p.id)} aria-pressed={pinned}
+                  aria-label={t(pinned ? 'sidebar.unpin' : 'sidebar.pin', { name: p.name })}
+                  title={t(pinned ? 'sidebar.unpin' : 'sidebar.pin', { name: p.name })}
+                  onClick={(e) => { e.stopPropagation(); void togglePin(p) }}>
+            <StarIcon size={15} filled={pinned} />
           </button>
           <button className="term-card__action term-card__action--reveal term-card__caret"
                   title={isCollapsed ? t('sidebar.expandCard') : t('sidebar.collapseCard')}
@@ -477,13 +557,17 @@ export function Sidebar() {
               {engineOf(s) && (
                 <EngineIcon className="engine-badge" title={engineOf(s)!.label} icon={engineOf(s)!.icon} />
               )}
-              <span>{t(`status.${displayStatusKey(s)}` as 'status.in_terminal')}</span>
+              <span className="term-card__status-text">{t(`status.${displayStatusKey(s)}` as 'status.in_terminal')}</span>
             </>
           ) : (
-            <><span className="status-dot status-none" /><span>{t('sidebar.noSession')}</span></>
+            <><span className="status-dot status-none" /><span className="term-card__status-text">{t('sidebar.noSession')}</span></>
           )}
+          {/* Limite de uso: aqui cabe o texto inteiro ("limite até 15:00"); quem
+              trunca primeiro é o texto do status. */}
+          <UsageLimitCardMarker projectId={p.id} inStatus />
           {playButton}
         </div>}
+        {snoozedUntil && <div className="term-card__snooze">{snoozeLabel(snoozedUntil)}</div>}
       </div>
     )
   }
@@ -502,6 +586,7 @@ export function Sidebar() {
     const key = `g-${g.id}`
     // Com filtros ligados, `items` só tem os terminais visíveis — o total real
     // vem do store. O contador vira "3/8" para não parecer que sumiram do grupo.
+    // Vale também para quem foi para Fixados, Adiados ou Assentados.
     const total = projects.filter((p) => p.groupId === g.id).length
     return (
       <div
@@ -530,12 +615,12 @@ export function Sidebar() {
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-group__icon" value={g.icon ?? '🗂️'} size={14} />
           <span className="term-group__name">{g.name}</span>
-          <span className="term-group__count">{filtering ? `${items.length}/${total}` : total}</span>
+          <span className="term-group__count">{filtering || items.length !== total ? `${items.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
           {isCollapsed && (
             <span className="term-group__dots">
               {items.slice(0, 6).map((p) => {
-                const s = sessionOf(p.id)
+                const s = sessionOf(p)
                 return <span key={p.id} className={s ? dotClassOf(s) : 'status-dot status-none'} title={p.name} />
               })}
             </span>
@@ -563,7 +648,7 @@ export function Sidebar() {
         </div>
         {!isCollapsed && (
           <div className="term-group__body">
-            {items.map(renderCard)}
+            {items.map((p) => renderCard(p))}
             {items.length === 0 && <div className="term-group__empty">{t('sidebar.groupEmpty')}</div>}
           </div>
         )}
@@ -610,12 +695,12 @@ export function Sidebar() {
           <svg className={`term-group__caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
           <Icon className="term-sector__icon" value={sec.icon ?? '🏢'} size={14} />
           <span className="term-sector__name">{sec.name}</span>
-          <span className="term-group__count">{filtering ? `${shown.length}/${total}` : total}</span>
+          <span className="term-group__count">{filtering || shown.length !== total ? `${shown.length}/${total}` : total}</span>
           {badgeSum > 0 && <span className="badge">{badgeSum}</span>}
           {isCollapsed && (
             <span className="term-group__dots">
               {shown.slice(0, 6).map((p) => {
-                const ps = sessionOf(p.id)
+                const ps = sessionOf(p)
                 return <span key={p.id} className={ps ? dotClassOf(ps) : 'status-dot status-none'} title={p.name} />
               })}
             </span>
@@ -653,6 +738,30 @@ export function Sidebar() {
     e.kind === 'sector' ? renderSector(e.s, e.children) : e.kind === 'group' ? renderGroup(e.g, e.items) : renderCard(e.p)
 
   /**
+   * Fixados, Adiados ou Assentados. Cada seção é um contêiner próprio, sempre
+   * montado no mesmo lugar — vazia, só some da tela (`display: none`). Assim um
+   * cartão que chega ou sai de uma seção não desloca os cartões das outras.
+   * Buscando, a recolhida abre, como os grupos.
+   */
+  const renderSection = (id: TriageSection, list: Project[]) => {
+    const isCollapsed = !searching && collapsedTriage.includes(id)
+    return (
+      <section data-testid={`triage-${id}`} className={`triage-section triage-section--${id}`}
+               style={list.length === 0 ? { display: 'none' } : undefined}>
+        <button type="button" className="triage-section__header" aria-expanded={!isCollapsed}
+                onClick={() => toggleTriageSection(id)}>
+          <svg className={`triage-caret ${isCollapsed ? '' : 'open'}`} width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.5v15a1 1 0 0 0 1.52.86l12.2-7.5a1 1 0 0 0 0-1.72L9.52 3.64A1 1 0 0 0 8 4.5Z" /></svg>
+          <span className="eyebrow">{t(SECTION_LABEL[id])}</span>
+          <span className="triage-section__count">{list.length}</span>
+        </button>
+        {!isCollapsed && (
+          <div className="triage-section__body">{list.map((p) => renderCard(p, 'section'))}</div>
+        )}
+      </section>
+    )
+  }
+
+  /**
    * A RÉGUA: a barra inteira em 62px, com os estados e os ícones.
    *
    * A profundidade não cabe em recuo, então vira contagem de traços — um por
@@ -663,11 +772,45 @@ export function Sidebar() {
   const renderRail = () => {
     const fechado = (k: string) => collapsed.includes(Number(k.slice(2))) && k.startsWith('g-')
       || collapsedSectors.includes(Number(k.slice(2))) && k.startsWith('s-')
-    const linhas = railRows(visibleEntries, fechado)
+    // Assentados e adiados ficam fora do trilho: a um clique de abrir a lateral larga.
+    const linhas = railRows(sections.tree, fechado)
     const abertoEm = activeLocalId ? sessions[activeLocalId]?.projectId : undefined
+
+    const linhaDoTerminal = (p: Project, key: string, guides: RailGuide[]) => {
+      const live = liveSessionsOf(p.id, sessions)
+      const principal = sessionOf(p)
+      const badge = unreadOf(p.id, sessions, unread)
+      const esperando = live.some(isWaitingForYou)
+      return (
+        <div key={key} title={p.name}
+             className={`rail-row ${abertoEm === p.id && (view === 'chat' || view === 'terminal') ? 'active' : ''}`}
+             onClick={() => (principal ? openSession(principal.localId) : setStartFor(p))}>
+          <RailGuides guides={guides} />
+          <span className="rail-body">
+            {esperando && <Sonar />}
+            {/* Rosto e ícone viram UM objeto: lado a lado, em 62px, viravam dois
+                borrões brigando por espaço. O ícone monta no canto do rosto —
+                o estado continua sendo o que se lê primeiro, e a identidade do
+                terminal vem grudada nele. */}
+            <span className="rail-mark">
+              <AgentFace state={faceStateOf(principal)} size={22} />
+              <Icon className="rail-ico" value={p.icon} size={12} />
+            </span>
+            {badge > 0 && <span className="rail-badge">{badge > 99 ? '99+' : badge}</span>}
+          </span>
+        </div>
+      )
+    }
 
     return (
       <div className="rail" data-testid="rail">
+        {/* Fixados no topo, depois os ícones da faixa Trabalhando, depois a árvore.
+            O bloco dos Fixados fica montado mesmo vazio, como as seções largas. */}
+        <div className="rail-pinned" data-testid="rail-pinned"
+             style={sections.pinned.length === 0 ? { display: 'none' } : undefined}>
+          {sections.pinned.map((p) => linhaDoTerminal(p, `p-${p.id}`, []))}
+        </div>
+        <WorkingRail />
         {linhas.map((l) => {
           if (l.kind !== 'project') {
             const c = l.group!
@@ -684,30 +827,7 @@ export function Sidebar() {
               </div>
             )
           }
-          const p = l.project!
-          const live = liveSessionsOf(p.id, sessions)
-          const principal = primarySessionOf(p.id, sessions)
-          const badge = unreadOf(p.id, sessions, unread)
-          const esperando = live.some(isWaitingForYou)
-          return (
-            <div key={l.key} title={p.name}
-                 className={`rail-row ${abertoEm === p.id && (view === 'chat' || view === 'terminal') ? 'active' : ''}`}
-                 onClick={() => (principal ? openSession(principal.localId) : setStartFor(p))}>
-              <RailGuides guides={l.guides} />
-              <span className="rail-body">
-                {esperando && <Sonar />}
-                {/* Rosto e ícone viram UM objeto: lado a lado, em 62px, viravam dois
-                    borrões brigando por espaço. O ícone monta no canto do rosto —
-                    o estado continua sendo o que se lê primeiro, e a identidade do
-                    terminal vem grudada nele. */}
-                <span className="rail-mark">
-                  <AgentFace state={faceStateOf(principal)} size={22} />
-                  <Icon className="rail-ico" value={p.icon} size={12} />
-                </span>
-                {badge > 0 && <span className="rail-badge">{badge > 99 ? '99+' : badge}</span>}
-              </span>
-            </div>
-          )
+          return linhaDoTerminal(l.project!, l.key, l.guides)
         })}
       </div>
     )
@@ -746,10 +866,10 @@ export function Sidebar() {
             <span className="track" />
             <span className="thumb" />
           </label>
-          <label className="term-header__favorite-filter" title={t('sidebar.favoritesOnlyHint')}>
+          <label className="term-header__favorite-filter" title={t('sidebar.pinnedOnlyHint')}>
             <StarIcon size={13} filled={favoritesOnly} />
             <span className="switch switch--sm term-header__filter">
-              <input type="checkbox" checked={favoritesOnly} onChange={toggleFavoritesOnly} aria-label={t('sidebar.favoritesOnly')} />
+              <input type="checkbox" checked={favoritesOnly} onChange={toggleFavoritesOnly} aria-label={t('sidebar.pinnedOnly')} />
               <span className="track" />
               <span className="thumb" />
             </span>
@@ -802,8 +922,14 @@ export function Sidebar() {
       )}
 
       <div className="term-list">
-        {favoriteError && <div className="term-list__error" role="alert">{t('sidebar.favoriteSaveError')}</div>}
-        {visibleEntries.map(renderEntry)}
+        {/* De cima para baixo: Trabalhando, Fixados, a árvore, Adiados, Assentados.
+            Cada uma num contêiner fixo nesta ordem — trocar de seção é trocar de
+            pai, então só a triagem (nunca o status de uma sessão) faz isso. */}
+        <WorkingStrip />
+        {renderSection('pinned', sections.pinned)}
+        <div className="term-tree" data-testid="term-tree">{sections.tree.map(renderEntry)}</div>
+        {renderSection('snoozed', sections.snoozed)}
+        {renderSection('settled', sections.settled)}
         {projects.length === 0 && (
           <div className="term-list__empty">{t('sidebar.empty')}</div>
         )}
@@ -812,7 +938,7 @@ export function Sidebar() {
         {projects.length > 0 && filtering && visibleEntries.length === 0 && (
           <div className="term-list__empty">{searching
             ? t(activeOnly || favoritesOnly ? 'sidebar.searchEmptyFiltered' : 'sidebar.searchEmpty', { query: query.trim() })
-            : t(activeOnly && favoritesOnly ? 'sidebar.emptyFiltered' : activeOnly ? 'sidebar.emptyActive' : 'sidebar.emptyFavorites')}</div>
+            : t(activeOnly && favoritesOnly ? 'sidebar.emptyFiltered' : activeOnly ? 'sidebar.emptyActive' : 'sidebar.emptyPinned')}</div>
         )}
         {/* zona de drop do FIM da lista (mandar pro final) */}
         {drag !== null && (
@@ -898,7 +1024,7 @@ export function Sidebar() {
 
       {reviveFor && (
         <EnginePickerMenu
-          engines={engines}
+          engines={pickableEngines(engines, listedOf(projects.find((p) => p.id === reviveFor.s.projectId)))}
           x={reviveFor.x}
           y={reviveFor.y}
           onClose={() => setReviveFor(null)}
@@ -926,7 +1052,7 @@ export function Sidebar() {
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} />}
       {startFor && <StartSessionModal project={startFor} onClose={() => setStartFor(null)} />}
       {scratchDraft && (
-        <StartSessionModal project={scratchDraft} create={() => createScratch(scratchDraft.name)} onClose={() => setScratchDraft(null)} />
+        <StartSessionModal project={scratchDraft} create={(engineId) => createScratch(scratchDraft.name, engineId)} onClose={() => setScratchDraft(null)} />
       )}
     </div>
   )

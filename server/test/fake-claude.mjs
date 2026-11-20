@@ -5,6 +5,9 @@
 //   contém "crash"     -> encerra com exit 1 sem result (simula morte)
 //   contém "devagar"   -> espera 300ms antes de responder (testa timeout)
 //   contém "demorada"  -> responde assistant mas NUNCA emite result (turno só fecha com interrupt)
+//   contém "demorada-junto" -> como "demorada", mas o interrupt devolve o control_response
+//                         e o result de erro NUM write só: chegam no mesmo pedaço do
+//                         stdout e o result é processado antes de o interrupt() resolver.
 //   contém "com-bg"    -> como "demorada", mas antes anuncia uma task de background
 //                         em aberto (reproduz o turno interrompido com shell rodando)
 //   contém "compact-real" -> replica o stream REAL de uma compactação (capturado da
@@ -23,6 +26,8 @@
 //   contém "pergunta-abandonada" -> AskUserQuestion cujo control_request é seguido
 //                         IMEDIATAMENTE por um result (sem esperar resposta) — simula a
 //                         CLI abortando o turno com a pergunta ainda aberta.
+//   contém "turno-com-erro" -> fecha o turno com um result de erro (error_max_turns,
+//                         is_error) sem ninguém ter pedido interrupção: o turno falhou.
 //   contém "pedido-interativo" -> can_use_tool de ExitPlanMode com requires_user_interaction (espera deny)
 //   contém "pedido-comum"      -> can_use_tool de Bash sem interação (espera allow)
 //   interrupt com pergunta pendente -> control_cancel_request antes do control_response (probe H)
@@ -32,11 +37,28 @@
 //   ui_attach / ui_detach / ui_render / ui_press -> superfície remota (desktop): o
 //                         press no botão de handle 1 (dismiss) tira o cartão; o de
 //                         handle 2 (Explique) troca pela explicação.
+//   contém "limite"    -> bate no limite de uso como a CLI real: rate_limit_event
+//                         rejeitado (five_hour, resetsAt = agora + 60 s, em SEGUNDOS),
+//                         assistant isApiErrorMessage com o texto do limite e result
+//                         is_error com o mesmo texto.
+//   contém "limite-sem-evento" -> o mesmo, sem o rate_limit_event (o horário fica
+//                         por conta do que o uso já sabia).
+//   contém "limite-so-assistant" -> sem rate_limit_event; só o assistant de erro de
+//                         API casa o texto do limite; o result vem is_error com
+//                         outro texto (genérico).
+//   contém "limite-recuperado" -> sem rate_limit_event; o assistant de erro de API
+//                         casa o texto do limite, mas o turno termina bem (result
+//                         is_error false, "resposta final").
+//   env FAKE_CLAUDE_LIMIT_ON_RESUME_FILE -> só para o ensaio de ponta a ponta: se o
+//                         arquivo apontado existe, a mensagem de retomada do Claudinei
+//                         ("[Claudinei: resume after usage limit]") bate no limite como
+//                         "limite" (a retomada automática que bate de novo).
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
 // sessão segue viva, o turno é abortado com erro).
 import readline from 'node:readline'
+import { existsSync } from 'node:fs'
 
 const sid = process.env.FAKE_SESSION_ID ?? 'fake-session-0001'
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
@@ -44,6 +66,8 @@ const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
 // Pergunta (AskUserQuestion) esperando o control_response do host. Replica a CLI
 // real: o turno fica bloqueado até a resposta chegar pelo stdin.
 let pendingQuestion = null
+// demorada-junto: o próximo interrupt responde e fecha o turno num write só.
+let interruptJunto = false
 
 // Cartão do plugin You should know, como o ui_render o devolve a uma superfície desktop.
 let aviso = null
@@ -168,8 +192,15 @@ rl.on('line', (line) => {
         out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
         return
       }
-      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {} } })
-      out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
+      const resposta = { type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {} } }
+      const fim = { type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 }
+      if (interruptJunto) {
+        interruptJunto = false
+        process.stdout.write(JSON.stringify(resposta) + '\n' + JSON.stringify(fim) + '\n')
+        return
+      }
+      out(resposta)
+      out(fim)
       return
     }
     if (r.subtype === 'claude_authenticate') {
@@ -273,6 +304,11 @@ rl.on('line', (line) => {
     out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
     return
   }
+  if (text.includes('turno-com-erro')) {
+    out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'tentando…' }], usage: ctxUsage() } })
+    out({ type: 'result', subtype: 'error_max_turns', is_error: true, result: '', session_id: sid, num_turns: 1, total_cost_usd: 0 })
+    return
+  }
   if (text.includes('pedido-interativo')) {
     // Outro pedido que exige humano (ex.: aprovação de plano): o host deve NEGAR com explicação.
     pendingQuestion = { request_id: 'q-req-2', tool_use_id: 'toolu_q_2' }
@@ -321,8 +357,31 @@ rl.on('line', (line) => {
     ciclo()
     return
   }
+  const limiteNaRetomada = !!process.env.FAKE_CLAUDE_LIMIT_ON_RESUME_FILE
+    && text.includes('[Claudinei: resume after usage limit]')
+    && existsSync(process.env.FAKE_CLAUDE_LIMIT_ON_RESUME_FILE)
+  if (text.includes('limite') || limiteNaRetomada) {
+    const LIMIT_TEXT = "You've hit your session limit · resets 3:40pm (America/Sao_Paulo)"
+    if (text.includes('limite-so-assistant') || text.includes('limite-recuperado')) {
+      const ok = text.includes('limite-recuperado')
+      out({ type: 'assistant', session_id: sid, isApiErrorMessage: true, error: 'rate_limit', apiErrorStatus: 429,
+        message: { role: 'assistant', content: [{ type: 'text', text: LIMIT_TEXT }] } })
+      out({ type: 'result', subtype: ok ? 'success' : 'error_during_execution', is_error: !ok,
+        result: ok ? 'resposta final' : 'API Error: falha genérica', session_id: sid, num_turns: 1, total_cost_usd: 0 })
+      return
+    }
+    if (!text.includes('limite-sem-evento')) {
+      out({ type: 'rate_limit_event', session_id: sid, rate_limit_info: {
+        status: 'rejected', rateLimitType: 'five_hour', resetsAt: Math.floor(Date.now() / 1000) + 60, utilization: 1 } })
+    }
+    out({ type: 'assistant', session_id: sid, isApiErrorMessage: true, error: 'rate_limit', apiErrorStatus: 429,
+      message: { role: 'assistant', content: [{ type: 'text', text: LIMIT_TEXT }] } })
+    out({ type: 'result', subtype: 'success', is_error: true, result: LIMIT_TEXT, session_id: sid, num_turns: 1, total_cost_usd: 0 })
+    return
+  }
   if (text.includes('demorada')) {
     // turno fica aberto: responde assistant mas NUNCA emite result (até um interrupt)
+    interruptJunto = text.includes('demorada-junto')
     out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'trabalhando…' }] } })
     return
   }

@@ -10,7 +10,8 @@ import { contextWindowFor, windowFromModelUsage, DEFAULT_CONTEXT_WINDOW } from '
 import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '../project-threads.js'
 import { UserError } from '../user-error.js'
 import { createHeadsUp, type HeadsUpNode, type HeadsUpPress, type HeadsUpSurface } from './heads-up.js'
-import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
+import { RESTART_FAIL_TEXT, type LimitOrigin } from '../restart/terminal-state.js'
+import { usageLimitFailText } from '../limit/texts.js'
 
 /** A sessão sabe ser uma superfície remota (só a do Claude). */
 const isHeadsUpSurface = (s: unknown): s is HeadsUpSurface =>
@@ -95,13 +96,28 @@ interface Deps {
    * da engine. A compactação interna do agente continua independente deste limiar.
    */
   autoCompactPct?: () => number
-  /** Chamado a cada evento result de qualquer sessão: o turno terminou de verdade. */
-  onTurnResult?: (projectId: number, engine: EngineId) => void
+  /** Chamado a cada evento result de qualquer sessão: o turno terminou de verdade. `isError` = o result veio com erro. */
+  onTurnResult?: (projectId: number, engine: EngineId, info: { isError: boolean }) => void
+  /**
+   * O turno bateu no limite de uso do Claude. Chamado no result, ANTES do
+   * onTurnResult. `resetsAt` em epoch SEGUNDOS (null = desconhecido); `origin` é
+   * quem mandou a última mensagem da sessão.
+   */
+  onUsageLimit?(projectId: number, engine: EngineId, p: { localId: string; resetsAt: number | null; origin: LimitOrigin }): void
+  /** Recurso do horário quando o limite veio só pelo texto: o `resetsAt` que o uso guardou. */
+  lastRejectedResetsAt?: () => number | null
   /**
    * Chamado quando o OPERADOR manda uma mensagem (manager.send, o que ele digita).
    * O que o próprio Claudinei manda (sendAsClaudinei, tarefas, agendamentos) não conta.
    */
   onOperatorMessage?: (projectId: number, engine: EngineId) => void
+  /**
+   * O terminal precisa do operador: abriu uma pergunta, o turno falhou ou a
+   * sessão morreu. Liga ao despertador da triagem (assentado e adiado voltam).
+   * Turno que só terminou, `working`, a interrupção pedida pelo operador e a
+   * morte no encerramento NÃO chamam.
+   */
+  onNeedsOperator?: (projectId: number, reason: 'question' | 'failed' | 'dead') => void
 }
 
 const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_attention'])
@@ -112,8 +128,19 @@ const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_att
  * próprio Claudinei.
  */
 type TurnEnd =
-  | { kind: 'result'; text: string }
+  /** `limited`: o turno bateu no limite de uso; `resetsAt` em epoch segundos, null = desconhecido. */
+  | { kind: 'result'; text: string; limited?: { resetsAt: number | null } }
   | { kind: 'dead' | 'stopped' | 'timeout' | 'shutdown' }
+
+/**
+ * O que os ouvintes de turno precisam do manager: saber se o serviço está
+ * encerrando e se o turno que acabou bateu no limite (com o horário já resolvido,
+ * o mesmo que vai ao onUsageLimit).
+ */
+interface TurnCtx {
+  isShuttingDown: () => boolean
+  limitOf: (session: EngineSession) => { resetsAt: number | null } | undefined
+}
 
 /**
  * Ouve o turno em curso da sessão até ele terminar e avisa UMA vez como terminou.
@@ -125,7 +152,7 @@ type TurnEnd =
  * saber disso para não registrar a interrupção como falha do agente.
  */
 function watchTurnEnd(
-  session: EngineSession, timeoutMs: number, isShuttingDown: () => boolean, onEnd: (end: TurnEnd) => void,
+  session: EngineSession, timeoutMs: number, ctx: TurnCtx, onEnd: (end: TurnEnd) => void,
 ): () => void {
   let settled = false
   const finish = (end: TurnEnd) => {
@@ -138,13 +165,16 @@ function watchTurnEnd(
     clearTimeout(timer)
   }
   const onEvent = (evt: ClaudeEvent) => {
-    if (evt.kind === 'result') finish({ kind: 'result', text: evt.resultText })
+    if (evt.kind === 'result') {
+      const limited = ctx.limitOf(session)
+      finish({ kind: 'result', text: evt.resultText, ...(limited ? { limited } : {}) })
+    }
   }
   const onStatus = (status: SessionStatus) => {
     // 'stopped' cobre também openInTerminal (que passa por session.stop()):
     // sem isso o ouvinte ficaria pendurado até o prazo com o agente já fora.
     if (status !== 'dead' && status !== 'stopped') return
-    finish({ kind: isShuttingDown() ? 'shutdown' : status })
+    finish({ kind: ctx.isShuttingDown() ? 'shutdown' : status })
   }
   const timer = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs)
   session.on('event', onEvent)
@@ -158,12 +188,16 @@ function watchTurnEnd(
  * existe como evento, e quem espera precisa desistir por três motivos — a resposta
  * chegou, a sessão morreu/parou, ou o tempo acabou. No encerramento do serviço, a
  * recusa leva o RESTART_FAIL_TEXT: quem esperava fica sabendo que foi o reinício.
+ * Turno que bateu no limite de uso recusa com o texto do limite (e a hora em que
+ * a janela reabre, quando se sabe).
  */
-function waitForResult(session: EngineSession, timeoutMs: number, isShuttingDown: () => boolean): Promise<string> {
+function waitForResult(session: EngineSession, timeoutMs: number, ctx: TurnCtx): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    watchTurnEnd(session, timeoutMs, isShuttingDown, (end) => {
-      if (end.kind === 'result') resolve(end.text)
-      else reject(new Error(
+    watchTurnEnd(session, timeoutMs, ctx, (end) => {
+      if (end.kind === 'result') {
+        if (end.limited) reject(new Error(usageLimitFailText(end.limited.resetsAt)))
+        else resolve(end.text)
+      } else reject(new Error(
         end.kind === 'shutdown' ? RESTART_FAIL_TEXT
           : end.kind === 'dead' ? 'target agent exited unexpectedly before responding'
             : end.kind === 'stopped' ? 'target agent was stopped before responding'
@@ -175,15 +209,19 @@ function waitForResult(session: EngineSession, timeoutMs: number, isShuttingDown
 /**
  * Ouvinte de tarefa (dispatchTask, watchTurn): fecha a tarefa com o result ou como
  * falha. No encerramento do serviço NÃO fecha: só solta os ouvintes, e a tarefa
- * continua in_progress no banco para ser reanexada depois do boot.
+ * continua in_progress no banco para ser reanexada depois do boot. Turno que
+ * bateu no limite fecha a tarefa como falha, com o texto do limite.
  */
 function watchTask(
-  session: EngineSession, timeoutMs: number, isShuttingDown: () => boolean,
+  session: EngineSession, timeoutMs: number, ctx: TurnCtx,
   onComplete: (status: 'completed' | 'failed', result: string) => void,
 ): () => void {
-  return watchTurnEnd(session, timeoutMs, isShuttingDown, (end) => {
+  return watchTurnEnd(session, timeoutMs, ctx, (end) => {
     if (end.kind === 'shutdown') return
-    if (end.kind === 'result') onComplete('completed', end.text)
+    if (end.kind === 'result') {
+      if (end.limited) onComplete('failed', usageLimitFailText(end.limited.resetsAt))
+      else onComplete('completed', end.text)
+    }
     else onComplete('failed', end.kind === 'dead' ? 'target agent exited'
       : end.kind === 'stopped' ? 'target agent was stopped' : 'timed out')
   })
@@ -192,6 +230,8 @@ function watchTask(
 export function createSessionManager(deps: Deps) {
   const live = new Map<string, {
     session: EngineSession; projectId: number; engine: EngineId; contextTokens?: number; contextWindow?: number; autoCompacting?: boolean; initModel?: string
+    /** Quem mandou a última mensagem desta sessão: decide se o limite pode retomar sozinho. */
+    origin: LimitOrigin
     /** Avisos do plugin You should know (só Claude): o cartão de agora e o controlador da superfície. */
     headsUp?: HeadsUpNode | null; headsUpCtl?: ReturnType<typeof createHeadsUp>; setHeadsUp?: (on: boolean) => Promise<void>
   }>()
@@ -207,6 +247,29 @@ export function createSessionManager(deps: Deps) {
    */
   let shuttingDown = false
   const isShuttingDown = () => shuttingDown
+
+  /** Havia pergunta aberta no último status de cada sessão: só a borda ausente→presente acorda. */
+  const hadQuestion = new Map<string, boolean>()
+  /**
+   * Sessões com uma interrupção do operador em curso. O Claude fecha o turno
+   * interrompido com um result de erro (`error_during_execution`), que não é
+   * falha: foi o operador que parou. O Codex já marca `interrupted`.
+   */
+  const interrupting = new Set<string>()
+
+  /**
+   * O limite em que o turno da sessão bateu, com o horário resolvido: o do
+   * rate_limit_event do turno ou, se a CLI só mandou o texto, o que o uso guardou.
+   */
+  const limitOf = (session: EngineSession): { resetsAt: number | null } | undefined => {
+    const hit = session.usageLimit
+    if (!hit) return undefined
+    if (hit.resetsAt !== null) return { resetsAt: hit.resetsAt }
+    let fallback: number | null = null
+    try { fallback = deps.lastRejectedResetsAt?.() ?? null } catch { /* sem horário */ }
+    return { resetsAt: fallback }
+  }
+  const turnCtx: TurnCtx = { isShuttingDown, limitOf }
 
   /**
    * O id de conversa a retomar, DEPOIS de conferir que ele ainda existe.
@@ -273,7 +336,7 @@ export function createSessionManager(deps: Deps) {
   }
 
   const wire = (localId: string, projectId: number, engine: EngineId, session: EngineSession) => {
-    live.set(localId, { session, projectId, engine })
+    live.set(localId, { session, projectId, engine, origin: 'operator' })
     // Avisos do plugin "You should know" (heads-up.ts): só no Claude, e só com o
     // interruptor do terminal ligado — lido do banco na hora, para valer o atual.
     const surface = engine === 'claude' && isHeadsUpSurface(session) ? session : undefined
@@ -338,10 +401,22 @@ export function createSessionManager(deps: Deps) {
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
       deps.broadcast(statusMsg({ status, detail }))
+      // O despertador da triagem. Grava no banco e roda dentro do handler da
+      // engine, então nunca pode lançar daqui (mesmo cuidado do onTurnResult).
+      const hasQuestion = session.pendingQuestion !== undefined
+      if (hasQuestion && !hadQuestion.get(localId)) {
+        try { deps.onNeedsOperator?.(projectId, 'question') } catch {}
+      }
+      hadQuestion.set(localId, hasQuestion)
+      // No encerramento, a sessão que morre foi derrubada pelo próprio Claudinei.
+      if (status === 'dead' && !shuttingDown) {
+        try { deps.onNeedsOperator?.(projectId, 'dead') } catch {}
+      }
       if (status === 'dead' || status === 'stopped') {
         // O processo saiu: o aviso que estava na tela some com ele.
         if (live.get(localId)?.headsUp) deps.broadcast({ type: 'heads_up', localId, projectId, tree: null })
         live.delete(localId)
+        hadQuestion.delete(localId)
       }
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => deps.onSessionAvailable?.(projectId))
@@ -378,8 +453,25 @@ export function createSessionManager(deps: Deps) {
         // stdout da engine — um erro do SQLite aqui viraria uncaughtException.
         try { deps.onEngineUsage?.(engine, event.tokens) } catch {}
       }
-      // Mesmo cuidado: o gancho grava no banco e roda dentro do stdout da engine.
-      if (event.kind === 'result') { try { deps.onTurnResult?.(projectId, engine) } catch {} }
+      // Mesmo cuidado: os ganchos gravam no banco e rodam dentro do stdout da engine.
+      // O limite vem ANTES do fim do turno: quem cuida do limite registra primeiro,
+      // e o onTurnResult (com isError) decide depois.
+      // Turno que bateu no limite, com quem cuide dele: é o caminho do limite que
+      // acorda o terminal (só quando o aviso nasce), não a falha abaixo.
+      const limited = event.kind === 'result' ? limitOf(session) : undefined
+      const limitHandled = !!limited && !!deps.onUsageLimit
+      if (event.kind === 'result') {
+        if (limited) {
+          const origin = live.get(localId)?.origin ?? 'operator'
+          try { deps.onUsageLimit?.(projectId, engine, { localId, resetsAt: limited.resetsAt, origin }) } catch {}
+        }
+        try { deps.onTurnResult?.(projectId, engine, { isError: event.isError }) } catch {}
+      }
+      // Turno que falhou acorda o terminal assentado ou adiado; o interrompido
+      // pelo operador e o do limite de uso (acordado pelo serviço do limite), não.
+      if (event.kind === 'result' && event.isError && event.subtype !== 'interrupted' && !interrupting.has(localId) && !limitHandled) {
+        try { deps.onNeedsOperator?.(projectId, 'failed') } catch {}
+      }
       if (engine === 'claude' && event.kind === 'raw') {
         const raw = event.raw as { type?: unknown; rate_limit_info?: unknown } | null
         // Mesmo cuidado da métrica acima: nada aqui pode derrubar o stdout.
@@ -586,6 +678,7 @@ export function createSessionManager(deps: Deps) {
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
         entry.session.compact()
       } else entry.session.send(text)
+      entry.origin = 'operator'
       // Só depois do envio aceito: mensagem recusada não conta como o operador agindo.
       try { deps.onOperatorMessage?.(entry.projectId, entry.engine) } catch {}
     },
@@ -598,6 +691,7 @@ export function createSessionManager(deps: Deps) {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
       entry.session.send(text, { echoToClients: true })
+      entry.origin = 'claudinei'
     },
 
     /** O serviço vai parar: daqui em diante, sessão que para foi derrubada pelo reinício. */
@@ -615,7 +709,7 @@ export function createSessionManager(deps: Deps) {
     watchTurn(localId: string, onComplete: (status: 'completed' | 'failed', result: string) => void, timeoutMs = 600_000): boolean {
       const entry = live.get(localId)
       if (!entry) return false
-      watchTask(entry.session, timeoutMs, isShuttingDown, onComplete)
+      watchTask(entry.session, timeoutMs, turnCtx, onComplete)
       return true
     },
 
@@ -626,7 +720,15 @@ export function createSessionManager(deps: Deps) {
     async interrupt(localId: string): Promise<void> {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
-      await entry.session.interrupt()
+      // O result do turno interrompido chega antes de o interrupt() resolver ou,
+      // se a sessão já fechou o turno, é descartado por ela como póstumo. Nos
+      // dois casos a marca pode sair no fim.
+      interrupting.add(localId)
+      try {
+        await entry.session.interrupt()
+      } finally {
+        interrupting.delete(localId)
+      }
     },
 
     async stop(localId: string): Promise<void> {
@@ -952,7 +1054,7 @@ export function createSessionManager(deps: Deps) {
     },
 
     askAgent(toProjectId: number, fromLabel: string, question: string, timeoutMs = 120_000): Promise<string> {
-      let target: { session: EngineSession; projectId: number } | undefined
+      let target: { session: EngineSession; projectId: number; origin: LimitOrigin } | undefined
       let anyActive = false
       for (const [, entry] of live) {
         if (entry.projectId !== toProjectId || !ACTIVE.has(entry.session.status)) continue
@@ -968,12 +1070,13 @@ export function createSessionManager(deps: Deps) {
       }
       const session = target.session
 
-      const waited = waitForResult(session, timeoutMs, isShuttingDown)
+      const waited = waitForResult(session, timeoutMs, turnCtx)
       try {
         session.send(`[Question from agent of ${fromLabel}]: ${question}`)
       } catch (err) {
         return Promise.reject(err as Error)
       }
+      target.origin = 'task'
       return waited
     },
 
@@ -986,12 +1089,13 @@ export function createSessionManager(deps: Deps) {
     sendAndWait(localId: string, text: string, opts?: { timeoutMs?: number; wait?: boolean }): Promise<string | null> {
       const entry = live.get(localId)
       if (!entry) return Promise.reject(new Error(`sessão ${localId} não está ativa`))
-      const waited = opts?.wait === false ? null : waitForResult(entry.session, opts?.timeoutMs ?? 1_800_000, isShuttingDown)
+      const waited = opts?.wait === false ? null : waitForResult(entry.session, opts?.timeoutMs ?? 1_800_000, turnCtx)
       try {
         entry.session.send(text, { echoToClients: true })
       } catch (err) {
         return Promise.reject(err as Error)
       }
+      entry.origin = 'schedule'
       return waited ?? Promise.resolve(null)
     },
 
@@ -1003,7 +1107,7 @@ export function createSessionManager(deps: Deps) {
       onComplete: (status: 'completed' | 'failed', result: string) => void,
       timeoutMs = 600_000,
     ): EngineId | null {
-      let target: { session: EngineSession; projectId: number; engine: EngineId } | undefined
+      let target: { session: EngineSession; projectId: number; engine: EngineId; origin: LimitOrigin } | undefined
       let anyActive = false
       for (const [, entry] of live) {
         if (entry.projectId !== toProjectId || !ACTIVE.has(entry.session.status)) continue
@@ -1015,7 +1119,7 @@ export function createSessionManager(deps: Deps) {
         return null
       }
       const session = target.session
-      const cancel = watchTask(session, timeoutMs, isShuttingDown, onComplete)
+      const cancel = watchTask(session, timeoutMs, turnCtx, onComplete)
 
       try {
         // echoToClients: a UI não tem como saber desta mensagem sozinha (o CLI não
@@ -1027,6 +1131,7 @@ export function createSessionManager(deps: Deps) {
         onComplete('failed', (err as Error).message)
         return null
       }
+      target.origin = 'task'
       return target.engine
     },
   }

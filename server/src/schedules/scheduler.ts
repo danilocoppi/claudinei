@@ -2,8 +2,10 @@ import type { Db } from '../db.js'
 import type { SessionInfo } from '../claude/manager.js'
 import type { Project } from '../projects.js'
 import type { Schedule, SchedulesStore } from './store.js'
-import { getEngine } from '../engine/index.js'
+import { getEngine, hasEngine } from '../engine/index.js'
+import { enginesOf } from '../terminal-engines.js'
 import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
+import { USAGE_LIMIT_FAIL_PREFIX } from '../limit/texts.js'
 
 /**
  * O que o agendador precisa do gerenciador de sessões — e só isso. A superfície
@@ -47,10 +49,14 @@ export function createScheduler(deps: SchedulerDeps) {
 
   /**
    * A sessão em que este agendamento deve falar. Com engine fixada, é a daquela
-   * engine; sem, a primeira viva do projeto.
+   * engine, mesmo que o motor tenha saído da lista do terminal. Sem, só contam
+   * os motores da lista: a primeira de pé, senão a parada mais recente, senão
+   * uma nova no primeiro motor da lista que o servidor conhece.
    */
   function resolveSession(s: Schedule): SessionInfo {
-    const mine = manager.list().filter((x) => x.projectId === s.projectId && (!s.engine || x.engine === s.engine))
+    const listed = s.engine ? null : enginesOf(db, s.projectId)
+    const mine = manager.list().filter((x) => x.projectId === s.projectId &&
+      (s.engine ? x.engine === s.engine : listed!.includes(x.engine)))
     const ready = mine.find((x) => READY.has(x.status))
     if (ready) return ready
     if (mine.some((x) => BUSY.has(x.status) || x.status === 'in_terminal')) {
@@ -58,13 +64,19 @@ export function createScheduler(deps: SchedulerDeps) {
     }
 
     // Reviver preserva a conversa; começar do zero perde o contexto que o
-    // agendamento pode depender ("continue de onde parou ontem").
-    const revivable = mine.find((x) => x.status === 'stopped' || x.status === 'dead')
+    // agendamento pode depender ("continue de onde parou ontem"). A mais recente
+    // pelo updatedAt: a ordem do manager.list() não garante isso (as sessões
+    // vivas entram no fim). No empate, vale a ordem da lista.
+    const revivable = mine
+      .filter((x) => x.status === 'stopped' || x.status === 'dead')
+      .reduce<SessionInfo | undefined>((best, x) => (!best || x.updatedAt > best.updatedAt ? x : best), undefined)
     if (revivable) return manager.revive(revivable.localId)
 
     const project = projectOf(s.projectId)
     if (!project) throw new Error('projeto do agendamento não existe mais')
-    return manager.start(project, { engine: s.engine ?? undefined, model: s.model ?? undefined, effort: s.effort ?? undefined })
+    // Sem motor conhecido na lista (só ids de uma versão futura), fica o padrão do manager.
+    const engine = s.engine || listed!.find((id) => hasEngine(id))
+    return manager.start(project, { engine, model: s.model ?? undefined, effort: s.effort ?? undefined })
   }
 
   /** Sinaliza sobreposição — não é falha do agendamento, é "agora não". */
@@ -112,6 +124,13 @@ export function createScheduler(deps: SchedulerDeps) {
       // não falha seguida da tarefa, como no closeInterruptedRuns da subida.
       if (message === RESTART_FAIL_TEXT) {
         store.finishRun(run.id, { status: 'error', error: RESTART_FAIL_TEXT, countFailure: false })
+        notify('schedule_run', { scheduleId: s.id, projectId: s.projectId })
+        return
+      }
+      // O turno bateu no limite de uso do Claude: erro, mas a tarefa não falhou.
+      // Também não tenta de novo quando a janela reabre: a próxima é a da cadência.
+      if (message.startsWith(USAGE_LIMIT_FAIL_PREFIX)) {
+        store.finishRun(run.id, { status: 'error', error: message, countFailure: false })
         notify('schedule_run', { scheduleId: s.id, projectId: s.projectId })
         return
       }

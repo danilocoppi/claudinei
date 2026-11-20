@@ -25,7 +25,9 @@ const CODEX: EngineMeta = {
 beforeEach(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
   useStore.setState({
-    projects: [{ id: 1, name: 'P', path: '/tmp', color: '#fff', icon: '📁' }],
+    // As abas seguem a lista de motores do terminal: aqui ela tem os dois.
+    projects: [{ id: 1, name: 'P', path: '/tmp', color: '#fff', icon: '📁', engines: ['claude', 'codex'] }],
+    terminalStates: {},
     sessions: { a: sess('a'), b: sess('b') },
     chat: { a: [], b: [] },
     unread: {},
@@ -392,6 +394,9 @@ it('engine com CLI não instalada: aba mostra "não instalada" e NÃO oferece o 
     engines: [CLAUDE, { ...CODEX, available: false, installHint: 'npm install -g @openai/codex' }],
     sessions: { a: sess('a', { status: 'idle' }) }, // só claude vivo
     activeLocalId: 'a',
+    // Listada mas não instalada não ganha aba sozinha (motores por terminal); o
+    // aviso de trabalho interrompido é um dos casos em que ela aparece assim.
+    terminalStates: { '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null } },
   })
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   const badge = await screen.findByText('não instalada')

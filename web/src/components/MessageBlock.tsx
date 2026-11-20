@@ -344,11 +344,12 @@ function TaskMessageBubble({
 
 /**
  * Mensagem que o próprio Claudinei mandou ao agente para retomar o turno que um
- * reinício do serviço cortou. Vai em inglês ao agente; aqui aparece traduzida,
+ * reinício do serviço cortou (`restart`) ou que parou no limite de uso, quando a
+ * janela reabriu (`limit`). Vai em inglês ao agente; aqui aparece traduzida,
  * com selo próprio — não foi o operador que escreveu, nem outro terminal. Sem
  * lápis nem encaminhar: o texto é fixo e não é de ninguém para reaproveitar.
  */
-function ClaudineiMessageBubble() {
+function ClaudineiMessageBubble({ reason }: { reason: 'restart' | 'limit' }) {
   const { t } = useTranslation()
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '8px 0' }}>
@@ -357,7 +358,7 @@ function ClaudineiMessageBubble() {
           <div className="msg-claudinei__from">
             <span aria-hidden="true">↻</span> Claudinei
           </div>
-          <div style={{ lineHeight: 1.6 }}>{t('chat.claudineiResume')}</div>
+          <div style={{ lineHeight: 1.6 }}>{reason === 'limit' ? t('chat.claudineiLimitResume') : t('chat.claudineiResume')}</div>
         </div>
       </div>
     </div>
@@ -452,7 +453,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
     case 'scheduled_message':
       return <ScheduledMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'claudinei_message':
-      return <ClaudineiMessageBubble />
+      return <ClaudineiMessageBubble reason={item.reason} />
     case 'tool_call':
       return <ToolCallCard item={item} />
   }

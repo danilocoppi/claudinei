@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { openDb, type Db } from '../src/db.js'
 import { createProjectsService } from '../src/projects.js'
 import { registerProjectRoutes } from '../src/routes/projects.js'
+import { createTriageStore } from '../src/triage/store.js'
 
 let db: Db
 beforeEach(() => { db = openDb(':memory:') })
@@ -44,7 +45,7 @@ describe('ordenação de projetos', () => {
 describe('PUT /api/projects/order', () => {
   const makeApp = async () => {
     const app = Fastify()
-    registerProjectRoutes(app, { db, manager: { hasActiveSession: () => false } as any })
+    registerProjectRoutes(app, { db, manager: { hasActiveSession: () => false } as any, triage: createTriageStore(db) })
     return app
   }
 
@@ -73,7 +74,7 @@ describe('PATCH /api/projects/:id', () => {
     const svc = createProjectsService(db)
     const a = mk(svc, 'A')
     const app = Fastify()
-    registerProjectRoutes(app, { db, manager: { hasActiveSession: () => false } as any })
+    registerProjectRoutes(app, { db, manager: { hasActiveSession: () => false } as any, triage: createTriageStore(db) })
     const res = await app.inject({ method: 'PATCH', url: `/api/projects/${a.id}`, payload: { name: 'Novo', path: '/etc' } })
     expect(res.statusCode).toBe(200)
     expect(res.json().name).toBe('Novo')

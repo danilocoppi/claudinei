@@ -15,11 +15,14 @@ import { OrphanActions } from './components/OrphanActions'
 import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
 import { MobileTopbar } from './components/MobileTopbar'
+import { UndoToast } from './components/UndoToast'
 import { initNotifications } from './notifications'
 import { installIndicatorMotion } from './indicatorMotion'
 import { useAccessHours } from './useAccessHours'
 import { useEngineCatalog } from './useEngineCatalog'
 import { useTerminalStatesSync } from './useTerminalStatesSync'
+import { useUsageShortcut } from './useUsageShortcut'
+import { useTriageSync } from './useTriageSync'
 import { AccessLocked } from './components/AccessLocked'
 import './access-hours.css'
 
@@ -36,6 +39,7 @@ const SchedulesView = lazy(() => import('./components/SchedulesView').then((m) =
 const TerminalView = lazy(() => import('./components/TerminalView').then((m) => ({ default: m.TerminalView })))
 const ActionRunModal = lazy(() => import('./components/ActionRunModal').then((m) => ({ default: m.ActionRunModal })))
 const FileViewerModal = lazy(() => import('./components/FileViewerModal').then((m) => ({ default: m.FileViewerModal })))
+const UsagePage = lazy(() => import('./components/UsagePage').then((m) => ({ default: m.UsagePage })))
 
 /**
  * Os modais são renderizados SEMPRE (devolvem null quando inativos), então um
@@ -60,6 +64,11 @@ export default function App() {
   useAccessHours()
   useEngineCatalog(authStatus === 'ready')
   useTerminalStatesSync()
+  // Ctrl+U só para administrador: a página lê o uso de todos (a rota dá 403 aos demais).
+  // Mesma regra da lateral para o cartão Uso: sem `me` (sem login) vale como administrador.
+  const isAdmin = useStore((s) => !s.me || s.me.isAdmin !== false)
+  useUsageShortcut(authStatus === 'ready' && isAdmin)
+  useTriageSync()
 
   useEffect(() => installIndicatorMotion(), [])
 
@@ -148,6 +157,7 @@ export default function App() {
     }
     if (s.view === 'board') return t('sidebar.board')
     if (s.view === 'tasks') return t('sidebar.tasks')
+    if (s.view === 'usage') return t('usagePage.title')
     return t('sidebar.overview')
   })
 
@@ -178,12 +188,14 @@ export default function App() {
           {view === 'tasks' && <TasksPanel />}
           {view === 'schedules' && <Suspense fallback={null}><SchedulesView /></Suspense>}
           {view === 'terminal' && <Suspense fallback={null}><TerminalView /></Suspense>}
+          {view === 'usage' && <Suspense fallback={null}><UsagePage /></Suspense>}
         </div>
         <ActionRunsGate />
         <OrphanActions />
         <FileViewerGate />
         <FileOpenMenu />
         <ExternalLinkConfirm />
+        <UndoToast />
       </div>
     </WsContext.Provider>
   )

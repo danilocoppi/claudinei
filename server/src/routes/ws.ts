@@ -37,6 +37,16 @@ export function createWsHub() {
   let projectsSvc: ProjectsService | undefined
 
   const canSee = (user: AuthUser | undefined, msg: any): boolean => {
+    // Triagem é pessoal: só o dono vê, nem o admin. ANTES do atalho abaixo, que
+    // liberaria tudo para admin, serviço e instalação sem auth. O dono é o id de
+    // armazenamento das rotas (sem auth → 0; serviço não tem triagem). O dono
+    // que perdeu o acesso ao projeto também não recebe (o despertar alcança toda
+    // linha do projeto, inclusive a de quem saiu dele).
+    if (msg.type === 'triage') {
+      const id = !user ? 0 : user.kind === 'user' ? user.id : null
+      if (id === null || id !== msg.userId) return false
+      return !user || canAccessProject(user, msg.item?.projectId)
+    }
     if (!user || user.kind === 'service' || user.isAdmin) return true
     const projectId: number | undefined =
       typeof msg.projectId === 'number'

@@ -36,16 +36,19 @@ beforeEach(async () => {
 afterEach(async () => { await app.close(); db.close() })
 
 describe('favoritos de terminais', () => {
-  it('usuário com acesso marca e desmarca; listagem e admin recebem o estado persistido', async () => {
+  it('a ⭐ fixa e desafixa só para quem clicou; a coluna global não muda', async () => {
     const ana = await login('ana')
     const root = await login('root')
     const mark = await app.inject({ method: 'PATCH', url: `/api/projects/${ownId}/favorite`, payload: { favorite: true }, cookies: ana })
     expect(mark.statusCode).toBe(200)
     expect(mark.json()).toMatchObject({ id: ownId, favorite: true })
-    expect((await app.inject({ method: 'GET', url: '/api/projects', cookies: ana })).json()).toMatchObject([{ id: ownId, favorite: true }])
-    expect((await app.inject({ method: 'GET', url: '/api/projects', cookies: root })).json().find((p: { id: number }) => p.id === ownId).favorite).toBe(true)
+    expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: ana })).json()).toMatchObject([{ projectId: ownId, pinned: true }])
+    // O admin tem a sua própria triagem: a ⭐ de ana não aparece para ele.
+    expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: root })).json()).toEqual([])
+    expect(createProjectsService(db).get(ownId)?.favorite).toBe(false)
     const clear = await app.inject({ method: 'PATCH', url: `/api/projects/${ownId}/favorite`, payload: { favorite: false }, cookies: ana })
     expect(clear.json().favorite).toBe(false)
+    expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: ana })).json()).toEqual([])
   })
 
   it('rejeita terminal fora do acesso, valor inválido e id inexistente', async () => {
@@ -55,5 +58,6 @@ describe('favoritos de terminais', () => {
     expect((await app.inject({ method: 'PATCH', url: `/api/projects/${ownId}/favorite`, payload: { favorite: 'sim' }, cookies: ana })).statusCode).toBe(400)
     expect((await app.inject({ method: 'PATCH', url: '/api/projects/99999/favorite', payload: { favorite: true }, cookies: root })).statusCode).toBe(404)
     expect(createProjectsService(db).get(otherId)?.favorite).toBe(false)
+    expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: ana })).json()).toEqual([])
   })
 })

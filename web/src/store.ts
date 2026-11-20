@@ -11,7 +11,7 @@ import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
-import type { HeadsUpNode, Progress, TerminalState } from './types'
+import type { HeadsUpNode, Progress, TerminalState, TriageItem } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
@@ -58,6 +58,19 @@ function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>):
   const kept = Object.keys(map).filter((k) => k in keep)
   if (kept.length === Object.keys(map).length) return map
   return Object.fromEntries(kept.map((k) => [k, map[k]]))
+}
+
+/** A ação de triagem que o `Ctrl+Z` e o botão "Desfazer" ainda podem desfazer. */
+export interface TriageUndo {
+  /** O texto do aviso, já traduzido ("Alpha assentado"). */
+  label: string
+  projectId: number
+  /** O estado de antes da ação: o desfazer devolve os três campos. */
+  before: TriageItem
+  /** O estado logo depois da ação. Se o terminal mudou desde então (acordou), não desfaz. */
+  after: TriageItem
+  /** Epoch ms; passado o prazo, não desfaz mais. */
+  expiresAt: number
 }
 
 /** O que o menu do arquivo fez, para quem o abriu decidir o resto (o `@!` sai do campo). */
@@ -109,7 +122,7 @@ interface State {
   schedules: Schedule[]
   /** Aparência do usuário. O servidor é a verdade; aqui fica o que está aplicado. */
   appearance: Appearance
-  view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal' | 'schedules'
+  view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal' | 'schedules' | 'usage'
   board: BoardPost[]
   tasks: Task[]
   /** Arquivo aberto no FileViewerModal (path detectado/resolvido no chat), ou null se fechado. */
@@ -195,6 +208,20 @@ interface State {
    */
   terminalStates: Record<string, TerminalState>
   setTerminalState(state: TerminalState): void
+  /**
+   * Triagem da lista do usuário logado, por projeto: fixado, assentado e adiado.
+   * Projeto fora do mapa está no normal. Lida por `useTriageSync` e mantida pela
+   * mensagem `triage` do WebSocket, que o servidor manda só ao dono.
+   */
+  triage: Record<number, TriageItem>
+  setTriageItem(item: TriageItem): void
+  /**
+   * A última ação de triagem do operador, desfazível até `expiresAt` (5 s). Só no
+   * navegador; quem escreve e lê é `triageActions.ts`, e o `UndoToast` mostra.
+   */
+  undo: TriageUndo | null
+  /** Chave i18n do aviso de falha da última ação de triagem (no canto do `UndoToast`). */
+  triageError: 'sidebar.pinSaveError' | 'sidebar.triageSaveError' | null
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
@@ -206,6 +233,8 @@ interface State {
   openBoard(): void
   setTasks(tasks: Task[]): void
   openTasks(): void
+  /** Página de uso (tokens por terminal, modelo e período). Só administrador chega aqui. */
+  openUsage(): void
   openFile(path: string, kind: FileKind, projectId?: number): void
   closeFile(): void
   setFileEditDirty(v: boolean): void
@@ -233,7 +262,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {},
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -361,6 +390,10 @@ export const useStore = create<State>((set, get) => ({
   terminalStates: {},
   setTerminalState: (state) =>
     set((s) => ({ terminalStates: { ...s.terminalStates, [progressKey(state.projectId, state.engine)]: state } })),
+  triage: {},
+  undo: null,
+  triageError: null,
+  setTriageItem: (item) => set((s) => ({ triage: { ...s.triage, [item.projectId]: item } })),
   setProgress: (projectId, engine, progress) =>
     set((s) => ({ progress: { ...s.progress, [progressKey(projectId, engine)]: progress } })),
   progressOpen: (() => {
@@ -416,6 +449,9 @@ export const useStore = create<State>((set, get) => ({
       get().setProgress(msg.projectId, msg.engine, (msg.progress ?? null) as Progress | null)
     } else if (msg.type === 'terminal_state' && msg.state && typeof msg.state.projectId === 'number' && typeof msg.state.engine === 'string') {
       get().setTerminalState(msg.state as TerminalState)
+    } else if (msg.type === 'triage' && msg.item && typeof msg.item.projectId === 'number') {
+      // Chega só ao dono (ação dele em outra aba, ou o despertar): `userId` não precisa de conferência.
+      get().setTriageItem(msg.item as TriageItem)
     } else if (msg.type === 'heads_up' && typeof msg.localId === 'string') {
       applyHeadsUp(msg.localId, (msg.tree ?? null) as HeadsUpNode | null)
     } else if (msg.type === 'sessions_snapshot') {
@@ -626,6 +662,8 @@ export const useStore = create<State>((set, get) => ({
   setTasks: (tasks) => set({ tasks }),
 
   openTasks: () => set({ view: 'tasks', activeLocalId: undefined }),
+
+  openUsage: () => set({ view: 'usage', activeLocalId: undefined }),
 
   openFile: (path, kind, projectId) => set({ fileViewer: { path, kind, projectId } }),
 

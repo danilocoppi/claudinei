@@ -65,17 +65,30 @@ const STATUS_PRIORITY: Record<SessionInfo['status'], number> = {
 
 /** A sessão "cara do projeto": maior prioridade de status; empate → mais recente. */
 /** Prioridade de status; empate → mais recente. Ordem única do card e das bolinhas. */
-const byPriorityThenRecency = (a: SessionInfo, b: SessionInfo): number => {
+export const byPriorityThenRecency = (a: SessionInfo, b: SessionInfo): number => {
   const pa = STATUS_PRIORITY[a.status] ?? 0
   const pb = STATUS_PRIORITY[b.status] ?? 0
   if (pa !== pb) return pb - pa
   return a.updatedAt < b.updatedAt ? 1 : -1
 }
 
-export function primarySessionOf(projectId: number, sessions: Record<string, SessionInfo>): SessionInfo | undefined {
-  return Object.values(sessions)
+/**
+ * `listed` é a lista de motores do terminal (ver terminalEngines.ts). Com ela,
+ * quando nenhuma sessão está viva, a cara do projeto é a sessão parada de um
+ * motor listado: o cartão não reabre a conversa de um motor escondido. Sem
+ * nenhuma sessão de motor listado, vale a regra de sempre.
+ */
+export function primarySessionOf(
+  projectId: number,
+  sessions: Record<string, SessionInfo>,
+  listed?: string[],
+): SessionInfo | undefined {
+  const ranked = Object.values(sessions)
     .filter((s) => s.projectId === projectId)
-    .sort(byPriorityThenRecency)[0]
+    .sort(byPriorityThenRecency)
+  const best = ranked[0]
+  if (!listed || !best || LIVE_STATUSES.has(best.status)) return best
+  return ranked.find((s) => listed.includes(s.engine)) ?? best
 }
 
 /**
@@ -125,10 +138,19 @@ export function isWaitingForYou(s: SessionInfo): boolean {
   return s.status === 'needs_attention' || !!s.pendingQuestion || (s.status === 'in_terminal' && s.terminalActivity === 'waiting')
 }
 
+/**
+ * O TUI do terminal interativo está processando? Vem da heurística de atividade
+ * (`terminalActivity`) enquanto `in_terminal`. Fonte única do rosto trabalhando
+ * (`faceStateOf`) e da faixa Trabalhando (`isSessionWorking`).
+ */
+export function isTerminalProcessing(s: SessionInfo): boolean {
+  return s.status === 'in_terminal' && s.terminalActivity === 'working'
+}
+
 /** Classe do status-dot: pergunta pendente ou terminal esperando = âmbar (como needs_attention); processando = pulso. */
 export function dotClassOf(s: SessionInfo): string {
   if (s.pendingQuestion) return 'status-dot status-needs_attention'
   if (s.status === 'in_terminal' && s.terminalActivity === 'waiting') return 'status-dot status-needs_attention'
-  if (s.status === 'in_terminal' && s.terminalActivity === 'working') return 'status-dot status-in_terminal status-dot--pulse'
+  if (isTerminalProcessing(s)) return 'status-dot status-in_terminal status-dot--pulse'
   return `status-dot status-${s.status}`
 }

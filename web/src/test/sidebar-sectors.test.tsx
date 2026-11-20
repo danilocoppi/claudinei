@@ -94,10 +94,12 @@ describe('Sidebar com setores', () => {
     fireEvent.click(screen.getByLabelText('Somente ativos'))
     const header = screen.getByTestId('term-sector').querySelector('.term-sector__header')!
     expect(within(header as HTMLElement).getByText('1/2')).toBeTruthy()
-    expect(screen.getByText('Alpha')).toBeTruthy()
+    // Na árvore: a faixa Trabalhando repete o nome de quem trabalha.
+    const tree = within(screen.getByTestId('term-tree'))
+    expect(tree.getByText('Alpha')).toBeTruthy()
     expect(screen.queryByText('Beta')).toBeNull()   // parado, sai
     expect(screen.queryByText('Infra')).toBeNull()  // grupo sem ativo, some
-    expect(screen.getByText('Delta')).toBeTruthy()
+    expect(tree.getByText('Delta')).toBeTruthy()
   })
 
   it('arrastar terminal da raiz para o setor manda-o para dentro dele', async () => {

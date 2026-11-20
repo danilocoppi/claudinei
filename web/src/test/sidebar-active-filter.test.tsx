@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
 import { Sidebar } from '../components/Sidebar'
 import { useStore } from '../store'
 import type { EngineMeta, SessionInfo, SessionStatus } from '../types'
@@ -28,6 +28,8 @@ const baseState = () => ({
 })
 
 const toggle = () => screen.getByLabelText('Somente ativos')
+// Os cartões: a faixa Trabalhando repete o nome de quem trabalha (Alpha).
+const list = () => within(screen.getByTestId('term-tree'))
 
 beforeEach(() => {
   useStore.setState(baseState())
@@ -39,14 +41,14 @@ afterEach(() => cleanup())
 describe('Sidebar — filtro somente ativos', () => {
   it('com o filtro desligado, lista terminais ativos e parados', () => {
     render(<Sidebar />)
-    expect(screen.getByText('Alpha')).toBeTruthy()
+    expect(list().getByText('Alpha')).toBeTruthy()
     expect(screen.getByText('Beta')).toBeTruthy()
   })
 
   it('ligar o filtro esconde o terminal sem sessão viva e mantém o ativo', () => {
     render(<Sidebar />)
     fireEvent.click(toggle())
-    expect(screen.getByText('Alpha')).toBeTruthy()
+    expect(list().getByText('Alpha')).toBeTruthy()
     expect(screen.queryByText('Beta')).toBeNull()
   })
 
@@ -84,7 +86,7 @@ describe('Sidebar — filtro somente ativos', () => {
     render(<Sidebar />)
     expect(screen.getByText('2')).toBeTruthy()          // sem filtro: total puro
     fireEvent.click(toggle())
-    expect(screen.getByText('Alpha')).toBeTruthy()
+    expect(list().getByText('Alpha')).toBeTruthy()
     expect(screen.queryByText('Beta')).toBeNull()
     expect(screen.getByText('1/2')).toBeTruthy()        // com filtro: ativos/total
   })

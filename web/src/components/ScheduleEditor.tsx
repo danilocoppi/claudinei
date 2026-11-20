@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { previewCadence, type Cadence, type Schedule } from '../api'
 import { useStore } from '../store'
+import { listedOf, pickableEngines } from '../terminalEngines'
 import { defaultCadence, formatRunTimes } from '../cadenceText'
 import { effortsForModel, modelDisplayName } from '../../../shared/engine-options'
 
@@ -23,7 +24,11 @@ export function ScheduleEditor({
 }) {
   const { t } = useTranslation()
   const titleId = useId()
-  const engines = useStore((s) => s.engines)
+  const allEngines = useStore((s) => s.engines)
+  const project = useStore((s) => s.projects.find((p) => p.id === projectId))
+  // Só os motores da lista do terminal. O de um agendamento que já existe fica,
+  // mesmo que tenha saído da lista: ele continua rodando nesse motor.
+  const engines = pickableEngines(allEngines, listedOf(project), editing?.engine)
 
   const [name, setName] = useState(editing?.name ?? '')
   const [task, setTask] = useState(editing?.task ?? '')

@@ -3,7 +3,7 @@ import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { EngineTabs } from '../components/EngineTabs'
 import { useStore } from '../store'
 import * as api from '../api'
-import type { EngineMeta, SessionInfo, SessionStatus } from '../types'
+import type { EngineMeta, Project, SessionInfo, SessionStatus } from '../types'
 
 const CLAUDE: EngineMeta = {
   id: 'claude', label: 'Claude Code', icon: 'claude',
@@ -27,7 +27,10 @@ const withBoth = (kimiStatus: SessionStatus = 'idle') => {
 
 const stopBtn = (label: RegExp) => screen.getByTitle(label)
 
-beforeEach(() => { useStore.setState({ projects: [], chat: {}, unread: {}, streaming: {}, historyLoadedFor: {} }) })
+// As abas seguem a lista de motores do terminal: aqui ela tem os dois.
+const PROJECT: Project = { id: 1, name: 'T', path: '/tmp/t', color: '#000', icon: 'x', engines: ['claude', 'kimi'] }
+
+beforeEach(() => { useStore.setState({ projects: [PROJECT], terminalStates: {}, chat: {}, unread: {}, streaming: {}, historyLoadedFor: {} }) })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('EngineTabs — encerrar sessão por engine', () => {
@@ -83,9 +86,12 @@ describe('EngineTabs — engine não instalada', () => {
   // "não instalada" já diz tudo: mostrar "○ sem sessão" junto era redundância
   // que comia a largura da barra (as três ausentes estouravam o header).
   it('não instalada e sem sessão → só o selo, sem "sem sessão" nem bolinha', () => {
+    // Listada mas não instalada não ganha aba sozinha (motores por terminal); o
+    // aviso de trabalho interrompido é um dos casos em que ela aparece assim.
     useStore.setState({
       engines: [CLAUDE, { ...KIMI, available: false }],
       sessions: { c1: sess('c1', 'claude', 'idle') },
+      terminalStates: { '1:kimi': { projectId: 1, engine: 'kimi', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null } },
     })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)
     const tabs = screen.getAllByRole('tab')

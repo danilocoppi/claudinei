@@ -457,6 +457,7 @@ export const es: typeof en = {
     armed: 'Reanudación programada para las {{time}}',
     cardMarker: 'límite hasta las {{time}}', cardMarkerUnknown: 'límite de uso', cardMarkerArmed: 'reanuda a las {{time}}',
   },
+  zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',
     tooLarge: 'Archivo demasiado grande para vista previa — descárgalo para verlo.',

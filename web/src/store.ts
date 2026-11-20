@@ -15,6 +15,8 @@ import type { HeadsUpNode, Progress, TerminalState, TriageItem } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
+/** Modo Zen (só a conversa e o campo): também por navegador, '1' | '0'. */
+const ZEN_KEY = 'claudinei:zen'
 const PROGRESS_OPEN_KEY = 'claudinei:progressOpen'
 
 /** Chave do acompanhamento de um terminal: projeto + motor. */
@@ -192,6 +194,9 @@ interface State {
   /** Barra lateral em modo régua (62px, só estados e ícones). */
   railMode: boolean
   toggleRail(): void
+  /** Modo Zen: esconde a moldura (lateral, cabeçalho do chat e coluna do acompanhamento). */
+  zen: boolean
+  toggleZen(): void
   /** Acompanhamento de tarefas longas por terminal (`progressKey`); null = sem acompanhamento. */
   progress: Record<string, Progress | null>
   setProgress(projectId: number, engine: string, progress: Progress | null): void
@@ -383,6 +388,17 @@ export const useStore = create<State>((set, get) => ({
       const railMode = !s.railMode
       try { localStorage.setItem(RAIL_KEY, railMode ? '1' : '0') } catch { /* só não persiste */ }
       return { railMode }
+    }),
+
+  zen: (() => {
+    try { return localStorage.getItem(ZEN_KEY) === '1' } catch { return false }
+  })(),
+
+  toggleZen: () =>
+    set((s) => {
+      const zen = !s.zen
+      try { localStorage.setItem(ZEN_KEY, zen ? '1' : '0') } catch { /* só não persiste */ }
+      return { zen }
     }),
 
   progress: {},

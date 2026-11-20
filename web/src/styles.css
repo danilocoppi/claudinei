@@ -392,6 +392,17 @@ body {
 }
 .sidebar-resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+/* Saída do modo Zen: estática, no canto de cima à direita, acima da conversa e
+   abaixo da gaveta e dos modais. Fundo opaco, sem backdrop-filter nem animação:
+   a interface precisa andar sem GPU (AGENTS.md). O seletor composto vence o
+   `button.ghost`, que vem depois e deixaria o fundo transparente. */
+button.ghost.zen-exit {
+  position: fixed; z-index: 30;
+  top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(12px + env(safe-area-inset-right, 0px));
+  padding: 5px 10px; font-size: 12px; color: var(--text-dim);
+  background: var(--surface-solid);
+}
+button.ghost.zen-exit:hover { color: var(--text); filter: none; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .status-idle { background: var(--text-dim); }
 .status-working { background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 1.2s infinite; }

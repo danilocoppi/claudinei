@@ -455,6 +455,7 @@ export const en = {
     armed: 'Resume armed for {{time}}',
     cardMarker: 'limit until {{time}}', cardMarkerUnknown: 'usage limit', cardMarkerArmed: 'resumes at {{time}}',
   },
+  zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
     tooLarge: 'File too large to preview — download it instead.',

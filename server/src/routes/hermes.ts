@@ -18,6 +18,12 @@ export function registerHermesRoutes(
   app: FastifyInstance,
   deps: {
     db: Db; manager: SessionManager; broadcast?: (msg: object) => void
+    /**
+     * O terminal (projeto + motor) pode receber uma pergunta agora? Falso com
+     * aviso aberto esperando o operador: o ask_agent falha na hora, sem injetar.
+     * Ausente = todos podem.
+     */
+    canTake?: (projectId: number, engine: string) => boolean
     /** O serviço do goal (nasce depois destas rotas, por isso a referência tardia). Ausente = nenhum goal ativo. */
     goal?: () => Pick<GoalService, 'done'> | undefined
   },
@@ -112,7 +118,8 @@ export function registerHermesRoutes(
     const fromLabel = fromProject?.name ?? 'unknown'
 
     try {
-      const answer = await deps.manager.askAgent(target.id, fromLabel, body.question)
+      const accept = deps.canTake ? (engine: string) => deps.canTake!(target.id, engine) : undefined
+      const answer = await deps.manager.askAgent(target.id, fromLabel, body.question, undefined, { accept })
       return { answer }
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message })

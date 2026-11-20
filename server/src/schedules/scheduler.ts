@@ -28,7 +28,16 @@ export interface SchedulerDeps {
   timeoutMs?: number
   /** Intervalo do laço. */
   tickMs?: number
+  /**
+   * O terminal (projeto + motor) tem aviso aberto esperando o operador (reinício
+   * sem retomada automática, ou o limite de uso): a execução não fala com ele,
+   * como a fila do operador e as tarefas de outros agentes. Ausente = nenhum.
+   */
+  holds?: (projectId: number, engine: string) => boolean
 }
+
+/** Motivo gravado na execução pulada por aviso aberto no terminal. */
+export const NOTICE_HELD_TEXT = 'aviso aberto esperando o operador'
 
 /** Estados em que a sessão está de pé e aceita uma mensagem nova agora. */
 const READY = new Set(['idle', 'needs_attention', 'starting'])
@@ -57,8 +66,11 @@ export function createScheduler(deps: SchedulerDeps) {
     const listed = s.engine ? null : enginesOf(db, s.projectId)
     const mine = manager.list().filter((x) => x.projectId === s.projectId &&
       (s.engine ? x.engine === s.engine : listed!.includes(x.engine)))
-    const ready = mine.find((x) => READY.has(x.status))
+    const held = (engine: string) => !!deps.holds?.(s.projectId, engine)
+    // Sessão de pé num terminal com aviso aberto não serve; sem outra, a execução é pulada.
+    const ready = mine.find((x) => READY.has(x.status) && !held(x.engine))
     if (ready) return ready
+    if (mine.some((x) => READY.has(x.status))) throw new NoticeHeldError(NOTICE_HELD_TEXT)
     if (mine.some((x) => BUSY.has(x.status) || x.status === 'in_terminal')) {
       throw new OverlapError('a sessão está ocupada')
     }
@@ -70,17 +82,23 @@ export function createScheduler(deps: SchedulerDeps) {
     const revivable = mine
       .filter((x) => x.status === 'stopped' || x.status === 'dead')
       .reduce<SessionInfo | undefined>((best, x) => (!best || x.updatedAt > best.updatedAt ? x : best), undefined)
-    if (revivable) return manager.revive(revivable.localId)
+    if (revivable) {
+      if (held(revivable.engine)) throw new NoticeHeldError(NOTICE_HELD_TEXT)
+      return manager.revive(revivable.localId)
+    }
 
     const project = projectOf(s.projectId)
     if (!project) throw new Error('projeto do agendamento não existe mais')
     // Sem motor conhecido na lista (só ids de uma versão futura), fica o padrão do manager.
     const engine = s.engine || listed!.find((id) => hasEngine(id))
+    if (engine && held(engine)) throw new NoticeHeldError(NOTICE_HELD_TEXT)
     return manager.start(project, { engine, model: s.model ?? undefined, effort: s.effort ?? undefined })
   }
 
   /** Sinaliza sobreposição — não é falha do agendamento, é "agora não". */
   class OverlapError extends Error {}
+  /** O terminal tem aviso aberto esperando o operador: "agora não", sem contar falha. */
+  class NoticeHeldError extends Error {}
 
   async function applyOptions(s: Schedule, info: SessionInfo): Promise<void> {
     if (s.model && s.model !== info.model) await manager.setSessionOptions(info.localId, { model: s.model })
@@ -120,6 +138,12 @@ export function createScheduler(deps: SchedulerDeps) {
       })
     } catch (err) {
       const message = (err as Error).message
+      // Aviso aberto no terminal: pulada, e a contagem de falhas fica como está.
+      if (err instanceof NoticeHeldError) {
+        store.finishRun(run.id, { status: 'skipped', error: message, countFailure: false })
+        notify('schedule_run', { scheduleId: s.id, projectId: s.projectId })
+        return
+      }
       // O reinício derrubou o turno (sendAndWait recusa com este texto): erro, mas
       // não falha seguida da tarefa, como no closeInterruptedRuns da subida.
       if (message === RESTART_FAIL_TEXT) {

@@ -1280,20 +1280,32 @@ export function createSessionManager(deps: Deps) {
       await Promise.all([...live.values()].map((e) => e.session.stop()))
     },
 
-    askAgent(toProjectId: number, fromLabel: string, question: string, timeoutMs = 120_000): Promise<string> {
+    /**
+     * `opts.accept` restringe os motores, como no `dispatchTask`: terminal com
+     * aviso aberto esperando o operador não recebe a pergunta. Se a única sessão
+     * livre for de um terminal recusado, falha na hora com o motivo.
+     */
+    askAgent(toProjectId: number, fromLabel: string, question: string, timeoutMs = 120_000, opts?: Pick<TaskTarget, 'accept'>): Promise<string> {
       let target: { session: EngineSession; projectId: number; origin: LimitOrigin } | undefined
       let anyActive = false
+      let held = false
       for (const [, entry] of live) {
         if (entry.projectId !== toProjectId || !ACTIVE.has(entry.session.status)) continue
         anyActive = true
         // Pula sessões ocupadas: com 2 engines no mesmo projeto (uma working,
         // outra idle), a entrega vai para a livre — não falha com "busy".
-        if (entry.session.status !== 'working') { target = entry; break }
+        if (entry.session.status === 'working') continue
+        if (opts?.accept && !opts.accept(entry.engine)) { held = true; continue }
+        target = entry
+        break
       }
       if (!target) {
-        return Promise.reject(new Error(anyActive
-          ? 'target agent is busy; try again shortly'
-          : 'target project has no active session'))
+        return Promise.reject(new Error(held
+          ? 'target terminal has a notice open waiting for the operator (interrupted by a restart, or usage limit); '
+            + 'it cannot answer now — use dispatch_task instead, the task waits until the operator clears the notice'
+          : anyActive
+            ? 'target agent is busy; try again shortly'
+            : 'target project has no active session'))
       }
       const session = target.session
 

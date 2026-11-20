@@ -195,15 +195,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // do Hermes (goal_done) e o orchestrator (fim de tarefa) leem as referências.
   let taskWake: TaskWake | undefined
   let goal: GoalService | undefined
-  registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast, goal: () => goal })
-  registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })
   // O estado dos terminais (aviso do reinício, limite de uso) nasce antes do
-  // orchestrator: com aviso aberto, nem a fila nem as tarefas de outros agentes
-  // são entregues. O encerramento do serviço segura também: entregar agora
-  // mandaria a mensagem a um processo que vai ser derrubado.
+  // Hermes e do orchestrator: com aviso aberto, nem a fila, nem as tarefas de
+  // outros agentes, nem as perguntas (ask_agent), nem os agendamentos chegam ao
+  // terminal. O encerramento do serviço segura também: entregar agora mandaria
+  // a mensagem a um processo que vai ser derrubado.
   const terminalState = createTerminalStateStore(deps.db)
   const holds = (projectId: number, engine: string): boolean =>
     deps.manager.isShuttingDown() || holdsForNotice(terminalState.get(projectId, engine))
+  registerHermesRoutes(app, {
+    db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast, goal: () => goal,
+    canTake: (projectId, engine) => !holds(projectId, engine),
+  })
+  registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })
   const orchestrator = registerOrchestratorRoutes(app, {
     db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast,
     canTake: (projectId, engine) => !holds(projectId, engine),
@@ -264,6 +268,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })
   const scheduler = createScheduler({
     db: deps.db, store: schedulesStore, manager: deps.manager, broadcast: deps.wsHub?.broadcast,
+    // Só o aviso (o encerramento já para o laço e fecha as execuções na subida).
+    holds: (projectId, engine) => holdsForNotice(terminalState.get(projectId, engine)),
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)

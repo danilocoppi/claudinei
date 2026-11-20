@@ -349,6 +349,20 @@ describe('drain e o árbitro do próximo envio', () => {
     await manager.stop(localId)
   })
 
+  it('com o aviso do limite de uso aberto, a tarefa de outro agente espera (drain pula a sessão livre)', async () => {
+    const localId = await startIdle()
+    createTerminalStateStore(db).recordUsageLimit(toId, 'claude', { resetsAt: Math.floor(Date.now() / 1000) + 3600, origin: 'operator' })
+    const { id } = (await app.inject({
+      method: 'POST', url: '/api/orchestrator/dispatch',
+      payload: { fromProjectId: fromId, toProjectName: 'Destino', description: 'tarefa' },
+    })).json()
+    await new Promise((r) => setTimeout(r, 50))
+    expect((db.prepare('SELECT status FROM tasks WHERE id=?').get(id) as any).status).toBe('queued')
+    expect(statusOf(localId)).toBe('idle')
+    expect(userTexts(localId)).toEqual([])
+    await manager.stop(localId)
+  })
+
   it('com o aviso aberto, a tarefa de outro agente espera; fechar o aviso entrega', async () => {
     const localId = await startIdle()
     createTerminalStateStore(db).markInterrupted(toId, 'claude', localId, null)

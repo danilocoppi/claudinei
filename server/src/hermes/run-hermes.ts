@@ -158,7 +158,9 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
         "Delegates a task to another project's agent and returns immediately, without waiting for the work to be done. "
         + 'Use it to run work in parallel; when you cannot continue without the answer, use ask_agent instead. '
         + 'The task is queued even when the target has no session running, so it does not fail for unavailability — it starts once that project has an agent. '
-        + 'What comes back is a task id: call list_tasks later to read the outcome.',
+        + 'There is no time limit: the task runs as long as the other agent needs to finish its turn. '
+        + 'What comes back is a task id. '
+        + 'You will be woken with the result in a Claudinei message when the task ends; you do not need to poll list_tasks.',
       inputSchema: {
         project: z.string().describe('exact project name, as list_projects prints it'),
         task: z.string().describe('what to do, self-contained: the other agent cannot see your conversation'),
@@ -178,7 +180,8 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
     {
       description:
         'Lists dispatched tasks with the status of each one (queued, in_progress, completed, failed) and the result text once it is ready. '
-        + 'Call it to collect what you delegated with dispatch_task — a dispatch returns only an id, and this is where the outcome shows up. '
+        + 'You do not need it to learn that a task ended: the result of what you delegated with dispatch_task arrives on its own in a Claudinei message, cut when it is long. '
+        + 'Call it to reread a result in full or to see how delegated work is progressing. '
         + 'Each line carries the task id, so match on the id the dispatch gave you rather than on position.',
       inputSchema: {},
     },

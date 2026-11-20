@@ -199,4 +199,23 @@ describe('entry multi-modo (--hermes)', () => {
     const outra = r.result.tools.find((t: any) => t.name === 'read_board')
     expect(outra._meta?.['anthropic/alwaysLoad']).toBeUndefined()
   }, 20000)
+
+  // Delegar e ser acordado: o resultado chega sozinho numa mensagem do Claudinei,
+  // e a novidade vai na descrição da ferramenta (as instructions não mudam).
+  it('hermes: descrição de dispatch_task fala do aviso e cabe em 2000 caracteres', async () => {
+    const [r] = await hermesCall('http://127.0.0.1:1', {}, [{ method: 'tools/list', params: {} }])
+    const dispatch = r.result.tools.find((t: any) => t.name === 'dispatch_task')
+    expect(dispatch.description.endsWith(
+      'You will be woken with the result in a Claudinei message when the task ends; you do not need to poll list_tasks.',
+    )).toBe(true)
+    expect(dispatch.description).not.toMatch(/call list_tasks later/)
+    expect(dispatch.description.length).toBeLessThanOrEqual(2000)
+
+    const list = r.result.tools.find((t: any) => t.name === 'list_tasks')
+    expect(list.description).toMatch(/reread/)
+    expect(list.description).toMatch(/full/)
+    expect(list.description).toMatch(/progress/)
+    expect(list.description).not.toMatch(/Call it to collect what you delegated/)
+    expect(list.description.length).toBeLessThanOrEqual(2000)
+  }, 20000)
 })

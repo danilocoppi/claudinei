@@ -167,12 +167,16 @@ interface TurnCtx {
  * É o ouvinte comum de quem "manda e espera" (waitForResult, dispatchTask,
  * watchTurn). Devolve o cancelamento, para quem desiste antes (envio que falhou).
  *
+ * `timeoutMs` ausente (ou 0): sem prazo, nenhum relógio é armado — o turno só
+ * termina com o result ou com a sessão fora do ar. É o caso das tarefas
+ * delegadas, que podem levar o tempo que o outro agente precisar.
+ *
  * `isShuttingDown`: com o serviço encerrando, a sessão que para não terminou o
  * turno por conta própria — foi o reinício que a derrubou. Quem espera precisa
  * saber disso para não registrar a interrupção como falha do agente.
  */
 function watchTurnEnd(
-  session: EngineSession, timeoutMs: number, ctx: TurnCtx, onEnd: (end: TurnEnd) => void,
+  session: EngineSession, timeoutMs: number | undefined, ctx: TurnCtx, onEnd: (end: TurnEnd) => void,
 ): () => void {
   let settled = false
   const finish = (end: TurnEnd) => {
@@ -182,7 +186,7 @@ function watchTurnEnd(
   const cleanup = () => {
     session.removeListener('event', onEvent)
     session.removeListener('status', onStatus)
-    clearTimeout(timer)
+    if (timer) clearTimeout(timer)
   }
   const onEvent = (evt: ClaudeEvent) => {
     if (evt.kind === 'result') {
@@ -192,11 +196,12 @@ function watchTurnEnd(
   }
   const onStatus = (status: SessionStatus) => {
     // 'stopped' cobre também openInTerminal (que passa por session.stop()):
-    // sem isso o ouvinte ficaria pendurado até o prazo com o agente já fora.
+    // sem isso o ouvinte ficaria pendurado até o prazo (ou para sempre, sem
+    // prazo) com o agente já fora.
     if (status !== 'dead' && status !== 'stopped') return
     finish({ kind: ctx.isShuttingDown() ? 'shutdown' : status })
   }
-  const timer = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs)
+  const timer = timeoutMs ? setTimeout(() => finish({ kind: 'timeout' }), timeoutMs) : undefined
   session.on('event', onEvent)
   session.on('status', onStatus)
   return () => { if (!settled) { settled = true; cleanup() } }
@@ -228,12 +233,13 @@ function waitForResult(session: EngineSession, timeoutMs: number, ctx: TurnCtx):
 
 /**
  * Ouvinte de tarefa (dispatchTask, watchTurn): fecha a tarefa com o result ou como
- * falha. No encerramento do serviço NÃO fecha: só solta os ouvintes, e a tarefa
+ * falha. Sem `timeoutMs`, não há prazo: a sessão que morre ou para ainda fecha a
+ * tarefa como falha. No encerramento do serviço NÃO fecha: só solta os ouvintes, e a tarefa
  * continua in_progress no banco para ser reanexada depois do boot. Turno que
  * bateu no limite fecha a tarefa como falha, com o texto do limite.
  */
 function watchTask(
-  session: EngineSession, timeoutMs: number, ctx: TurnCtx,
+  session: EngineSession, timeoutMs: number | undefined, ctx: TurnCtx,
   onComplete: (status: 'completed' | 'failed', result: string) => void,
 ): () => void {
   return watchTurnEnd(session, timeoutMs, ctx, (end) => {
@@ -796,9 +802,9 @@ export function createSessionManager(deps: Deps) {
     /**
      * Acompanha o turno da sessão e fecha com o result dele, como o dispatchTask.
      * Serve para reanexar uma tarefa encaminhada depois do boot. Devolve false se
-     * a sessão não está viva (nada a acompanhar).
+     * a sessão não está viva (nada a acompanhar). Sem `timeoutMs`, sem prazo.
      */
-    watchTurn(localId: string, onComplete: (status: 'completed' | 'failed', result: string) => void, timeoutMs = 600_000): boolean {
+    watchTurn(localId: string, onComplete: (status: 'completed' | 'failed', result: string) => void, timeoutMs?: number): boolean {
       const entry = live.get(localId)
       if (!entry) return false
       watchTask(entry.session, timeoutMs, turnCtx, onComplete)
@@ -1198,13 +1204,17 @@ export function createSessionManager(deps: Deps) {
       return waited ?? Promise.resolve(null)
     },
 
-    /** Devolve a engine da sessão que recebeu a task (ou null se a entrega falhou na hora). */
+    /**
+     * Devolve a engine da sessão que recebeu a task (ou null se a entrega falhou na hora).
+     * Sem `timeoutMs`, a tarefa não tem prazo: fecha com o result do turno ou como
+     * falha quando a sessão alvo morre ou para.
+     */
     dispatchTask(
       toProjectId: number,
       fromLabel: string,
       description: string,
       onComplete: (status: 'completed' | 'failed', result: string) => void,
-      timeoutMs = 600_000,
+      timeoutMs?: number,
       opts?: TaskTarget,
     ): EngineId | null {
       const { target, anyActive } = pickTaskTarget(toProjectId, opts)

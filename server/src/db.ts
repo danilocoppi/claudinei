@@ -213,6 +213,9 @@ export function openDb(path: string): Db {
   // projeto: "Vaexa → Vaexa" não dizia quem mandou pra quem).
   try { db.exec(`ALTER TABLE tasks ADD COLUMN from_engine TEXT`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE tasks ADD COLUMN to_engine TEXT`) } catch { /* já migrado */ }
+  // Estado do aviso de resultado ao terminal que delegou: 'pending' | 'delivered' |
+  // 'dismissed' | 'none'. NULL nas tarefas antigas e nas que ainda não terminaram.
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN notify TEXT`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN titulo TO title`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN conteudo TO content`) } catch { /* já migrado */ }
   // Agendamentos por terminal. O resultado NÃO mora aqui: o banco guarda o título e

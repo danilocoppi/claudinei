@@ -28,6 +28,8 @@ import { registerTranscribeRoutes } from './routes/transcribe.js'
 import { registerUsageRoutes } from './routes/usage.js'
 import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerPrefsRoutes } from './routes/prefs.js'
+import { registerTriageRoutes } from './routes/triage.js'
+import { createTriageStore } from './triage/store.js'
 import { registerLocalAppRoutes, type LocalAppsRouteDeps } from './routes/local-apps.js'
 import { registerIconRoutes } from './routes/icons.js'
 import { registerActionRoutes } from './routes/actions.js'
@@ -123,7 +125,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }
 
   app.get('/api/health', async () => ({ ok: true }))
-  registerProjectRoutes(app, { db: deps.db, manager: deps.manager, terminalManager: deps.terminalManager, scratchDir: deps.config.scratchDir })
+  const triage = createTriageStore(deps.db)
+  registerProjectRoutes(app, {
+    db: deps.db, manager: deps.manager, terminalManager: deps.terminalManager, scratchDir: deps.config.scratchDir,
+    triage, broadcast: deps.wsHub?.broadcast,
+  })
+  registerTriageRoutes(app, { store: triage, db: deps.db, broadcast: deps.wsHub?.broadcast })
   registerSessionRoutes(app, deps)
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })

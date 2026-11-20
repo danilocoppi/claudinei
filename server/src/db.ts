@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { migrateFavoritesToPins } from './triage/store.js'
 
 export type Db = Database.Database
 
@@ -316,6 +317,16 @@ export function openDb(path: string): Db {
   // que sobra dela depois de uma queda brusca, quando não há encerramento para
   // registrar nada.
   try { db.exec(`ALTER TABLE sessions ADD COLUMN pending_question TEXT`) } catch { /* já existe */ }
+
+  // Triagem da lista, por usuário: fixado, assentado e adiado (ver triage/store.ts).
+  // Sem FK para users pelo mesmo motivo de user_prefs: a linha 0 é a instalação
+  // sem auth e não corresponde a usuário nenhum.
+  db.exec(`CREATE TABLE IF NOT EXISTS user_triage (
+    user_id INTEGER NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    pinned_at TEXT, settled_at TEXT, snoozed_until TEXT,
+    PRIMARY KEY (user_id, project_id))`)
+  // A ⭐ global vira pin de cada usuário com acesso, uma vez na vida da instalação.
+  migrateFavoritesToPins(db)
 
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).

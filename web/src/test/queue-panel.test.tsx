@@ -32,7 +32,7 @@ const A = { id: 11, text: 'primeiro: rode os testes\ne depois o lint', createdAt
 const B = { id: 12, text: 'segundo: abra o PR', createdAt: '2026-11-20 12:01:00' }
 const estado = (o: Partial<TerminalState> = {}): TerminalState => ({
   projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null,
-  autoResumeLimit: false, usageLimit: null, ...o,
+  autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null, ...o,
 })
 
 const mocks = [api.fetchQueue, api.addToQueue, api.editQueueItem, api.reorderQueue, api.removeQueueItem, api.sendQueueItemNow, api.pauseQueue, api.resumeQueue]

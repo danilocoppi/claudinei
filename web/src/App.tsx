@@ -19,6 +19,7 @@ import { initNotifications } from './notifications'
 import { installIndicatorMotion } from './indicatorMotion'
 import { useAccessHours } from './useAccessHours'
 import { useEngineCatalog } from './useEngineCatalog'
+import { useTerminalStatesSync } from './useTerminalStatesSync'
 import { AccessLocked } from './components/AccessLocked'
 import './access-hours.css'
 
@@ -58,6 +59,7 @@ export default function App() {
   const setAuth = useStore((s) => s.setAuth)
   useAccessHours()
   useEngineCatalog(authStatus === 'ready')
+  useTerminalStatesSync()
 
   useEffect(() => installIndicatorMotion(), [])
 

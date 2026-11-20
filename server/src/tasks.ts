@@ -18,6 +18,17 @@ export interface Task {
   updatedAt: string
 }
 
+/** Colunas da Task com os nomes dos projetos; cada consulta acrescenta o WHERE/ORDER. */
+const SELECT_TASK = `SELECT t.id as id,
+       t.from_project_id as fromProjectId, fp.name as fromProjectName,
+       t.to_project_id as toProjectId, tp.name as toProjectName,
+       t.from_engine as fromEngine, t.to_engine as toEngine,
+       t.description as description, t.status as status, t.result as result,
+       t.created_at as createdAt, t.updated_at as updatedAt
+  FROM tasks t
+  LEFT JOIN projects fp ON fp.id = t.from_project_id
+  JOIN projects tp ON tp.id = t.to_project_id`
+
 export function createTasksService(db: Db) {
   return {
     create(fromProjectId: number | null, toProjectId: number, description: string, status: TaskStatus = 'queued', fromEngine: string | null = null): { id: number } {
@@ -43,15 +54,7 @@ export function createTasksService(db: Db) {
     nextQueued(toProjectId: number): Task | undefined {
       return db
         .prepare(
-          `SELECT t.id as id,
-                  t.from_project_id as fromProjectId, fp.name as fromProjectName,
-                  t.to_project_id as toProjectId, tp.name as toProjectName,
-                  t.from_engine as fromEngine, t.to_engine as toEngine,
-                  t.description as description, t.status as status, t.result as result,
-                  t.created_at as createdAt, t.updated_at as updatedAt
-           FROM tasks t
-           LEFT JOIN projects fp ON fp.id = t.from_project_id
-           JOIN projects tp ON tp.id = t.to_project_id
+          `${SELECT_TASK}
            WHERE t.to_project_id = ? AND t.status = 'queued'
            ORDER BY t.id ASC
            LIMIT 1`,
@@ -68,15 +71,7 @@ export function createTasksService(db: Db) {
     list(limit = 100): Task[] {
       const rows = db
         .prepare(
-          `SELECT t.id as id,
-                  t.from_project_id as fromProjectId, fp.name as fromProjectName,
-                  t.to_project_id as toProjectId, tp.name as toProjectName,
-                  t.from_engine as fromEngine, t.to_engine as toEngine,
-                  t.description as description, t.status as status, t.result as result,
-                  t.created_at as createdAt, t.updated_at as updatedAt
-           FROM tasks t
-           LEFT JOIN projects fp ON fp.id = t.from_project_id
-           JOIN projects tp ON tp.id = t.to_project_id
+          `${SELECT_TASK}
            ORDER BY t.id DESC
            LIMIT ?`,
         )
@@ -87,18 +82,36 @@ export function createTasksService(db: Db) {
     get(id: number): Task | undefined {
       return db
         .prepare(
-          `SELECT t.id as id,
-                  t.from_project_id as fromProjectId, fp.name as fromProjectName,
-                  t.to_project_id as toProjectId, tp.name as toProjectName,
-                  t.from_engine as fromEngine, t.to_engine as toEngine,
-                  t.description as description, t.status as status, t.result as result,
-                  t.created_at as createdAt, t.updated_at as updatedAt
-           FROM tasks t
-           LEFT JOIN projects fp ON fp.id = t.from_project_id
-           JOIN projects tp ON tp.id = t.to_project_id
+          `${SELECT_TASK}
            WHERE t.id = ?`,
         )
         .get(id) as Task | undefined
+    },
+
+    /**
+     * Tarefas em andamento entregues a este terminal (projeto + motor), da mais
+     * antiga para a mais nova. Na subida, são as que o reinício deixou presas ao
+     * turno interrompido: religadas se o terminal retoma, fechadas se não.
+     */
+    inProgressFor(toProjectId: number, toEngine: string): Task[] {
+      return db
+        .prepare(
+          `${SELECT_TASK}
+           WHERE t.to_project_id = ? AND t.to_engine = ? AND t.status = 'in_progress'
+           ORDER BY t.id ASC`,
+        )
+        .all(toProjectId, toEngine) as Task[]
+    },
+
+    /** Todas as tarefas em andamento, da mais antiga para a mais nova (varredura da subida). */
+    listInProgress(): Task[] {
+      return db
+        .prepare(
+          `${SELECT_TASK}
+           WHERE t.status = 'in_progress'
+           ORDER BY t.id ASC`,
+        )
+        .all() as Task[]
     },
   }
 }

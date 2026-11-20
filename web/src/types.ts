@@ -129,6 +129,14 @@ export type ChatItem =
    * `run` é o número da execução, que casa com o feed da tela de Agendas.
    */
   | { kind: 'scheduled_message'; name: string; run: number; text: string; fromSubagent?: boolean; parentId?: string }
+  /**
+   * Mensagem de retomada que o PRÓPRIO Claudinei mandou ao agente depois de um
+   * reinício no meio do turno. Vai em inglês ao agente (como as regras do Hermes);
+   * a tela mostra o texto traduzido, e o selo `[Claudinei: resume after restart]`
+   * é o que a separa de uma mensagem digitada. `text` é o corpo em inglês, guardado
+   * só para referência.
+   */
+  | { kind: 'claudinei_message'; text: string; fromSubagent?: boolean; parentId?: string }
 
 /**
  * Um nó do cartão que o plugin "You should know" do Claude desenha (o mesmo que o
@@ -140,6 +148,25 @@ export type HeadsUpNode = string | {
   props?: Record<string, unknown>
   children?: HeadsUpNode[]
   press?: { plugin: string; handle: number }
+}
+
+/**
+ * Reinício sem prejuízo, por terminal (projeto + motor): os dois interruptores e a
+ * marca de turno interrompido pelo reinício do serviço. Espelha `TerminalStateDto`
+ * de server/src/restart/terminal-state.ts.
+ * - `queued`: na fila para retomar sozinho;
+ * - `off`: "retomar" desligado no terminal;
+ * - `question`: havia pergunta aberta, que se perdeu (vem em `question`);
+ * - `limit`: retomado 3 vezes seguidas sem concluir;
+ * - `failed`: a retomada automática falhou.
+ */
+export type InterruptionReason = 'off' | 'question' | 'limit' | 'failed' | 'queued'
+export interface TerminalState {
+  projectId: number
+  engine: string
+  autostart: boolean
+  autoResume: boolean
+  interruption: null | { at: string; reason: InterruptionReason; question?: Question[] }
 }
 
 /** Acompanhamento de tarefas longas, por terminal (projeto + motor). Ver server/src/progress.ts. */

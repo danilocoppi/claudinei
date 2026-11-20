@@ -2,9 +2,9 @@ import { useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { SessionInfo } from '../types'
-import { fetchAutoCompact, putAutoCompact, setProjectHeadsUp, setSessionOptions, type PermissionMode } from '../api'
+import { fetchAutoCompact, putAutoCompact, setProjectHeadsUp, setSessionOptions, setTerminalRestart, type PermissionMode } from '../api'
 import { WsContext } from '../wsContext'
-import { useStore, useEngineFor, useSessionSlashCommands } from '../store'
+import { useStore, useEngineFor, useSessionSlashCommands, progressKey } from '../store'
 import { MODE_KEY, MODE_COLOR } from '../permissionLabels'
 import { effortsForModel, modelDisplayName } from '../../../shared/engine-options'
 
@@ -70,6 +70,17 @@ export function SessionControls({ session }: { session: SessionInfo }) {
     setError(null)
     setProjectHeadsUp(session.projectId, !headsUpOn)
       .then((saved) => useStore.setState((st) => ({ projects: st.projects.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)) })))
+      .catch((err: Error) => setError(err.message))
+  }
+  // Reinício sem prejuízo: os dois interruptores são do terminal (projeto + motor da aba), em todas as engines.
+  const tabEngine = session.engine ?? 'claude'
+  const restartState = useStore((st) => st.terminalStates[progressKey(session.projectId, tabEngine)])
+  const autostartOn = restartState?.autostart === true
+  const autoResumeOn = restartState?.autoResume === true
+  const toggleRestart = (p: { autostart: boolean } | { autoResume: boolean }) => {
+    setError(null)
+    setTerminalRestart(session.projectId, tabEngine, p)
+      .then((saved) => useStore.getState().setTerminalState(saved))
       .catch((err: Error) => setError(err.message))
   }
   useEffect(() => {
@@ -189,6 +200,22 @@ export function SessionControls({ session }: { session: SessionInfo }) {
                 </span>
               </label>
             )}
+            <label className="sess-pop__item sess-pop__item--row" title={t('controls.autostartHint')}>
+              <span style={{ flex: 1 }}>{t('controls.autostart')}</span>
+              <span className="switch switch--sm">
+                <input type="checkbox" checked={autostartOn} onChange={() => toggleRestart({ autostart: !autostartOn })} aria-label={t('controls.autostart')} />
+                <span className="track" />
+                <span className="thumb" />
+              </span>
+            </label>
+            <label className="sess-pop__item sess-pop__item--row" title={t('controls.autoResumeHint')}>
+              <span style={{ flex: 1 }}>{t('controls.autoResume')}</span>
+              <span className="switch switch--sm">
+                <input type="checkbox" checked={autoResumeOn} onChange={() => toggleRestart({ autoResume: !autoResumeOn })} aria-label={t('controls.autoResume')} />
+                <span className="track" />
+                <span className="thumb" />
+              </span>
+            </label>
             {permissions.length > 0 && mode !== 'bypassPermissions' && <div className="sess-pop__warn">{t('session.permWarning')}</div>}
             {error && <div className="sess-pop__error">⚠ {error}</div>}
           </div>

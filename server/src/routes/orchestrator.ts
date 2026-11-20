@@ -5,17 +5,44 @@ import { createProjectsService } from '../projects.js'
 import { createTasksService, type Task } from '../tasks.js'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
 import { hasEngine } from '../engine/index.js'
+import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
+
+/** O que o orchestrator expõe ao resto do servidor (manager e subida). */
+export interface OrchestratorHooks {
+  /** Entrega a próxima tarefa da fila do projeto, se ele estiver livre. */
+  drain(projectId: number): void
+  /**
+   * Religa uma tarefa `in_progress` ao turno da sessão (reinício: o turno
+   * interrompido foi retomado). Fecha como o dispatch fecharia. `false` se a
+   * tarefa não está em andamento ou a sessão não está viva.
+   */
+  reattach(taskId: number, localId: string): boolean
+  /** Fecha como falha a tarefa cujo turno o reinício matou e não vai ser retomado. */
+  failInterrupted(taskId: number): void
+}
 
 export function registerOrchestratorRoutes(
   app: FastifyInstance,
   deps: { db: Db; manager: SessionManager; broadcast?: (msg: object) => void },
-): { drain: (projectId: number) => void } {
+): OrchestratorHooks {
   const projects = createProjectsService(deps.db)
   const tasks = createTasksService(deps.db)
 
   const broadcastTask = (id: number): void => {
     const task = tasks.get(id)
     if (task) deps.broadcast?.({ type: 'task_update', task })
+  }
+
+  // Fim do turno que executa a tarefa: grava o resultado e avisa. Mesmo fecho
+  // para a entrega (drain) e para a tarefa religada depois de um reinício.
+  const onTaskEnd = (task: Task) => (status: 'completed' | 'failed', result: string): void => {
+    tasks.setResult(task.id, status, result)
+    broadcastTask(task.id)
+    // Falha (timeout/dead/stopped/busy) não passa por onSessionAvailable —
+    // sem este drain a próxima queued do projeto ficaria parada até o
+    // próximo POST /dispatch. setImmediate quebra a reentrância do caminho
+    // em que o onComplete é chamado sincronamente pelo dispatchTask.
+    if (status === 'failed') setImmediate(() => drain(task.toProjectId))
   }
 
   // Entrega a queued mais antiga do projeto alvo, se ele estiver livre agora.
@@ -29,15 +56,7 @@ export function registerOrchestratorRoutes(
     const next = tasks.nextQueued(projectId)
     if (!next) return
     tasks.markInProgress(next.id)
-    const delivered = deps.manager.dispatchTask(next.toProjectId, next.fromProjectName ?? 'unknown', next.description, (status, result) => {
-      tasks.setResult(next.id, status, result)
-      broadcastTask(next.id)
-      // Falha (timeout/dead/stopped/busy) não passa por onSessionAvailable —
-      // sem este drain a próxima queued do projeto ficaria parada até o
-      // próximo POST /dispatch. setImmediate quebra a reentrância do caminho
-      // em que o onComplete é chamado sincronamente pelo dispatchTask.
-      if (status === 'failed') setImmediate(() => drain(next.toProjectId))
-    })
+    const delivered = deps.manager.dispatchTask(next.toProjectId, next.fromProjectName ?? 'unknown', next.description, onTaskEnd(next))
     // A engine que executa só é conhecida na entrega (o dispatch pega a 1ª sessão
     // livre do projeto — pode ser o Claude, o Codex ou o OpenCode dele).
     if (delivered) tasks.setToEngine(next.id, delivered)
@@ -77,5 +96,18 @@ export function registerOrchestratorRoutes(
     return { id }
   })
 
-  return { drain }
+  const reattach = (taskId: number, localId: string): boolean => {
+    const task = tasks.get(taskId)
+    if (task?.status !== 'in_progress') return false
+    return deps.manager.watchTurn(localId, onTaskEnd(task))
+  }
+
+  const failInterrupted = (taskId: number): void => {
+    // Só a que segue em andamento: uma que já fechou guarda o próprio resultado.
+    if (tasks.get(taskId)?.status !== 'in_progress') return
+    tasks.setResult(taskId, 'failed', RESTART_FAIL_TEXT)
+    broadcastTask(taskId)
+  }
+
+  return { drain, reattach, failInterrupted }
 }

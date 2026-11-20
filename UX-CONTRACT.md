@@ -165,3 +165,12 @@ O lint de `DESIGN.md` terminou sem erros/avisos. A auditoria estática global em
 - A coluna empurra o chat (não o cobre) e, no celular, ocupa a tela. Mostra título com "N de M" e barra, **Agora**, **Tarefas** com estado e nota, **Esperando você** (só quando há itens), e o rodapé com "atualizado há X", o caminho do arquivo (copiável) e "Descartar" (com confirmação).
 - Terminal parado, morto ou levado ao terminal interativo com tarefa em andamento: aviso de que o andamento pode estar desatualizado, e as bolinhas param. Terminal ocioso não gera aviso. O rodapé fica âmbar após 45 min sem atualização com tarefa não concluída.
 - O arquivo fica em `~/.claudinei/acompanhamento/<projeto>-<motor>.json`.
+
+## Reinício sem prejuízo
+
+- Dois interruptores por terminal (projeto + motor da aba) no ⚙ do campo, em todos os motores, logo abaixo de "Avisos 'You should know'": **Iniciar com o Claudinei** (a sessão sobe parada na última conversa, sem mandar nada) e **Retomar trabalho interrompido** (o turno cortado pelo reinício continua sozinho). Os dois começam desligados, e cada um tem dica ao passar o mouse.
+- Turno interrompido que não foi retomado sozinho mostra um aviso âmbar logo acima do campo, com **Continuar** e um × de fechar: "O trabalho foi interrompido pelo reinício do Claudinei." (retomar desligado); o mesmo texto e a lista da pergunta que se perdeu (havia pergunta aberta); "Retomado 3 vezes sem concluir; esperando você." (teto); "Não foi possível retomar sozinho." (a retomada automática falhou).
+- Na fila para retomar sozinho, o aviso diz "Retomando o trabalho interrompido…", no tom de destaque e sem botões.
+- **Continuar** revive a sessão, se preciso, e manda a mensagem de retomada; se a chamada falha, o erro aparece no próprio aviso, que fica. O × tira o aviso sem retomar. Mandar qualquer mensagem também o tira. O aviso some quando o servidor manda o estado sem interrupção.
+- A mensagem de retomada vai ao agente em inglês e aparece no chat como cartão com o selo "Claudinei", no idioma da tela, e não como mensagem do operador (sem lápis de editar).
+- O aviso é estático, sem animação: a interface precisa andar sem GPU.

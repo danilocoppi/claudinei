@@ -17,7 +17,7 @@ import { registerEngineRoutes } from './routes/engines.js'
 import { registerHermesRoutes } from './routes/hermes.js'
 import { registerProgressRoutes } from './routes/progress.js'
 import { createProgressStore } from './progress.js'
-import { registerOrchestratorRoutes } from './routes/orchestrator.js'
+import { registerOrchestratorRoutes, type OrchestratorHooks } from './routes/orchestrator.js'
 import { registerFsRoutes } from './routes/fs.js'
 import { registerGroupRoutes } from './routes/groups.js'
 import { registerFileRoutes } from './routes/files.js'
@@ -39,6 +39,9 @@ import { createSettingsService } from './settings.js'
 import { createSchedulesStore } from './schedules/store.js'
 import { createScheduler, type Scheduler } from './schedules/scheduler.js'
 import { registerStatic } from './static.js'
+import { registerTerminalStateRoutes } from './routes/terminals.js'
+import { createTerminalStateStore } from './restart/terminal-state.js'
+import { createRestartService, type RestartService } from './restart/boot.js'
 
 export interface AppDeps {
   config: Config
@@ -55,14 +58,15 @@ export interface AppDeps {
   /** Caminho absoluto de web/dist (SPA buildado). Se ausente, o static não é registrado. */
   webDist?: string
   /**
-   * Callback setter: chamado com o `drain(projectId)` do orchestrator assim
-   * que a rota é registrada. O manager é construído em index.ts ANTES do
-   * buildApp (precisa existir para as demais rotas), então não há como
+   * Callback setter: chamado com os ganchos do orchestrator (`drain`,
+   * `reattach`, `failInterrupted`) assim que a rota é registrada. O manager é
+   * construído em index.ts ANTES do buildApp (precisa existir para as demais
+   * rotas), então não há como
    * passar `drain` a ele por deps na criação — em vez disso index.ts guarda
    * uma referência mutável e a preenche aqui, conectando
    * manager.onSessionAvailable → drain sem inverter a ordem de construção.
    */
-  onOrchestratorReady?: (drain: (projectId: number) => void) => void
+  onOrchestratorReady?: (orchestrator: OrchestratorHooks) => void
   /** Auth multi-usuário. Ausente (testes legados) = sem auth: comportamento aberto de sempre. */
   auth?: AuthService
   /** --insecure da CLI: pré-setup, libera também IPs não-loopback (rede confiável, por conta e risco). */
@@ -89,6 +93,13 @@ export interface AppDeps {
   onSchedulerReady?: (scheduler: Scheduler) => void
   /** Acervo de ícones (Iconify). Injetável para o teste não falar com a internet. */
   iconify?: IconifyDeps
+  /**
+   * Recebe o serviço do reinício assim que ele nasce. Mesmo motivo do
+   * `onOrchestratorReady`: o manager já existe, e os ganchos dele
+   * (`onTurnResult`, `onOperatorMessage`) leem uma referência que index.ts
+   * preenche aqui. index.ts também roda a subida (`boot`) depois do listen.
+   */
+  onRestartReady?: (restart: RestartService) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -117,8 +128,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
   registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })
-  const { drain } = registerOrchestratorRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
-  deps.onOrchestratorReady?.(drain)
+  const orchestrator = registerOrchestratorRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
+  deps.onOrchestratorReady?.(orchestrator)
   registerFsRoutes(app)
   registerGroupRoutes(app, { db: deps.db })
   registerPrefsRoutes(app, { prefs: createPrefsService(deps.db) })
@@ -142,6 +153,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)
+  // O reinício nasce depois do orchestrator (religa as tarefas do turno
+  // interrompido) e dos agendamentos (fecha as execuções que o reinício matou).
+  const restart = createRestartService({
+    db: deps.db, manager: deps.manager, store: createTerminalStateStore(deps.db),
+    orchestrator: () => orchestrator,
+    broadcast: (m) => deps.wsHub?.broadcast(m),
+    closeInterruptedRuns: () => schedulesStore.closeInterruptedRuns(),
+  })
+  registerTerminalStateRoutes(app, { db: deps.db, restart })
+  deps.onRestartReady?.(restart)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })

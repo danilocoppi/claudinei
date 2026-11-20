@@ -1,6 +1,9 @@
 import { isCompactSummary } from './history'
 import type { ChatItem, ClaudeEvent, ContentBlock } from '../types'
 
+/** Selo da mensagem de retomada que o servidor manda ao agente (cópia de `RESUME_PREFIX` em server/src/restart/boot.ts). */
+export const RESUME_PREFIX = '[Claudinei: resume after restart]'
+
 function blockToText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -42,6 +45,12 @@ function classifyUserText(text: string): ChatItem[] {
   const cleaned = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
   const task = cleaned.match(/^\[Task from ([^\]]+)\]:\s*([\s\S]*)$/)
   if (task) return [{ kind: 'task_message', from: task[1].trim(), text: task[2].trim() }]
+
+  // Retomada depois de um reinício do serviço: quem escreveu foi o próprio
+  // Claudinei, em inglês para o agente.
+  if (cleaned.startsWith(`${RESUME_PREFIX}:`)) {
+    return [{ kind: 'claudinei_message', text: cleaned.slice(RESUME_PREFIX.length + 1).trim() }]
+  }
 
   const scheduled = cleaned.match(/^\[Agendamento: (.+) #(\d+)\]:\s*([\s\S]*)$/)
   if (scheduled) {

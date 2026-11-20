@@ -43,7 +43,10 @@ export function createWsHub() {
         ? msg.projectId
         : typeof msg.localId === 'string'
           ? mgr?.get(msg.localId)?.projectId
-          : undefined
+          // O estado do reinício traz o projeto dentro do DTO.
+          : msg.type === 'terminal_state' && typeof msg.state?.projectId === 'number'
+            ? msg.state.projectId
+            : undefined
     // Sem projeto resolvível (ex.: evento global) → admin-only.
     return projectId !== undefined && canAccessProject(user, projectId)
   }

@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync, openSync, readSync, clo
 import { join } from 'node:path'
 import type { Db } from '../db.js'
 import { nextRun, validateCadence, type Cadence } from './cadence.js'
+import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
 
 /** Teto do conteúdo guardado por execução. */
 export const MAX_CONTENT = 128 * 1024
@@ -217,7 +218,11 @@ export function createSchedulesStore(db: Db, opts: { dir: string }) {
       return rowToRun(db.prepare(`SELECT * FROM schedule_runs WHERE id=?`).get(Number(info.lastInsertRowid)))
     },
 
-    finishRun(runId: number, res: { status: RunStatus; content?: string; error?: string; localId?: string }): ScheduleRun {
+    /**
+     * `countFailure: false` deixa `consecutive_failures` como está (nem soma, nem
+     * zera): é a execução que o reinício derrubou, que não diz nada da tarefa.
+     */
+    finishRun(runId: number, res: { status: RunStatus; content?: string; error?: string; localId?: string; countFailure?: boolean }): ScheduleRun {
       const run = db.prepare(`SELECT * FROM schedule_runs WHERE id=?`).get(runId) as any
       if (!run) throw new Error(`execução ${runId} não existe`)
 
@@ -243,13 +248,28 @@ export function createSchedulesStore(db: Db, opts: { dir: string }) {
         new Date().toISOString(), res.status, title ?? res.error?.slice(0, 100) ?? null, size,
         [res.error, writeError].filter(Boolean).join(' · ') || null, res.localId ?? null, runId)
 
-      const failed = res.status !== 'ok' && res.status !== 'skipped'
-      db.prepare(`UPDATE schedules SET consecutive_failures = ${failed ? 'consecutive_failures + 1' : '0'} WHERE id=?`)
-        .run(run.schedule_id)
+      if (res.countFailure !== false) {
+        const failed = res.status !== 'ok' && res.status !== 'skipped'
+        db.prepare(`UPDATE schedules SET consecutive_failures = ${failed ? 'consecutive_failures + 1' : '0'} WHERE id=?`)
+          .run(run.schedule_id)
+      }
 
       const keep = (db.prepare(`SELECT keep_results FROM schedules WHERE id=?`).get(run.schedule_id) as any)?.keep_results ?? 10
       prune(run.schedule_id, keep)
       return rowToRun(db.prepare(`SELECT * FROM schedule_runs WHERE id=?`).get(runId))
+    },
+
+    /**
+     * Subida do serviço: nenhuma execução está rodando de verdade, então as que
+     * ficaram `running` foram mortas pelo reinício. Fecha como erro, senão o
+     * `hasRunning` seguraria o agendamento para sempre. Não conta como falha
+     * consecutiva: não foi a tarefa que falhou. O título repete o erro, como o
+     * `finishRun` faz com execução sem conteúdo. Devolve quantas fechou.
+     */
+    closeInterruptedRuns(): number {
+      return db.prepare(`
+        UPDATE schedule_runs SET status='error', error=?, finished_at=?, title=COALESCE(title, ?)
+        WHERE status='running'`).run(RESTART_FAIL_TEXT, new Date().toISOString(), RESTART_FAIL_TEXT).changes
     },
 
     hasRunning(scheduleId: number): boolean {

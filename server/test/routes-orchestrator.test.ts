@@ -43,7 +43,7 @@ beforeEach(async () => {
   app = await buildApp({
     config: loadConfig({}), db, manager,
     wsHub: { broadcast: (m: object) => broadcasts.push(m), register: () => {} } as any,
-    onOrchestratorReady: (d) => { drain = d },
+    onOrchestratorReady: (o) => { drain = o.drain },
   })
 
   const from = await app.inject({

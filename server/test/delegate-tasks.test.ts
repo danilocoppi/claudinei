@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import Fastify from 'fastify'
 import { openDb, type Db } from '../src/db.js'
 import { createProjectsService, type Project } from '../src/projects.js'
-import { createSessionManager } from '../src/claude/manager.js'
+import { createSessionManager, TASK_INTERRUPTED_TEXT } from '../src/claude/manager.js'
 import { ClaudeSession, type SessionOptions } from '../src/claude/session.js'
 import { registerOrchestratorRoutes, type OrchestratorHooks } from '../src/routes/orchestrator.js'
 import { createTasksService, type TasksService } from '../src/tasks.js'
@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { EventEmitter } from 'node:events'
+import { createNextSend } from '../src/queue/next-send.js'
+import { createOperatorQueueService, createOperatorQueueStore } from '../src/queue/operator-queue.js'
 import '../src/engine/index.js'
 
 // Tarefa delegada sem prazo e o estado do aviso de resultado na linha da tarefa
@@ -98,6 +101,140 @@ describe('tarefa delegada sem prazo', () => {
     await waitUntil(() => calls.length > 0)
     expect(calls[0]).toEqual(['failed', 'timed out'])
     await waitUntil(() => mgr.get(localId)?.status === 'needs_attention')
+  })
+})
+
+/**
+ * Sessão como a do Kimi e a do OpenCode: o interrupt() resolve na hora, e o
+ * turno interrompido fecha DEPOIS, indo a idle sem nenhum result.
+ */
+class TurnBasedStub extends EventEmitter {
+  status = 'starting'
+  sessionId?: string
+  lastStderr = ''
+  sent: string[] = []
+  start() { this.set('idle') }
+  send(text: string) { this.sent.push(text); this.set('working') }
+  markRead() {}
+  interrupt() { return Promise.resolve() }
+  /** O processo do turno interrompido saiu: idle, sem result. */
+  closeInterrupted() { this.set('idle') }
+  finish() {
+    this.emit('event', { kind: 'result', subtype: 'success', isError: false, resultText: 'feito', costUsd: 0, raw: {} })
+    this.set('needs_attention')
+  }
+  setModel() { return Promise.resolve() }
+  setPermissionMode() { return Promise.resolve() }
+  setEffort() { return Promise.resolve() }
+  stop() { this.set('stopped'); return Promise.resolve() }
+  set(s: string) { if (s !== this.status) { this.status = s; this.emit('status', s) } }
+}
+const tick = () => new Promise((r) => setTimeout(r, 0))
+
+describe('turno do destino interrompido pelo operador (R18)', () => {
+  it('Esc no turno da tarefa (Claude, com result) fecha como failed com o texto da interrupção', async () => {
+    const localId = await startIdle(destino)
+    const { id } = tasks.create(origem.id, destino.id, 'demorada', 'queued', 'claude')
+    expect(orchestrator.drain(destino.id)).toBe(true)
+    await waitUntil(() => mgr.get(localId)?.status === 'working')
+    await mgr.interrupt(localId)
+    await waitUntil(() => tasks.get(id)?.status !== 'in_progress')
+    expect(tasks.get(id)).toMatchObject({ status: 'failed', result: TASK_INTERRUPTED_TEXT })
+  })
+
+  it('Esc com o serviço encerrando não fecha a tarefa: ela fica para ser religada', async () => {
+    const localId = await startIdle(destino)
+    const { id } = tasks.create(origem.id, destino.id, 'demorada', 'queued', 'claude')
+    expect(orchestrator.drain(destino.id)).toBe(true)
+    await waitUntil(() => mgr.get(localId)?.status === 'working')
+    mgr.beginShutdown()
+    await mgr.interrupt(localId)
+    await waitUntil(() => mgr.get(localId)?.status !== 'working')
+    await new Promise((r) => setTimeout(r, 100))
+    expect(tasks.get(id)).toMatchObject({ status: 'in_progress', result: null })
+  })
+
+  it('turno interrompido sem result (Kimi, OpenCode): failed, e o turno seguinte não toca a tarefa', async () => {
+    const stub = new TurnBasedStub()
+    const m = createSessionManager({ db, sessionFactory: () => stub as never, broadcast: () => {} })
+    const { localId } = m.start(destino, { engine: 'kimi' })
+    await tick()
+    const done: [string, string][] = []
+    expect(m.dispatchTask(destino.id, 'Origem', 'trabalho', (s, r) => done.push([s, r]))).toBe('kimi')
+    await m.interrupt(localId)
+    await tick()
+    expect(done).toEqual([])
+    stub.closeInterrupted()
+    await tick()
+    expect(done).toEqual([['failed', TASK_INTERRUPTED_TEXT]])
+    // O turno seguinte, sem relação com a tarefa, não a fecha de novo.
+    m.send(localId, 'outro')
+    stub.finish()
+    await tick()
+    expect(done).toHaveLength(1)
+    await m.stopAll()
+  })
+
+  it('encerramento durante a interrupção sem result não fecha a tarefa (religada depois)', async () => {
+    const stub = new TurnBasedStub()
+    const m = createSessionManager({ db, sessionFactory: () => stub as never, broadcast: () => {} })
+    const { localId } = m.start(destino, { engine: 'kimi' })
+    await tick()
+    const done: [string, string][] = []
+    m.dispatchTask(destino.id, 'Origem', 'trabalho', (s, r) => done.push([s, r]))
+    m.beginShutdown()
+    await m.interrupt(localId)
+    stub.closeInterrupted()
+    await tick()
+    await m.stop(localId)
+    await tick()
+    expect(done).toEqual([])
+  })
+
+  it('enviar agora no destino (motor sem mensagem no meio do turno): o item da fila vai primeiro e a tarefa fecha como failed', async () => {
+    const stub = new TurnBasedStub()
+    let arbiter: ReturnType<typeof createNextSend> | undefined
+    let queue: ReturnType<typeof createOperatorQueueService> | undefined
+    const m = createSessionManager({
+      db, sessionFactory: () => stub as never, broadcast: () => {},
+      onSessionAvailable: (projectId, ctx) => { if (ctx) arbiter?.onSessionAvailable({ projectId, ...ctx }) },
+      onTurnResult: (projectId, engine, info) => queue?.onTurnResult(projectId, engine, info),
+    })
+    const app = Fastify()
+    const orch = registerOrchestratorRoutes(app, { db, manager: m })
+    const liveLocalId = (projectId: number, engine: string) =>
+      m.list().find((s) => s.projectId === projectId && s.engine === engine && ['starting', 'idle', 'working', 'needs_attention'].includes(s.status))?.localId ?? null
+    queue = createOperatorQueueService({
+      store: createOperatorQueueStore(db), manager: m, broadcast: () => {}, holds: () => false,
+      acceptsMidTurn: () => false, liveLocalId, isShuttingDown: () => m.isShuttingDown(),
+    })
+    arbiter = createNextSend({
+      providers: [
+        { name: 'operator-queue', slot: 3, offer: (ctx) => queue!.offer(ctx) },
+        { name: 'agent-tasks', slot: 5, offer: (ctx) => orch.drain(ctx.projectId, ctx.localId) },
+      ],
+      holds: () => false,
+      isFree: (localId) => { const s = m.get(localId); return !!s && m.hasFreeSession(s.projectId, { localId }) },
+      liveLocalId,
+      log: () => {},
+    })
+    const { localId } = m.start(destino, { engine: 'kimi' })
+    await tick()
+    const { id } = tasks.create(origem.id, destino.id, 'trabalho', 'queued', 'claude')
+    expect(orch.drain(destino.id)).toBe(true)
+    // Outra tarefa espera na fila do orchestrator: não pode passar na frente do item.
+    const outra = tasks.create(origem.id, destino.id, 'outra', 'queued', 'claude').id
+    const dto = queue.add(destino.id, 'kimi', 'urgente')
+    queue.sendNow(dto.items[0].id)
+    await tick()
+    stub.closeInterrupted()
+    await waitUntil(() => tasks.get(id)?.status !== 'in_progress')
+    await new Promise((r) => setImmediate(r))
+    expect(tasks.get(id)).toMatchObject({ status: 'failed', result: TASK_INTERRUPTED_TEXT })
+    expect(stub.sent).toEqual(['[Task from Origem]: trabalho', 'urgente'])
+    expect(tasks.get(outra)?.status).toBe('queued')
+    await m.stopAll()
+    await app.close()
   })
 })
 

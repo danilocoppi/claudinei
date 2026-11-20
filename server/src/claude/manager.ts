@@ -158,6 +158,13 @@ interface Deps {
  */
 export interface TurnResultInfo { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin; compaction?: boolean }
 
+/**
+ * O resultado da tarefa delegada cujo turno o operador interrompeu (Esc ou
+ * "enviar agora" no terminal de destino): fecha como falha com este texto, e
+ * não como concluída e vazia (R18). Texto ao agente, em inglês.
+ */
+export const TASK_INTERRUPTED_TEXT = 'interrupted by the operator'
+
 /** `/goal` sozinho ou seguido de espaço: o comando do objetivo, não `/goalx`. */
 const GOAL_COMMAND = /^\/goal(\s|$)/
 
@@ -172,8 +179,13 @@ export interface TaskTarget { localId?: string; accept?: (engine: EngineId) => b
  * próprio Claudinei.
  */
 type TurnEnd =
-  /** `limited`: o turno bateu no limite de uso; `resetsAt` em epoch segundos, null = desconhecido. */
-  | { kind: 'result'; text: string; limited?: { resetsAt: number | null } }
+  /**
+   * `limited`: o turno bateu no limite de uso; `resetsAt` em epoch segundos, null = desconhecido.
+   * `interrupted`: o operador interrompeu o turno (o result é o do turno cortado).
+   */
+  | { kind: 'result'; text: string; limited?: { resetsAt: number | null }; interrupted?: true }
+  /** O turno interrompido pelo operador fechou sem result (Kimi, OpenCode, ou o result póstumo descartado). */
+  | { kind: 'interrupted' }
   | { kind: 'dead' | 'stopped' | 'timeout' | 'shutdown' }
 
 /**
@@ -184,6 +196,17 @@ type TurnEnd =
 interface TurnCtx {
   isShuttingDown: () => boolean
   limitOf: (session: EngineSession) => { resetsAt: number | null } | undefined
+  /**
+   * O result que acabou de chegar fecha um turno interrompido pelo operador. O
+   * ouvinte do wire() roda antes dos ouvintes de turno e consome a marca do Esc;
+   * por isso ele guarda o veredito, lido aqui no mesmo result.
+   */
+  wasInterrupted: (session: EngineSession) => boolean
+  /**
+   * Assina o fim sintetizado do turno interrompido que fechou sem result (o
+   * "livre" do wire()). Devolve o cancelamento.
+   */
+  onCutEnd: (session: EngineSession, cb: () => void) => () => void
 }
 
 /**
@@ -201,6 +224,7 @@ interface TurnCtx {
  */
 function watchTurnEnd(
   session: EngineSession, timeoutMs: number | undefined, ctx: TurnCtx, onEnd: (end: TurnEnd) => void,
+  opts?: { cut?: boolean },
 ): () => void {
   let settled = false
   const finish = (end: TurnEnd) => {
@@ -210,12 +234,14 @@ function watchTurnEnd(
   const cleanup = () => {
     session.removeListener('event', onEvent)
     session.removeListener('status', onStatus)
+    offCut?.()
     if (timer) clearTimeout(timer)
   }
   const onEvent = (evt: ClaudeEvent) => {
     if (evt.kind === 'result') {
       const limited = ctx.limitOf(session)
-      finish({ kind: 'result', text: evt.resultText, ...(limited ? { limited } : {}) })
+      const interrupted = ctx.wasInterrupted(session)
+      finish({ kind: 'result', text: evt.resultText, ...(limited ? { limited } : {}), ...(interrupted ? { interrupted: true as const } : {}) })
     }
   }
   const onStatus = (status: SessionStatus) => {
@@ -226,6 +252,9 @@ function watchTurnEnd(
     finish({ kind: ctx.isShuttingDown() ? 'shutdown' : status })
   }
   const timer = timeoutMs ? setTimeout(() => finish({ kind: 'timeout' }), timeoutMs) : undefined
+  // Só quem pede (a tarefa): o turno cortado sem result também é um fim. No
+  // encerramento não termina aqui: a parada que vem depois dá o 'shutdown'.
+  const offCut = opts?.cut ? ctx.onCutEnd(session, () => { if (!ctx.isShuttingDown()) finish({ kind: 'interrupted' }) }) : undefined
   session.on('event', onEvent)
   session.on('status', onStatus)
   return () => { if (!settled) { settled = true; cleanup() } }
@@ -250,7 +279,8 @@ function waitForResult(session: EngineSession, timeoutMs: number, ctx: TurnCtx):
         end.kind === 'shutdown' ? RESTART_FAIL_TEXT
           : end.kind === 'dead' ? 'target agent exited unexpectedly before responding'
             : end.kind === 'stopped' ? 'target agent was stopped before responding'
-              : 'timed out waiting for the agent response'))
+              : end.kind === 'interrupted' ? TASK_INTERRUPTED_TEXT
+                : 'timed out waiting for the agent response'))
     })
   })
 }
@@ -260,7 +290,9 @@ function waitForResult(session: EngineSession, timeoutMs: number, ctx: TurnCtx):
  * falha. Sem `timeoutMs`, não há prazo: a sessão que morre ou para ainda fecha a
  * tarefa como falha. No encerramento do serviço NÃO fecha: só solta os ouvintes, e a tarefa
  * continua in_progress no banco para ser reanexada depois do boot. Turno que
- * bateu no limite fecha a tarefa como falha, com o texto do limite.
+ * bateu no limite fecha a tarefa como falha, com o texto do limite. Turno que o
+ * operador interrompeu (com result ou sem) fecha como falha, com o texto da
+ * interrupção (R18); o limite tem prioridade sobre ele.
  */
 function watchTask(
   session: EngineSession, timeoutMs: number | undefined, ctx: TurnCtx,
@@ -270,11 +302,14 @@ function watchTask(
     if (end.kind === 'shutdown') return
     if (end.kind === 'result') {
       if (end.limited) onComplete('failed', usageLimitFailText(end.limited.resetsAt))
+      // Interrompido no encerramento: a tarefa fica in_progress para ser religada.
+      else if (end.interrupted) { if (!ctx.isShuttingDown()) onComplete('failed', TASK_INTERRUPTED_TEXT) }
       else onComplete('completed', end.text)
     }
     else onComplete('failed', end.kind === 'dead' ? 'target agent exited'
-      : end.kind === 'stopped' ? 'target agent was stopped' : 'timed out')
-  })
+      : end.kind === 'stopped' ? 'target agent was stopped'
+        : end.kind === 'interrupted' ? TASK_INTERRUPTED_TEXT : 'timed out')
+  }, { cut: true })
 }
 
 export function createSessionManager(deps: Deps) {
@@ -322,6 +357,20 @@ export function createSessionManager(deps: Deps) {
    * Guarda a origem do turno interrompido, lida no Esc: o fim dele sai com ela.
    */
   const interruptedTurn = new Map<string, LimitOrigin>()
+  /**
+   * O veredito do último result de cada sessão: era um turno interrompido pelo
+   * operador? Gravado pelo ouvinte do wire() (que consome a marca do Esc) antes
+   * de os ouvintes de turno lerem o mesmo result (TurnCtx.wasInterrupted).
+   */
+  const lastResultInterrupted = new WeakMap<EngineSession, boolean>()
+  /** Quem espera o fim sintetizado do turno interrompido sem result, por sessão (TurnCtx.onCutEnd). */
+  const cutWatchers = new WeakMap<EngineSession, Set<() => void>>()
+  const onCutEnd = (session: EngineSession, cb: () => void): (() => void) => {
+    let set = cutWatchers.get(session)
+    if (!set) { set = new Set(); cutWatchers.set(session, set) }
+    set.add(cb)
+    return () => { cutWatchers.get(session)?.delete(cb) }
+  }
 
   /**
    * O limite em que o turno da sessão bateu, com o horário resolvido: o do
@@ -335,7 +384,10 @@ export function createSessionManager(deps: Deps) {
     try { fallback = deps.lastRejectedResetsAt?.() ?? null } catch { /* sem horário */ }
     return { resetsAt: fallback }
   }
-  const turnCtx: TurnCtx = { isShuttingDown, limitOf }
+  const turnCtx: TurnCtx = {
+    isShuttingDown, limitOf, onCutEnd,
+    wasInterrupted: (session) => lastResultInterrupted.get(session) ?? false,
+  }
 
   /**
    * O id de conversa a retomar, DEPOIS de conferir que ele ainda existe.
@@ -521,6 +573,11 @@ export function createSessionManager(deps: Deps) {
           if (cut !== undefined) {
             interruptedTurn.delete(localId)
             turnResult(projectId, engine, { isError: false, interrupted: true, limited: false, origin: cut, ...compactionOf(localId) })
+            // A tarefa delegada que este turno executava também termina aqui
+            // (R18), antes do "livre": o turno seguinte não é dela.
+            for (const cb of [...(cutWatchers.get(session) ?? [])]) {
+              try { cb() } catch (err) { console.error('[manager] fim do turno interrompido falhou', err) }
+            }
           }
           // No Claude, o status chega antes do result que decide compactar: o
           // "livre" espera a compactação, cujo fim dá outro "livre".
@@ -577,6 +634,7 @@ export function createSessionManager(deps: Deps) {
         // A origem é lida aqui, no próprio result: a do Esc, se houve, senão a da sessão.
         const origin = interruptedTurn.get(localId) ?? live.get(localId)?.origin ?? 'operator'
         const interrupted = interruptedTurn.delete(localId) || interrupting.has(localId) || event.subtype === 'interrupted'
+        lastResultInterrupted.set(session, interrupted)
         turnResult(projectId, engine, { isError: event.isError, interrupted, limited: !!limited, origin, ...compactionOf(localId) })
       }
       // Turno que falhou acorda o terminal assentado ou adiado; o interrompido

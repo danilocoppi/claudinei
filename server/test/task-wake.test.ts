@@ -31,6 +31,8 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = join(__dirname, 'fake-claude.mjs')
 /** Com `tardio`, o CLI falso só manda o init junto da 1ª mensagem: a sessão fica em `starting`, como a revivida na subida. */
 let tardio = false
+/** Com `compactando`, o fim de turno chega ao aviso de tarefa como de compactação (o Esc no meio de uma). */
+let compactando = false
 const fakeFactory = (opts: SessionOptions) =>
   new ClaudeSession({ ...opts, claudeBin: process.execPath, extraArgsOverride: tardio ? [FAKE, '--init-tardio'] : [FAKE] })
 
@@ -81,6 +83,7 @@ beforeEach(async () => {
   clock = Date.now()
   timers = []
   tardio = false
+  compactando = false
   const projects = createProjectsService(db)
   origem = projects.create({ name: 'Origem', path: mkdtempSync(join(tmpdir(), 'tw-o-')) })
   destino = projects.create({ name: 'Destino', path: mkdtempSync(join(tmpdir(), 'tw-d-')) })
@@ -101,7 +104,7 @@ function build(): void {
     onTurnResult: (projectId, engine, info) => {
       restart?.onTurnResult(projectId, engine)
       limit?.onTurnResult(projectId, engine, info)
-      wake?.onTurnResult(projectId, engine, info)
+      wake?.onTurnResult(projectId, engine, compactando ? { ...info, compaction: true } : info)
     },
     onOperatorMessage: (projectId, engine) => {
       restart?.onOperatorMessage(projectId, engine)
@@ -706,6 +709,42 @@ describe('aviso de resultado ao terminal que delegou', () => {
     await waitUntil(() => notices().length === 1)
     expect(notices()[0].localId).toBe(o)
     expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: [], taskResultsHeld: false })
+  })
+
+  it('Esc no terminal que delegou publica o estado: a tela vê o aviso segurado sem recarregar', async () => {
+    const o = await up(origem)
+    await up(destino)
+    mgr.send(o, 'demorada')
+    await waitUntil(() => mgr.get(o)?.status === 'working')
+    const id = await dispatch('faça algo')
+    await waitUntil(ended(id))
+    await pause()
+    const before = states.length
+    await mgr.interrupt(o)
+    await waitUntil(() => mgr.get(o)?.status !== 'working')
+    await pause()
+    // O último estado publicado depois do Esc já traz o aviso segurado.
+    expect(states.length).toBeGreaterThan(before)
+    expect(lastState(origem.id)).toMatchObject({ taskResults: [{ id, toProjectName: 'Destino', status: 'completed' }], taskResultsHeld: true })
+    expect(notices()).toEqual([])
+  })
+
+  it('Esc no meio de um turno de compactação também segura o aviso (R19)', async () => {
+    const o = await up(origem)
+    await up(destino)
+    mgr.send(o, 'demorada')
+    await waitUntil(() => mgr.get(o)?.status === 'working')
+    const id = await dispatch('faça algo')
+    await waitUntil(ended(id))
+    await pause()
+    compactando = true
+    await mgr.interrupt(o)
+    await waitUntil(() => mgr.get(o)?.status !== 'working')
+    await pause()
+    // A folga que vem não é do aviso: ele fica à vista, com o Continuar.
+    expect(notices()).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+    expect(wake.decorate(origem.id, 'claude').taskResultsHeld).toBe(true)
   })
 
   it('Esc no terminal que delegou: o Continuar do aviso entrega', async () => {

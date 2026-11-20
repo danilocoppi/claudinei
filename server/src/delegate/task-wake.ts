@@ -223,13 +223,22 @@ export function createTaskWake(deps: {
      * operador ou do Claudinei (a retomada armada do limite é do Claudinei) tira
      * a marca: o terminal voltou a trabalhar. Turno com erro, de tarefa, de
      * agendamento ou de compactação (que herda a origem do turno anterior) não
-     * prova isso.
+     * prova isso. O Esc segura mesmo num turno de compactação, e publica o
+     * estado quando há resultado pendente.
      */
     onTurnResult(projectId: number, engine: string, info: { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin; compaction?: boolean }): void {
       const key = keyOf({ projectId, engine })
       if (info.limited) { held.add(key); return }
+      // O Esc vem antes da compactação: o operador que interrompe uma
+      // compactação também segura o aviso (R19).
+      if (info.interrupted) {
+        held.add(key)
+        // A tela precisa ver o aviso segurado (o Continuar) sem recarregar; só
+        // publica se há resultado pendente, para não fazer barulho à toa.
+        if (pendingFor(projectId, engine).length > 0) publish(projectId, engine)
+        return
+      }
       if (info.compaction) return
-      if (info.interrupted) { held.add(key); return }
       if (info.isError) return
       if (info.origin === 'operator' || info.origin === 'claudinei') held.delete(key)
     },

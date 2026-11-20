@@ -51,6 +51,8 @@ import { createUsageLimitService, type UsageLimitService } from './limit/usage-l
 import { createOperatorQueueService, createOperatorQueueStore, type OperatorQueueService } from './queue/operator-queue.js'
 import { createNextSend, holdsForNotice, type NextSend } from './queue/next-send.js'
 import { registerOperatorQueueRoutes } from './routes/operator-queue.js'
+import { createTaskWake, type TaskWake } from './delegate/task-wake.js'
+import { createGoalService, type GoalService } from './goal/goal.js'
 import { getEngine } from './engine/index.js'
 
 export interface AppDeps {
@@ -141,6 +143,18 @@ export interface AppDeps {
    * no limite, na interrupção pelo operador e na morte da sessão).
    */
   onQueueReady?: (queue: OperatorQueueService) => void
+  /**
+   * Recebe o aviso de resultado de tarefa delegada (lugar 4 do árbitro), pelo
+   * mesmo motivo do `onRestartReady`: o fim de turno do manager lê a referência
+   * que index.ts preenche aqui, e a subida dele (`boot`) roda depois do listen.
+   */
+  onTaskWakeReady?: (taskWake: TaskWake) => void
+  /**
+   * Recebe o serviço do goal (lugar 6 do árbitro): o fim de turno, a mensagem
+   * do operador e o `/goal` interceptado no manager leem a referência que
+   * index.ts preenche aqui.
+   */
+  onGoalReady?: (goal: GoalService) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -174,7 +188,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   deps.onTriageWakerReady?.(triageWaker)
   registerSessionRoutes(app, deps)
   registerEngineRoutes(app)
-  registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
+  // O aviso de resultado e o goal nascem com o reinício, mais abaixo; as rotas
+  // do Hermes (goal_done) e o orchestrator (fim de tarefa) leem as referências.
+  let taskWake: TaskWake | undefined
+  let goal: GoalService | undefined
+  registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast, goal: () => goal })
   registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })
   // O estado dos terminais (aviso do reinício, limite de uso) nasce antes do
   // orchestrator: com aviso aberto, nem a fila nem as tarefas de outros agentes
@@ -186,6 +204,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const orchestrator = registerOrchestratorRoutes(app, {
     db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast,
     canTake: (projectId, engine) => !holds(projectId, engine),
+    onTaskEnded: (taskId) => taskWake?.onTaskEnded(taskId),
   })
   deps.onOrchestratorReady?.(orchestrator)
   // A fila do operador e o árbitro do próximo envio: depois do orchestrator (o
@@ -267,6 +286,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     broadcast: publishTerminalState,
     closeInterruptedRuns: () => schedulesStore.closeInterruptedRuns(),
     onHeld: (projectId) => triageWaker.wake(projectId, 'interrupted'),
+    // Os resultados de tarefa pendentes vão no estado publicado e na lista (o
+    // goal já vem do próprio estado gravado).
+    decorate: (projectId, engine) => taskWake?.decorate(projectId, engine) ?? {},
+    decoratedTerminals: () => taskWake?.terminals() ?? [],
   })
   // O limite nasce junto do reinício: revive e publica pelo serviço dele, e
   // absorve a marca do reinício quando o limite bate.
@@ -276,9 +299,25 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   })
   // Fechar o app desliga o relógio: nenhuma retomada dispara num app fechado.
   app.addHook('onClose', async () => { limit.dispose() })
-  registerTerminalStateRoutes(app, { db: deps.db, restart, limit })
+  // O goal (lugar 6) e o aviso de resultado (lugar 4): depois do reinício (que
+  // revive e publica por eles). O aviso nasce AQUI, antes do startAfterListen:
+  // ele tira as marcas do limite do banco na construção, e a subida do limite
+  // (que limpa o adiado vencido) roda antes da dele.
+  const goalService = createGoalService({ db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend })
+  const wake = createTaskWake({
+    db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend, holds,
+    // O goal que esperava as tarefas delegadas volta a ativo quando o aviso sai.
+    onDelivered: (projectId, engine) => goalService.onTaskResultDelivered(projectId, engine),
+  })
+  goal = goalService
+  taskWake = wake
+  nextSend.register(wake.provider)
+  nextSend.register(goalService.provider)
+  registerTerminalStateRoutes(app, { db: deps.db, restart, limit, taskWake: wake, goal: goalService })
   deps.onRestartReady?.(restart)
   deps.onLimitReady?.(limit)
+  deps.onTaskWakeReady?.(wake)
+  deps.onGoalReady?.(goalService)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })

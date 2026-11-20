@@ -218,6 +218,17 @@ export function createGoalService(deps: {
       return { ok: true }
     },
 
+    /**
+     * O operador dispensou (×) os avisos de resultado do terminal: o goal que
+     * esperava as tarefas não seria mais acordado por eles e ficaria esperando
+     * para sempre. Pausa por operador, com o Retomar à vista.
+     */
+    onTaskResultsDismissed(projectId: number, engine: string): void {
+      if (store.get(projectId, engine).goalStatus !== 'waiting') return
+      store.setGoalStatus(projectId, engine, 'paused', 'operator')
+      publish(projectId, engine)
+    },
+
     /** O aviso de resultado de tarefa saiu para o terminal: o goal esperando volta a ativo. */
     onTaskResultDelivered(projectId: number, engine: string): void {
       if (store.get(projectId, engine).goalStatus !== 'waiting') return

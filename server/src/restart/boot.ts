@@ -354,6 +354,9 @@ export function createRestartService(deps: {
     /** Para o serviço do limite publicar o estado no mesmo formato. */
     publish,
 
+    /** O estado do terminal como as telas o recebem (com o que os outros serviços acrescentam), sem publicar. */
+    state: (projectId: number, engine: string): TerminalStateDto => stateOf(store.get(projectId, engine)),
+
     /**
      * O limite absorve a marca do reinício: ela sai sem retomar, e as tarefas
      * anotadas do turno fecham como no ×. Nada durante o encerramento (a marca
@@ -422,16 +425,19 @@ export type RestartService = ReturnType<typeof createRestartService>
 
 /**
  * O que roda depois do `listen`: primeiro a subida dos terminais, depois a do
- * limite de uso, por fim o agendador, para que um agendamento não dispute a
- * sessão com uma retomada. A ordem entre as duas subidas importa: uma retomada
- * armada absorve a marca do reinício, e a garantia de uma só mensagem por
- * janela depende de a subida do reinício ter terminado antes. Falha de uma
- * subida é registrada e nunca sobe: ela não pode impedir as seguintes. Se o
- * encerramento começou no meio, o que falta fica desligado.
+ * limite de uso, então a dos avisos de resultado de tarefa pendentes (que
+ * esperam as retomadas: o terminal interrompido segura até a dele), por fim o
+ * agendador, para que um agendamento não dispute a sessão com uma retomada. A
+ * ordem entre as duas primeiras importa: uma retomada armada absorve a marca do
+ * reinício, e a garantia de uma só mensagem por janela depende de a subida do
+ * reinício ter terminado antes. Falha de uma subida é registrada e nunca sobe:
+ * ela não pode impedir as seguintes. Se o encerramento começou no meio, o que
+ * falta fica desligado.
  */
 export async function startAfterListen(deps: {
   restart: Pick<RestartService, 'boot'> | undefined
   limit?: Pick<UsageLimitService, 'boot'>
+  taskWake?: { boot(): Promise<void> }
   scheduler: { start(): void } | undefined
   isShuttingDown?: () => boolean
   log?: (msg: string) => void
@@ -447,6 +453,12 @@ export async function startAfterListen(deps: {
     await deps.limit?.boot()
   } catch (err) {
     log(`[limite] a subida do limite de uso falhou: ${(err as Error)?.message ?? err}`)
+  }
+  if (deps.isShuttingDown?.()) return
+  try {
+    await deps.taskWake?.boot()
+  } catch (err) {
+    log(`[aviso de tarefa] a subida dos avisos pendentes falhou: ${(err as Error)?.message ?? err}`)
   }
   if (deps.isShuttingDown?.()) return
   deps.scheduler?.start()

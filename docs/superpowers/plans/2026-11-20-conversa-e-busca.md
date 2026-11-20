@@ -284,6 +284,7 @@
 - Create: `web/src/components/FindBar.tsx`, montado no topo da coluna do chat em `ChatView`.
 - Modify: `web/src/store.ts`, com o slice `find`.
 - Modify: `web/src/api.ts`, com `searchHistory`.
+- Modify: `web/src/types.ts`, com `SearchField` e `SearchHit` iguais aos do servidor (Task 2).
 - Modify: `web/src/components/MessageBlock.tsx` e `ActionGroup.tsx`, com a classe `chat-hit` no item da ocorrência atual. O seletor é estreito: `s.find?.currentKey === key`.
 - Modify: `web/src/styles.css` (`.find-bar`, `.chat-hit`, sem animação); `web/src/i18n/{pt-BR,en,es}.ts`; `UX-CONTRACT.md`, com a seção "Conversa e busca".
 - Test: `web/src/test/chat-find.test.tsx`, `web/src/test/keyboard.test.ts` (casos novos).

@@ -25,6 +25,7 @@ import { NewProjectModal } from './NewProjectModal'
 export function EngineTabs({ projectId, activeLocalId }: { projectId: number; activeLocalId: string }) {
   const { t } = useTranslation()
   const engines = useStore((s) => s.engines)
+  const enginesLoaded = useStore((s) => s.enginesLoaded)
   const sessions = useStore((s) => s.sessions)
   const openSession = useStore((s) => s.openSession)
   const openTerminal = useStore((s) => s.openTerminal)
@@ -83,10 +84,12 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // Nenhum motor da lista do terminal está instalado (um id que o catálogo não
   // conhece também não roda) e nenhuma sessão deste terminal está viva. A aba da
   // conversa aberta na tela continua (o tabEngines a mantém), e o aviso fica ao
-  // lado dela; sem aba nenhuma, ele ocupa o lugar das abas. Sem o catálogo ou o
-  // terminal no store (ainda carregando), nada está instalado ainda, e o aviso
-  // piscaria à toa.
-  const noneInstalled = !!project && engines.length > 0
+  // lado dela; sem aba nenhuma, ele ocupa o lugar das abas. Só vale com o
+  // catálogo vindo do servidor: o embutido, usado até o GET /api/engines
+  // responder (ou para sempre, se ele falhar), só tem Claude e Codex e não sabe
+  // o que está instalado, e o aviso apareceria à toa. Também espera o terminal
+  // chegar ao store.
+  const noneInstalled = enginesLoaded && !!project
     && !listed.some((id) => engines.some((e) => e.id === id && e.available !== false))
     && !Object.values(sessions).some((s) => s.projectId === projectId && isLive(s))
 

@@ -441,6 +441,16 @@ describe('compactação em curso', () => {
 })
 
 describe('motores embutidos', () => {
+  it('o catálogo começa como o embutido, sem a marca de carregado do servidor', () => {
+    expect(useStore.getInitialState().enginesLoaded).toBe(false)
+  })
+
+  it('setEngines marca o catálogo como carregado do servidor', () => {
+    useStore.setState({ enginesLoaded: false })
+    useStore.getState().setEngines(useStore.getInitialState().engines)
+    expect(useStore.getState().enginesLoaded).toBe(true)
+  })
+
   it('Claude e Codex aceitam mensagem no meio do turno (midTurnInput) no fallback embutido', () => {
     const embutidos = useStore.getInitialState().engines
     expect(embutidos.filter((e) => e.midTurnInput).map((e) => e.id).sort()).toEqual(['claude', 'codex'])

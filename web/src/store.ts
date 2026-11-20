@@ -120,6 +120,11 @@ interface State {
   slashCommands: string[]
   /** Engines registradas no backend (metadados + capabilities), populado no boot ('ready'). */
   engines: EngineMeta[]
+  /**
+   * `engines` já veio do servidor (`setEngines`). Antes disso vale o embutido,
+   * que não sabe o que está instalado: quem decide por instalação espera esta marca.
+   */
+  enginesLoaded: boolean
   /** Effort atual por sessão, farejado das respostas do /effort (ausente = auto). */
   sessionEffort: Record<string, string>
   /** Grupos visuais de terminais (sidebar). */
@@ -306,6 +311,7 @@ export const useStore = create<State>((set, get) => ({
   editRequest: undefined,
   slashCommands: BUILTIN_FALLBACK,
   engines: BUILTIN_ENGINES,
+  enginesLoaded: false,
   sessionEffort: {},
   groups: [],
   sectors: [],
@@ -344,7 +350,7 @@ export const useStore = create<State>((set, get) => ({
 
   setSlashCommands: (cmds) => set((s) => (cmds.length ? { slashCommands: cmds } : s)),
 
-  setEngines: (engines) => set({ engines }),
+  setEngines: (engines) => set({ engines, enginesLoaded: true }),
 
   setHistory: (localId, events) =>
     set((s) => ({ chat: { ...s.chat, [localId]: events.reduce(applyEvent, [] as ChatItem[]) } })),

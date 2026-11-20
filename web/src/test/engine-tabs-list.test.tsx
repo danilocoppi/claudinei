@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within, act } from '@testing-library/react'
 import { EngineTabs } from '../components/EngineTabs'
 import { useStore } from '../store'
 import * as api from '../api'
@@ -22,6 +22,7 @@ const sess = (localId: string, engine: string, status: SessionStatus): SessionIn
 const setup = (engines: string[], catalog: EngineMeta[] = [CLAUDE, CODEX, KIMI, OPENCODE]) => {
   useStore.setState({
     engines: catalog,
+    enginesLoaded: true,
     projects: [project(engines)],
     sessions: { c1: sess('c1', 'claude', 'idle') },
   })
@@ -225,12 +226,23 @@ describe('EngineTabs — aviso de terminal sem motor instalado', () => {
     expect(notice()).toBeNull()
   })
 
-  it('com o catálogo de motores ainda vazio, o aviso não aparece', () => {
-    // O catálogo chega depois do primeiro render: sem ele, nada consta como
-    // instalado, mas o aviso piscaria à toa até a resposta.
-    setup(['claude'], [])
-    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+  it('com o catálogo embutido, antes da resposta do servidor, o aviso não aparece', () => {
+    // O store nasce com o catálogo embutido (só Claude e Codex, sem `available`).
+    // Um terminal com ['kimi'] parece sem motor instalado até o GET /api/engines
+    // responder, ou para sempre se ele falhar: o aviso não pode piscar nem ficar.
+    setup(['kimi'], useStore.getInitialState().engines)
+    useStore.setState({ enginesLoaded: false, sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(tabLabels()).toEqual(['Claude Code'])
+    expect(notice()).toBeNull()
+  })
+
+  it('com o catálogo do servidor e o kimi não instalado, o aviso aparece', () => {
+    setup(['kimi'], [CLAUDE, CODEX, { ...KIMI, available: false }])
+    useStore.setState({ enginesLoaded: false, sessions: { c1: sess('c1', 'claude', 'stopped') } })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)
     expect(notice()).toBeNull()
+    act(() => { useStore.getState().setEngines([CLAUDE, CODEX, { ...KIMI, available: false }]) })
+    expect(notice()).not.toBeNull()
   })
 })

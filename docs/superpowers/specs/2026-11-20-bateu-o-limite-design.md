@@ -197,3 +197,11 @@ reabertura e mandar "continue".
 - Os nomes exatos das colunas e do campo no DTO de `terminal_state`.
 - O formato da hora no aviso (local, 24 h no pt-BR).
 - As chaves de i18n em pt-BR, en e es.
+
+## Decisões depois da revisão do desenho (de quem escreveu)
+
+- **Tarefa encaminhada que bate no limite fecha na hora**, como falha "limite de uso do Claude — a janela reabre às HH:MM" (horário local do operador), para quem encaminhou poder mandar de novo ou a outro motor. Não fica religada até a reabertura (o prazo da tarefa é de minutos; o limite dura horas). Pergunta entre agentes (`ask_agent`) recebe o mesmo texto como erro.
+- **Reinício e limite ao mesmo tempo: vale uma retomada só.** Se o terminal tem a marca do reinício e está limitado, a marca do reinício é absorvida pelo estado do limite (sai do reinício) e a única retomada é a da reabertura, seguindo o interruptor do limite. Nunca saem duas mensagens na mesma janela.
+- **De onde veio o turno limitado importa.** O estado do limite guarda a origem (operador, agendamento, tarefa encaminhada, mensagem do Claudinei). O interruptor "sozinho" só arma a retomada quando o turno limitado era do operador ou uma retomada do Claudinei; turno de agendamento ou de tarefa só mostra o aviso (o operador decide), coerente com o agendamento não tentar de novo na reabertura.
+- **Qualquer turno que termina sem erro limpa o estado do limite** (a janela reabriu, ou o horário estava errado): o aviso some, o relógio é desarmado e nada é mandado depois.
+- **A reabertura usa lotes próprios** (os mesmos 3 por vez, com espera), porque vários terminais costumam reabrir no mesmo instante.

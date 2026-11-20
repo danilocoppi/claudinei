@@ -55,6 +55,8 @@ const BUILTIN_ENGINES: EngineMeta[] = [
 const BOARD_MAX = 200
 
 /** Mantém em `map` só as chaves presentes em `keep`; devolve o próprio `map` se nada mudou. */
+export interface HistoryCursor { before: number; atStart: boolean; conv?: string }
+
 function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>): Record<string, T> {
   const kept = Object.keys(map).filter((k) => k in keep)
   if (kept.length === Object.keys(map).length) return map
@@ -106,8 +108,12 @@ interface State {
   /** Preview efêmero de streaming token-a-token, por localId. Nunca entra em chat[]; some quando o evento assistant/result real chega. */
   streaming: Record<string, string>
   historyLoadedFor: Record<string, string>
-  /** Até onde as páginas do histórico já foram carregadas, por localId: `before` da mais antiga e se ela chegou ao começo. */
-  historyCursor: Record<string, { before: number; atStart: boolean }>
+  /**
+   * Até onde as páginas do histórico já foram carregadas, por localId: `before`
+   * da mais antiga, se ela chegou ao começo, e de qual conversa (`conv`: o
+   * engineSessionId, ou '(preview)') são as chaves que estão na tela.
+   */
+  historyCursor: Record<string, HistoryCursor>
   /** Resultados de ferramenta à espera da chamada, que está numa página antiga ainda não carregada, por localId. */
   orphanResults: Record<string, OrphanResults>
   activeLocalId?: string
@@ -163,9 +169,13 @@ interface State {
    * O fim do histórico (1ª carga ou refetch): reconcilia por chave com o que está
    * na tela, sem perder as páginas antigas já carregadas. Ver `mergeTail`.
    */
-  setHistoryTail(localId: string, page: HistoryPage): void
-  /** Página mais antiga, acrescentada no topo. Ver `mergeOlder`. */
-  prependHistory(localId: string, page: HistoryPage): void
+  setHistoryTail(localId: string, page: HistoryPage, conv?: string): void
+  /**
+   * Página mais antiga, acrescentada no topo. Ver `mergeOlder`. `requestedBefore`
+   * é o `before` pedido: se o cursor andou enquanto a página vinha (refetch que
+   * substituiu a lista, troca de conversa), ela é velha e é descartada.
+   */
+  prependHistory(localId: string, page: HistoryPage, requestedBefore: number): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
   /** Reconexão do WS: eventos podem ter se perdido na queda. Invalida os históricos
    *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
@@ -326,14 +336,17 @@ export const useStore = create<State>((set, get) => ({
 
   setEngines: (engines) => set({ engines }),
 
-  setHistoryTail: (localId, page) =>
+  setHistoryTail: (localId, page, conv) =>
     set((s) => {
-      const r = mergeTail(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {})
+      const prev = s.historyCursor[localId]
+      const changed = conv !== undefined && prev?.conv !== undefined && prev.conv !== conv
+      const r = mergeTail(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {}, changed)
+      if (r.unchanged) return s
       // `r.renamed` (chave ao vivo → confirmada) é o gancho das dobras abertas:
       // quem guardar estado por chave aplica a troca aqui (Task 4).
-      const cursor = r.reset || !s.historyCursor[localId]
-        ? { before: page.before, atStart: page.atStart }
-        : s.historyCursor[localId]
+      const cursor: HistoryCursor = r.reset || !prev
+        ? { before: page.before, atStart: page.atStart, conv: conv ?? prev?.conv }
+        : { ...prev, conv: conv ?? prev.conv }
       return {
         chat: { ...s.chat, [localId]: r.items },
         historyCursor: { ...s.historyCursor, [localId]: cursor },
@@ -341,12 +354,14 @@ export const useStore = create<State>((set, get) => ({
       }
     }),
 
-  prependHistory: (localId, page) =>
+  prependHistory: (localId, page, requestedBefore) =>
     set((s) => {
+      const cursor = s.historyCursor[localId]
+      if (!cursor || cursor.before !== requestedBefore) return s
       const r = mergeOlder(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {})
       return {
         chat: { ...s.chat, [localId]: r.items },
-        historyCursor: { ...s.historyCursor, [localId]: { before: page.before, atStart: page.atStart } },
+        historyCursor: { ...s.historyCursor, [localId]: { ...cursor, before: page.before, atStart: page.atStart } },
         orphanResults: { ...s.orphanResults, [localId]: r.orphans },
       }
     }),

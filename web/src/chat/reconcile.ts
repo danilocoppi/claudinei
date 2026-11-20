@@ -13,6 +13,22 @@ import type { ChatItem, ClaudeEvent, HistoryPage } from '../types'
 /** Resultados de ferramenta cuja chamada ficou numa página ainda não carregada, por id do tool_use. */
 export type OrphanResults = Record<string, { result: string; isError: boolean }>
 
+/** Posição da chave confirmada (`p<pos>` ou `p<pos>.n`); undefined para ao vivo. */
+export function keyPos(key: string | undefined): number | undefined {
+  if (!key || key[0] !== 'p') return undefined
+  const dot = key.indexOf('.')
+  return Number(dot < 0 ? key.slice(1) : key.slice(1, dot))
+}
+
+/** Maior posição confirmada na tela (-1 se nenhuma). */
+export function lastConfirmedPos(items: ChatItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const p = keyPos(items[i].key)
+    if (p !== undefined) return p
+  }
+  return -1
+}
+
 /** Item ao vivo: chave provisória `l<n>` (ou nenhuma, nos itens antigos de teste). */
 const isLive = (it: ChatItem): boolean => !it.key || it.key.startsWith('l')
 
@@ -57,16 +73,28 @@ function contentSig(it: ChatItem): string {
 }
 
 /**
+ * Ao vivo sem par no transcript que FICA na tela. A mensagem do operador (o
+ * transcript ainda não a gravou, ou o motor a perdeu) e o que o transcript nunca
+ * guarda: aviso de erro (`message_error`, falha de envio do WebSocket, "Mensagem
+ * pendente…" com o texto que se perdeu) e o `!comando` com a saída dele. O resto
+ * (texto do agente, raciocínio, ferramentas, injeções da engine) tem par no
+ * transcript; sem par, foi reescrito — ou o leitor não o guarda, como as
+ * ferramentas no rollout do Codex — e sai, como saía quando o refetch
+ * substituía a lista.
+ */
+function keepsUnmatched(it: ChatItem): boolean {
+  return (it.kind === 'user_text' && !it.fromEngine) || it.kind === 'command_output' || it.kind === 'local_command'
+}
+
+/**
  * Reaproveita o objeto de `prev` quando a chave casa e o conteúdo é igual. Os
  * itens ao vivo (`l…`) de `prev` casam com os confirmados de `next` por
  * kind+texto, em ordem, e entram em `renamed` (velha → nova), para quem guarda
  * estado por chave (as dobras) acompanhar a troca.
  *
- * Ao vivo sem par: se veio DEPOIS do último que casou e é mensagem do operador,
- * o transcript ainda não a gravou (a mensagem otimista na corrida do 1º init) e
- * ela fica no fim. O resto foi superado pelo confirmado — o motor reescreveu o
- * texto, ou é coisa só da tela, como a saída do `!comando` — e sai, como saía
- * quando o refetch substituía a lista.
+ * O ao vivo sem par que fica (`keepsUnmatched`) volta ancorado logo depois do
+ * item que o precedia e sobreviveu; sem âncora (a lista inteira mudou), vai
+ * para o fim, que é onde a mensagem otimista estava.
  */
 export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: ChatItem[]; renamed: Record<string, string> } {
   const byKey = new Map<string, ChatItem>()
@@ -83,8 +111,8 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
     if (q) q.idx.push(i)
     else queues.set(sig, { idx: [i], at: 0 })
   })
-  const matched: boolean[] = []
-  let lastMatched = -1
+  // Chave confirmada de cada item ao vivo que casou ('' = casou com item sem chave).
+  const matchedTo: (string | undefined)[] = []
   const renamed: Record<string, string> = {}
   const items = next.map((n) => {
     const old = n.key !== undefined ? byKey.get(n.key) : undefined
@@ -93,16 +121,46 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
     const q = queues.get(contentSig(n))
     if (q && q.at < q.idx.length) {
       const i = q.idx[q.at++]
-      matched[i] = true
-      if (i > lastMatched) lastMatched = i
+      matchedTo[i] = n.key ?? ''
       const k = live[i].key
       if (k && n.key) renamed[k] = n.key
     }
     return n
   })
-  const pending = live.filter((it, i) =>
-    i > lastMatched && !matched[i] && it.kind === 'user_text' && !it.fromEngine)
-  return { items: pending.length ? [...items, ...pending] : items, renamed }
+  if (live.length === 0) return { items, renamed }
+
+  // Âncora: o último item de `prev` antes do ao vivo que continua na lista nova.
+  const inNext = new Set<string>()
+  for (const it of items) if (it.key) inNext.add(it.key)
+  const after = new Map<string, ChatItem[]>()
+  const loose: ChatItem[] = []
+  let anchor: string | undefined
+  let li = 0
+  for (const it of prev) {
+    if (!isLive(it)) {
+      if (inNext.has(it.key!)) anchor = it.key
+      continue
+    }
+    const i = li++
+    const to = matchedTo[i]
+    if (to !== undefined) { if (to) anchor = to; continue }
+    if (!keepsUnmatched(it)) continue
+    if (anchor === undefined) loose.push(it)
+    else {
+      const bucket = after.get(anchor)
+      if (bucket) bucket.push(it)
+      else after.set(anchor, [it])
+    }
+  }
+  if (after.size === 0 && loose.length === 0) return { items, renamed }
+  const out: ChatItem[] = []
+  for (const it of items) {
+    out.push(it)
+    const extra = it.key !== undefined ? after.get(it.key) : undefined
+    if (extra) out.push(...extra)
+  }
+  out.push(...loose)
+  return { items: out, renamed }
 }
 
 /** Reduz uma página do histórico numa lista só (linear) e separa os resultados sem chamada. */
@@ -137,17 +195,24 @@ const hasAny = (o: object) => { for (const _ in o) return true; return false }
 /**
  * A cauda relida (refetch do fim do turno, reconexão, volta do terminal) sobre o
  * que está na tela. Acha a 1ª chave da página nos itens atuais: o que vem antes
- * (páginas antigas já carregadas) fica como está, e o resto é reconciliado. Sem
- * interseção — o turno passou de uma página inteira, ou a chave é de outra
- * conversa (mesma posição, outro conteúdo) — substitui tudo: `reset`, e o cursor
- * de páginas antigas recomeça daqui, sem buraco.
+ * (páginas antigas já carregadas) fica como está, e o resto é reconciliado.
+ *
+ * Sem interseção — a conversa mudou (`changed`), a chave é de outro arquivo
+ * (mesma posição, outro conteúdo), ou o turno passou do que `loadHistoryTail`
+ * aceita buscar para trás — substitui: `reset`, e o cursor de páginas antigas
+ * recomeça daqui, sem buraco.
+ *
+ * Página sem nenhum item na MESMA conversa não apaga nada (`unchanged`): a rota
+ * devolve vazio quando não acha a conversa (id fantasma, rollout que sumiu), e
+ * isso não prova que a conversa na tela deixou de existir.
  */
-export function mergeTail(current: ChatItem[], page: HistoryPage, orphans: OrphanResults): {
-  items: ChatItem[]; renamed: Record<string, string>; reset: boolean; orphans: OrphanResults
+export function mergeTail(current: ChatItem[], page: HistoryPage, orphans: OrphanResults, changed = false): {
+  items: ChatItem[]; renamed: Record<string, string>; reset: boolean; orphans: OrphanResults; unchanged?: boolean
 } {
   const { items: fresh, orphanResults } = reducePage(page.events)
+  if (fresh.length === 0 && !changed) return { items: current, renamed: {}, reset: false, orphans, unchanged: true }
   const first = fresh[0]
-  const idx = first?.key ? current.findIndex((it) => it.key === first.key) : -1
+  const idx = !changed && first?.key ? current.findIndex((it) => it.key === first.key) : -1
   if (idx < 0 || contentSig(current[idx]) !== contentSig(first)) {
     return { ...reconcileByKey(current, fresh), reset: true, orphans: orphanResults }
   }
@@ -176,9 +241,14 @@ export function mergeOlder(current: ChatItem[], page: HistoryPage, orphans: Orph
   items: ChatItem[]; orphans: OrphanResults
 } {
   const { items: older, orphanResults } = reducePage(page.events)
-  const have = new Set<string>()
-  for (const it of current) if (it.key) have.add(it.key)
-  let top = older.filter((it) => !it.key || !have.has(it.key))
+  // Só o que vem ANTES do 1º item confirmado da tela: o topo continua em ordem
+  // e nenhuma chave se repete, mesmo com uma página que se sobreponha.
+  let firstPos = Infinity
+  for (const it of current) {
+    const p = keyPos(it.key)
+    if (p !== undefined) { firstPos = p; break }
+  }
+  let top = older.filter((it) => { const p = keyPos(it.key); return p === undefined || p < firstPos })
   const pending = { ...orphans }
   if (hasAny(pending)) top = fillOrphans(top, pending)
   Object.assign(pending, orphanResults)

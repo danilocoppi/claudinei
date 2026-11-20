@@ -3,6 +3,7 @@ import { applyEvent } from '../chat/applyEvent'
 import { itemsEqual, reconcileByKey, reducePage } from '../chat/reconcile'
 import { useStore } from '../store'
 import { fetchHistory } from '../api'
+import { loadHistoryTail, TAIL_CATCHUP_PAGES } from '../chat/loadTail'
 import type { ChatItem, ClaudeEvent } from '../types'
 
 /**
@@ -137,7 +138,7 @@ describe('setHistoryTail / prependHistory', () => {
   it('refetch do fim mantém as páginas antigas carregadas', () => {
     const st = () => useStore.getState()
     st().setHistoryTail('s', tail1)
-    st().prependHistory('s', older)
+    st().prependHistory('s', older, 100)
     const antes = st().chat.s
     expect(keys(antes)).toEqual(['p0', 'p40', 'p80', 'p100', 'p110', 'p130'])
     expect(st().historyCursor.s).toEqual({ before: 0, atStart: true })
@@ -157,7 +158,7 @@ describe('setHistoryTail / prependHistory', () => {
   it('sessão longa: o ao vivo ganha as flags que só o transcript tem (era o mergeEngineFlags)', () => {
     const st = () => useStore.getState()
     st().setHistoryTail('s', tail1)
-    st().prependHistory('s', older)
+    st().prependHistory('s', older, 100)
     // ao vivo, sem as marcas: a skill injetada parece do operador; o erro da API não tem o prefixo
     st().applyWsMessage({ type: 'session_event', localId: 's', event: pedido('Base directory for this skill: /x') })
     st().applyWsMessage({ type: 'session_event', localId: 's', event: texto('Request failed') })
@@ -172,10 +173,11 @@ describe('setHistoryTail / prependHistory', () => {
     expect(chat[7]).toMatchObject({ kind: 'assistant_text', isApiError: true })
   })
 
-  it('refetch sem interseção substitui tudo e reinicia o cursor (sem buraco)', () => {
+  /** Na tela, o caminho normal é `loadHistoryTail` ler para trás até encostar; isto é o que sobra além do teto. */
+  it('cauda sem interseção (além do teto de páginas) substitui e reinicia o cursor, sem buraco', () => {
     const st = () => useStore.getState()
     st().setHistoryTail('s', tail1)
-    st().prependHistory('s', older)
+    st().prependHistory('s', older, 100)
     st().setHistoryTail('s', page([texto('a-900', 900), texto('a-950', 950)], 900))
     expect(keys(st().chat.s)).toEqual(['p900', 'p950'])
     expect(st().historyCursor.s).toEqual({ before: 900, atStart: false })
@@ -196,23 +198,87 @@ describe('setHistoryTail / prependHistory', () => {
     expect(st().chat.s).toMatchObject([{ kind: 'user_text', text: 'primeira mensagem' }])
   })
 
-  it('item ao vivo superado (antes do último confirmado) não fica duplicado', () => {
+  it('mensagem do operador sem par fica onde estava, mesmo antes do último confirmado', () => {
     const st = () => useStore.getState()
     st().setHistoryTail('s', tail1)
-    st().addLocalUserText('s', 'texto que o motor reescreveu')
+    st().addLocalUserText('s', 'mensagem que o motor perdeu')
     st().applyWsMessage({ type: 'session_event', localId: 's', event: texto('resposta') })
-    st().setHistoryTail('s', page([texto('a-130', 130), pedido('texto reescrito', 140), texto('resposta', 150)], 130))
-    expect(st().chat.s.map((it) => (it as { text?: string }).text)).toEqual(['p-100', undefined, 'a-130', 'texto reescrito', 'resposta'])
+    st().setHistoryTail('s', page([texto('a-130', 130), texto('resposta', 150)], 130))
+    expect(st().chat.s.map((it) => (it as { text?: string }).text))
+      .toEqual(['p-100', undefined, 'a-130', 'mensagem que o motor perdeu', 'resposta'])
+  })
+
+  it('o ao vivo que o transcript nunca guarda fica, ancorado depois do item que o precedia', () => {
+    const st = () => useStore.getState()
+    const ao = (event: ClaudeEvent) => st().applyWsMessage({ type: 'session_event', localId: 's', event })
+    st().setHistoryTail('s', tail1)
+    st().addLocalUserText('s', 'p-140')
+    // `!comando` e a saída dele, só da tela
+    st().addLocalItem('s', { kind: 'local_command', command: 'ls' })
+    st().applyWsMessage({ type: 'shell_result', localId: 's', output: 'a.txt', isError: false })
+    ao(texto('a-150'))
+    // Codex: "Mensagem pendente…" (deliveryError) e o erro do fim do turno (finish(error))
+    ao({ kind: 'system', subtype: 'message_error', raw: { message: 'Mensagem pendente do Codex: segundo pedido\n\nfalhou' } } as ClaudeEvent)
+    ao(texto('a-160'))
+    ao({ kind: 'system', subtype: 'message_error', raw: { message: 'turno falhou' } } as ClaudeEvent)
+    // falha de envio pelo WebSocket
+    st().applyWsMessage({ type: 'error', localId: 's', message: 'envio recusado' })
+    st().setHistoryTail('s', page([texto('a-130', 130), pedido('p-140', 140), texto('a-150', 150), texto('a-160', 160)], 130))
+    const visto = st().chat.s.map((it) => (it.kind === 'local_command' ? `!${it.command}` : (it as { text?: string }).text))
+    expect(visto).toEqual([
+      'p-100', undefined, 'a-130', 'p-140', '!ls', 'a.txt', 'a-150',
+      'Mensagem pendente do Codex: segundo pedido\n\nfalhou', 'a-160', 'turno falhou', 'envio recusado',
+    ])
+    expect(keys(st().chat.s).filter((k) => k!.startsWith('p'))).toEqual(['p100', 'p110', 'p130', 'p140', 'p150', 'p160'])
+  })
+
+  it('página vazia da mesma conversa não mexe na tela nem no cursor', () => {
+    const st = () => useStore.getState()
+    st().setHistoryTail('s', tail1, 'c1')
+    st().prependHistory('s', older, 100)
+    const antes = st().chat.s
+    const cursor = st().historyCursor.s
+    // id fantasma, rollout que sumiu: a rota devolve vazio
+    st().setHistoryTail('s', page([], 0, true), 'c1')
+    expect(st().chat.s).toBe(antes)
+    expect(st().historyCursor.s).toBe(cursor)
+  })
+
+  it('conversa trocada substitui (e mantém a mensagem otimista), mesmo com a página vazia', () => {
+    const st = () => useStore.getState()
+    st().setHistoryTail('s', tail1, '(preview)')
+    st().addLocalUserText('s', 'primeira mensagem')
+    st().setHistoryTail('s', page([], 0, true), 'real-1')
+    expect(st().chat.s).toMatchObject([{ kind: 'user_text', text: 'primeira mensagem' }])
+    expect(st().historyCursor.s).toEqual({ before: 0, atStart: true, conv: 'real-1' })
+    // e a mesma posição em outro arquivo não vira prefixo da conversa nova
+    st().setHistoryTail('t', tail1, 'c1')
+    st().setHistoryTail('t', page([pedido('p-100', 100), texto('outra', 120)], 100), 'c2')
+    expect(keys(st().chat.t)).toEqual(['p100', 'p120'])
+    expect(st().historyCursor.t).toEqual({ before: 100, atStart: false, conv: 'c2' })
   })
 
   it('prependHistory não duplica chaves', () => {
     const st = () => useStore.getState()
     st().setHistoryTail('s', tail1)
     // página antiga que se sobrepõe ao que já está carregado
-    st().prependHistory('s', page([texto('a-80', 80), pedido('p-100', 100), chamada('t1', 110)], 80))
+    st().prependHistory('s', page([texto('a-80', 80), pedido('p-100', 100), chamada('t1', 110)], 80), 100)
     const ks = keys(st().chat.s)
     expect(ks).toEqual(['p80', 'p100', 'p110', 'p130'])
     expect(new Set(ks).size).toBe(ks.length)
+  })
+
+  it('página antiga que chega depois de o cursor andar é descartada (sem buraco nem falso começo)', () => {
+    const st = () => useStore.getState()
+    st().setHistoryTail('s', tail1, 'c1')
+    // pediu a página antes de 100; enquanto ela vinha, o turno terminou e a cauda substituiu tudo
+    st().setHistoryTail('s', page([texto('a-900', 900), texto('a-950', 950)], 900), 'c1')
+    st().prependHistory('s', older, 100)
+    expect(keys(st().chat.s)).toEqual(['p900', 'p950'])
+    expect(st().historyCursor.s).toEqual({ before: 900, atStart: false, conv: 'c1' })
+    // sem cursor (nada carregado) também não enxerta
+    st().prependHistory('outra', older, 100)
+    expect(st().chat.outra).toBeUndefined()
   })
 
   it('página antiga com o tool_use preenche o resultado que chegou antes, órfão', () => {
@@ -220,7 +286,7 @@ describe('setHistoryTail / prependHistory', () => {
     // a cauda começa com o resultado; a chamada ficou na página anterior
     st().setHistoryTail('s', page([resultado('t0', 'saída de t0', 100), texto('a-110', 110)], 100))
     expect(keys(st().chat.s)).toEqual(['p110'])
-    st().prependHistory('s', page([pedido('p-0', 0), chamada('t0', 50)], 0, true))
+    st().prependHistory('s', page([pedido('p-0', 0), chamada('t0', 50)], 0, true), 100)
     expect(st().chat.s[1]).toMatchObject({ kind: 'tool_call', id: 't0', result: 'saída de t0', isError: false, key: 'p50' })
   })
 
@@ -280,5 +346,77 @@ describe('fetchHistory', () => {
     expect(spy.mock.calls[0][0]).toBe('/api/sessions/a/history')
     await fetchHistory('a', 1234, 200)
     expect(spy.mock.calls[1][0]).toBe('/api/sessions/a/history?before=1234&limit=200')
+  })
+})
+
+describe('loadHistoryTail: turno maior que uma página', () => {
+  afterEach(() => vi.restoreAllMocks())
+  const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  /** Rota falsa: `paginas[before ?? 'fim']` é a resposta; registra os pedidos. */
+  const rota = (paginas: Record<string, ReturnType<typeof page>>) => {
+    const pedidos: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const u = new URL(String(url), 'http://x')
+      pedidos.push(u.search)
+      return Promise.resolve(ok(paginas[u.searchParams.get('before') ?? 'fim']))
+    })
+    return pedidos
+  }
+  const st = () => useStore.getState()
+  const telaComPaginasAntigas = () => {
+    st().setHistoryTail('s', page([pedido('p-100', 100), texto('a-130', 130)], 100), 'c')
+    st().prependHistory('s', page([pedido('p-0', 0), texto('a-40', 40)], 0, true), 100)
+    // o turno começa ao vivo: o pedido e as primeiras respostas
+    st().addLocalUserText('s', 'p-140')
+    st().applyWsMessage({ type: 'session_event', localId: 's', event: texto('a-150') })
+    return st().chat.s
+  }
+
+  it('lê para trás até encostar na tela; nada se perde e o que não mudou mantém o objeto', async () => {
+    const antes = telaComPaginasAntigas()
+    const pedidos = rota({
+      fim: page([texto('a-400', 400), texto('a-450', 450)], 400),
+      400: page([texto('a-200', 200), texto('a-300', 300)], 200),
+      200: page([texto('a-130', 130), pedido('p-140', 140), texto('a-150', 150), texto('a-190', 190)], 130),
+    })
+    const tail = await loadHistoryTail('s', 'c')
+    expect(pedidos).toEqual(['', '?before=400&limit=500', '?before=200&limit=500'])
+    expect(tail.before).toBe(130)
+    st().setHistoryTail('s', tail, 'c')
+    const depois = st().chat.s
+    expect(keys(depois)).toEqual(['p0', 'p40', 'p100', 'p130', 'p140', 'p150', 'p190', 'p200', 'p300', 'p400', 'p450'])
+    for (let i = 0; i < 4; i++) expect(depois[i]).toBe(antes[i])
+    expect(st().historyCursor.s).toEqual({ before: 0, atStart: true, conv: 'c' })
+  })
+
+  it('a cauda que já encosta na tela não pede página extra', async () => {
+    telaComPaginasAntigas()
+    const pedidos = rota({ fim: page([texto('a-130', 130), pedido('p-140', 140), texto('a-150', 150)], 130) })
+    await loadHistoryTail('s', 'c')
+    expect(pedidos).toEqual([''])
+  })
+
+  it(`passado o teto (${TAIL_CATCHUP_PAGES} páginas extras), substitui sem buraco`, async () => {
+    telaComPaginasAntigas()
+    const paginas: Record<string, ReturnType<typeof page>> = { fim: page([texto('fim', 100_000)], 100_000) }
+    for (let i = 0; i < 20; i++) {
+      const b = 100_000 - i * 1000
+      paginas[b] = page([texto(`t-${b - 1000}`, b - 1000)], b - 1000)
+    }
+    const pedidos = rota(paginas)
+    const tail = await loadHistoryTail('s', 'c')
+    expect(pedidos).toHaveLength(1 + TAIL_CATCHUP_PAGES)
+    st().setHistoryTail('s', tail, 'c')
+    expect(st().historyCursor.s).toEqual({ before: tail.before, atStart: false, conv: 'c' })
+    expect(keys(st().chat.s)[0]).toBe(`p${tail.before}`)
+    // a mensagem do operador que o transcript não tem continua na tela
+    expect(st().chat.s.some((it) => it.kind === 'user_text' && it.text === 'p-140')).toBe(true)
+  })
+
+  it('outra conversa não lê para trás (as chaves são de outro arquivo)', async () => {
+    telaComPaginasAntigas()
+    const pedidos = rota({ fim: page([texto('a-400', 400)], 400), 400: page([texto('a-200', 200)], 200) })
+    await loadHistoryTail('s', 'outra')
+    expect(pedidos).toEqual([''])
   })
 })

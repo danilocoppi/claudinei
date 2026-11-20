@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { fetchHistory, stopSubagentTask } from '../api'
+import { stopSubagentTask } from '../api'
+import { loadHistoryTail } from '../chat/loadTail'
 import { EngineTabs } from './EngineTabs'
 import { MessageBlock } from './MessageBlock'
 import { ChatInput } from './ChatInput'
@@ -88,14 +89,16 @@ export function ChatView() {
     const key = session.engineSessionId
       ?? (['starting', 'in_terminal', 'stopped'].includes(session.status) ? '(preview)' : null)
     if (!key || loadedEngineSessionId === key) return
-    fetchHistory(activeLocalId).then((page) => {
+    loadHistoryTail(activeLocalId, key).then((page) => {
       // Preview vazio não apaga nada. No resto, a reconciliação por chave não
       // deixa a releitura ENCOLHER a conversa: as páginas antigas já carregadas
-      // ficam, o que não mudou mantém o objeto (o bloco não re-renderiza), o ao
-      // vivo é trocado pelo confirmado — com as flags que só o transcript tem
-      // (fromEngine, isApiError) — e a mensagem otimista que o transcript ainda
-      // não gravou (o init chega antes) continua no fim. Ver chat/reconcile.ts.
-      if (page.events.length > 0 || key !== '(preview)') setHistoryTail(activeLocalId, page)
+      // ficam (num turno longo, loadHistoryTail lê para trás até encostar nelas),
+      // o que não mudou mantém o objeto (o bloco não re-renderiza), o ao vivo é
+      // trocado pelo confirmado — com as flags que só o transcript tem
+      // (fromEngine, isApiError) — e o ao vivo que o transcript não tem (a
+      // mensagem otimista, avisos de erro, `!comando`) fica onde estava. Página
+      // vazia da mesma conversa não apaga nada. Ver chat/reconcile.ts.
+      if (page.events.length > 0 || key !== '(preview)') setHistoryTail(activeLocalId, page, key)
       markHistoryLoaded(activeLocalId, key)
     }).catch((err) => {
       // NÃO marca como carregado: o próximo disparo do efeito (troca de sessão,

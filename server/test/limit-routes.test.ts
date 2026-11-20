@@ -116,7 +116,7 @@ describe('rotas do limite', () => {
     expect(res.statusCode).toBe(200)
     const dto = {
       projectId: p1.id, engine: 'claude', autostart: false, autoResume: false, interruption: null,
-      autoResumeLimit: true, usageLimit: null, taskResults: [],
+      autoResumeLimit: true, usageLimit: null, taskResults: [], goal: null,
     }
     expect(res.json()).toEqual(dto)
     expect(store.get(p1.id, 'claude').autoResumeLimit).toBe(true)

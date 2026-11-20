@@ -240,6 +240,40 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
     },
   )
 
+  // Goal (`/goal` do operador): o agente declara o objetivo cumprido e o laço
+  // de "continue" do Claudinei para. Vale para o terminal (projeto + motor).
+  server.registerTool(
+    'goal_done',
+    {
+      description:
+        'Declares that the goal the operator set in this terminal with /goal is fully met, and ends the goal loop: Claudinei stops sending its "Continue toward the goal" messages. '
+        + 'Only the main agent calls this; subagents never do. '
+        + 'Call it only when the goal is entirely met, every part of the criterion: not when it is partly done, blocked or merely close. '
+        + 'If you cannot finish, say so in your reply instead; the loop pauses at its turn cap and the operator decides. '
+        + 'The evidence must be concrete and checkable: the commands you ran and their results (test output, build status), the files changed, what the operator can verify without redoing the work. '
+        + 'Fails when this terminal has no active goal.',
+      inputSchema: {
+        evidence: z.string().min(1).max(4000).describe('concrete proof the goal is met: commands run and their results, files changed (at most 4000 characters)'),
+      },
+    },
+    async ({ evidence }) => {
+      try {
+        await call('/api/hermes/goal-done', {
+          method: 'POST',
+          body: JSON.stringify({ projectId: PROJECT_ID, engine: ENGINE || 'claude', evidence }),
+        })
+        return text('goal marked as done; the goal loop has ended')
+      } catch (err) {
+        const msg = (err as Error).message
+        // Sem goal: diz ao agente que não há o que fechar (e não para tentar de novo).
+        const hint = /no active goal/i.test(msg)
+          ? '. There is nothing to close: goal_done is only for a goal the operator started with /goal in this terminal.'
+          : ''
+        return { ...text(`goal_done rejected: ${msg}${hint}`), isError: true }
+      }
+    },
+  )
+
   const transport = new StdioServerTransport()
   await server.connect(transport)
 }

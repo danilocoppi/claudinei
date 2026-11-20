@@ -151,8 +151,12 @@ interface Deps {
   onNeedsOperator?: (projectId: number, reason: 'question' | 'failed' | 'dead') => void
 }
 
-/** O fim de um turno, para o onTurnResult (veja lá). */
-export interface TurnResultInfo { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin }
+/**
+ * O fim de um turno, para o onTurnResult (veja lá). `compaction`: o turno foi
+ * uma compactação (a automática ou o /compact); a `origin` dela é a da mensagem
+ * anterior, então quem conta turnos (o goal) precisa saber.
+ */
+export interface TurnResultInfo { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin; compaction?: boolean }
 
 /** `/goal` sozinho ou seguido de espaço: o comando do objetivo, não `/goalx`. */
 const GOAL_COMMAND = /^\/goal(\s|$)/
@@ -282,6 +286,8 @@ export function createSessionManager(deps: Deps) {
      * de qualquer coisa que o árbitro do próximo envio mandaria.
      */
     compactPending?: boolean
+    /** O turno em curso é uma compactação (a automática ou o /compact): o fim dele chega ao onTurnResult com `compaction`. */
+    compactTurn?: boolean
     /** Quem mandou a última mensagem desta sessão: decide se o limite pode retomar sozinho. */
     origin: LimitOrigin
     /** Avisos do plugin You should know (só Claude): o cartão de agora e o controlador da superfície. */
@@ -404,6 +410,17 @@ export function createSessionManager(deps: Deps) {
     try { deps.onTurnResult?.(projectId, engine, { ...info, interrupted: info.interrupted && !shuttingDown }) } catch {}
   }
 
+  /**
+   * Lê e limpa a marca de turno de compactação: ela vale só para o fim deste
+   * turno. Só aparece no info quando é compactação (o turno comum segue igual).
+   */
+  const compactionOf = (localId: string): { compaction?: true } => {
+    const entry = live.get(localId)
+    if (!entry?.compactTurn) return {}
+    entry.compactTurn = false
+    return { compaction: true }
+  }
+
   /** A sessão ficou livre. Roda numa microtask: um erro seria exceção sem dono e derrubaria o processo. */
   const available = (projectId: number, localId: string, engine: EngineId): void => {
     try { deps.onSessionAvailable?.(projectId, { localId, engine }) } catch (err) { console.error('[manager] onSessionAvailable falhou', err) }
@@ -503,7 +520,7 @@ export function createSessionManager(deps: Deps) {
           const cut = interruptedTurn.get(localId)
           if (cut !== undefined) {
             interruptedTurn.delete(localId)
-            turnResult(projectId, engine, { isError: false, interrupted: true, limited: false, origin: cut })
+            turnResult(projectId, engine, { isError: false, interrupted: true, limited: false, origin: cut, ...compactionOf(localId) })
           }
           // No Claude, o status chega antes do result que decide compactar: o
           // "livre" espera a compactação, cujo fim dá outro "livre".
@@ -560,7 +577,7 @@ export function createSessionManager(deps: Deps) {
         // A origem é lida aqui, no próprio result: a do Esc, se houve, senão a da sessão.
         const origin = interruptedTurn.get(localId) ?? live.get(localId)?.origin ?? 'operator'
         const interrupted = interruptedTurn.delete(localId) || interrupting.has(localId) || event.subtype === 'interrupted'
-        turnResult(projectId, engine, { isError: event.isError, interrupted, limited: !!limited, origin })
+        turnResult(projectId, engine, { isError: event.isError, interrupted, limited: !!limited, origin, ...compactionOf(localId) })
       }
       // Turno que falhou acorda o terminal assentado ou adiado; o interrompido
       // pelo operador e o do limite de uso (acordado pelo serviço do limite), não.
@@ -635,6 +652,7 @@ export function createSessionManager(deps: Deps) {
               try {
                 if (!['idle', 'needs_attention'].includes(entry.session.status)) { entry.autoCompacting = false; return }
                 entry.session.compact!()
+                entry.compactTurn = true
                 compacted = true
                 // Eco na UI: sem ele a sessão "trabalha sozinha" sem explicação.
                 deps.broadcast({ type: 'session_event', localId, event: userEchoEvent('/compact') })
@@ -805,6 +823,7 @@ export function createSessionManager(deps: Deps) {
         if (!entry.session.compact) throw new UserError('engine_no_compact', 'esta engine não oferece compactação no chat')
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
         entry.session.compact()
+        entry.compactTurn = true
       } else if (opts?.echo) entry.session.send(text, { echoToClients: true })
       else entry.session.send(text)
       entry.origin = 'operator'
@@ -829,6 +848,16 @@ export function createSessionManager(deps: Deps) {
     },
 
     isShuttingDown,
+
+    /**
+     * A auto-compactação foi decidida no último result e ainda não abriu o
+     * turno dela: a sessão parece livre, mas o lugar 1 vem antes. O `isFree` do
+     * árbitro do próximo envio consulta isto (um cutucão na mesma folga não
+     * pode passar na frente da compactação).
+     */
+    compactionPending(localId: string): boolean {
+      return !!live.get(localId)?.compactPending
+    },
 
     /**
      * Acompanha o turno da sessão e fecha com o result dele, como o dispatchTask.

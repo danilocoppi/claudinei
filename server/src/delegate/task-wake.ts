@@ -52,6 +52,11 @@ export function createTaskWake(deps: {
    * árbitro.
    */
   holds: (projectId: number, engine: string) => boolean
+  /**
+   * O aviso saiu para o terminal (depois do envio). Liga ao goal: o goal que
+   * esperava as tarefas delegadas volta a ativo. Uma falha aqui só vai ao log.
+   */
+  onDelivered?: (projectId: number, engine: string) => void
   log?: (msg: string) => void
 }) {
   const { db, manager, store } = deps
@@ -164,6 +169,11 @@ export function createTaskWake(deps: {
         log(`[aviso de tarefa] marcar entregue falhou em ${ctx.projectId}/${ctx.engine}: ${(err as Error)?.message ?? err}`)
       }
       publish(ctx.projectId, ctx.engine)
+      try {
+        deps.onDelivered?.(ctx.projectId, ctx.engine)
+      } catch (err) {
+        log(`[aviso de tarefa] onDelivered falhou em ${ctx.projectId}/${ctx.engine}: ${(err as Error)?.message ?? err}`)
+      }
       return true
     },
   }

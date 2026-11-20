@@ -210,9 +210,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     holds,
     // Viva e não-working, como o hasFreeSession de sempre: a sessão revivida na
     // subida fica em `starting` até a 1ª mensagem e precisa receber o que esperou.
+    // Com a auto-compactação decidida e ainda não aberta, não está livre: um
+    // cutucão na mesma folga (o estado publicado no fim do turno) passaria na
+    // frente dela (lugar 1).
     isFree: (localId) => {
       const s = deps.manager.get(localId)
-      return !!s && deps.manager.hasFreeSession(s.projectId, { localId })
+      return !!s && deps.manager.hasFreeSession(s.projectId, { localId }) && !deps.manager.compactionPending(localId)
     },
     liveLocalId,
   })

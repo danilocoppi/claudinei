@@ -20,6 +20,7 @@ const CAPABILITIES: EngineCapabilities = {
   icon: 'claude', // token → o frontend renderiza o logomark oficial do Claude (EngineIcon)
   slashCommands: [],
   installHint: 'npm install -g @anthropic-ai/claude-code',
+  midTurnInput: true, // Enter no meio do turno entra no turno atual
 }
 
 export const claudeEngine: Engine = {

@@ -670,14 +670,19 @@ export function createSessionManager(deps: Deps) {
       await Promise.all(entries.map((e) => e.setHeadsUp!(on).catch(() => {})))
     },
 
-    send(localId: string, text: string): void {
+    /**
+     * Mensagem do operador. `echo`: a sessão emite também o evento `user`, para a
+     * mensagem aparecer no chat quando não foi digitada nele (ex.: item da fila).
+     */
+    send(localId: string, text: string, opts?: { echo?: boolean }): void {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
       if (typeof text === 'string' && text.trim() === '/compact') {
         if (!entry.session.compact) throw new UserError('engine_no_compact', 'esta engine não oferece compactação no chat')
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
         entry.session.compact()
-      } else entry.session.send(text)
+      } else if (opts?.echo) entry.session.send(text, { echoToClients: true })
+      else entry.session.send(text)
       entry.origin = 'operator'
       // Só depois do envio aceito: mensagem recusada não conta como o operador agindo.
       try { deps.onOperatorMessage?.(entry.projectId, entry.engine) } catch {}

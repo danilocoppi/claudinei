@@ -114,6 +114,27 @@ describe('manager no reinício do serviço', () => {
     expect(onOperatorMessage).toHaveBeenCalledWith(project.id, 'claude')
   })
 
+  it('send com echo repassa echoToClients à sessão e conta como mensagem do operador', async () => {
+    let session: ClaudeSession | undefined
+    const echoMgr = createSessionManager({
+      db,
+      sessionFactory: (opts: SessionOptions) => (session = fakeFactory(opts)),
+      broadcast: () => {},
+      onOperatorMessage,
+    })
+    const { localId } = echoMgr.start(project, {})
+    await waitUntil(() => echoMgr.get(localId)?.status === 'idle')
+    const spy = vi.spyOn(session!, 'send')
+    echoMgr.send(localId, 'da fila', { echo: true })
+    expect(spy).toHaveBeenLastCalledWith('da fila', { echoToClients: true })
+    expect(onOperatorMessage).toHaveBeenCalledWith(project.id, 'claude')
+    await waitUntil(() => echoMgr.get(localId)?.status !== 'working')
+    // Sem a opção, a chamada à sessão continua a de sempre.
+    echoMgr.send(localId, 'normal')
+    expect(spy).toHaveBeenLastCalledWith('normal')
+    await echoMgr.stopAll()
+  })
+
   it('onTurnResult dispara a cada result', async () => {
     const localId = await startIdle()
     mgr.send(localId, 'um')

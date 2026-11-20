@@ -14,6 +14,7 @@ import { registerAuth, registerSecurityHeaders } from './auth/plugin.js'
 import { registerAuthRoutes } from './auth/routes.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerSessionRoutes } from './routes/sessions.js'
+import { registerHistorySearchRoutes } from './routes/history-search.js'
 import { registerEngineRoutes } from './routes/engines.js'
 import { registerHermesRoutes } from './routes/hermes.js'
 import { registerProgressRoutes } from './routes/progress.js'
@@ -156,6 +157,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const triageWaker = createTriageWaker({ store: triage, broadcast: (m) => deps.wsHub?.broadcast(m) })
   deps.onTriageWakerReady?.(triageWaker)
   registerSessionRoutes(app, deps)
+  registerHistorySearchRoutes(app, { db: deps.db, manager: deps.manager })
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
   registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })

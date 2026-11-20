@@ -39,3 +39,30 @@ export async function readPage(engine: Engine, projectPath: string, id: string, 
     atStart: true,
   }
 }
+
+/** O que a rota de histórico devolve: os eventos e por onde pedir a página anterior. */
+export interface HistoryResponse {
+  events: PositionedEvent[]
+  /** A página anterior pede `before` igual a isto. */
+  before: number
+  atStart: boolean
+}
+
+/**
+ * Os últimos `limit` eventos da página, sem partir uma linha: se o corte cai no
+ * meio dos eventos de uma mesma linha (mesmo `pos`), a linha entra inteira e a
+ * página sai um pouco acima do limite. Partir faria o resto da linha sumir de
+ * vez — a página anterior pede só o que começa ANTES daquele byte.
+ *
+ * `before` é o `pos` do primeiro evento devolvido; página vazia devolve o
+ * começo da janela lida, para quem pagina não voltar ao mesmo ponto.
+ */
+export function lastEventsOf(page: HistoryPage, limit: number): HistoryResponse {
+  const { events } = page
+  if (events.length === 0) return { events: [], before: page.start, atStart: page.atStart }
+  if (events.length <= limit) return { events, before: events[0].pos, atStart: page.atStart }
+  let corte = events.length - limit
+  const posCorte = events[corte].pos
+  while (corte > 0 && events[corte - 1].pos === posCorte) corte--
+  return { events: events.slice(corte), before: posCorte, atStart: page.atStart && corte === 0 }
+}

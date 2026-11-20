@@ -15,7 +15,7 @@ const sess = (o: Partial<SessionInfo> = {}): SessionInfo =>
   ({ localId: 'a', projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude', ...o })
 const interrompido: TerminalState = {
   projectId: 1, engine: 'claude', autostart: false, autoResume: false,
-  interruption: { at: '2026-11-20T10:00:00.000Z', reason: 'off' }, autoResumeLimit: false, usageLimit: null,
+  interruption: { at: '2026-11-20T10:00:00.000Z', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null,
 }
 
 /**

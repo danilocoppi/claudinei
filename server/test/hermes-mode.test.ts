@@ -144,14 +144,14 @@ describe('entry multi-modo (--hermes)', () => {
     child.kill()
     return results
   }
-  const fakeApi = async (respond: (body: any) => [number, object]) => {
+  const fakeApi = async (respond: (body: any) => [number, object], path = '/api/hermes/progress') => {
     const got: any[] = []
     const srv = http.createServer((req, res) => {
       let raw = ''
       req.on('data', (d) => { raw += d })
       req.on('end', () => {
         res.setHeader('content-type', 'application/json')
-        if (req.url === '/api/hermes/progress') {
+        if (req.url === path) {
           const body = JSON.parse(raw)
           got.push(body)
           const [code, payload] = respond(body)
@@ -198,5 +198,56 @@ describe('entry multi-modo (--hermes)', () => {
     expect(tool._meta?.['anthropic/alwaysLoad']).toBe(true)
     const outra = r.result.tools.find((t: any) => t.name === 'read_board')
     expect(outra._meta?.['anthropic/alwaysLoad']).toBeUndefined()
+  }, 20000)
+
+  // Delegar e ser acordado: o resultado chega sozinho numa mensagem do Claudinei,
+  // e a novidade vai na descrição da ferramenta (as instructions não mudam).
+  it('hermes: descrição de dispatch_task fala do aviso e cabe em 2000 caracteres', async () => {
+    const [r] = await hermesCall('http://127.0.0.1:1', {}, [{ method: 'tools/list', params: {} }])
+    const dispatch = r.result.tools.find((t: any) => t.name === 'dispatch_task')
+    expect(dispatch.description.endsWith(
+      'You will be woken with the result in a Claudinei message when the task ends; you do not need to poll list_tasks.',
+    )).toBe(true)
+    expect(dispatch.description).not.toMatch(/call list_tasks later/)
+    expect(dispatch.description.length).toBeLessThanOrEqual(2000)
+
+    const list = r.result.tools.find((t: any) => t.name === 'list_tasks')
+    expect(list.description).toMatch(/reread/)
+    expect(list.description).toMatch(/full/)
+    expect(list.description).toMatch(/progress/)
+    expect(list.description).not.toMatch(/Call it to collect what you delegated/)
+    expect(list.description.length).toBeLessThanOrEqual(2000)
+  }, 20000)
+
+  // Goals: goal_done encerra o laço do /goal do terminal (projeto + motor).
+  it('goal_done chama a rota com projeto e motor', async () => {
+    const api = await fakeApi(() => [200, { ok: true }], '/api/hermes/goal-done')
+    const [r] = await hermesCall(api.url, { CLAUDINEI_ENGINE: 'codex' }, [{ method: 'tools/call', params: { name: 'goal_done', arguments: { evidence: 'npm test: 40 passed' } } }])
+    api.close()
+    expect(api.got).toEqual([{ projectId: 1, engine: 'codex', evidence: 'npm test: 40 passed' }])
+    expect(r.result.isError).toBeFalsy()
+    expect(r.result.content[0].text).toMatch(/goal marked as done/i)
+  }, 20000)
+
+  it('goal_done sem goal ativo (409 no_active_goal) volta como erro legível, sem exceção', async () => {
+    const api = await fakeApi(() => [409, { error: 'no active goal in this terminal', code: 'no_active_goal' }], '/api/hermes/goal-done')
+    const [r] = await hermesCall(api.url, {}, [{ method: 'tools/call', params: { name: 'goal_done', arguments: { evidence: 'feito' } } }])
+    api.close()
+    expect(api.got[0]).toMatchObject({ projectId: 1, engine: 'claude' })
+    expect(r.result.isError).toBe(true)
+    expect(r.result.content[0].text).toMatch(/no active goal/i)
+    expect(r.result.content[0].text).toMatch(/\/goal/)
+  }, 20000)
+
+  it('descrição de goal_done ≤ 2000: só o agente principal, só cumprido por inteiro, evidência concreta', async () => {
+    const [r] = await hermesCall('http://127.0.0.1:1', {}, [{ method: 'tools/list', params: {} }])
+    const tool = r.result.tools.find((t: any) => t.name === 'goal_done')
+    expect(tool).toBeDefined()
+    expect(tool.description.length).toBeLessThanOrEqual(2000)
+    expect(tool.description).toMatch(/only the main agent/i)
+    expect(tool.description).toMatch(/entirely met/i)
+    expect(tool.description).toMatch(/concrete/i)
+    expect(tool.inputSchema.properties.evidence.maxLength).toBe(4000)
+    expect(tool.inputSchema.required).toEqual(['evidence'])
   }, 20000)
 })

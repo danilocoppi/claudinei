@@ -189,6 +189,10 @@ if (process.argv.includes('--hermes')) {
   // E para o do limite de uso, que nasce junto dele: o limite que bateu, o fim
   // de turno e a mensagem do operador chegam pela referência atual.
   let limit: import('./limit/usage-limit.js').UsageLimitService | undefined
+  // E para o aviso de resultado de tarefa delegada e o goal, que nascem com o
+  // reinício: o fim de turno, a mensagem do operador e o `/goal` chegam por elas.
+  let taskWake: import('./delegate/task-wake.js').TaskWake | undefined
+  let goal: import('./goal/goal.js').GoalService | undefined
   /** Um gancho que falha não pode impedir os outros (aceita N): cada serviço cuida do seu estado. */
   const both = (label: string, ...calls: Array<() => void>): void => {
     for (const call of calls) {
@@ -218,13 +222,18 @@ if (process.argv.includes('--hermes')) {
     onTurnResult: (projectId, engine, info) => both('fim de turno',
       () => restart?.onTurnResult(projectId, engine),
       () => limit?.onTurnResult(projectId, engine, info),
-      () => queue?.onTurnResult(projectId, engine, info)),
+      () => queue?.onTurnResult(projectId, engine, info),
+      () => taskWake?.onTurnResult(projectId, engine, info),
+      () => goal?.onTurnResult(projectId, engine, info)),
     // Só a morte de verdade: o manager não chama no encerramento do serviço.
     onSessionDied: (projectId, engine) => both('sessão morreu',
       () => queue?.onSessionDied(projectId, engine)),
     onOperatorMessage: (projectId, engine) => both('mensagem do operador',
       () => restart?.onOperatorMessage(projectId, engine),
-      () => limit?.onOperatorMessage(projectId, engine)),
+      () => limit?.onOperatorMessage(projectId, engine),
+      () => goal?.onOperatorMessage(projectId, engine)),
+    // O `/goal` digitado (ou vindo da fila) é do goal; antes de ele existir, segue como mensagem comum.
+    interceptCommand: (ctx, text) => goal?.command(ctx, text) ?? false,
     // Também pelo both: só para a falha sair no log (o manager engole o erro).
     onUsageLimit: (projectId, engine, p) => both('limite de uso',
       () => limit?.onUsageLimit(projectId, engine, p)),
@@ -282,6 +291,8 @@ if (process.argv.includes('--hermes')) {
     onRestartReady: (r) => { restart = r },
     onTriageWakerReady: (w) => { triageWaker = w },
     onLimitReady: (l) => { limit = l },
+    onTaskWakeReady: (w) => { taskWake = w },
+    onGoalReady: (g) => { goal = g },
     onRevokeAll: () => {
       wsHub.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
@@ -297,8 +308,9 @@ if (process.argv.includes('--hermes')) {
   // agendador só liga depois da subida: um agendamento não disputa a sessão com
   // a retomada. Sem await: a subida espera entre lotes, e nem o log abaixo nem
   // os ouvintes de SIGINT/SIGTERM (que registram a interrupção) podem esperar.
-  // O limite de uso sobe depois do reinício e antes do agendador (ver startAfterListen).
-  void startAfterListen({ restart, limit, scheduler, isShuttingDown: () => manager.isShuttingDown() })
+  // O limite de uso sobe depois do reinício, e os avisos de resultado de tarefa
+  // pendentes depois do limite, todos antes do agendador (ver startAfterListen).
+  void startAfterListen({ restart, limit, taskWake, scheduler, isShuttingDown: () => manager.isShuttingDown() })
     .catch((err) => console.error('[reinício/limite] arranque depois do listen falhou', err))
   // Sem await: a primeira passada roda em segundo plano e repete a cada 10 min; uma
   // passada que lança é registrada no log pelo próprio indexador.

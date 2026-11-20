@@ -213,6 +213,9 @@ export function openDb(path: string): Db {
   // projeto: "Vaexa → Vaexa" não dizia quem mandou pra quem).
   try { db.exec(`ALTER TABLE tasks ADD COLUMN from_engine TEXT`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE tasks ADD COLUMN to_engine TEXT`) } catch { /* já migrado */ }
+  // Estado do aviso de resultado ao terminal que delegou: 'pending' | 'delivered' |
+  // 'dismissed' | 'none'. NULL nas tarefas antigas e nas que ainda não terminaram.
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN notify TEXT`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN titulo TO title`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN conteudo TO content`) } catch { /* já migrado */ }
   // Agendamentos por terminal. O resultado NÃO mora aqui: o banco guarda o título e
@@ -325,6 +328,15 @@ export function openDb(path: string): Db {
   try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_origin TEXT`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_tries INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE terminal_state ADD COLUMN auto_resume_limit INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
+  // Goal (`/goal`): o objetivo do terminal, o estado do laço (ativo, esperando
+  // tarefas, pausado e por quê, no teto, cumprido), os turnos contados, a
+  // evidência do goal_done e quando começou. Ver goal/goal.ts.
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_criterion TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_status TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_pause_reason TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_turns INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_evidence TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_started_at TEXT`) } catch { /* já existe */ }
   // Pergunta (AskUserQuestion) aberta, em JSON, enquanto espera o operador: é o
   // que sobra dela depois de uma queda brusca, quando não há encerramento para
   // registrar nada.

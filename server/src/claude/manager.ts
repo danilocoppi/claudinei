@@ -11,6 +11,7 @@ import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '.
 import { UserError } from '../user-error.js'
 import { createHeadsUp, type HeadsUpNode, type HeadsUpPress, type HeadsUpSurface } from './heads-up.js'
 import { RESTART_FAIL_TEXT, type LimitOrigin } from '../restart/terminal-state.js'
+import type { SlotContext } from '../queue/operator-queue.js'
 import { usageLimitFailText } from '../limit/texts.js'
 
 /** A sessão sabe ser uma superfície remota (só a do Claude). */
@@ -111,8 +112,12 @@ interface Deps {
    * sintetizado, antes do onSessionAvailable da mesma transição. No
    * encerramento do serviço, `interrupted` é sempre false: a parada não foi do
    * operador.
+   *
+   * `origin` é quem mandou o turno que terminou, lida no fim dele, antes de
+   * qualquer envio novo. No turno interrompido, é a origem guardada no Esc: o
+   * "enviar agora" que sai logo depois não troca a origem do turno interrompido.
    */
-  onTurnResult?: (projectId: number, engine: EngineId, info: { isError: boolean; interrupted: boolean; limited: boolean }) => void
+  onTurnResult?: (projectId: number, engine: EngineId, info: TurnResultInfo) => void
   /** A sessão morreu de verdade (status 'dead' fora do encerramento do serviço). */
   onSessionDied?: (projectId: number, engine: EngineId) => void
   /**
@@ -129,6 +134,15 @@ interface Deps {
    */
   onOperatorMessage?: (projectId: number, engine: EngineId) => void
   /**
+   * Comando do Claudinei digitado no chat (hoje só o `/goal`: `/goal` sozinho ou
+   * `/goal <...>`, não `/goalx`). Chamado no início do `send`, com a sessão viva.
+   * Devolve true se tratou: nada vai à sessão, o `onOperatorMessage` não é
+   * chamado e a origem da sessão não muda. Com false (ou sem o gancho), o envio
+   * segue normal. O que ele lança (ex.: `UserError('goal_invalid')`) chega a quem
+   * chamou o `send`, sem enviar nada.
+   */
+  interceptCommand?: (ctx: SlotContext, text: string) => boolean
+  /**
    * O terminal precisa do operador: abriu uma pergunta, o turno falhou ou a
    * sessão morreu. Liga ao despertador da triagem (assentado e adiado voltam).
    * Turno que só terminou, `working`, a interrupção pedida pelo operador e a
@@ -136,6 +150,23 @@ interface Deps {
    */
   onNeedsOperator?: (projectId: number, reason: 'question' | 'failed' | 'dead') => void
 }
+
+/**
+ * O fim de um turno, para o onTurnResult (veja lá). `compaction`: o turno foi
+ * uma compactação (a automática ou o /compact); a `origin` dela é a da mensagem
+ * anterior, então quem conta turnos (o goal) precisa saber.
+ */
+export interface TurnResultInfo { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin; compaction?: boolean }
+
+/**
+ * O resultado da tarefa delegada cujo turno o operador interrompeu (Esc ou
+ * "enviar agora" no terminal de destino): fecha como falha com este texto, e
+ * não como concluída e vazia (R18). Texto ao agente, em inglês.
+ */
+export const TASK_INTERRUPTED_TEXT = 'interrupted by the operator'
+
+/** `/goal` sozinho ou seguido de espaço: o comando do objetivo, não `/goalx`. */
+const GOAL_COMMAND = /^\/goal(\s|$)/
 
 const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_attention'])
 
@@ -148,8 +179,13 @@ export interface TaskTarget { localId?: string; accept?: (engine: EngineId) => b
  * próprio Claudinei.
  */
 type TurnEnd =
-  /** `limited`: o turno bateu no limite de uso; `resetsAt` em epoch segundos, null = desconhecido. */
-  | { kind: 'result'; text: string; limited?: { resetsAt: number | null } }
+  /**
+   * `limited`: o turno bateu no limite de uso; `resetsAt` em epoch segundos, null = desconhecido.
+   * `interrupted`: o operador interrompeu o turno (o result é o do turno cortado).
+   */
+  | { kind: 'result'; text: string; limited?: { resetsAt: number | null }; interrupted?: true }
+  /** O turno interrompido pelo operador fechou sem result (Kimi, OpenCode, ou o result póstumo descartado). */
+  | { kind: 'interrupted' }
   | { kind: 'dead' | 'stopped' | 'timeout' | 'shutdown' }
 
 /**
@@ -160,6 +196,17 @@ type TurnEnd =
 interface TurnCtx {
   isShuttingDown: () => boolean
   limitOf: (session: EngineSession) => { resetsAt: number | null } | undefined
+  /**
+   * O result que acabou de chegar fecha um turno interrompido pelo operador. O
+   * ouvinte do wire() roda antes dos ouvintes de turno e consome a marca do Esc;
+   * por isso ele guarda o veredito, lido aqui no mesmo result.
+   */
+  wasInterrupted: (session: EngineSession) => boolean
+  /**
+   * Assina o fim sintetizado do turno interrompido que fechou sem result (o
+   * "livre" do wire()). Devolve o cancelamento.
+   */
+  onCutEnd: (session: EngineSession, cb: () => void) => () => void
 }
 
 /**
@@ -167,12 +214,17 @@ interface TurnCtx {
  * É o ouvinte comum de quem "manda e espera" (waitForResult, dispatchTask,
  * watchTurn). Devolve o cancelamento, para quem desiste antes (envio que falhou).
  *
+ * `timeoutMs` ausente (ou 0): sem prazo, nenhum relógio é armado — o turno só
+ * termina com o result ou com a sessão fora do ar. É o caso das tarefas
+ * delegadas, que podem levar o tempo que o outro agente precisar.
+ *
  * `isShuttingDown`: com o serviço encerrando, a sessão que para não terminou o
  * turno por conta própria — foi o reinício que a derrubou. Quem espera precisa
  * saber disso para não registrar a interrupção como falha do agente.
  */
 function watchTurnEnd(
-  session: EngineSession, timeoutMs: number, ctx: TurnCtx, onEnd: (end: TurnEnd) => void,
+  session: EngineSession, timeoutMs: number | undefined, ctx: TurnCtx, onEnd: (end: TurnEnd) => void,
+  opts?: { cut?: boolean },
 ): () => void {
   let settled = false
   const finish = (end: TurnEnd) => {
@@ -182,21 +234,27 @@ function watchTurnEnd(
   const cleanup = () => {
     session.removeListener('event', onEvent)
     session.removeListener('status', onStatus)
-    clearTimeout(timer)
+    offCut?.()
+    if (timer) clearTimeout(timer)
   }
   const onEvent = (evt: ClaudeEvent) => {
     if (evt.kind === 'result') {
       const limited = ctx.limitOf(session)
-      finish({ kind: 'result', text: evt.resultText, ...(limited ? { limited } : {}) })
+      const interrupted = ctx.wasInterrupted(session)
+      finish({ kind: 'result', text: evt.resultText, ...(limited ? { limited } : {}), ...(interrupted ? { interrupted: true as const } : {}) })
     }
   }
   const onStatus = (status: SessionStatus) => {
     // 'stopped' cobre também openInTerminal (que passa por session.stop()):
-    // sem isso o ouvinte ficaria pendurado até o prazo com o agente já fora.
+    // sem isso o ouvinte ficaria pendurado até o prazo (ou para sempre, sem
+    // prazo) com o agente já fora.
     if (status !== 'dead' && status !== 'stopped') return
     finish({ kind: ctx.isShuttingDown() ? 'shutdown' : status })
   }
-  const timer = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs)
+  const timer = timeoutMs ? setTimeout(() => finish({ kind: 'timeout' }), timeoutMs) : undefined
+  // Só quem pede (a tarefa): o turno cortado sem result também é um fim. No
+  // encerramento não termina aqui: a parada que vem depois dá o 'shutdown'.
+  const offCut = opts?.cut ? ctx.onCutEnd(session, () => { if (!ctx.isShuttingDown()) finish({ kind: 'interrupted' }) }) : undefined
   session.on('event', onEvent)
   session.on('status', onStatus)
   return () => { if (!settled) { settled = true; cleanup() } }
@@ -221,30 +279,37 @@ function waitForResult(session: EngineSession, timeoutMs: number, ctx: TurnCtx):
         end.kind === 'shutdown' ? RESTART_FAIL_TEXT
           : end.kind === 'dead' ? 'target agent exited unexpectedly before responding'
             : end.kind === 'stopped' ? 'target agent was stopped before responding'
-              : 'timed out waiting for the agent response'))
+              : end.kind === 'interrupted' ? TASK_INTERRUPTED_TEXT
+                : 'timed out waiting for the agent response'))
     })
   })
 }
 
 /**
  * Ouvinte de tarefa (dispatchTask, watchTurn): fecha a tarefa com o result ou como
- * falha. No encerramento do serviço NÃO fecha: só solta os ouvintes, e a tarefa
+ * falha. Sem `timeoutMs`, não há prazo: a sessão que morre ou para ainda fecha a
+ * tarefa como falha. No encerramento do serviço NÃO fecha: só solta os ouvintes, e a tarefa
  * continua in_progress no banco para ser reanexada depois do boot. Turno que
- * bateu no limite fecha a tarefa como falha, com o texto do limite.
+ * bateu no limite fecha a tarefa como falha, com o texto do limite. Turno que o
+ * operador interrompeu (com result ou sem) fecha como falha, com o texto da
+ * interrupção (R18); o limite tem prioridade sobre ele.
  */
 function watchTask(
-  session: EngineSession, timeoutMs: number, ctx: TurnCtx,
+  session: EngineSession, timeoutMs: number | undefined, ctx: TurnCtx,
   onComplete: (status: 'completed' | 'failed', result: string) => void,
 ): () => void {
   return watchTurnEnd(session, timeoutMs, ctx, (end) => {
     if (end.kind === 'shutdown') return
     if (end.kind === 'result') {
       if (end.limited) onComplete('failed', usageLimitFailText(end.limited.resetsAt))
+      // Interrompido no encerramento: a tarefa fica in_progress para ser religada.
+      else if (end.interrupted) { if (!ctx.isShuttingDown()) onComplete('failed', TASK_INTERRUPTED_TEXT) }
       else onComplete('completed', end.text)
     }
     else onComplete('failed', end.kind === 'dead' ? 'target agent exited'
-      : end.kind === 'stopped' ? 'target agent was stopped' : 'timed out')
-  })
+      : end.kind === 'stopped' ? 'target agent was stopped'
+        : end.kind === 'interrupted' ? TASK_INTERRUPTED_TEXT : 'timed out')
+  }, { cut: true })
 }
 
 export function createSessionManager(deps: Deps) {
@@ -256,6 +321,8 @@ export function createSessionManager(deps: Deps) {
      * de qualquer coisa que o árbitro do próximo envio mandaria.
      */
     compactPending?: boolean
+    /** O turno em curso é uma compactação (a automática ou o /compact): o fim dele chega ao onTurnResult com `compaction`. */
+    compactTurn?: boolean
     /** Quem mandou a última mensagem desta sessão: decide se o limite pode retomar sozinho. */
     origin: LimitOrigin
     /** Avisos do plugin You should know (só Claude): o cartão de agora e o controlador da superfície. */
@@ -287,8 +354,23 @@ export function createSessionManager(deps: Deps) {
    * `interrupting`, a marca dura até o fim do turno: no Kimi e no OpenCode o
    * interrupt() resolve na hora e o processo só sai depois, sem result. Sai no
    * result do turno, no "livre" que fecha o turno sem result ou na morte.
+   * Guarda a origem do turno interrompido, lida no Esc: o fim dele sai com ela.
    */
-  const interruptedTurn = new Set<string>()
+  const interruptedTurn = new Map<string, LimitOrigin>()
+  /**
+   * O veredito do último result de cada sessão: era um turno interrompido pelo
+   * operador? Gravado pelo ouvinte do wire() (que consome a marca do Esc) antes
+   * de os ouvintes de turno lerem o mesmo result (TurnCtx.wasInterrupted).
+   */
+  const lastResultInterrupted = new WeakMap<EngineSession, boolean>()
+  /** Quem espera o fim sintetizado do turno interrompido sem result, por sessão (TurnCtx.onCutEnd). */
+  const cutWatchers = new WeakMap<EngineSession, Set<() => void>>()
+  const onCutEnd = (session: EngineSession, cb: () => void): (() => void) => {
+    let set = cutWatchers.get(session)
+    if (!set) { set = new Set(); cutWatchers.set(session, set) }
+    set.add(cb)
+    return () => { cutWatchers.get(session)?.delete(cb) }
+  }
 
   /**
    * O limite em que o turno da sessão bateu, com o horário resolvido: o do
@@ -302,7 +384,10 @@ export function createSessionManager(deps: Deps) {
     try { fallback = deps.lastRejectedResetsAt?.() ?? null } catch { /* sem horário */ }
     return { resetsAt: fallback }
   }
-  const turnCtx: TurnCtx = { isShuttingDown, limitOf }
+  const turnCtx: TurnCtx = {
+    isShuttingDown, limitOf, onCutEnd,
+    wasInterrupted: (session) => lastResultInterrupted.get(session) ?? false,
+  }
 
   /**
    * O id de conversa a retomar, DEPOIS de conferir que ele ainda existe.
@@ -373,8 +458,19 @@ export function createSessionManager(deps: Deps) {
    * engine: nunca lança daqui. No encerramento, nenhum turno conta como
    * interrompido pelo operador (a fila não pausa por causa de um reinício).
    */
-  const turnResult = (projectId: number, engine: EngineId, info: { isError: boolean; interrupted: boolean; limited: boolean }): void => {
+  const turnResult = (projectId: number, engine: EngineId, info: TurnResultInfo): void => {
     try { deps.onTurnResult?.(projectId, engine, { ...info, interrupted: info.interrupted && !shuttingDown }) } catch {}
+  }
+
+  /**
+   * Lê e limpa a marca de turno de compactação: ela vale só para o fim deste
+   * turno. Só aparece no info quando é compactação (o turno comum segue igual).
+   */
+  const compactionOf = (localId: string): { compaction?: true } => {
+    const entry = live.get(localId)
+    if (!entry?.compactTurn) return {}
+    entry.compactTurn = false
+    return { compaction: true }
   }
 
   /** A sessão ficou livre. Roda numa microtask: um erro seria exceção sem dono e derrubaria o processo. */
@@ -473,7 +569,16 @@ export function createSessionManager(deps: Deps) {
           // cujo result póstumo a sessão descarta): o fim dele sai daqui. Na
           // microtask, e não no status: no Claude o status chega ANTES do result
           // do mesmo turno, e aqui o result (se houve) já consumiu a marca.
-          if (interruptedTurn.delete(localId)) turnResult(projectId, engine, { isError: false, interrupted: true, limited: false })
+          const cut = interruptedTurn.get(localId)
+          if (cut !== undefined) {
+            interruptedTurn.delete(localId)
+            turnResult(projectId, engine, { isError: false, interrupted: true, limited: false, origin: cut, ...compactionOf(localId) })
+            // A tarefa delegada que este turno executava também termina aqui
+            // (R18), antes do "livre": o turno seguinte não é dela.
+            for (const cb of [...(cutWatchers.get(session) ?? [])]) {
+              try { cb() } catch (err) { console.error('[manager] fim do turno interrompido falhou', err) }
+            }
+          }
           // No Claude, o status chega antes do result que decide compactar: o
           // "livre" espera a compactação, cujo fim dá outro "livre".
           if (live.get(localId)?.compactPending) return
@@ -526,8 +631,11 @@ export function createSessionManager(deps: Deps) {
         }
         // A marca do operador vale para este turno e sai com ele. O `interrupted`
         // do Codex é o próprio motor confirmando a interrupção.
+        // A origem é lida aqui, no próprio result: a do Esc, se houve, senão a da sessão.
+        const origin = interruptedTurn.get(localId) ?? live.get(localId)?.origin ?? 'operator'
         const interrupted = interruptedTurn.delete(localId) || interrupting.has(localId) || event.subtype === 'interrupted'
-        turnResult(projectId, engine, { isError: event.isError, interrupted, limited: !!limited })
+        lastResultInterrupted.set(session, interrupted)
+        turnResult(projectId, engine, { isError: event.isError, interrupted, limited: !!limited, origin, ...compactionOf(localId) })
       }
       // Turno que falhou acorda o terminal assentado ou adiado; o interrompido
       // pelo operador e o do limite de uso (acordado pelo serviço do limite), não.
@@ -602,6 +710,7 @@ export function createSessionManager(deps: Deps) {
               try {
                 if (!['idle', 'needs_attention'].includes(entry.session.status)) { entry.autoCompacting = false; return }
                 entry.session.compact!()
+                entry.compactTurn = true
                 compacted = true
                 // Eco na UI: sem ele a sessão "trabalha sozinha" sem explicação.
                 deps.broadcast({ type: 'session_event', localId, event: userEchoEvent('/compact') })
@@ -764,10 +873,15 @@ export function createSessionManager(deps: Deps) {
     send(localId: string, text: string, opts?: { echo?: boolean }): void {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
+      // O /goal tratado pelo Claudinei não vai à sessão nem conta como mensagem do operador.
+      if (deps.interceptCommand && typeof text === 'string' && GOAL_COMMAND.test(text.trim())) {
+        if (deps.interceptCommand({ projectId: entry.projectId, engine: entry.engine, localId }, text)) return
+      }
       if (typeof text === 'string' && text.trim() === '/compact') {
         if (!entry.session.compact) throw new UserError('engine_no_compact', 'esta engine não oferece compactação no chat')
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
         entry.session.compact()
+        entry.compactTurn = true
       } else if (opts?.echo) entry.session.send(text, { echoToClients: true })
       else entry.session.send(text)
       entry.origin = 'operator'
@@ -794,11 +908,21 @@ export function createSessionManager(deps: Deps) {
     isShuttingDown,
 
     /**
+     * A auto-compactação foi decidida no último result e ainda não abriu o
+     * turno dela: a sessão parece livre, mas o lugar 1 vem antes. O `isFree` do
+     * árbitro do próximo envio consulta isto (um cutucão na mesma folga não
+     * pode passar na frente da compactação).
+     */
+    compactionPending(localId: string): boolean {
+      return !!live.get(localId)?.compactPending
+    },
+
+    /**
      * Acompanha o turno da sessão e fecha com o result dele, como o dispatchTask.
      * Serve para reanexar uma tarefa encaminhada depois do boot. Devolve false se
-     * a sessão não está viva (nada a acompanhar).
+     * a sessão não está viva (nada a acompanhar). Sem `timeoutMs`, sem prazo.
      */
-    watchTurn(localId: string, onComplete: (status: 'completed' | 'failed', result: string) => void, timeoutMs = 600_000): boolean {
+    watchTurn(localId: string, onComplete: (status: 'completed' | 'failed', result: string) => void, timeoutMs?: number): boolean {
       const entry = live.get(localId)
       if (!entry) return false
       watchTask(entry.session, timeoutMs, turnCtx, onComplete)
@@ -818,7 +942,8 @@ export function createSessionManager(deps: Deps) {
       interrupting.add(localId)
       // Só um turno em curso tem o que interromper: fora dele, a marca cairia
       // no turno seguinte.
-      if (entry.session.status === 'working') interruptedTurn.add(localId)
+      // Um segundo Esc no mesmo turno não troca a origem guardada pelo primeiro.
+      if (entry.session.status === 'working' && !interruptedTurn.has(localId)) interruptedTurn.set(localId, entry.origin)
       try {
         await entry.session.interrupt()
       } catch (err) {
@@ -1198,13 +1323,17 @@ export function createSessionManager(deps: Deps) {
       return waited ?? Promise.resolve(null)
     },
 
-    /** Devolve a engine da sessão que recebeu a task (ou null se a entrega falhou na hora). */
+    /**
+     * Devolve a engine da sessão que recebeu a task (ou null se a entrega falhou na hora).
+     * Sem `timeoutMs`, a tarefa não tem prazo: fecha com o result do turno ou como
+     * falha quando a sessão alvo morre ou para.
+     */
     dispatchTask(
       toProjectId: number,
       fromLabel: string,
       description: string,
       onComplete: (status: 'completed' | 'failed', result: string) => void,
-      timeoutMs = 600_000,
+      timeoutMs?: number,
       opts?: TaskTarget,
     ): EngineId | null {
       const { target, anyActive } = pickTaskTarget(toProjectId, opts)

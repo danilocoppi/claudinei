@@ -1,8 +1,8 @@
 import { useShallow } from 'zustand/react/shallow'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import type { Project, SessionInfo } from '../types'
+import type { GoalStatus, Project, SessionInfo, TerminalState } from '../types'
 import { createScratchProject, deleteGroup, deleteSector, fetchGroups, fetchProjects, fetchSectors, putSidebarOrder, updateGroup, updateSector, type Group, type SidebarEntry } from '../api'
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
@@ -488,7 +488,9 @@ export function Sidebar() {
           )}
           {isCollapsed && playButton}
           <InterruptedCardMarker projectId={p.id} />
-          {/* Colapsado não há linha de status: a marca do limite sobe para cá. */}
+          {/* Colapsado não há linha de status: o selo do goal e a marca do limite
+              sobem para cá, encolhendo antes do nome. */}
+          {isCollapsed && <GoalCardMarker projectId={p.id} />}
           {isCollapsed && <UsageLimitCardMarker projectId={p.id} />}
           {(() => {
             const sch = schedulesOf(p.id)
@@ -562,8 +564,10 @@ export function Sidebar() {
           ) : (
             <><span className="status-dot status-none" /><span className="term-card__status-text">{t('sidebar.noSession')}</span></>
           )}
-          {/* Limite de uso: aqui cabe o texto inteiro ("limite até 15:00"); quem
-              trunca primeiro é o texto do status. */}
+          {/* Goal do terminal ("🎯 n/20") e limite de uso ("limite até 15:00"):
+              aqui cabem inteiros; quem trunca primeiro é o texto do status. Na
+              linha do nome, o selo espremia o nome do projeto até sumir (D1). */}
+          <GoalCardMarker projectId={p.id} inStatus />
           <UsageLimitCardMarker projectId={p.id} inStatus />
           {playButton}
         </div>}
@@ -1057,3 +1061,38 @@ export function Sidebar() {
     </div>
   )
 }
+
+/**
+ * O goal que o selo do cartão mostra, de algum motor do projeto, como uma string
+ * `status:turns:max` (ou `null`). Prefere um goal que não acabou a um cumprido.
+ * Só uma string, só com turno e estado: a lateral não se redesenha quando muda
+ * o que o selo não mostra (critério, evidência, outros campos, outros projetos).
+ */
+const goalMarkerKey = (states: Record<string, TerminalState>, projectId: number): string | null => {
+  let done: string | null = null
+  for (const st of Object.values(states)) {
+    if (st.projectId !== projectId || !st.goal) continue
+    const key = `${st.goal.status}:${st.goal.turns}:${st.goal.max}`
+    if (st.goal.status !== 'done') return key
+    done ??= key
+  }
+  return done
+}
+
+/**
+ * Selo do cartão da lateral: o terminal tem goal (`/goal`), com "🎯 n/20" e o
+ * estado na dica. Como a marca do limite: no cartão expandido, na linha de
+ * status (`inStatus`); no colapsado, na linha do nome, encolhendo antes dele.
+ * ESTÁTICO, sem pulso nem transição: a interface precisa andar sem GPU (AGENTS.md).
+ */
+export const GoalCardMarker = memo(function GoalCardMarker({ projectId, inStatus = false }: { projectId: number; inStatus?: boolean }) {
+  const { t } = useTranslation()
+  const marker = useStore((s) => goalMarkerKey(s.terminalStates, projectId))
+  if (!marker) return null
+  const [status, turns, max] = marker.split(':')
+  const label = t('goal.cardMarker', { turns, max, status: t(`goal.status.${status as GoalStatus}`) })
+  return (
+    <span data-testid="goal-marker" className={`term-card__goal term-card__goal--${status}${inStatus ? ' term-card__goal--in-status' : ''}`} role="img"
+          aria-label={label} title={label}>🎯 {turns}/{max}</span>
+  )
+})

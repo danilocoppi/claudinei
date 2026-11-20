@@ -6,7 +6,8 @@ import { hasEngine } from '../engine/index.js'
 import { errorBody, fail, UserError } from '../user-error.js'
 import type { RestartService } from '../restart/boot.js'
 import type { UsageLimitService } from '../limit/usage-limit.js'
-import { createTerminalStateStore, toDto } from '../restart/terminal-state.js'
+import type { TaskWake } from '../delegate/task-wake.js'
+import type { GoalService } from '../goal/goal.js'
 
 /** Ações sobre o aviso do limite de uso. */
 const LIMIT_ACTIONS = ['arm', 'snooze', 'cancel', 'continue'] as const
@@ -17,15 +18,19 @@ const LIMIT_CONFLICTS = new Set(['no_usage_limit', 'reset_unknown', 'session_bus
 /**
  * Reinício sem prejuízo e limite de uso, por terminal (projeto + motor): os
  * interruptores, o Continuar e o fechar do aviso do reinício, as ações sobre o
- * aviso do limite e a lista que a interface lê ao abrir. As mudanças vão às
- * telas pelos próprios serviços, como `{ type: 'terminal_state', state }`.
+ * aviso do limite, o Continuar e o × do aviso de resultado de tarefa delegada e
+ * a lista que a interface lê ao abrir. As mudanças vão às telas pelos próprios
+ * serviços, como `{ type: 'terminal_state', state }`.
  */
 export function registerTerminalStateRoutes(
   app: FastifyInstance,
-  deps: { db: Db; restart: RestartService; limit: UsageLimitService },
+  deps: {
+    db: Db; restart: RestartService; limit: UsageLimitService
+    taskWake: Pick<TaskWake, 'continueNow' | 'dismiss'>
+    goal: Pick<GoalService, 'onTaskResultsDismissed'>
+  },
 ) {
   const projects = createProjectsService(deps.db)
-  const store = createTerminalStateStore(deps.db)
 
   /** Valida projeto, acesso e motor. Devolve o alvo ou `undefined` (resposta já enviada). */
   const target = (req: FastifyRequest, reply: FastifyReply): { projectId: number; engine: string } | undefined => {
@@ -119,7 +124,8 @@ export function registerTerminalStateRoutes(
       // O revive (ou o envio) falhou: o aviso fica, e o erro vai à tela como no revive comum.
       return reply.code(400).send(errorBody(err))
     }
-    return toDto(store.get(t.projectId, t.engine))
+    // Decorado, como o que vai às telas: com os resultados de tarefa pendentes.
+    return deps.restart.state(t.projectId, t.engine)
   })
 
   app.delete('/api/projects/:id/terminals/:engine/interruption', async (req, reply) => {
@@ -127,6 +133,43 @@ export function registerTerminalStateRoutes(
     if (!t) return
     if (refuseWhileShuttingDown(reply)) return
     deps.restart.dismiss(t.projectId, t.engine)
+    return { ok: true }
+  })
+
+  /**
+   * O Continuar do aviso "A tarefa terminou": sobe o terminal se ele estiver
+   * parado e entrega os resultados pendentes pelo árbitro. Encerrando, 409
+   * `shutting_down` (o pendente fica para a próxima subida); sem nada pendente,
+   * 409 `nothing_to_continue`. O serviço devolve `false` nos dois casos, por
+   * isso o encerramento é conferido antes.
+   */
+  app.post('/api/projects/:id/terminals/:engine/task-results/continue', async (req, reply) => {
+    const t = target(req, reply)
+    if (!t) return
+    if (refuseWhileShuttingDown(reply)) return
+    try {
+      if (!deps.taskWake.continueNow(t.projectId, t.engine)) {
+        if (refuseWhileShuttingDown(reply)) return
+        return reply.code(409).send(fail('nothing_to_continue', 'não há resultado de tarefa esperando'))
+      }
+    } catch (err) {
+      // O revive falhou: o aviso fica, e o erro vai à tela como no revive comum.
+      return reply.code(400).send(errorBody(err))
+    }
+    return { ok: true }
+  })
+
+  /**
+   * O × do aviso: os resultados pendentes do terminal são dispensados (seguem
+   * em list_tasks). O goal que esperava por eles pausa por operador — só se
+   * algum foi dispensado de fato. Encerrando, 409 `shutting_down`, como o
+   * Continuar: o pendente fica para a próxima subida.
+   */
+  app.delete('/api/projects/:id/terminals/:engine/task-results', async (req, reply) => {
+    const t = target(req, reply)
+    if (!t) return
+    if (refuseWhileShuttingDown(reply)) return
+    if (deps.taskWake.dismiss(t.projectId, t.engine) > 0) deps.goal.onTaskResultsDismissed(t.projectId, t.engine)
     return { ok: true }
   })
 }

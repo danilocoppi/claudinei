@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { CODEX_FALLBACK_CATALOG } from '../../shared/codex-models'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
@@ -6,7 +7,7 @@ import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import { resolvedKey, type FileKind, type ScopeResult } from './files'
 import { applyEvent } from './chat/applyEvent'
 import { notifyQuestion, notifySessionChange } from './notifications'
-import { BUILTIN_FALLBACK } from './slash'
+import { BUILTIN_FALLBACK, CLAUDINEI_COMMANDS } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
@@ -148,6 +149,12 @@ interface State {
   headsUps: Record<string, HeadsUpCard[]>
   /** Avisos fechados no X, por chat: o mesmo cartão chegando de novo (snapshot) não volta. */
   dismissedHeadsUps: Record<string, string[]>
+  /**
+   * Erros do WebSocket por chat (envio recusado pelo servidor ou expirado com a
+   * conexão caída), só contados: quem trava um botão até a resposta (o aviso do
+   * goal) o solta quando o número muda.
+   */
+  sendErrors: Record<string, number>
   /** Arquivo aberto INLINE (painel dockado acima do input do chat), por sessão. */
   inlineFile: { localId: string; path: string; kind: FileKind; projectId?: number } | null
   /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
@@ -325,6 +332,7 @@ export const useStore = create<State>((set, get) => ({
   fileMenu: null,
   headsUps: {},
   dismissedHeadsUps: {},
+  sendErrors: {},
   inlineFile: null,
   fileResolved: {},
   externalLink: null,
@@ -493,6 +501,8 @@ export const useStore = create<State>((set, get) => ({
     })
     if (msg.type === 'error' && typeof msg.localId === 'string' && typeof msg.message === 'string') {
       get().addLocalItem(msg.localId, { kind: 'command_output', text: localizeServerError(msg), isError: true })
+      const errLocalId = msg.localId
+      set((s) => ({ sendErrors: { ...s.sendErrors, [errLocalId]: (s.sendErrors[errLocalId] ?? 0) + 1 } }))
     } else if (msg.type === 'action_exit') {
       const runs = get().actionRuns
       if (!runs.some((r) => r.actionId === msg.actionId)) return
@@ -804,7 +814,8 @@ export function useEngineFor(session: SessionInfo | undefined): EngineMeta | und
  * Lista de slash commands efetiva da sessão, dirigida pela engine:
  * - `slashSource === 'protocol'` → `store.slashCommands` (hoje só o Claude; farejado do evento `init`).
  * - `slashSource === 'curated'` → `engine.slashCommands` (lista fixa da engine, ex.: Codex).
- * - `slashSource === 'none'` → nenhum autocomplete.
+ * - `slashSource === 'none'` → só os do Claudinei.
+ * Em todos, mais os comandos do próprio Claudinei (`CLAUDINEI_COMMANDS`: `/goal`).
  * Sem engine resolvida ainda (boot) → cai no protocolo (comportamento idêntico ao de hoje).
  * Reativa: use dentro do corpo de componentes.
  */
@@ -812,7 +823,9 @@ export function useSessionSlashCommands(session: SessionInfo | undefined): strin
   const engine = useEngineFor(session)
   const protocolCommands = useStore((s) => s.slashCommands)
   const source = engine?.slashSource ?? 'protocol'
-  if (source === 'none') return []
-  if (source === 'curated') return engine?.slashCommands ?? []
-  return protocolCommands
+  const base = source === 'none' ? EMPTY_COMMANDS : source === 'curated' ? engine?.slashCommands ?? EMPTY_COMMANDS : protocolCommands
+  // Os do Claudinei (`/goal`) valem em todo motor; filterCommands tira o repetido.
+  return useMemo(() => [...base, ...CLAUDINEI_COMMANDS], [base])
 }
+/** Referência estável: o useMemo acima não refaz a lista a cada render. */
+const EMPTY_COMMANDS: string[] = []

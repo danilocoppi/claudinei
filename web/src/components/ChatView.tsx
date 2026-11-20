@@ -17,6 +17,8 @@ import { ReauthBanner } from './ReauthBanner'
 import { InterruptedNotice } from './InterruptedNotice'
 import { UsageLimitNotice } from './UsageLimitNotice'
 import { QueuePanel } from './QueuePanel'
+import { TaskResultNotice } from './TaskResultNotice'
+import { GoalNotice } from './GoalNotice'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
@@ -339,6 +341,10 @@ export function ChatView() {
       <InterruptedNotice projectId={session.projectId} engine={engine} />
       {/* Limite de uso que o terminal desta aba bateu. */}
       <UsageLimitNotice projectId={session.projectId} engine={engine} />
+      {/* Tarefas que este terminal delegou terminaram, com ele parado: Continuar/×. */}
+      <TaskResultNotice projectId={session.projectId} engine={engine} />
+      {/* Goal pausado ou no teto: o motivo, com Retomar/Encerrar (`/goal resume`/`stop`). */}
+      <GoalNotice projectId={session.projectId} engine={engine} localId={session.localId} sessionStatus={session.status} />
       {/* Fila do operador do terminal: logo acima do campo, à vista também no Zen. */}
       <QueuePanel projectId={session.projectId} engine={engine} />
       {session.status === 'in_terminal' ? (

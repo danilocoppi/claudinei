@@ -2,6 +2,14 @@ import type { Db } from './db.js'
 
 export type TaskStatus = 'queued' | 'in_progress' | 'completed' | 'failed'
 
+/**
+ * Estado do aviso de resultado ao terminal que delegou: `pending` (esperando a
+ * entrega), `delivered` (entregue numa mensagem do Claudinei), `dismissed` (o
+ * operador fechou o aviso; o resultado segue em list_tasks), `none` (não há quem
+ * acordar). A coluna fica NULL nas tarefas antigas e nas que ainda não terminaram.
+ */
+export type TaskNotify = 'pending' | 'delivered' | 'dismissed' | 'none'
+
 export interface Task {
   id: number
   fromProjectId: number | null
@@ -14,6 +22,7 @@ export interface Task {
   description: string
   status: TaskStatus
   result: string | null
+  notify: TaskNotify | null
   createdAt: string
   updatedAt: string
 }
@@ -24,6 +33,7 @@ const SELECT_TASK = `SELECT t.id as id,
        t.to_project_id as toProjectId, tp.name as toProjectName,
        t.from_engine as fromEngine, t.to_engine as toEngine,
        t.description as description, t.status as status, t.result as result,
+       t.notify as notify,
        t.created_at as createdAt, t.updated_at as updatedAt
   FROM tasks t
   LEFT JOIN projects fp ON fp.id = t.from_project_id
@@ -66,6 +76,49 @@ export function createTasksService(db: Db) {
       db.prepare(
         `UPDATE tasks SET status=?, result=?, updated_at=datetime('now') WHERE id=?`,
       ).run(status, result, id)
+    },
+
+    /** Grava o estado do aviso de resultado de várias tarefas de uma vez. */
+    setNotify(ids: number[], notify: TaskNotify): void {
+      if (ids.length === 0) return
+      const stmt = db.prepare(`UPDATE tasks SET notify=? WHERE id=?`)
+      db.transaction(() => { for (const id of ids) stmt.run(notify, id) })()
+    },
+
+    /**
+     * Avisos pendentes do terminal de origem (projeto + motor), da mais antiga
+     * para a mais nova. `fromEngine` nulo casa só as tarefas sem motor de origem.
+     */
+    pendingNotifyFor(fromProjectId: number, fromEngine: string | null): Task[] {
+      return db
+        .prepare(
+          `${SELECT_TASK}
+           WHERE t.from_project_id = ? AND t.from_engine IS ? AND t.notify = 'pending'
+           ORDER BY t.id ASC`,
+        )
+        .all(fromProjectId, fromEngine) as Task[]
+    },
+
+    /** Todos os avisos pendentes, da mais antiga para a mais nova (subida do serviço). */
+    allPendingNotify(): Task[] {
+      return db
+        .prepare(
+          `${SELECT_TASK}
+           WHERE t.notify = 'pending'
+           ORDER BY t.id ASC`,
+        )
+        .all() as Task[]
+    },
+
+    /** Quantas tarefas desta origem (projeto + motor) seguem na fila ou em andamento. */
+    openFrom(fromProjectId: number, fromEngine: string): number {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) as n FROM tasks
+           WHERE from_project_id = ? AND from_engine = ? AND status IN ('queued', 'in_progress')`,
+        )
+        .get(fromProjectId, fromEngine) as { n: number }
+      return row.n
     },
 
     list(limit = 100): Task[] {

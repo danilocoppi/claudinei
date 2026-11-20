@@ -1,10 +1,50 @@
 import { isCompactSummary } from './history'
-import type { ChatItem, ClaudeEvent, ContentBlock } from '../types'
+import type { ChatItem, ClaudeEvent, ClaudineiTaskResult, ContentBlock } from '../types'
 
 /** Selo da mensagem de retomada que o servidor manda ao agente (cópia de `RESUME_PREFIX` em server/src/restart/boot.ts). */
 export const RESUME_PREFIX = '[Claudinei: resume after restart]'
 /** Selo da retomada na reabertura do limite de uso (cópia de `LIMIT_RESUME_PREFIX` em server/src/limit/texts.ts). */
 export const LIMIT_RESUME_PREFIX = '[Claudinei: resume after usage limit]'
+/** Selo do aviso de resultado de tarefa delegada (cópia de `TASK_RESULT_PREFIX` em server/src/delegate/texts.ts). */
+export const TASK_RESULT_PREFIX = '[Claudinei: task result]'
+/** Selo do "continue" do goal (cópia de `GOAL_PREFIX` em server/src/goal/texts.ts). */
+export const GOAL_PREFIX = '[Claudinei: goal]'
+/** Selo da partida do goal (cópia de `GOAL_START_PREFIX` em server/src/goal/texts.ts). */
+export const GOAL_START_PREFIX = '[Claudinei: goal start]'
+
+/**
+ * Cabeçalho de cada bloco do aviso de tarefa (`taskResultText` no servidor):
+ * `Task #<id> sent to <Projeto> completed|failed.`, no começo da mensagem ou
+ * depois de uma linha em branco, sozinho na linha.
+ */
+const TASK_HEAD = /(?:^|\n\n)Task #(\d+) sent to (.+?) (completed|failed)\.(?=\n|$)/g
+
+/**
+ * Separa a mensagem do aviso em um item por tarefa. O rodapé do corte
+ * (`(full text: list_tasks #<id>)`) sai do corpo e vira `truncated`. Um texto
+ * fora do formato devolve lista vazia (o cartão mostra o texto cru).
+ */
+function parseTaskResults(body: string): ClaudineiTaskResult[] {
+  const heads = [...body.matchAll(TASK_HEAD)]
+  if (heads.length === 0 || heads[0].index !== 0) return []
+  return heads.map((m, i) => {
+    const id = Number(m[1])
+    const end = i + 1 < heads.length ? heads[i + 1].index : body.length
+    let text = body.slice(m.index + m[0].length, end).trim()
+    const footer = `(full text: list_tasks #${id})`
+    const truncated = text.endsWith(footer)
+    if (truncated) text = text.slice(0, -footer.length).trim()
+    return { id, project: m[2], status: m[3] as 'completed' | 'failed', body: text, ...(truncated ? { truncated } : {}) }
+  })
+}
+
+/** Textos fixos do goal (`goalContinueText` e `goalStartText` no servidor). */
+const GOAL_CONTINUE = /^Continue toward the goal: ([\s\S]*)\. Turn (\d+)\/(\d+)\. When it is fully met, call goal_done with the evidence\.$/
+const GOAL_START = /^New goal: ([\s\S]*)\. Work toward it turn after turn\. Only when it is entirely met, call goal_done with the evidence\.$/
+
+/** Corpo depois do selo `<prefixo>:`, ou null quando a mensagem não começa com ele. */
+const afterSeal = (text: string, prefix: string): string | null =>
+  text.startsWith(`${prefix}:`) ? text.slice(prefix.length + 1).trim() : null
 
 function blockToText(content: unknown): string {
   if (typeof content === 'string') return content
@@ -55,6 +95,24 @@ function classifyUserText(text: string): ChatItem[] {
   }
   if (cleaned.startsWith(`${LIMIT_RESUME_PREFIX}:`)) {
     return [{ kind: 'claudinei_message', reason: 'limit', text: cleaned.slice(LIMIT_RESUME_PREFIX.length + 1).trim() }]
+  }
+
+  // Aviso de resultado de tarefa delegada e o goal (`/goal`): também do próprio
+  // Claudinei, em inglês para o agente; a tela mostra cartões traduzidos.
+  const taskResult = afterSeal(cleaned, TASK_RESULT_PREFIX)
+  if (taskResult != null) {
+    return [{ kind: 'claudinei_message', reason: 'task_result', text: taskResult, tasks: parseTaskResults(taskResult) }]
+  }
+  const goal = afterSeal(cleaned, GOAL_PREFIX)
+  if (goal != null) {
+    const m = goal.match(GOAL_CONTINUE)
+    return [m
+      ? { kind: 'claudinei_message', reason: 'goal', text: goal, criterion: m[1], turn: Number(m[2]), max: Number(m[3]) }
+      : { kind: 'claudinei_message', reason: 'goal', text: goal, criterion: goal }]
+  }
+  const goalStart = afterSeal(cleaned, GOAL_START_PREFIX)
+  if (goalStart != null) {
+    return [{ kind: 'claudinei_message', reason: 'goal_start', text: goalStart, criterion: goalStart.match(GOAL_START)?.[1] ?? goalStart }]
   }
 
   const scheduled = cleaned.match(/^\[Agendamento: (.+) #(\d+)\]:\s*([\s\S]*)$/)

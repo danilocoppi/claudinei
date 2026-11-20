@@ -7,7 +7,7 @@ import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
-import type { ChatItem } from '../types'
+import type { ChatItem, ClaudineiTaskResult } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
 import { WsContext } from '../wsContext'
@@ -343,25 +343,99 @@ function TaskMessageBubble({
 }
 
 /**
- * Mensagem que o próprio Claudinei mandou ao agente para retomar o turno que um
- * reinício do serviço cortou (`restart`) ou que parou no limite de uso, quando a
- * janela reabriu (`limit`). Vai em inglês ao agente; aqui aparece traduzida,
- * com selo próprio — não foi o operador que escreveu, nem outro terminal. Sem
- * lápis nem encaminhar: o texto é fixo e não é de ninguém para reaproveitar.
+ * Mensagem que o próprio Claudinei mandou ao agente. Vai em inglês ao agente;
+ * aqui aparece traduzida, com selo próprio — não foi o operador que escreveu,
+ * nem outro terminal. Sem lápis nem encaminhar: o texto é do Claudinei.
+ * - `restart`/`limit`: retomada do turno que um reinício do serviço cortou, ou
+ *   que parou no limite de uso, quando a janela reabriu;
+ * - `task_result`: o aviso de resultado das tarefas que este terminal delegou,
+ *   uma entrada por tarefa (#id, projeto, estado e o resultado dobrável);
+ * - `goal`/`goal_start`: o "continue" do goal (com o turno) e a partida, com o critério.
  */
-function ClaudineiMessageBubble({ reason }: { reason: 'restart' | 'limit' }) {
+function ClaudineiMessageBubble({ item, currentLocalId }: {
+  item: Extract<ChatItem, { kind: 'claudinei_message' }>
+  currentLocalId?: string
+}) {
   const { t } = useTranslation()
+  let icon = '↻'
+  let title: string | null = null
+  let body: ReactNode
+  switch (item.reason) {
+    case 'restart':
+    case 'limit':
+      body = <div style={{ lineHeight: 1.6 }}>{item.reason === 'limit' ? t('chat.claudineiLimitResume') : t('chat.claudineiResume')}</div>
+      break
+    case 'task_result':
+      icon = '↩'
+      title = t('chat.claudineiTaskResult', { count: Math.max(item.tasks.length, 1) })
+      body = item.tasks.length > 0
+        ? (
+          <ul className="msg-claudinei__tasks">
+            {item.tasks.map((task) => <ClaudineiTaskEntry key={task.id} task={task} currentLocalId={currentLocalId} />)}
+          </ul>
+        )
+        // Fora do formato conhecido: o texto como veio, para não sumir nada.
+        : <div className="markdown" style={{ lineHeight: 1.6 }}><AssistantMarkdown text={item.text} currentLocalId={currentLocalId} /></div>
+      break
+    case 'goal':
+      icon = '◎'
+      title = item.turn != null ? t('chat.goalTurn', { turn: item.turn, max: item.max ?? item.turn }) : t('chat.goalTitle')
+      body = (
+        <div style={{ lineHeight: 1.6 }}>
+          {t('chat.goalContinue')} <span className="msg-claudinei__criterion">{item.criterion}</span>
+        </div>
+      )
+      break
+    case 'goal_start':
+      icon = '◎'
+      title = t('chat.goalStart')
+      body = <div className="msg-claudinei__criterion" style={{ lineHeight: 1.6 }}>{item.criterion}</div>
+      break
+  }
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '8px 0' }}>
       <div style={{ maxWidth: '70%' }}>
         <div className="msg-bubble msg-bubble--claudinei">
           <div className="msg-claudinei__from">
-            <span aria-hidden="true">↻</span> Claudinei
+            <span aria-hidden="true">{icon}</span> Claudinei{title != null && <> · <span>{title}</span></>}
           </div>
-          <div style={{ lineHeight: 1.6 }}>{reason === 'limit' ? t('chat.claudineiLimitResume') : t('chat.claudineiResume')}</div>
+          {body}
         </div>
       </div>
     </div>
+  )
+}
+
+/** Uma tarefa no cartão do resultado: #id, projeto, estado e o corpo em markdown, dobrado quando longo. */
+function ClaudineiTaskEntry({ task, currentLocalId }: { task: ClaudineiTaskResult; currentLocalId?: string }) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+
+  const lines = task.body.split('\n')
+  const overflow = lines.length - COLLAPSE_LINES
+  const collapsed = overflow > 0 && !expanded
+  const shown = collapsed ? lines.slice(0, COLLAPSE_LINES).join('\n') + '\n…' : task.body
+
+  return (
+    <li className="msg-claudinei__task">
+      <div className="msg-claudinei__task-head">
+        <span className="msg-claudinei__task-name">{t('chat.taskResultItem', { id: task.id, project: task.project })}</span>
+        <span className={`msg-claudinei__status msg-claudinei__status--${task.status}`}>
+          {task.status === 'failed' ? t('chat.taskFailed') : t('chat.taskCompleted')}
+        </span>
+      </div>
+      {task.body && (
+        <div className="markdown" style={{ lineHeight: 1.6 }}>
+          <AssistantMarkdown text={shown} currentLocalId={currentLocalId} />
+        </div>
+      )}
+      {overflow > 0 && (
+        <button type="button" className="msg-expand" onClick={() => setExpanded(!expanded)}>
+          {collapsed ? `▾ ${t('chat.showAll', { n: overflow })}` : `▴ ${t('chat.collapse')}`}
+        </button>
+      )}
+      {task.truncated && <div className="msg-claudinei__cut">{t('chat.taskResultCut', { id: task.id })}</div>}
+    </li>
   )
 }
 
@@ -453,7 +527,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
     case 'scheduled_message':
       return <ScheduledMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'claudinei_message':
-      return <ClaudineiMessageBubble reason={item.reason} />
+      return <ClaudineiMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'tool_call':
       return <ToolCallCard item={item} />
   }

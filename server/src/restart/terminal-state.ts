@@ -1,5 +1,6 @@
 import type { Db } from '../db.js'
 import type { Question } from '../claude/session.js'
+import { GOAL_MAX_TURNS } from '../goal/texts.js'
 
 /**
  * Estado de reinício por terminal (projeto + motor): os interruptores
@@ -31,6 +32,22 @@ export type LimitAction = 'none' | 'armed' | 'snoozed'
 /** Quem disparou o turno que bateu o limite. */
 export type LimitOrigin = 'operator' | 'schedule' | 'task' | 'claudinei'
 
+/**
+ * Estado do goal (`/goal`) do terminal:
+ * - `active`: o laço segue (o "continue" sai no fim de cada turno);
+ * - `waiting`: esperando tarefas que o próprio terminal delegou;
+ * - `paused`: parado por um motivo (`GoalPause`), sem mensagem;
+ * - `cap`: chegou ao teto de turnos sem `goal_done`;
+ * - `done`: o agente declarou cumprido (`goal_done`), com a evidência.
+ */
+export type GoalStatus = 'active' | 'waiting' | 'paused' | 'cap' | 'done'
+
+/** Por que o goal pausou: mensagem do operador, turno com erro, limite de uso ou Esc. */
+export type GoalPause = 'operator' | 'error' | 'limit' | 'interrupt'
+
+const GOAL_STATUSES: readonly string[] = ['active', 'waiting', 'paused', 'cap', 'done'] satisfies GoalStatus[]
+const GOAL_PAUSES: readonly string[] = ['operator', 'error', 'limit', 'interrupt'] satisfies GoalPause[]
+
 const LIMIT_ACTIONS: readonly string[] = ['none', 'armed', 'snoozed'] satisfies LimitAction[]
 const LIMIT_ORIGINS: readonly string[] = ['operator', 'schedule', 'task', 'claudinei'] satisfies LimitOrigin[]
 
@@ -45,6 +62,12 @@ export interface TerminalStateRow {
   limitResetsAt: number | null    // epoch SEGUNDOS; null = reabertura desconhecida
   limitAction: LimitAction; limitOrigin: LimitOrigin | null
   limitTries: number              // retomadas automáticas na janela; zera num turno sem erro
+  goalCriterion: string | null    // null = sem goal
+  goalStatus: GoalStatus | null
+  goalPause: GoalPause | null     // só com goalStatus = 'paused'
+  goalTurns: number               // turnos do goal contados até aqui
+  goalEvidence: string | null     // a evidência do goal_done
+  goalStartedAt: string | null
 }
 
 export interface TerminalStateDto {
@@ -52,6 +75,21 @@ export interface TerminalStateDto {
   interruption: null | { at: string; reason: HoldReason | 'queued'; question?: Question[] }
   autoResumeLimit: boolean
   usageLimit: null | { hitAt: string; resetsAt: number | null; action: LimitAction; origin: LimitOrigin }
+  /**
+   * Resultados de tarefas delegadas por este terminal esperando a entrega (só os
+   * pendentes). Vem do serviço do aviso de tarefa, pelo `decorate` do reinício;
+   * o `toDto` sozinho dá a lista vazia.
+   */
+  taskResults: { id: number; toProjectName: string; status: 'completed' | 'failed' }[]
+  /**
+   * Os resultados pendentes estão segurados pela marca do limite de uso (o lugar
+   * 4 do árbitro): o limite está ativo, ou já saiu e o terminal ainda não voltou
+   * a trabalhar. A tela usa para mostrar o aviso com a sessão viva parada. Vem do
+   * `decorate` do aviso de tarefa; o `toDto` sozinho dá false.
+   */
+  taskResultsHeld: boolean
+  /** O goal do terminal (`/goal`), do próprio estado gravado; null = sem goal. */
+  goal: null | { criterion: string; status: GoalStatus; pause: GoalPause | null; turns: number; max: typeof GOAL_MAX_TURNS; evidence: string | null }
 }
 
 /** Erro com que fecham a tarefa encaminhada e a execução de agendamento que o reinício matou. */
@@ -65,6 +103,8 @@ interface RawRow {
   auto_resume_limit: number
   limit_hit_at: string | null; limit_resets_at: number | null
   limit_action: string; limit_origin: string | null; limit_tries: number
+  goal_criterion: string | null; goal_status: string | null; goal_pause_reason: string | null
+  goal_turns: number; goal_evidence: string | null; goal_started_at: string | null
 }
 
 /** JSON das perguntas gravado no banco. Ilegível vira `null`: perder o texto da pergunta não pode derrubar a subida. */
@@ -96,6 +136,13 @@ function fromRaw(r: RawRow): TerminalStateRow {
     limitAction: LIMIT_ACTIONS.includes(r.limit_action) ? (r.limit_action as LimitAction) : 'none',
     limitOrigin: r.limit_origin != null && LIMIT_ORIGINS.includes(r.limit_origin) ? (r.limit_origin as LimitOrigin) : null,
     limitTries: r.limit_tries,
+    goalCriterion: r.goal_criterion,
+    // Estado desconhecido no banco não gira o laço: vira sem goal.
+    goalStatus: r.goal_status != null && GOAL_STATUSES.includes(r.goal_status) ? (r.goal_status as GoalStatus) : null,
+    goalPause: r.goal_pause_reason != null && GOAL_PAUSES.includes(r.goal_pause_reason) ? (r.goal_pause_reason as GoalPause) : null,
+    goalTurns: r.goal_turns,
+    goalEvidence: r.goal_evidence,
+    goalStartedAt: r.goal_started_at,
   }
 }
 
@@ -107,6 +154,7 @@ function defaultRow(projectId: number, engine: string): TerminalStateRow {
     lostQuestion: null, resumeCount: 0, holdReason: null,
     autoResumeLimit: false,
     limitHitAt: null, limitResetsAt: null, limitAction: 'none', limitOrigin: null, limitTries: 0,
+    goalCriterion: null, goalStatus: null, goalPause: null, goalTurns: 0, goalEvidence: null, goalStartedAt: null,
   }
 }
 
@@ -271,6 +319,79 @@ export function createTerminalStateStore(db: Db) {
     listSnoozed(): TerminalStateRow[] {
       return (selectByAction.all('snoozed') as RawRow[]).map(fromRaw)
     },
+
+    /**
+     * Inicia (ou substitui) o goal do terminal: ativo, sem turnos e sem
+     * evidência. Não toca nos interruptores, na marca do reinício nem no limite.
+     */
+    startGoal(projectId: number, engine: string, criterion: string): void {
+      db.prepare(
+        `INSERT INTO terminal_state (project_id, engine, goal_criterion, goal_status, goal_pause_reason, goal_turns, goal_evidence, goal_started_at)
+         VALUES (?, ?, ?, 'active', NULL, 0, NULL, datetime('now'))
+         ON CONFLICT(project_id, engine) DO UPDATE SET
+           goal_criterion = excluded.goal_criterion,
+           goal_status = 'active', goal_pause_reason = NULL, goal_turns = 0,
+           goal_evidence = NULL, goal_started_at = excluded.goal_started_at`,
+      ).run(projectId, engine, criterion)
+    },
+
+    /** Troca o estado do goal; o motivo da pausa só fica com `paused`. */
+    setGoalStatus(projectId: number, engine: string, status: GoalStatus, pause?: GoalPause | null): void {
+      db.prepare(`UPDATE terminal_state SET goal_status = ?, goal_pause_reason = ? WHERE project_id = ? AND engine = ? AND goal_criterion IS NOT NULL`)
+        .run(status, status === 'paused' ? (pause ?? null) : null, projectId, engine)
+    },
+
+    /** O `/goal resume`: ativo de novo, com os turnos zerados. */
+    resumeGoal(projectId: number, engine: string): void {
+      db.prepare(
+        `UPDATE terminal_state SET goal_status = 'active', goal_pause_reason = NULL, goal_turns = 0
+          WHERE project_id = ? AND engine = ? AND goal_criterion IS NOT NULL`,
+      ).run(projectId, engine)
+    },
+
+    /** Conta um turno do goal e devolve o total. */
+    bumpGoalTurn(projectId: number, engine: string): number {
+      db.prepare(`UPDATE terminal_state SET goal_turns = goal_turns + 1 WHERE project_id = ? AND engine = ? AND goal_criterion IS NOT NULL`)
+        .run(projectId, engine)
+      return get(projectId, engine).goalTurns
+    },
+
+    /** O goal_done: cumprido, com a evidência. */
+    finishGoal(projectId: number, engine: string, evidence: string): void {
+      db.prepare(
+        `UPDATE terminal_state SET goal_status = 'done', goal_pause_reason = NULL, goal_evidence = ?
+          WHERE project_id = ? AND engine = ? AND goal_criterion IS NOT NULL`,
+      ).run(evidence, projectId, engine)
+    },
+
+    /**
+     * Devolve o goal a um retrato tirado antes (a partida de um goal novo que não
+     * saiu). Retrato sem goal limpa.
+     */
+    restoreGoal(projectId: number, engine: string, snap: Pick<TerminalStateRow,
+      'goalCriterion' | 'goalStatus' | 'goalPause' | 'goalTurns' | 'goalEvidence' | 'goalStartedAt'>): void {
+      db.prepare(
+        `UPDATE terminal_state
+            SET goal_criterion = ?, goal_status = ?, goal_pause_reason = ?, goal_turns = ?,
+                goal_evidence = ?, goal_started_at = ?
+          WHERE project_id = ? AND engine = ?`,
+      ).run(
+        snap.goalCriterion, snap.goalCriterion == null ? null : snap.goalStatus,
+        snap.goalCriterion == null ? null : snap.goalPause, snap.goalCriterion == null ? 0 : snap.goalTurns,
+        snap.goalCriterion == null ? null : snap.goalEvidence, snap.goalCriterion == null ? null : snap.goalStartedAt,
+        projectId, engine,
+      )
+    },
+
+    /** O `/goal stop`: o terminal fica sem goal. */
+    clearGoal(projectId: number, engine: string): void {
+      db.prepare(
+        `UPDATE terminal_state
+            SET goal_criterion = NULL, goal_status = NULL, goal_pause_reason = NULL, goal_turns = 0,
+                goal_evidence = NULL, goal_started_at = NULL
+          WHERE project_id = ? AND engine = ?`,
+      ).run(projectId, engine)
+    },
   }
 }
 
@@ -292,9 +413,16 @@ export function toDto(row: TerminalStateRow): TerminalStateDto {
       origin: row.limitOrigin ?? 'operator',
     }
   }
+  const goal: TerminalStateDto['goal'] = row.goalCriterion != null && row.goalStatus != null
+    ? {
+        criterion: row.goalCriterion, status: row.goalStatus,
+        pause: row.goalStatus === 'paused' ? row.goalPause : null,
+        turns: row.goalTurns, max: GOAL_MAX_TURNS, evidence: row.goalEvidence,
+      }
+    : null
   return {
     projectId: row.projectId, engine: row.engine, autostart: row.autostart, autoResume: row.autoResume,
-    interruption, autoResumeLimit: row.autoResumeLimit, usageLimit,
+    interruption, autoResumeLimit: row.autoResumeLimit, usageLimit, taskResults: [], taskResultsHeld: false, goal,
   }
 }
 

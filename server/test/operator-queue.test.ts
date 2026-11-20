@@ -56,6 +56,10 @@ describe('repositório da fila do operador', () => {
     expect(codeOf(() => store.reorder(project.id, 'claude', [c.id, a.id, a.id]))).toBe('queue_order_mismatch')
     expect(codeOf(() => store.reorder(project.id, 'claude', [c.id, a.id, b.id, other.id]))).toBe('queue_order_mismatch')
     expect(codeOf(() => store.reorder(project.id, 'claude', [c.id, a.id, other.id]))).toBe('queue_order_mismatch')
+    // Corpo malformado: o mesmo erro de tela, não um TypeError.
+    expect(codeOf(() => store.reorder(project.id, 'claude', null as any))).toBe('queue_order_mismatch')
+    expect(codeOf(() => store.reorder(project.id, 'claude', 5 as any))).toBe('queue_order_mismatch')
+    expect(codeOf(() => store.reorder(project.id, 'claude', [String(c.id), a.id, b.id] as any))).toBe('queue_order_mismatch')
     expect(store.list(project.id, 'claude').map((i) => i.text)).toEqual(['a', 'b', 'c'])
     store.reorder(project.id, 'claude', [c.id, a.id, b.id])
     expect(store.list(project.id, 'claude').map((i) => i.text)).toEqual(['c', 'a', 'b'])
@@ -128,13 +132,16 @@ describe('serviço da fila do operador', () => {
   let svc: OperatorQueueService
   let broadcasts: any[]
   let holding: boolean
+  let warnings: unknown[][]
   const LOCAL = 'sess-1'
 
   beforeEach(() => {
     mgr = fakeManager()
     broadcasts = []
     holding = false
+    warnings = []
     svc = createOperatorQueueService({
+      warn: (...args) => warnings.push(args),
       store,
       manager: mgr as any,
       broadcast: (m) => broadcasts.push(m),
@@ -195,6 +202,7 @@ describe('serviço da fila do operador', () => {
     mgr.status.set(LOCAL, 'idle')
     mgr.failNextSend()
     expect(svc.offer(ctx())).toBe(false)
+    expect(warnings).toHaveLength(1)
     const dto = svc.dto(project.id, 'claude')
     expect(dto.items).toEqual(before)
     expect(dto).toMatchObject({ paused: true, pauseReason: 'error' })
@@ -248,11 +256,15 @@ describe('serviço da fila do operador', () => {
     expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
     expect(mgr.calls.some((c) => c[0] === 'interrupt')).toBe(false)
     expect(dto.items.map((i) => i.text)).toEqual(['a'])
-    // Com a fila pausada também injeta, e a pausa continua.
+    // Com a fila pausada também injeta, e a pausa continua enquanto sobra item.
+    svc.add(project.id, 'claude', 'a2')
     svc.pause(project.id, 'claude')
     svc.sendNow(svc.dto(project.id, 'claude').items[0].id)
     expect(sends()).toHaveLength(2)
-    expect(svc.dto(project.id, 'claude')).toMatchObject({ items: [], paused: true, pauseReason: 'manual' })
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ items: [{ text: 'a2' }], paused: true, pauseReason: 'manual' })
+    // A fila que esvazia deixa de estar pausada.
+    svc.sendNow(svc.dto(project.id, 'claude').items[0].id)
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ items: [], paused: false, pauseReason: null })
     // Sessão livre: entrega o item escolhido, mesmo que não seja o primeiro.
     queued('claude', 'c', 'd')
     mgr.status.set(LOCAL, 'idle')
@@ -293,6 +305,67 @@ describe('serviço da fila do operador', () => {
     expect(svc.offer(ctx('kimi'))).toBe(false)
     expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: true, pauseReason: 'manual' })
     expect(texts('kimi')).toEqual(['a'])
+  })
+
+  it('sendNow em Kimi sem result de interrupção: a marca sai quando a sessão fica livre', () => {
+    queued('kimi', 'a', 'b')
+    svc.sendNow(svc.dto(project.id, 'kimi').items[1].id)
+    // Kimi e OpenCode interrompidos só voltam a idle, sem result.
+    mgr.status.set(LOCAL, 'idle')
+    expect(svc.offer(ctx('kimi'))).toBe(true)
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
+    // O Esc do turno seguinte é do operador e pausa.
+    svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
+    expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: true, pauseReason: 'interrupted', items: [{ text: 'a' }] })
+  })
+
+  it('sendNow pendente que falha ao sair na hora não é reenviado com a fila pausada', () => {
+    queued('kimi', 'a', 'b')
+    const b = svc.dto(project.id, 'kimi').items[1]
+    mgr.status.set(LOCAL, 'starting')
+    svc.sendNow(b.id) // pendente: vai quando a sessão ficar livre
+    mgr.status.set(LOCAL, 'idle')
+    mgr.failNextSend()
+    svc.sendNow(b.id) // livre: tenta na hora e falha
+    expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: true, pauseReason: 'error' })
+    expect(texts('kimi')).toEqual(['b', 'a'])
+    expect(svc.offer(ctx('kimi'))).toBe(false)
+    expect(sends()).toHaveLength(0)
+  })
+
+  it('sendNow pendente respeita o aviso aberto', () => {
+    queued('kimi', 'a', 'b')
+    svc.sendNow(svc.dto(project.id, 'kimi').items[1].id)
+    mgr.status.set(LOCAL, 'idle')
+    holding = true
+    expect(svc.offer(ctx('kimi'))).toBe(false)
+    expect(sends()).toHaveLength(0)
+    expect(texts('kimi')).toEqual(['b', 'a'])
+    holding = false
+    expect(svc.offer(ctx('kimi'))).toBe(true)
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
+  })
+
+  it('fila vazia não pausa, e a fila que esvazia perde a pausa', () => {
+    mgr.status.set(LOCAL, 'working')
+    const n = broadcasts.length
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: false })
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: true, limited: false })
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: true })
+    svc.onSessionDied(project.id, 'claude')
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: false, pauseReason: null })
+    expect(broadcasts).toHaveLength(n)
+    // Alt+Enter depois de um Esc com a fila vazia: entrega na hora.
+    mgr.status.set(LOCAL, 'idle')
+    svc.add(project.id, 'claude', 'depois do Esc')
+    expect(sends()).toHaveLength(1)
+    // Pausada com um item: remover o último tira a pausa.
+    mgr.status.set(LOCAL, 'working')
+    svc.add(project.id, 'claude', 'x')
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: false })
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'error' })
+    svc.remove(svc.dto(project.id, 'claude').items[0].id)
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ items: [], paused: false, pauseReason: null })
   })
 
   it('interrupção do operador pausa com interrupted', () => {
@@ -366,6 +439,7 @@ describe('serviço da fila do operador', () => {
     mgr.status.set(LOCAL, 'idle')
     n = broadcasts.length
     svc.offer(ctx()); expect(broadcasts.length).toBe(n + 1); expectLast()
+    svc.add(project.id, 'claude', 'c'); expectLast()
     n = broadcasts.length
     svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: false })
     expect(broadcasts.length).toBe(n + 1); expectLast()

@@ -81,11 +81,13 @@ export function createOperatorQueueStore(db: Db) {
     /** `ids` é a fila inteira na ordem nova: nem item a mais, nem a menos, nem repetido. */
     reorder(projectId: number, engine: string, ids: number[]): void {
       db.transaction(() => {
+        const mismatch = () => new UserError('queue_order_mismatch', 'a ordem enviada não corresponde à fila atual')
+        // Corpo malformado vira o mesmo erro de tela, e não um TypeError.
+        if (!Array.isArray(ids) || !ids.every((id) => Number.isInteger(id))) throw mismatch()
         const current = list(projectId, engine).map((i) => i.id)
         const wanted = new Set(ids)
-        const exact = Array.isArray(ids) && ids.length === current.length && wanted.size === ids.length
-          && current.every((id) => wanted.has(id))
-        if (!exact) throw new UserError('queue_order_mismatch', 'a ordem enviada não corresponde à fila atual')
+        const exact = ids.length === current.length && wanted.size === ids.length && current.every((id) => wanted.has(id))
+        if (!exact) throw mismatch()
         const setPos = db.prepare('UPDATE operator_queue SET position=? WHERE id=?')
         ids.forEach((id, i) => setPos.run(i, id))
       })()
@@ -164,13 +166,18 @@ export function createOperatorQueueService(deps: {
   acceptsMidTurn: (engine: string) => boolean
   /** Sessão viva do terminal, ou null. */
   liveLocalId: (projectId: number, engine: string) => string | null
+  /** Avisos do serviço (envio que falhou); por padrão, o console. */
+  warn?: (...args: unknown[]) => void
 }) {
   const { store, manager } = deps
+  const warn = deps.warn ?? ((...args: unknown[]) => console.warn(...args))
   const key = (projectId: number, engine: string) => `${projectId}:${engine}`
   /**
    * "Enviar agora" num motor sem mensagem no meio do turno: o turno é
-   * interrompido de propósito. O result interrompido que vem a seguir consome
-   * a marca e não pausa a fila.
+   * interrompido de propósito. O result interrompido desse turno consome a
+   * marca e não pausa a fila. Kimi e OpenCode não emitem result ao serem
+   * interrompidos: por isso a marca também sai quando a sessão fica livre (o
+   * turno interrompido acabou), para não engolir o Esc do turno seguinte.
    */
   const interruptToSend = new Set<string>()
   /**
@@ -205,6 +212,8 @@ export function createOperatorQueueService(deps: {
   const deliver = (projectId: number, engine: string, localId: string, item: QueueItem): boolean => {
     try {
       manager.send(localId, item.text, { echo: true })
+      // Fila que esvaziou não fica pausada: não sobrou nada a proteger.
+      if (store.list(projectId, engine).length === 0) store.setPaused(projectId, engine, null)
       return true
     } catch (err) {
       try {
@@ -214,7 +223,7 @@ export function createOperatorQueueService(deps: {
         // Só acontece se o terminal sumiu no meio (a fila foi junto).
         console.error('[operator-queue] não devolveu o item à fila:', rollbackErr)
       }
-      console.warn(`[operator-queue] envio do item ${item.id} falhou; fila pausada:`, err instanceof Error ? err.message : err)
+      warn(`[operator-queue] envio do item ${item.id} falhou; fila pausada:`, err instanceof Error ? err.message : err)
       return false
     }
   }
@@ -224,6 +233,10 @@ export function createOperatorQueueService(deps: {
     const item = store.list(projectId, engine).find((i) => i.id === id)
     if (!item) return false
     store.remove(id)
+    // O item pendente do "enviar agora" que sai agora não pode sair de novo:
+    // se o envio falhar, ele volta à frente com o mesmo id e a fila pausada.
+    const k = key(projectId, engine)
+    if (sendNowPending.get(k) === id) sendNowPending.delete(k)
     return deliver(projectId, engine, localId, item)
   }
 
@@ -237,12 +250,17 @@ export function createOperatorQueueService(deps: {
     // um item só, porque o primeiro envio já a pôs em working.
     if (!isFree(localId)) return null
     const k = key(projectId, engine)
+    // Sessão livre: o turno que o "enviar agora" interrompeu já acabou.
+    interruptToSend.delete(k)
+    // Aviso aberto segura tudo, inclusive o "enviar agora" que espera.
+    if (deps.holds(projectId, engine)) return null
     const pending = sendNowPending.get(k)
     if (pending !== undefined) {
       sendNowPending.delete(k)
+      // Ignora a pausa (ação explícita do operador), sem tirá-la.
       if (store.terminalOf(pending)) return deliverById(projectId, engine, localId, pending)
     }
-    if (store.state(projectId, engine).paused || deps.holds(projectId, engine)) return null
+    if (store.state(projectId, engine).paused) return null
     const item = store.takeFirst(projectId, engine)
     if (!item) return null
     return deliver(projectId, engine, localId, item)
@@ -260,7 +278,9 @@ export function createOperatorQueueService(deps: {
     if (isFree(localId)) offerQuiet({ projectId, engine, localId })
   }
 
+  /** Pausa só com itens na fila: fila vazia não tem o que proteger. */
   const pauseFor = (projectId: number, engine: string, reason: PauseReason): void => {
+    if (store.list(projectId, engine).length === 0) return
     const s = store.state(projectId, engine)
     if (s.paused && s.pauseReason === reason) return
     store.setPaused(projectId, engine, reason)
@@ -295,6 +315,7 @@ export function createOperatorQueueService(deps: {
       const t = terminalOrThrow(id)
       store.remove(id)
       if (sendNowPending.get(key(t.projectId, t.engine)) === id) sendNowPending.delete(key(t.projectId, t.engine))
+      if (store.list(t.projectId, t.engine).length === 0) store.setPaused(t.projectId, t.engine, null)
       return emit(t.projectId, t.engine)
     },
 
@@ -303,7 +324,9 @@ export function createOperatorQueueService(deps: {
      * primeiro); trabalhando num motor que aceita mensagem no meio do turno,
      * injeta no turno atual; senão passa o item para a frente e interrompe o
      * turno, e ele vai quando a sessão ficar livre. Vale com a fila pausada,
-     * sem tirar a pausa, e ignora o "segurar": é o operador agindo.
+     * sem tirar a pausa: é o operador agindo. Com a sessão livre, manda mesmo
+     * com aviso aberto (como uma mensagem digitada); o item que espera a
+     * sessão ficar livre respeita o aviso, como o resto da fila.
      */
     sendNow(id: number): QueueDto {
       const { projectId, engine } = terminalOrThrow(id)
@@ -322,7 +345,7 @@ export function createOperatorQueueService(deps: {
         manager.interrupt(localId).catch((err) => {
           // O turno segue; o item espera na frente e vai quando a sessão ficar livre.
           interruptToSend.delete(k)
-          console.warn('[operator-queue] interromper para enviar falhou:', err instanceof Error ? err.message : err)
+          warn('[operator-queue] interromper para enviar falhou:', err instanceof Error ? err.message : err)
         })
       }
       return emit(projectId, engine)

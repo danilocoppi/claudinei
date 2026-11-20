@@ -364,6 +364,25 @@ export function createTerminalStateStore(db: Db) {
       ).run(evidence, projectId, engine)
     },
 
+    /**
+     * Devolve o goal a um retrato tirado antes (a partida de um goal novo que não
+     * saiu). Retrato sem goal limpa.
+     */
+    restoreGoal(projectId: number, engine: string, snap: Pick<TerminalStateRow,
+      'goalCriterion' | 'goalStatus' | 'goalPause' | 'goalTurns' | 'goalEvidence' | 'goalStartedAt'>): void {
+      db.prepare(
+        `UPDATE terminal_state
+            SET goal_criterion = ?, goal_status = ?, goal_pause_reason = ?, goal_turns = ?,
+                goal_evidence = ?, goal_started_at = ?
+          WHERE project_id = ? AND engine = ?`,
+      ).run(
+        snap.goalCriterion, snap.goalCriterion == null ? null : snap.goalStatus,
+        snap.goalCriterion == null ? null : snap.goalPause, snap.goalCriterion == null ? 0 : snap.goalTurns,
+        snap.goalCriterion == null ? null : snap.goalEvidence, snap.goalCriterion == null ? null : snap.goalStartedAt,
+        projectId, engine,
+      )
+    },
+
     /** O `/goal stop`: o terminal fica sem goal. */
     clearGoal(projectId: number, engine: string): void {
       db.prepare(

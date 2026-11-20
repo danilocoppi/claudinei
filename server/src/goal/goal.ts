@@ -31,7 +31,9 @@ import { GOAL_CRITERION_MAX, GOAL_EVIDENCE_MAX, GOAL_MAX_TURNS, goalContinueText
  *
  * Tarefas delegadas: com tarefas do próprio terminal na fila ou em andamento,
  * o lugar 6 não gira em falso; grava `waiting` e passa a vez. O aviso do
- * resultado (lugar 4) o devolve a `active`, e o turno dele conta.
+ * resultado (lugar 4) o devolve a `active`, e o turno dele conta. Se as tarefas
+ * sumiram sem aviso (o projeto de destino foi apagado e levou a tarefa junto),
+ * o lugar 6 vê que não há mais o que esperar e volta a `active` sozinho.
  *
  * O estado fica nas colunas `goal_*` do estado do terminal (sobrevive ao
  * reinício). Só a marca do turno da partida é da memória.
@@ -49,6 +51,12 @@ export function createGoalService(deps: {
   db: Db; manager: SessionManager; store: TerminalStateStore
   restart: Pick<RestartService, 'publish'>
   nextSend: () => NextSend | undefined
+  /**
+   * O terminal tem resultado de tarefa esperando para sair (o aviso do lugar 4,
+   * segurado ou não). O goal esperando não volta a ativo enquanto houver um:
+   * é o aviso que o acorda. Ausente = nenhum.
+   */
+  hasPendingResults?: (projectId: number, engine: string) => boolean
   log?: (msg: string) => void
 }) {
   const { manager, store } = deps
@@ -86,6 +94,8 @@ export function createGoalService(deps: {
       throw new UserError('goal_invalid', `o objetivo precisa de um critério de 1 a ${GOAL_CRITERION_MAX} caracteres`, { max: GOAL_CRITERION_MAX })
     }
     const key = keyOf(ctx)
+    // O goal de antes, para voltar se a partida não sair (substituir não pode perdê-lo).
+    const before = store.get(ctx.projectId, ctx.engine)
     // Gravado antes da partida: o fim do turno dela já encontra o goal ativo.
     store.startGoal(ctx.projectId, ctx.engine, criterion)
     startTurn.add(key)
@@ -94,9 +104,10 @@ export function createGoalService(deps: {
       // Com eco: a partida aparece no chat (o cartão "Objetivo definido"), como no histórico.
       manager.send(ctx.localId, goalStartText(criterion), { echo: true })
     } catch (err) {
-      // A partida não saiu: o goal não começou. O erro sobe a quem mandou o /goal.
+      // A partida não saiu: o goal novo não começou, e o anterior (se havia) volta.
+      // O erro sobe a quem mandou o /goal.
       startTurn.delete(key)
-      store.clearGoal(ctx.projectId, ctx.engine)
+      store.restoreGoal(ctx.projectId, ctx.engine, before)
       publish(ctx.projectId, ctx.engine)
       throw err
     } finally {
@@ -110,7 +121,16 @@ export function createGoalService(deps: {
     slot: 6,
     /** O "continue" com o próximo turno; só com o goal ativo e sem tarefas delegadas abertas. */
     offer(ctx) {
-      const row = store.get(ctx.projectId, ctx.engine)
+      let row = store.get(ctx.projectId, ctx.engine)
+      // Esperando sem nada a esperar: nenhuma tarefa aberta e nenhum aviso para
+      // sair (a tarefa sumiu com o projeto de destino). Volta a ativo e segue.
+      if (row.goalStatus === 'waiting' && row.goalCriterion != null
+        && tasks.openFrom(ctx.projectId, ctx.engine) === 0
+        && !deps.hasPendingResults?.(ctx.projectId, ctx.engine)) {
+        store.setGoalStatus(ctx.projectId, ctx.engine, 'active')
+        publish(ctx.projectId, ctx.engine)
+        row = store.get(ctx.projectId, ctx.engine)
+      }
       if (row.goalStatus !== 'active' || row.goalCriterion == null) return false
       if (row.goalTurns >= GOAL_MAX_TURNS) {
         store.setGoalStatus(ctx.projectId, ctx.engine, 'cap')
@@ -161,6 +181,8 @@ export function createGoalService(deps: {
 
     /** Fim de turno (o mesmo gancho do manager): pausa, reativa ou conta. */
     onTurnResult(projectId: number, engine: string, info: { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin; compaction?: boolean }): void {
+      // Encerrando: o turno que cai é da parada do reinício, não do goal (nem pausa nem conta).
+      if (manager.isShuttingDown()) return
       const key = keyOf({ projectId, engine })
       // A compactação não é turno do goal: nem conta nem consome a marca da partida.
       const isStart = !info.compaction && startTurn.delete(key)

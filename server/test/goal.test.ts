@@ -204,7 +204,10 @@ function build(): void {
     sleep: async () => {},
     log: (m) => logs.push(m),
   })
-  goal = createGoalService({ db, manager: mgr, store, restart, nextSend: () => nextSend, log: (m) => logs.push(m) })
+  goal = createGoalService({
+    db, manager: mgr, store, restart, nextSend: () => nextSend, log: (m) => logs.push(m),
+    hasPendingResults: (projectId, engine) => wake?.hasPending(projectId, engine) ?? false,
+  })
   wake = createTaskWake({
     db, manager: mgr, store, restart, nextSend: () => nextSend, holds, log: (m) => logs.push(m),
     onDelivered: (projectId, engine) => goal.onTaskResultDelivered(projectId, engine),
@@ -615,6 +618,69 @@ describe('/goal e o limite de uso', () => {
     await pause(300)
     expect(goalOf().goalStatus).toBe('paused')
     expect(continues(o)).toEqual([])
+  })
+})
+
+describe('goal: encerramento, tarefa sumida e partida que falha', () => {
+  it('no encerramento do serviço, o fim de turno não mexe no goal', () => {
+    store.startGoal(origem.id, 'claude', 'x')
+    mgr.beginShutdown()
+    goal.onTurnResult(origem.id, 'claude', { isError: true, interrupted: false, limited: false, origin: 'claudinei' })
+    goal.onTurnResult(origem.id, 'claude', { isError: false, interrupted: false, limited: false, origin: 'claudinei' })
+    expect(goalOf()).toMatchObject({ goalStatus: 'active', goalPause: null, goalTurns: 0 })
+  })
+
+  it('goal esperando por tarefa cujo destino foi apagado (a tarefa sumiu): volta a ativo e o laço segue', async () => {
+    const o = await up(origem)
+    // Destino sem sessão: a tarefa fica na fila.
+    const id = await dispatch('trabalho delegado', origem, destino)
+    mgr.send(o, '/goal devagar orfa')
+    await waitUntil(() => goalOf().goalStatus === 'waiting')
+    // Apagar o projeto de destino leva a tarefa junto (ON DELETE CASCADE).
+    db.prepare('DELETE FROM projects WHERE id=?').run(destino.id)
+    expect(tasks().get(id)).toBeFalsy()
+    nextSend.poke(origem.id, 'claude')
+    await waitUntil(() => continues(o).length === 1)
+    expect(goalOf().goalStatus).toBe('active')
+    expect(continues(o)[0]).toBe(goalContinueText('devagar orfa', 2))
+  })
+
+  it('goal esperando com resultado pendente (segurado pelo Esc, R19) segue esperando', async () => {
+    const o = await up(origem)
+    store.startGoal(origem.id, 'claude', 'x')
+    store.setGoalStatus(origem.id, 'claude', 'waiting')
+    const { id } = tasks().create(origem.id, destino.id, 'feita', 'in_progress', 'claude')
+    tasks().setResult(id, 'completed', 'ok')
+    tasks().setNotify([id], 'pending')
+    wake.onTurnResult(origem.id, 'claude', { isError: false, interrupted: true, limited: false, origin: 'operator' })
+    nextSend.poke(origem.id, 'claude')
+    await pause()
+    expect(goalOf().goalStatus).toBe('waiting')
+    expect(continues(o)).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+  })
+
+  it('partida que falha (motor recusa no meio do turno) devolve o goal anterior', async () => {
+    const o = await up(origem)
+    store.startGoal(origem.id, 'claude', 'antigo')
+    store.bumpGoalTurn(origem.id, 'claude')
+    store.bumpGoalTurn(origem.id, 'claude')
+    store.setGoalStatus(origem.id, 'claude', 'paused', 'operator')
+    const antes = goalOf()
+    const send = mgr.send
+    mgr.send = (() => { throw new Error('mid-turn') }) as typeof mgr.send
+    try {
+      expect(() => goal.command({ projectId: origem.id, engine: 'claude', localId: o }, '/goal novo')).toThrow('mid-turn')
+    } finally { mgr.send = send }
+    expect(goalOf()).toEqual(antes)
+    expect(lastState()?.goal).toMatchObject({ criterion: 'antigo', status: 'paused', pause: 'operator', turns: 2 })
+    // Sem goal antes: segue sem goal.
+    store.clearGoal(origem.id, 'claude')
+    mgr.send = (() => { throw new Error('mid-turn') }) as typeof mgr.send
+    try {
+      expect(() => goal.command({ projectId: origem.id, engine: 'claude', localId: o }, '/goal novo')).toThrow('mid-turn')
+    } finally { mgr.send = send }
+    expect(goalOf().goalCriterion).toBeNull()
   })
 })
 

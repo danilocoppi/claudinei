@@ -303,7 +303,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // revive e publica por eles). O aviso nasce AQUI, antes do startAfterListen:
   // ele tira as marcas do limite do banco na construção, e a subida do limite
   // (que limpa o adiado vencido) roda antes da dele.
-  const goalService = createGoalService({ db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend })
+  const goalService = createGoalService({
+    db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend,
+    // O goal esperando só volta sozinho sem aviso de resultado por sair (é o aviso que o acorda).
+    hasPendingResults: (projectId, engine) => taskWake?.hasPending(projectId, engine) ?? false,
+  })
   const wake = createTaskWake({
     db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend, holds,
     // O goal que esperava as tarefas delegadas volta a ativo quando o aviso sai.

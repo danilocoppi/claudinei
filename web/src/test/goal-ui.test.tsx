@@ -332,7 +332,9 @@ describe('/goal no autocomplete', () => {
     // Outro texto que só começa parecido segue virando balão.
     fireEvent.change(box, { target: { value: '/goalx algo' } })
     fireEvent.click(screen.getByRole('button', { name: /enviar|send/i }))
-    expect(useStore.getState().chat.s1).toEqual([{ kind: 'user_text', text: '/goalx algo' }])
+    // O item ao vivo leva a chave da lista virtual (`key`), que aqui não importa.
+    expect(useStore.getState().chat.s1).toMatchObject([{ kind: 'user_text', text: '/goalx algo' }])
+    expect(useStore.getState().chat.s1).toHaveLength(1)
   })
 
   it('/goal aparece no autocomplete', () => {

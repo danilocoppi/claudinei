@@ -469,6 +469,7 @@ export const en = {
     many: '{{count}} delegated tasks finished: {{ids}}.',
     continue: 'Continue', continueHint: 'Starts the terminal and hands the result to the agent',
     dismiss: 'Dismiss notice (the agent can still read the result in list_tasks)',
+    heldByLimit: 'The result waits for the terminal to work again after the usage limit.',
   },
   stash: {
     button: '{{count}} saved prompt. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',

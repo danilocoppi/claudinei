@@ -81,6 +81,13 @@ export interface TerminalStateDto {
    * o `toDto` sozinho dá a lista vazia.
    */
   taskResults: { id: number; toProjectName: string; status: 'completed' | 'failed' }[]
+  /**
+   * Os resultados pendentes estão segurados pela marca do limite de uso (o lugar
+   * 4 do árbitro): o limite está ativo, ou já saiu e o terminal ainda não voltou
+   * a trabalhar. A tela usa para mostrar o aviso com a sessão viva parada. Vem do
+   * `decorate` do aviso de tarefa; o `toDto` sozinho dá false.
+   */
+  taskResultsHeld: boolean
   /** O goal do terminal (`/goal`), do próprio estado gravado; null = sem goal. */
   goal: null | { criterion: string; status: GoalStatus; pause: GoalPause | null; turns: number; max: typeof GOAL_MAX_TURNS; evidence: string | null }
 }
@@ -396,7 +403,7 @@ export function toDto(row: TerminalStateRow): TerminalStateDto {
     : null
   return {
     projectId: row.projectId, engine: row.engine, autostart: row.autostart, autoResume: row.autoResume,
-    interruption, autoResumeLimit: row.autoResumeLimit, usageLimit, taskResults: [], goal,
+    interruption, autoResumeLimit: row.autoResumeLimit, usageLimit, taskResults: [], taskResultsHeld: false, goal,
   }
 }
 

@@ -216,6 +216,11 @@ export interface TerminalState {
   usageLimit: null | UsageLimit
   /** Resultados de tarefas delegadas por este terminal ainda não entregues (só os pendentes). */
   taskResults: { id: number; toProjectName: string; status: 'completed' | 'failed' }[]
+  /**
+   * Os pendentes estão segurados pela marca do limite de uso: o limite está
+   * ativo, ou já saiu e o terminal ainda não voltou a trabalhar.
+   */
+  taskResultsHeld: boolean
   /** O goal (`/goal`) do terminal; null = sem goal. */
   goal: null | TerminalGoal
 }

@@ -31,7 +31,7 @@ import type { ChatItem, SessionInfo, TerminalState } from '../types'
 const RESUME_TEXT = '[Claudinei: resume after restart]: The Claudinei service restarted in the middle of your turn. Continue where you left off; check the current state of the files before redoing anything.'
 
 const estado = (o: Partial<TerminalState> = {}): TerminalState =>
-  ({ projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null, autoResumeLimit: false, usageLimit: null, taskResults: [], goal: null, ...o })
+  ({ projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null, autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null, ...o })
 const interrompido = (reason: NonNullable<TerminalState['interruption']>['reason'], extra: object = {}): TerminalState =>
   estado({ interruption: { at: '2026-11-20T10:00:00.000Z', reason, ...extra } })
 

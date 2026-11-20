@@ -471,6 +471,7 @@ export const es: typeof en = {
     many: '{{count}} tareas delegadas terminaron: {{ids}}.',
     continue: 'Continuar', continueHint: 'Inicia el terminal y entrega el resultado al agente',
     dismiss: 'Descartar aviso (el agente aún lee el resultado en list_tasks)',
+    heldByLimit: 'El resultado espera a que el terminal vuelva a trabajar después del límite de uso.',
   },
   stash: {
     button: '{{count}} prompt guardado. Ctrl+S guarda lo que está en el campo; con el campo vacío, trae el último.',

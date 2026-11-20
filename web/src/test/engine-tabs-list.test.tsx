@@ -129,7 +129,7 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
     setup(['claude'])
     useStore.setState({
       terminalStates: {
-        '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], goal: null },
+        '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null },
       },
     })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)
@@ -142,7 +142,7 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
     useStore.setState({
       terminalStates: {
         '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: null, autoResumeLimit: false,
-          usageLimit: { hitAt: 'x', resetsAt: null, action: 'none', origin: 'operator' }, taskResults: [], goal: null },
+          usageLimit: { hitAt: 'x', resetsAt: null, action: 'none', origin: 'operator' }, taskResults: [], taskResultsHeld: false, goal: null },
       },
     })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)

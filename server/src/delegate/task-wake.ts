@@ -229,12 +229,17 @@ export function createTaskWake(deps: {
       publish(projectId, engine)
     },
 
-    /** O pedaço do estado do terminal que é deste serviço: os avisos pendentes. */
-    decorate(projectId: number, engine: string): Pick<TerminalStateDto, 'taskResults'> {
+    /**
+     * O pedaço do estado do terminal que é deste serviço: os avisos pendentes e
+     * se a marca do limite os segura. Só lê: com o limite ativo conta como
+     * segurado mesmo antes de a marca nascer (ela nasce na próxima oferta).
+     */
+    decorate(projectId: number, engine: string): Pick<TerminalStateDto, 'taskResults' | 'taskResultsHeld'> {
       return {
         taskResults: pendingFor(projectId, engine).map((t) => ({
           id: t.id, toProjectName: t.toProjectName, status: t.status as 'completed' | 'failed',
         })),
+        taskResultsHeld: limitHeld.has(keyOf({ projectId, engine })) || store.get(projectId, engine).limitHitAt != null,
       }
     },
 

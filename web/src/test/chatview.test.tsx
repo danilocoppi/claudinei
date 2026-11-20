@@ -396,7 +396,7 @@ it('engine com CLI não instalada: aba mostra "não instalada" e NÃO oferece o 
     activeLocalId: 'a',
     // Listada mas não instalada não ganha aba sozinha (motores por terminal); o
     // aviso de trabalho interrompido é um dos casos em que ela aparece assim.
-    terminalStates: { '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], goal: null } },
+    terminalStates: { '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null } },
   })
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   const badge = await screen.findByText('não instalada')

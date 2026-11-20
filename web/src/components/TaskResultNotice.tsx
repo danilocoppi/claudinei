@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { continueTaskResults, dismissTaskResults } from '../api'
-import { isLive, sessionForEngine } from '../engineSession'
+import { LIVE_STATUSES, sessionForEngine } from '../engineSession'
 import { progressKey, useStore } from '../store'
 
 /**
@@ -9,15 +9,19 @@ import { progressKey, useStore } from '../store'
  * (projeto + motor): tarefas que este terminal delegou terminaram e o resultado
  * ainda não foi entregue ao agente.
  *
- * Só aparece com a sessão sem processo de pé: com ela viva, o Claudinei entrega
- * sozinho quando o turno acaba. **Continuar** revive o terminal e entrega; o ×
- * dispensa (o agente ainda lê o resultado em list_tasks). O aviso some quando o
- * servidor manda o estado sem pendentes (`terminal_state`) — o Continuar não o
- * tira sozinho, porque outro aviso (reinício) pode segurar a entrega.
+ * Aparece quando o resultado não sai sozinho: a sessão está parada, ou a marca do
+ * limite de uso o segura (`taskResultsHeld`: o limite está ativo, ou saiu e o
+ * terminal ainda não voltou a trabalhar). Com a sessão viva e livre, o Claudinei
+ * entrega sozinho no fim do turno. **Continuar** revive o terminal, se preciso, e
+ * entrega; o × dispensa (o agente ainda lê o resultado em list_tasks). O aviso
+ * some quando o servidor manda o estado sem pendentes (`terminal_state`) — o
+ * Continuar não o tira sozinho, porque outro aviso pode segurar a entrega.
  *
- * No limite de uso, quem fala é o aviso do limite ("N resultados esperando"): o
- * resultado espera o terminal voltar a trabalhar, e um segundo Continuar aqui
- * só competiria com as opções de lá.
+ * Fica de fora:
+ * - com o aviso de interrompido aberto: um Continuar só na tela, o dele;
+ * - com o aviso do limite na tela (`none`/`armed`): ele mostra a contagem;
+ * - com o limite ainda ativo (adiado), aparece sem Continuar: o limite segura a
+ *   entrega de todo jeito, e o botão prometeria o que não acontece.
  *
  * Estático de propósito: a interface precisa andar sem GPU (AGENTS.md).
  */
@@ -25,15 +29,24 @@ export function TaskResultNotice({ projectId, engine }: { projectId: number; eng
   const { t } = useTranslation()
   const key = progressKey(projectId, engine)
   // Seletores estreitos: o array só muda de referência quando chega um estado novo
-  // deste terminal; os booleanos não redesenham o aviso a cada evento do store.
+  // deste terminal; os demais são valores simples e não redesenham o aviso à toa.
   const results = useStore((s) => s.terminalStates[key]?.taskResults)
-  const limited = useStore((s) => s.terminalStates[key]?.usageLimit != null)
-  const live = useStore((s) => isLive(sessionForEngine(projectId, engine, s.sessions)))
+  const held = useStore((s) => s.terminalStates[key]?.taskResultsHeld === true)
+  const interrupted = useStore((s) => s.terminalStates[key]?.interruption != null)
+  const limitAction = useStore((s) => s.terminalStates[key]?.usageLimit?.action ?? null)
+  const status = useStore((s) => sessionForEngine(projectId, engine, s.sessions)?.status)
   const [busy, setBusy] = useState(false)
   // O erro é das pendentes em que aconteceu: uma leva nova começa sem ele.
   const [error, setError] = useState<{ ids: string; message: string } | null>(null)
 
-  if (!results || results.length === 0 || live || limited) return null
+  if (!results || results.length === 0 || interrupted) return null
+  if (limitAction === 'none' || limitAction === 'armed') return null
+  // Aberta no terminal: o Continuar subiria (bringUp) um terminal que o TUI é que comanda.
+  if (status === 'working' || status === 'in_terminal') return null
+  const stopped = status == null || !LIVE_STATUSES.has(status)
+  if (!stopped && !held) return null
+  // Limite ainda ativo (adiado): só informa e oferece o ×.
+  const canContinue = limitAction == null
   const ids = results.map((r) => r.id).join(',')
 
   // O × e o "nada a continuar" (409) tiram o aviso na hora, sem esperar o WebSocket.
@@ -66,11 +79,14 @@ export function TaskResultNotice({ projectId, engine }: { projectId: number; eng
       <div className="restart-notice__head">
         <span aria-hidden="true">↩</span>
         <span className="restart-notice__text">{message}</span>
-        <button type="button" disabled={busy} title={t('taskResult.continueHint')}
-                onClick={() => void run('continue')}>{t('taskResult.continue')}</button>
+        {canContinue && (
+          <button type="button" disabled={busy} title={t('taskResult.continueHint')}
+                  onClick={() => void run('continue')}>{t('taskResult.continue')}</button>
+        )}
         <button type="button" className="ghost restart-notice__close" disabled={busy}
                 aria-label={t('taskResult.dismiss')} title={t('taskResult.dismiss')} onClick={() => void run('dismiss')}>×</button>
       </div>
+      {!canContinue && <div className="limit-notice__waiting">{t('taskResult.heldByLimit')}</div>}
       {error?.ids === ids && <div className="restart-notice__error">{error.message}</div>}
     </div>
   )

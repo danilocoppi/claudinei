@@ -113,7 +113,7 @@ describe('rotas do reinício', () => {
     expect(res.statusCode).toBe(200)
     const dto = {
       projectId: p1.id, engine: 'claude', autostart: true, autoResume: false, interruption: null,
-      autoResumeLimit: false, usageLimit: null, taskResults: [], goal: null,
+      autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null,
     }
     expect(res.json()).toEqual(dto)
     expect(store.get(p1.id, 'claude')).toMatchObject({ autostart: true, autoResume: false })
@@ -252,7 +252,7 @@ describe('rotas do reinício', () => {
       type: 'terminal_state',
       state: {
         projectId: p1.id, engine: 'claude', autostart: false, autoResume: false, interruption: null,
-        autoResumeLimit: false, usageLimit: null, taskResults: [], goal: null,
+        autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null,
       },
     }])
     expect(resumeEchoes()).toHaveLength(0)

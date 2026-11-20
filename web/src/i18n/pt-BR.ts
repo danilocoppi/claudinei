@@ -472,6 +472,7 @@ export const ptBR: typeof en = {
     many: '{{count}} tarefas delegadas terminaram: {{ids}}.',
     continue: 'Continuar', continueHint: 'Liga o terminal e entrega o resultado ao agente',
     dismiss: 'Dispensar aviso (o agente ainda lê o resultado em list_tasks)',
+    heldByLimit: 'O resultado espera o terminal voltar a trabalhar depois do limite de uso.',
   },
   stash: {
     button: '{{count}} prompt guardado. Ctrl+S guarda o que está no campo; com o campo vazio, traz o último.',

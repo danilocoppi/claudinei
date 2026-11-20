@@ -291,14 +291,14 @@ describe('aviso de resultado ao terminal que delegou', () => {
     expect(lastState(origem.id)?.taskResults).toEqual(want)
     // A lista que a tela lê ao abrir traz o terminal, mesmo sem linha de estado.
     expect(restart.list().find((s) => s.projectId === origem.id && s.engine === 'claude')?.taskResults).toEqual(want)
-    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: want })
+    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: want, taskResultsHeld: false })
 
     // O Continuar do aviso: revive e entrega.
     expect(wake.continueNow(origem.id, 'claude')).toBe(true)
     await waitUntil(() => notices().length === 1)
     expect(notices()[0].localId).toBe(o)
     expect(tasks().get(id)!.notify).toBe('delivered')
-    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: [] })
+    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: [], taskResultsHeld: false })
     // Nada mais pendente: false.
     expect(wake.continueNow(origem.id, 'claude')).toBe(false)
   })
@@ -362,6 +362,22 @@ describe('aviso de resultado ao terminal que delegou', () => {
     expect(tasks().get(id)!.notify).toBe('pending')
     return { o, id }
   }
+
+  it('taskResultsHeld acompanha a marca do limite: ativo, depois do limite e até o terminal voltar a trabalhar', async () => {
+    const { o, id } = await limitedWithPending()
+    // Limite ativo: segurado (e o estado publicado diz isso à tela).
+    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: [{ id, toProjectName: 'Destino', status: 'completed' }], taskResultsHeld: true })
+    expect(lastState(origem.id)?.taskResultsHeld).toBe(true)
+    // O × do aviso do limite: o limite sai, a marca fica, e a lista que a tela lê também diz.
+    limit.cancel(origem.id, 'claude')
+    expect(store.get(origem.id, 'claude').limitHitAt).toBeNull()
+    expect(wake.decorate(origem.id, 'claude').taskResultsHeld).toBe(true)
+    expect(restart.list().find((s) => s.projectId === origem.id && s.engine === 'claude')?.taskResultsHeld).toBe(true)
+    // O operador volta a trabalhar: entrega e a marca sai.
+    mgr.send(o, 'oi')
+    await waitUntil(() => notices().length === 1)
+    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: [], taskResultsHeld: false })
+  })
 
   it('limite adiado que reabre não entrega sozinho; o turno do operador entrega', async () => {
     const { o, id } = await limitedWithPending()

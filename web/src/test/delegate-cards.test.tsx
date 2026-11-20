@@ -33,7 +33,7 @@ import type { ChatItem, EngineMeta, SessionInfo, SessionStatus, TerminalState } 
 
 const estado = (o: Partial<TerminalState> = {}): TerminalState => ({
   projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null,
-  autoResumeLimit: false, usageLimit: null, taskResults: [], goal: null, ...o,
+  autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null, ...o,
 })
 const pendente = (o: Partial<TerminalState> = {}): TerminalState =>
   estado({ taskResults: [{ id: 7, toProjectName: 'Vaexa', status: 'completed' }], ...o })
@@ -143,8 +143,43 @@ describe('TaskResultNotice', () => {
     expect(screen.getByText('A tarefa #9 enviada a NFE falhou.')).toBeTruthy()
   })
 
-  it('no limite de uso o aviso fica com o do limite (que mostra a contagem)', () => {
-    poe(pendente({ usageLimit: { hitAt: 'x', resetsAt: null, action: 'none', origin: 'operator' } }))
+  it.each(['none', 'armed'] as const)('no limite de uso (%s) o aviso fica com o do limite (que mostra a contagem)', (action) => {
+    poe(pendente({ usageLimit: { hitAt: 'x', resetsAt: null, action, origin: 'operator' }, taskResultsHeld: true }))
+    const { container } = render(<TaskResultNotice projectId={1} engine="claude" />)
+    expect(container.textContent).toBe('')
+  })
+
+  it('limite adiado com resultado pendente: o aviso aparece sem Continuar (só o ×)', () => {
+    poe(pendente({ usageLimit: { hitAt: 'x', resetsAt: 9_999_999_999, action: 'snoozed', origin: 'operator' }, taskResultsHeld: true }))
+    render(<TaskResultNotice projectId={1} engine="claude" />)
+    expect(screen.getByText('A tarefa #7 enviada a Vaexa terminou.')).toBeTruthy()
+    expect(screen.getByText(/espera o terminal voltar a trabalhar depois do limite/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Continuar' })).toBeNull()
+    expect(screen.getByRole('button', { name: /dispensar/i })).toBeTruthy()
+  })
+
+  it('limite já saiu, sessão viva parada e resultado segurado pela marca: o aviso aparece com Continuar', async () => {
+    useStore.setState({ sessions: { s1: sess('s1', 'idle') } })
+    poe(pendente({ taskResultsHeld: true }))
+    render(<TaskResultNotice projectId={1} engine="claude" />)
+    expect(screen.getByText('A tarefa #7 enviada a Vaexa terminou.')).toBeTruthy()
+    expect(screen.queryByText(/depois do limite/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await waitFor(() => expect(api.continueTaskResults).toHaveBeenCalledWith(1, 'claude'))
+  })
+
+  it.each([
+    ['trabalhando', 'working'],
+    ['aberta no terminal', 'in_terminal'],
+  ] as const)('segurado mas com a sessão %s: o aviso não aparece', (_nome, status) => {
+    useStore.setState({ sessions: { s1: sess('s1', status) } })
+    poe(pendente({ taskResultsHeld: true }))
+    const { container } = render(<TaskResultNotice projectId={1} engine="claude" />)
+    expect(container.textContent).toBe('')
+  })
+
+  it('com o aviso de interrompido aberto, só ele aparece (um Continuar só)', () => {
+    poe(pendente({ interruption: { at: '2026-11-20T10:00:00.000Z', reason: 'off' } }))
     const { container } = render(<TaskResultNotice projectId={1} engine="claude" />)
     expect(container.textContent).toBe('')
   })

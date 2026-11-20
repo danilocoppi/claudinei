@@ -261,6 +261,8 @@ export const es: typeof en = {
     startEngine: 'Iniciar {{engine}}',
     engineNotInstalled: 'no instalada',
     engineNotInstalledHint: 'CLI no encontrada en el PATH del servidor. Instálala',
+    addEngine: 'Añadir motor',
+    addEngineHint: 'El motor gana una pestaña en este terminal. Para quitarlo, edita el terminal.',
   },
   question: {
     titleOne: 'El agente tiene una pregunta para ti',
@@ -471,6 +473,7 @@ export const es: typeof en = {
     invalid_group_name: 'Nombre de grupo no válido (de 1 a 60 caracteres).',
     invalid_sector_name: 'Nombre de sector no válido (de 1 a 60 caracteres).',
     project_not_found: 'Este terminal ya no existe.',
+    engines_required: 'Elige al menos un motor conocido.',
     nothing_to_continue: 'No hay trabajo interrumpido para continuar.',
     shutting_down: 'Claudinei se está reiniciando; inténtalo de nuevo cuando vuelva.',
     group_not_found: 'Este grupo ya no existe.',

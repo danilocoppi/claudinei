@@ -536,6 +536,15 @@ button.engine-tab__stop {
 }
 button.engine-tab__stop:hover { background: var(--surface-strong); color: var(--err); opacity: 1; filter: none; }
 
+/* "+" no fim das abas: acrescenta ao terminal um motor escondido. Tracejado para
+   não parecer mais uma aba; sem transição (a interface roda sem GPU). */
+button.engine-tabs__add {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 30px; padding: 0; border: 1px dashed var(--border); border-radius: var(--radius-md);
+  background: transparent; color: var(--text-dim); line-height: 0; cursor: pointer; transition: none;
+}
+button.engine-tabs__add:hover { background: var(--surface-strong); color: var(--text); filter: none; }
+
 /* Linha de opção (título + descrição + toggle) */
 .option-row {
   display: flex; align-items: center; gap: 14px;

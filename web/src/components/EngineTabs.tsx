@@ -1,12 +1,15 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { useStore } from '../store'
+import { progressKey, useStore } from '../store'
 import { isLive, sessionForEngine, startOrReviveEngine, displayStatusKey, dotClassOf } from '../engineSession'
-import { stopSession } from '../api'
+import { hiddenEngines, listedOf, tabEngines } from '../terminalEngines'
+import { setProjectEngines, stopSession } from '../api'
 import type { SessionInfo, SessionStatus } from '../types'
 import { EngineIcon } from './EngineIcon'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ContextMeter } from './ContextMeter'
+import { ViewportPopover } from './ViewportPopover'
 
 /**
  * Abas por engine de um projeto — usadas no header do ChatView E na barra do
@@ -14,7 +17,9 @@ import { ContextMeter } from './ContextMeter'
  * aba viva abre a sessão daquela engine (chat, ou a visão do terminal se ela
  * estiver `in_terminal` — o PTY segue vivo ao trocar). A engine parada/sem
  * sessão tem um ▶ que inicia ou revive. Dirigido por `store.engines` (sem
- * hardcode de engine — uma 3ª aparece sozinha).
+ * hardcode de engine — uma 3ª aparece sozinha), filtrado pela lista de motores
+ * do terminal (`tabEngines`). No fim, o "+" acrescenta à lista um motor
+ * escondido; retirar é pelo formulário do terminal.
  */
 export function EngineTabs({ projectId, activeLocalId }: { projectId: number; activeLocalId: string }) {
   const { t } = useTranslation()
@@ -22,7 +27,14 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   const sessions = useStore((s) => s.sessions)
   const openSession = useStore((s) => s.openSession)
   const openTerminal = useStore((s) => s.openTerminal)
+  const project = useStore((s) => s.projects.find((p) => p.id === projectId))
+  const terminalStates = useStore((s) => s.terminalStates)
+  const setProjects = useStore((s) => s.setProjects)
   const [startingEngine, setStartingEngine] = useState<string | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [adding, setAdding] = useState<string | null>(null)
+  const [addError, setAddError] = useState('')
+  const addRef = useRef<HTMLButtonElement>(null)
   // Encerrar é por ENGINE: um terminal pode ter Claude + Codex + Kimi vivos ao
   // mesmo tempo, e derrubar um não pode derrubar os outros.
   const [stopFor, setStopFor] = useState<{ session: SessionInfo; label: string } | null>(null)
@@ -49,6 +61,35 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
     }
   }
 
+  // A lista crua, com os ids que esta tela não conhece: gravar sem eles os
+  // apagaria do banco.
+  const listed = listedOf(project)
+  const visible = tabEngines({
+    engines, listed, projectId, sessions, activeLocalId,
+    interrupted: (engine) => terminalStates[progressKey(projectId, engine)]?.interruption != null,
+  })
+  // Sem o terminal no store (ainda não carregou), a lista lida seria o padrão,
+  // e gravar a partir dela apagaria a verdadeira: o "+" espera o terminal.
+  const hidden = project ? hiddenEngines(engines, listed) : []
+
+  const addEngine = async (engineId: string) => {
+    if (adding) return
+    setAdding(engineId)
+    setAddError('')
+    try {
+      const updated = await setProjectEngines(projectId, [...listed, engineId])
+      // O servidor não avisa os outros clientes: quem mudou grava a resposta.
+      // Lê o store na hora da resposta, não o do clique, para não desfazer o
+      // que chegou enquanto o pedido estava em voo.
+      setProjects(useStore.getState().projects.map((p) => (p.id === updated.id ? updated : p)))
+      setAddOpen(false)
+    } catch (err) {
+      setAddError((err as Error).message)
+    } finally {
+      setAdding(null)
+    }
+  }
+
   const switchTo = (s: SessionInfo) => {
     // Sessão aberta no terminal → reabre a VISÃO do terminal (reconecta ao PTY
     // vivo); as demais → o chat. Assim dá pra alternar engines sem encerrar o
@@ -59,7 +100,7 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
 
   return (
     <div className="engine-tabs" role="tablist" aria-label={t('session.engine')}>
-      {engines.map((e) => {
+      {visible.map((e) => {
         const tabSession = sessionForEngine(projectId, e.id, sessions)
         const live = isLive(tabSession)
         const active = !!tabSession && tabSession.localId === activeLocalId
@@ -122,6 +163,49 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
           </div>
         )
       })}
+      {hidden.length > 0 && (
+        <button
+          ref={addRef}
+          type="button"
+          className="engine-tabs__add"
+          title={t('chat.addEngine')}
+          aria-label={t('chat.addEngine')}
+          aria-haspopup="menu"
+          aria-expanded={addOpen}
+          onClick={() => { setAddError(''); setAddOpen(true) }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+               strokeLinecap="round" aria-hidden="true">
+            <path d="M12 5v14" /><path d="M5 12h14" />
+          </svg>
+        </button>
+      )}
+      {addOpen && hidden.length > 0 && createPortal(
+        // Mesmo padrão dos menus `.sess-pop`: o clique fora fecha, e nada anima.
+        <div className="sess-pop__overlay" onClick={() => setAddOpen(false)}>
+          <ViewportPopover x={0} y={0} minWidth={190} anchorRef={addRef}>
+            <div className="sess-pop__eyebrow">{t('chat.addEngine')}</div>
+            {hidden.map((e) => {
+              const missing = e.available === false
+              return (
+                <div
+                  key={e.id}
+                  className={`sess-pop__item${adding ? ' sess-pop__item--disabled' : ''}`}
+                  // Não instalada também entra na lista: a aba aparece quando a CLI for instalada.
+                  title={missing ? `${t('chat.engineNotInstalledHint')}${e.installHint ? ` — ${e.installHint}` : ''}` : undefined}
+                  onClick={() => { void addEngine(e.id) }}
+                >
+                  <EngineIcon icon={e.icon} /><span className="engine-add__label">{e.label}</span>
+                  {missing && <span className="engine-picker__missing">{t('chat.engineNotInstalled')}</span>}
+                </div>
+              )
+            })}
+            {addError && <div className="sess-pop__error" role="alert">{addError}</div>}
+            <div className="sess-pop__hint">{t('chat.addEngineHint')}</div>
+          </ViewportPopover>
+        </div>,
+        document.body,
+      )}
       {stopFor && (
         <ConfirmDialog
           title={t('chat.stopEngineTitle', { engine: stopFor.label })}

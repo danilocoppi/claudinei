@@ -72,10 +72,23 @@ const byPriorityThenRecency = (a: SessionInfo, b: SessionInfo): number => {
   return a.updatedAt < b.updatedAt ? 1 : -1
 }
 
-export function primarySessionOf(projectId: number, sessions: Record<string, SessionInfo>): SessionInfo | undefined {
-  return Object.values(sessions)
+/**
+ * `listed` é a lista de motores do terminal (ver terminalEngines.ts). Com ela,
+ * quando nenhuma sessão está viva, a cara do projeto é a sessão parada de um
+ * motor listado: o cartão não reabre a conversa de um motor escondido. Sem
+ * nenhuma sessão de motor listado, vale a regra de sempre.
+ */
+export function primarySessionOf(
+  projectId: number,
+  sessions: Record<string, SessionInfo>,
+  listed?: string[],
+): SessionInfo | undefined {
+  const ranked = Object.values(sessions)
     .filter((s) => s.projectId === projectId)
-    .sort(byPriorityThenRecency)[0]
+    .sort(byPriorityThenRecency)
+  const best = ranked[0]
+  if (!listed || !best || LIVE_STATUSES.has(best.status)) return best
+  return ranked.find((s) => listed.includes(s.engine)) ?? best
 }
 
 /**

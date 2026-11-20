@@ -44,7 +44,8 @@ export function enginesOf(db: Db, projectId: number): string[] {
 /**
  * Migração: cada terminal recebe os motores que já usou, com linha em
  * `sessions` OU em `project_threads` (as sessões antigas são podadas; os threads
- * guardam o histórico de posse). Sem nenhum, fica com o Claude.
+ * guardam o histórico de posse). Sem nenhum, ou sem nenhum conhecido, entra o
+ * Claude.
  */
 export function backfillProjectEngines(db: Db): number {
   const used = db.prepare(
@@ -62,7 +63,11 @@ export function backfillProjectEngines(db: Db): number {
   db.transaction(() => {
     for (const id of ids) {
       const engines = byProject.get(id)
-      upd.run(JSON.stringify(engines ? sortEngines(engines) : FALLBACK), id)
+      // Só ids desconhecidos (um motor que esta versão não conhece) dariam uma
+      // lista sem nada a exibir: o Claude entra junto.
+      const list = !engines ? FALLBACK
+        : engines.some((e) => CANONICAL_ENGINE_ORDER.includes(e)) ? engines : [...engines, 'claude']
+      upd.run(JSON.stringify(sortEngines(list)), id)
     }
   })()
   return ids.length

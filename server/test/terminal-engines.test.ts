@@ -165,6 +165,43 @@ describe('migração', () => {
     migrado.close()
   })
 
+  it('backfill: só motores desconhecidos ganham o Claude junto', () => {
+    const dbPath = novoBanco()
+    const db = openDb(dbPath)
+    const p = createProjectsService(db).create({ name: 'A', path: pasta() })
+    db.prepare(`INSERT INTO sessions (local_id, project_id, engine, status) VALUES ('s1', ?, 'gemini', 'stopped')`).run(p.id)
+    db.close()
+    const migrado = reabrirSemAColuna(dbPath)
+    expect(enginesOf(migrado, p.id)).toEqual(['claude', 'gemini'])
+    migrado.close()
+  })
+
+  it('falha no preenchimento desfaz a coluna, e a próxima abertura migra', () => {
+    const dbPath = novoBanco()
+    const db = openDb(dbPath)
+    const p = createProjectsService(db).create({ name: 'A', path: pasta() })
+    db.prepare(`INSERT INTO sessions (local_id, project_id, engine, status) VALUES ('s1', ?, 'codex', 'stopped')`).run(p.id)
+    db.close()
+    // Banco de antes da funcionalidade, com um gatilho que faz o UPDATE do
+    // preenchimento falhar (as linhas já têm sort_order, então nenhum outro
+    // UPDATE de projects do openDb o dispara).
+    const old = new Database(dbPath)
+    old.exec('ALTER TABLE projects DROP COLUMN engines')
+    old.exec(`CREATE TRIGGER falha_backfill BEFORE UPDATE ON projects BEGIN SELECT RAISE(ABORT, 'falha simulada'); END`)
+    old.close()
+
+    expect(() => openDb(dbPath)).toThrow(/falha simulada/)
+    const depois = new Database(dbPath)
+    const cols = (depois.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name)
+    expect(cols, 'a coluna não pode ficar sem a lista preenchida').not.toContain('engines')
+    depois.exec('DROP TRIGGER falha_backfill')
+    depois.close()
+
+    const migrado = openDb(dbPath)
+    expect(enginesOf(migrado, p.id)).toEqual(['codex'])
+    migrado.close()
+  })
+
   it('coluna com JSON quebrado é lida como Claude', () => {
     const db = openDb(':memory:')
     const svc = createProjectsService(db)

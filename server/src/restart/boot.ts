@@ -21,9 +21,19 @@ export type BootAction =
 const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 
 /**
+ * Limite de uso ainda ativo: gravado e sem reabertura conhecida, ou com a
+ * reabertura (`limitResetsAt`, epoch SEGUNDOS) ainda no futuro.
+ */
+export function limitActive(r: TerminalStateRow, now: number = Date.now()): boolean {
+  return r.limitHitAt != null && (r.limitResetsAt == null || r.limitResetsAt * 1000 > now)
+}
+
+/**
  * Decide o que fazer com cada terminal na subida, na ordem do desenho:
- * pergunta aberta segura; retomar ligado retoma até o teto; retomar desligado
- * segura; sem interrupção, sobe parado se "iniciar" estiver ligado.
+ * interrompido com limite de uso ativo é pulado (a retomada fica com o serviço
+ * do limite, e o `boot` absorve a marca); pergunta aberta segura; retomar
+ * ligado retoma até o teto; retomar desligado segura; sem interrupção, sobe
+ * parado se "iniciar" estiver ligado.
  *
  * Marca nova (encerramento ou queda) sempre chega sem motivo de espera. Uma com
  * motivo foi segurada numa subida anterior e esperava o operador: segue segurada
@@ -36,6 +46,7 @@ const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 export function planBoot(
   rows: TerminalStateRow[],
   latestLocalId: (projectId: number, engine: string) => string | null,
+  now: number = Date.now(),
 ): BootAction[] {
   const resumes: BootAction[] = []
   const risers: BootAction[] = []
@@ -46,6 +57,8 @@ export function planBoot(
       if (r.autostart) risers.push({ kind: 'idle', projectId, engine, localId: latestLocalId(projectId, engine) })
       continue
     }
+    // Nem resume, nem idle, nem hold: duas mensagens de retomada na mesma janela, nunca.
+    if (limitActive(r, now)) continue
     const localId = r.interruptedLocalId ?? latestLocalId(projectId, engine)
     // Pergunta gravada como lista vazia não é pergunta (markInterrupted guarda `[]`).
     let reason: HoldReason | null
@@ -224,7 +237,17 @@ export function createRestartService(deps: {
      */
     async boot(): Promise<void> {
       deps.closeInterruptedRuns()
-      const actions = planBoot(store.list(), latestLocalId)
+      const rows = store.list()
+      const now = Date.now()
+      const actions = planBoot(rows, latestLocalId, now)
+      // Marca de quem bateu o limite: absorvida pelo limite, que retoma sozinho
+      // (ou espera o operador) quando a janela reabrir. Nada foi anotado para
+      // esse terminal, então as tarefas dele fecham no laço abaixo, como no ×.
+      for (const r of rows) {
+        if (r.interruptedAt == null || !limitActive(r, now)) continue
+        dropInterruption(r.projectId, r.engine)
+        publish(r.projectId, r.engine)
+      }
       for (const a of actions) {
         if (a.kind !== 'hold') continue
         store.setHold(a.projectId, a.engine, a.reason)
@@ -250,6 +273,22 @@ export function createRestartService(deps: {
     },
 
     resumeTerminal,
+
+    /** Para o serviço do limite: garante a sessão de pé do terminal (veja acima). */
+    bringUp,
+
+    /** Para o serviço do limite publicar o estado no mesmo formato. */
+    publish,
+
+    /**
+     * O limite absorve a marca do reinício: ela sai sem retomar, e as tarefas
+     * anotadas do turno fecham como no ×. Nada durante o encerramento (a marca
+     * é da próxima subida), e sem marca não publica: não há o que mudar.
+     */
+    absorbInterruption(projectId: number, engine: string): void {
+      if (manager.isShuttingDown()) return
+      if (dropInterruption(projectId, engine)) publish(projectId, engine)
+    },
 
     /**
      * Serviço encerrando: entre o `captureShutdown` e o fim do `stopAll`, nada

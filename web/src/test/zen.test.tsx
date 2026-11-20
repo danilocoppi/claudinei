@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import App from '../App'
 import { useStore } from '../store'
 import type { EngineMeta, SessionInfo, TerminalState } from '../types'
@@ -14,6 +17,21 @@ const interrompido: TerminalState = {
   projectId: 1, engine: 'claude', autostart: false, autoResume: false,
   interruption: { at: '2026-11-20T10:00:00.000Z', reason: 'off' }, autoResumeLimit: false, usageLimit: null,
 }
+
+/**
+ * A regra do Zen, tirada do styles.css de verdade e posta na página: a moldura sai
+ * por CSS (continua montada), então "escondida" aqui é o display computado.
+ */
+const here = dirname(fileURLToPath(import.meta.url))
+const css = readFileSync(join(here, '..', 'styles.css'), 'utf8')
+const regraZen = css.match(/\.app\.zen \.sidebar,[^{]*\{[^}]*\}/)?.[0] ?? ''
+let estilo: HTMLStyleElement
+beforeAll(() => {
+  estilo = document.createElement('style')
+  estilo.textContent = regraZen
+  document.head.appendChild(estilo)
+})
+afterAll(() => estilo.remove())
 
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -44,12 +62,18 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 const altZ = (target: Element | Window = window) =>
   fireEvent.keyDown(target, { key: 'z', code: 'KeyZ', altKey: true })
 
+/** Cada peça da moldura: montada e visível (true), montada e escondida (false). */
+const visivel = (sel: string) => {
+  const el = document.querySelector(sel)
+  expect(el, `${sel} continua montado`).toBeTruthy()
+  return getComputedStyle(el!).display !== 'none'
+}
 const moldura = () => ({
-  sidebar: document.querySelector('.sidebar'),
-  resizer: document.querySelector('.sidebar-resizer'),
-  topbar: document.querySelector('.mobile-topbar'),
-  header: document.querySelector('.chat-header'),
-  coluna: document.querySelector('aside.progress'),
+  sidebar: visivel('.sidebar'),
+  resizer: visivel('.sidebar-resizer'),
+  topbar: visivel('.mobile-topbar'),
+  header: visivel('.chat-header'),
+  coluna: visivel('aside.progress'),
 })
 
 /**
@@ -61,21 +85,21 @@ describe('modo Zen', () => {
   it('Alt+Z esconde lateral, cabeçalho e coluna e mostra o botão de sair', () => {
     render(<App />)
     const antes = moldura()
-    expect(antes.sidebar).toBeTruthy()
-    expect(antes.resizer).toBeTruthy()
-    expect(antes.topbar).toBeTruthy()
-    expect(antes.header).toBeTruthy()
-    expect(antes.coluna).toBeTruthy()
+    expect(antes.sidebar).toBe(true)
+    expect(antes.resizer).toBe(true)
+    expect(antes.topbar).toBe(true)
+    expect(antes.header).toBe(true)
+    expect(antes.coluna).toBe(true)
     expect(document.querySelector('.zen-exit')).toBeNull()
 
     const naoCancelado = altZ()
     expect(naoCancelado).toBe(false) // preventDefault: a tecla não segue para a página
     const depois = moldura()
-    expect(depois.sidebar).toBeNull()
-    expect(depois.resizer).toBeNull()
-    expect(depois.topbar).toBeNull()
-    expect(depois.header).toBeNull()
-    expect(depois.coluna).toBeNull()
+    expect(depois.sidebar).toBe(false)
+    expect(depois.resizer).toBe(false)
+    expect(depois.topbar).toBe(false)
+    expect(depois.header).toBe(false)
+    expect(depois.coluna).toBe(false)
     expect(screen.getByRole('button', { name: /sair do zen/i })).toBeTruthy()
   })
 
@@ -84,11 +108,11 @@ describe('modo Zen', () => {
     altZ()
     altZ()
     const m = moldura()
-    expect(m.sidebar).toBeTruthy()
-    expect(m.resizer).toBeTruthy()
-    expect(m.topbar).toBeTruthy()
-    expect(m.header).toBeTruthy()
-    expect(m.coluna).toBeTruthy()
+    expect(m.sidebar).toBe(true)
+    expect(m.resizer).toBe(true)
+    expect(m.topbar).toBe(true)
+    expect(m.header).toBe(true)
+    expect(m.coluna).toBe(true)
     expect(document.querySelector('.zen-exit')).toBeNull()
   })
 
@@ -97,8 +121,8 @@ describe('modo Zen', () => {
     altZ()
     fireEvent.click(screen.getByRole('button', { name: /sair do zen/i }))
     expect(useStore.getState().zen).toBe(false)
-    expect(document.querySelector('.sidebar')).toBeTruthy()
-    expect(document.querySelector('.chat-header')).toBeTruthy()
+    expect(visivel('.sidebar')).toBe(true)
+    expect(visivel('.chat-header')).toBe(true)
     expect(document.querySelector('.zen-exit')).toBeNull()
   })
 
@@ -110,7 +134,10 @@ describe('modo Zen', () => {
     expect(localStorage.getItem('claudinei:zen')).toBe('0')
 
     // E o estado salvo é o que vale ao recarregar a página.
+    // O store importa o i18n, que é reavaliado junto e lê a língua do localStorage:
+    // sem ela o resto do arquivo passaria a rodar em outra língua.
     localStorage.setItem('claudinei:zen', '1')
+    localStorage.setItem('claudinei.locale', 'pt-BR')
     vi.resetModules()
     const recarregado = await import('../store')
     expect(recarregado.useStore.getState().zen).toBe(true)
@@ -128,7 +155,7 @@ describe('modo Zen', () => {
       const naoCancelado = altZ(textarea)
       expect(naoCancelado).toBe(true)
       expect(useStore.getState().zen).toBe(false)
-      expect(document.querySelector('.sidebar')).toBeTruthy()
+      expect(visivel('.sidebar')).toBe(true)
     } finally {
       xterm.remove()
     }
@@ -150,10 +177,38 @@ describe('modo Zen', () => {
     expect(useStore.getState().zen).toBe(true)
   })
 
+  /**
+   * A moldura hospeda modais (Aparência, Novo terminal, editor de grupo…). Desmontá-la
+   * no Alt+Z pulava o "cancelar" deles: a prévia de aparência ficava aplicada e
+   * gravada no cache, e o que se digitou no modal sumia.
+   */
+  it('Alt+Z com o painel de Aparência aberto não o desmonta (o cancelar dele segue possível)', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /aparência/i }))
+    expect(screen.getByTestId('appearance-panel')).toBeTruthy()
+    altZ()
+    expect(useStore.getState().zen).toBe(true)
+    expect(screen.getByTestId('appearance-panel')).toBeTruthy()
+    altZ()
+    expect(useStore.getState().zen).toBe(false)
+    expect(screen.getByTestId('appearance-panel')).toBeTruthy()
+  })
+
+  it('Alt+Z com o Novo terminal aberto mantém o que foi digitado', () => {
+    render(<App />)
+    fireEvent.click(screen.getByTitle('+ Terminal'))
+    const nome = screen.getByPlaceholderText('Nome do projeto') as HTMLInputElement
+    fireEvent.change(nome, { target: { value: 'meio digitado' } })
+    altZ(nome)
+    expect(useStore.getState().zen).toBe(true)
+    altZ()
+    expect((screen.getByPlaceholderText('Nome do projeto') as HTMLInputElement).value).toBe('meio digitado')
+  })
+
   it('avisos e campo continuam visíveis no Zen', () => {
     render(<App />)
     altZ()
-    expect(document.querySelector('.chat-compose')).toBeTruthy()
-    expect(document.querySelector('.restart-notice')).toBeTruthy()
+    expect(visivel('.chat-compose')).toBe(true)
+    expect(visivel('.restart-notice')).toBe(true)
   })
 })

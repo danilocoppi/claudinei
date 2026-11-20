@@ -62,8 +62,6 @@ export function ChatView() {
   const markHistoryLoaded = useStore((s) => s.markHistoryLoaded)
   const openTerminal = useStore((s) => s.openTerminal)
   const progressOpen = useStore((s) => s.progressOpen)
-  // Zen: some o cabeçalho e a coluna do acompanhamento; conversa, avisos e campo ficam.
-  const zen = useStore((s) => s.zen)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
@@ -218,7 +216,9 @@ export function ChatView() {
   return (
     <div className="chat-layout">
     <div className="chat-main">
-      {!zen && <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
+      {/* O `display` mora no CSS (.chat-header), não aqui: o modo Zen esconde o
+          cabeçalho por `.app.zen .chat-header`. */}
+      <div className="chat-header" style={{ alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
         {/* O mesmo menu do cartão da lista, aqui no título: quem está lendo a
             conversa não devia ter que voltar à barra lateral para renomear o
             terminal ou abrir a pasta dele. */}
@@ -257,7 +257,7 @@ export function ChatView() {
                 onClick={handleOpenTerminal}>
           🖥 <span className="btn-label">{t('chat.openInTerminal')}</span>
         </button>
-      </div>}
+      </div>
       {menuAt && <TerminalMenu project={project} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
       <div className="chat-scroll-wrap">
       <div
@@ -375,7 +375,7 @@ export function ChatView() {
         />
       )}
     </div>
-    {progressOpen && !zen && <ProgressColumn projectId={session.projectId} engine={engine} sessionStatus={session.status} />}
+    {progressOpen && <ProgressColumn projectId={session.projectId} engine={engine} sessionStatus={session.status} />}
     </div>
   )
 }

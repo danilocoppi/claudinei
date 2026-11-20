@@ -403,6 +403,15 @@ button.ghost.zen-exit {
   background: var(--surface-solid);
 }
 button.ghost.zen-exit:hover { color: var(--text); filter: none; }
+/* Modo Zen: a moldura sai por CSS e continua montada (estado e modais dela
+   sobrevivem ao Alt+Z). `!important` para nenhuma regra da moldura (a topbar
+   ganha `display: flex` na media query do celular, a gaveta tem as suas) a trazer
+   de volta. Com `display: none` os rostinhos da lateral param de ser desenhados. */
+.app.zen .sidebar,
+.app.zen .sidebar-resizer,
+.app.zen .mobile-topbar,
+.app.zen .chat-header,
+.app.zen .chat-layout > .progress { display: none !important; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .status-idle { background: var(--text-dim); }
 .status-working { background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 1.2s infinite; }
@@ -1147,6 +1156,9 @@ button.usage-page__row--link:hover { filter: none; background: var(--surface-str
    duas linhas e engordava o cabeçalho inteiro assim que a barra de engines
    enchia. Quem cede espaço é a barra, que já rola (ver .engine-tabs). */
 .chat-header > .ghost { flex: none; }
+/* O `display` do cabeçalho mora aqui, e não no style inline do ChatView, para o
+   `.app.zen .chat-header` ter a palavra final. */
+.chat-header { display: flex; }
 .chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Discreto de propósito: é orientação, não alerta — a pasta compartilhada foi
    pedida pelo operador. */

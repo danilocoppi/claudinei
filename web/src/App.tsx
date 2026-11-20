@@ -79,7 +79,8 @@ export default function App() {
   const view = useStore((s) => s.view)
   const setProjects = useStore((s) => s.setProjects)
   const authStatus = useStore((s) => s.authStatus)
-  // Zen esconde a moldura (lateral e topbar do celular); a conversa fica.
+  // Zen esconde a moldura (lateral, topbar do celular, cabeçalho do chat e coluna
+  // do acompanhamento); a conversa, os avisos e o campo ficam.
   const zen = useStore((s) => s.zen)
   const setAuth = useStore((s) => s.setAuth)
   useAccessHours()
@@ -191,19 +192,21 @@ export default function App() {
 
   return (
     <WsContext.Provider value={ws ?? null}>
-      <div className={`app ${navOpen ? 'nav-open' : ''}`}>
+      {/* Zen esconde a moldura por CSS (`.app.zen`), sem desmontá-la: um modal aberto
+          a partir da lateral (Aparência, Novo terminal…) ou um campo meio preenchido
+          nela sobrevivem ao Alt+Z, e o "cancelar" deles continua sendo o único jeito
+          de desfazer uma prévia. */}
+      <div className={`app ${navOpen ? 'nav-open' : ''} ${zen ? 'zen' : ''}`}>
         {/* Nas visões de detalhe (conversa e terminal) o ☰ vira "voltar", e voltar
             é trazer a lista de terminais — que no celular É a gaveta. */}
-        {!zen && (
-          <MobileTopbar
-            open={navOpen}
-            onToggle={() => setNavOpen((o) => !o)}
-            title={topbarTitle}
-            onBack={view === 'chat' || view === 'terminal' ? () => setNavOpen(true) : undefined}
-          />
-        )}
-        {!zen && <Sidebar />}
-        {!zen && <SidebarResizer />}
+        <MobileTopbar
+          open={navOpen}
+          onToggle={() => setNavOpen((o) => !o)}
+          title={topbarTitle}
+          onBack={view === 'chat' || view === 'terminal' ? () => setNavOpen(true) : undefined}
+        />
+        <Sidebar />
+        <SidebarResizer />
         {navOpen && <div className="mobile-backdrop" onClick={() => setNavOpen(false)} />}
         <div className="main">
           {view === 'dashboard' && <Dashboard />}

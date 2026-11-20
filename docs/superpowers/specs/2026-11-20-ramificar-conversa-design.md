@@ -218,3 +218,15 @@ para a fila (lugar 3). Destino no limite é recusado antes, então nunca há pac
 - **O pacote é uma mensagem própria do Claudinei** (um turno curto de confirmação), não grudado na primeira mensagem
   do operador. Destino ocioso tem a conversa encerrada; trabalhando ou no limite, recusa.
 - **O `/fork` abre o terminal novo**, "<original> (ramo)", logo abaixo do original; só admin.
+
+## Decisões da checagem do construtor
+
+- **O `/fork` copia à risca até o momento do comando.** O `fork_source` guarda sempre o último turno fechado na hora do `/fork`, haja turno em andamento ou não. O ramo mostra "cópia até HH:MM".
+  - **Claude:** usa sempre `--resume-session-at` com esse ponto.
+  - **Codex:** usa `lastTurnId`.
+  - **OpenCode:** se o original não andou desde o `/fork`, usa `--fork`. Se andou, usa o pacote de contexto, que vai junto da primeira mensagem do operador no ramo. Não há turno próprio nem gasto de tokens sem pedido.
+- **Troca de motor com coisas pendentes no destino.**
+  - **Antes:** o menu ⇄ lista o que o destino já tinha: goal ativo, itens na fila e avisos de resultado.
+  - **Ao confirmar:** o goal do destino fica pausado e só volta quando o operador retomar. A fila e os avisos do destino continuam e seguem a ordem normal depois do pacote, porque são mensagens que o operador mesmo pôs lá.
+- **`/side`, `/btw` e `/fork` nunca entram na fila.** O campo de mensagem reconhece o comando e chama a rota própria na hora, também no meio de um turno do Kimi ou do OpenCode. Um item antigo da fila que comece com esses comandos é enviado como texto comum, sem efeito de comando. Assim, a pergunta "Fechar a conversa lateral atual e abrir outra?" sempre aparece no navegador de quem digitou.
+- **O ramo herda a lista de acesso do original.** Quem via o terminal original vê o ramo. Não é acesso novo: é a mesma pasta e a mesma conversa.

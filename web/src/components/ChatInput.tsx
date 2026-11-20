@@ -14,6 +14,7 @@ import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
 import { isForeignField } from '../keyboard'
+import { isLargePaste, pasteFileName } from '../paste'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
 
@@ -140,6 +141,10 @@ export function ChatInput({
   const [mencaoAberta, setMencaoAberta] = useState(false)
   const [fileCursor, setFileCursor] = useState<number | null>(null)
   const fileSelection = useRef<number | null>(null)
+  // Ctrl+Shift+V: até este instante (Date.now), o próximo paste entra como
+  // texto, por maior que seja. O evento paste não diz que tecla o disparou,
+  // então o keydown marca e o paste consome.
+  const colarComoTexto = useRef(0)
   useLayoutEffect(() => {
     if (fileSelection.current === null || fileCursor !== null) return
     const cursor = fileSelection.current
@@ -510,6 +515,10 @@ export function ChatInput({
             if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
               e.preventDefault(); guardarOuTrazer(); return
             }
+            // Ctrl+Shift+V: só marca; o navegador cola (sem preventDefault).
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v') {
+              colarComoTexto.current = Date.now() + 1000; return
+            }
             if (slashOpen) {
               if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => (i + 1) % slashMatches.length); return }
               if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => (i - 1 + slashMatches.length) % slashMatches.length); return }
@@ -531,7 +540,16 @@ export function ChatInput({
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
           }}
           onPaste={(e) => {
-            if (e.clipboardData?.files?.length) { e.preventDefault(); void attachFiles(e.clipboardData.files) }
+            const comoTexto = Date.now() <= colarComoTexto.current
+            colarComoTexto.current = 0 // vale para um paste só
+            if (e.clipboardData?.files?.length) { e.preventDefault(); void attachFiles(e.clipboardData.files); return }
+            if (comoTexto) return
+            // texto grande vira anexo .txt; o campo recebe só o token
+            const colado = e.clipboardData?.getData('text/plain') ?? ''
+            if (isLargePaste(colado)) {
+              e.preventDefault()
+              void attachFiles([new File([colado], pasteFileName(), { type: 'text/plain' })])
+            }
           }}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}

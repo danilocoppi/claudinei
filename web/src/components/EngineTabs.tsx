@@ -66,7 +66,12 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   const listed = listedOf(project)
   const visible = tabEngines({
     engines, listed, projectId, sessions, activeLocalId,
-    interrupted: (engine) => terminalStates[progressKey(projectId, engine)]?.interruption != null,
+    // O aviso de limite de uso conta como o de interrompido: o limite absorve a
+    // marca do reinício, e a aba do motor escondido não pode sumir com o aviso aberto.
+    interrupted: (engine) => {
+      const s = terminalStates[progressKey(projectId, engine)]
+      return s?.interruption != null || s?.usageLimit != null
+    },
   })
   // Sem o terminal no store (ainda não carregou), a lista lida seria o padrão,
   // e gravar a partir dela apagaria a verdadeira: o "+" espera o terminal.

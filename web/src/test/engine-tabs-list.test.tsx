@@ -135,4 +135,17 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
     render(<EngineTabs projectId={1} activeLocalId="c1" />)
     expect(tabLabels()).toEqual(['Claude Code', 'Codex'])
   })
+
+  it('motor escondido com aviso de limite de uso ganha aba', () => {
+    // O limite absorve a marca do reinício: o aviso aberto é o do limite, sem interrupção.
+    setup(['claude'])
+    useStore.setState({
+      terminalStates: {
+        '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: null, autoResumeLimit: false,
+          usageLimit: { hitAt: 'x', resetsAt: null, action: 'none', origin: 'operator' } },
+      },
+    })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(tabLabels()).toEqual(['Claude Code', 'Codex'])
+  })
 })

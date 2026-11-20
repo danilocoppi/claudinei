@@ -67,10 +67,16 @@ export function createScheduler(deps: SchedulerDeps) {
     const mine = manager.list().filter((x) => x.projectId === s.projectId &&
       (s.engine ? x.engine === s.engine : listed!.includes(x.engine)))
     const held = (engine: string) => !!deps.holds?.(s.projectId, engine)
-    // Sessão de pé num terminal com aviso aberto não serve; sem outra, a execução é pulada.
-    const ready = mine.find((x) => READY.has(x.status) && !held(x.engine))
+    // Terminal com aviso aberto não serve: a escolha passa ao próximo motor
+    // (sem motor fixo); se nenhum servir por causa do aviso, a execução é pulada.
+    let heldSome = false
+    const usable = (engine: string): boolean => {
+      if (!held(engine)) return true
+      heldSome = true
+      return false
+    }
+    const ready = mine.find((x) => READY.has(x.status) && usable(x.engine))
     if (ready) return ready
-    if (mine.some((x) => READY.has(x.status))) throw new NoticeHeldError(NOTICE_HELD_TEXT)
     if (mine.some((x) => BUSY.has(x.status) || x.status === 'in_terminal')) {
       throw new OverlapError('a sessão está ocupada')
     }
@@ -80,18 +86,18 @@ export function createScheduler(deps: SchedulerDeps) {
     // pelo updatedAt: a ordem do manager.list() não garante isso (as sessões
     // vivas entram no fim). No empate, vale a ordem da lista.
     const revivable = mine
-      .filter((x) => x.status === 'stopped' || x.status === 'dead')
+      .filter((x) => (x.status === 'stopped' || x.status === 'dead') && usable(x.engine))
       .reduce<SessionInfo | undefined>((best, x) => (!best || x.updatedAt > best.updatedAt ? x : best), undefined)
-    if (revivable) {
-      if (held(revivable.engine)) throw new NoticeHeldError(NOTICE_HELD_TEXT)
-      return manager.revive(revivable.localId)
-    }
+    if (revivable) return manager.revive(revivable.localId)
 
     const project = projectOf(s.projectId)
     if (!project) throw new Error('projeto do agendamento não existe mais')
     // Sem motor conhecido na lista (só ids de uma versão futura), fica o padrão do manager.
-    const engine = s.engine || listed!.find((id) => hasEngine(id))
-    if (engine && held(engine)) throw new NoticeHeldError(NOTICE_HELD_TEXT)
+    const engine = s.engine
+      ? (usable(s.engine) ? s.engine : undefined)
+      : listed!.find((id) => hasEngine(id) && usable(id))
+    // Com aviso aberto no motor fixo, ou em todos os listados, a execução é pulada.
+    if (!engine && heldSome) throw new NoticeHeldError(NOTICE_HELD_TEXT)
     return manager.start(project, { engine, model: s.model ?? undefined, effort: s.effort ?? undefined })
   }
 

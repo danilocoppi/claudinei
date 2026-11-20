@@ -83,8 +83,8 @@ export function createRestartService(deps: {
   batchSize?: number; gapMs?: number; sleep?: (ms: number) => Promise<void>
   log?: (msg: string) => void
   /**
-   * O aviso de trabalho interrompido ficou retido esperando o operador (motivo
-   * diferente de `queued`): liga ao despertador da triagem.
+   * Um aviso de trabalho interrompido acabou de ficar retido esperando o
+   * operador (na subida ou na retomada que falha): liga ao despertador da triagem.
    */
   onHeld?: (projectId: number) => void
 }) {
@@ -107,11 +107,18 @@ export function createRestartService(deps: {
   const publish = (projectId: number, engine: string): TerminalStateDto => {
     const state = toDto(store.get(projectId, engine))
     deps.broadcast({ type: 'terminal_state', state })
-    if (state.interruption && state.interruption.reason !== 'queued') {
-      // O despertador grava no banco; uma falha dele não pode parar a subida.
-      try { deps.onHeld?.(projectId) } catch (err) { log(`[reinício] despertar ${projectId} falhou: ${(err as Error)?.message ?? err}`) }
-    }
     return state
+  }
+
+  /**
+   * Um aviso acabou de ficar retido esperando o operador: acorda o terminal.
+   * Só onde o aviso NASCE retido (a subida, a retomada que falha); republicar
+   * um aviso que já existia (os interruptores do ⚙) não acorda de novo, senão
+   * desfaria o assentar que alguém fez depois. O despertador grava no banco, e
+   * uma falha dele não pode parar a subida.
+   */
+  const held = (projectId: number): void => {
+    try { deps.onHeld?.(projectId) } catch (err) { log(`[reinício] despertar ${projectId} falhou: ${(err as Error)?.message ?? err}`) }
   }
 
   /**
@@ -185,6 +192,7 @@ export function createRestartService(deps: {
       store.markInterrupted(projectId, engine, taken.interruptedLocalId ?? localId, taken.lostQuestion)
       store.setHold(projectId, engine, 'failed')
       publish(projectId, engine)
+      held(projectId)
       throw err
     }
     // Só as tarefas do turno interrompido (anotadas na subida). As de um terminal
@@ -221,6 +229,7 @@ export function createRestartService(deps: {
       store.setHold(a.projectId, a.engine, 'failed')
       failTasksOf(a.projectId, a.engine)
       publish(a.projectId, a.engine)
+      held(a.projectId)
     }
   }
 
@@ -238,6 +247,7 @@ export function createRestartService(deps: {
         if (a.kind !== 'hold') continue
         store.setHold(a.projectId, a.engine, a.reason)
         publish(a.projectId, a.engine)
+        held(a.projectId)
       }
       const resuming = new Set(actions.filter((a) => a.kind === 'resume').map((a) => keyOf(a.projectId, a.engine)))
       const orch = deps.orchestrator()

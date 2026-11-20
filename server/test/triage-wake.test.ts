@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,8 +18,15 @@ import '../src/engine/index.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = join(__dirname, 'fake-claude.mjs')
-const fakeFactory = (opts: SessionOptions) =>
-  new ClaudeSession({ ...opts, claudeBin: process.execPath, extraArgsOverride: [FAKE] })
+// Pastas em que o motor recusa subir, e em que a sessão sobe mas recusa mensagem.
+let brokenStart: Set<string>
+let brokenSend: Set<string>
+const fakeFactory = (opts: SessionOptions) => {
+  if (brokenStart.has(opts.projectPath)) throw new Error('motor recusou')
+  const s = new ClaudeSession({ ...opts, claudeBin: process.execPath, extraArgsOverride: [FAKE] })
+  if (brokenSend.has(opts.projectPath)) s.send = () => { throw new Error('mensagem recusada') }
+  return s
+}
 
 const waitUntil = (cond: () => boolean, ms = 5000) => new Promise<void>((res, rej) => {
   const t0 = Date.now()
@@ -41,6 +49,8 @@ let onNeedsOperator: ReturnType<typeof vi.fn>
 let mgr: ReturnType<typeof createSessionManager>
 
 beforeEach(() => {
+  brokenStart = new Set()
+  brokenSend = new Set()
   db = openDb(':memory:')
   project = createProjectsService(db).create({ name: 'P1', path: mkdtempSync(join(tmpdir(), 'tw-')) })
   store = createTriageStore(db)
@@ -189,10 +199,13 @@ describe('o que não acorda', () => {
   })
 
   it('morte no encerramento não acorda', async () => {
-    await startIdle()
+    // O stopAll pararia a sessão como `stopped`; aqui o processo morre de fato
+    // (`dead`) com o encerramento já em curso, como no SIGTERM do serviço.
+    const localId = await startIdle()
     settleAndSnooze()
     mgr.beginShutdown()
-    await mgr.stopAll()
+    mgr.send(localId, 'crash')
+    await waitUntil(() => mgr.get(localId)?.status === 'dead')
     expect(onNeedsOperator).not.toHaveBeenCalled()
     expectAsleep()
   })
@@ -222,11 +235,15 @@ describe('o que não acorda', () => {
 })
 
 describe('aviso de trabalho interrompido do reinício', () => {
-  it('aviso retido do reinício acorda; queued não', async () => {
-    const terminalState = createTerminalStateStore(db)
+  let terminalState: ReturnType<typeof createTerminalStateStore>
+  let onHeld: ReturnType<typeof vi.fn>
+  let svc: RestartService
+
+  beforeEach(() => {
+    terminalState = createTerminalStateStore(db)
     const waker = createTriageWaker({ store, broadcast: (m) => triageMsgs.push(m as never) })
-    const onHeld = vi.fn((projectId: number) => waker.wake(projectId, 'interrupted'))
-    const svc = createRestartService({
+    onHeld = vi.fn((projectId: number) => waker.wake(projectId, 'interrupted'))
+    svc = createRestartService({
       db, manager: mgr, store: terminalState,
       orchestrator: () => undefined,
       broadcast: () => {},
@@ -235,6 +252,17 @@ describe('aviso de trabalho interrompido do reinício', () => {
       log: () => {},
       onHeld,
     })
+  })
+
+  /** Sessão anterior persistida (parada), como a que sobra depois do reinício. */
+  const seedSession = () => {
+    const localId = randomUUID()
+    db.prepare(`INSERT INTO sessions (local_id, project_id, engine, status) VALUES (?, ?, 'claude', 'stopped')`)
+      .run(localId, project.id)
+    return localId
+  }
+
+  it('aviso retido do reinício acorda; queued não', async () => {
     settleAndSnooze()
 
     // Na fila para retomar (sem motivo de espera): publica `queued`, não acorda.
@@ -246,6 +274,39 @@ describe('aviso de trabalho interrompido do reinício', () => {
     // Retomar desligado: a subida segura o aviso (`off`) e isso acorda.
     await svc.boot()
     expect(svc.list()[0].interruption?.reason).toBe('off')
+    expect(onHeld.mock.calls).toEqual([[project.id]])
+    expectAwake()
+  })
+
+  it('mexer nos interruptores de um terminal com aviso retido não acorda de novo', () => {
+    // O aviso já foi retido (e acordou) numa subida; depois o operador assentou de novo.
+    terminalState.markInterrupted(project.id, 'claude', 'x', null)
+    terminalState.setHold(project.id, 'claude', 'off')
+    settleAndSnooze()
+    expect(svc.setPrefs(project.id, 'claude', { autostart: true }).interruption?.reason).toBe('off')
+    expect(onHeld).not.toHaveBeenCalled()
+    expectAsleep()
+  })
+
+  it('retomada da subida que não sobe acorda', async () => {
+    const localId = seedSession()
+    terminalState.setPrefs(project.id, 'claude', { autoResume: true })
+    terminalState.markInterrupted(project.id, 'claude', localId, null)
+    brokenStart.add(project.path)
+    settleAndSnooze()
+    await svc.boot()
+    expect(svc.list()[0].interruption?.reason).toBe('failed')
+    expect(onHeld.mock.calls).toEqual([[project.id]])
+    expectAwake()
+  })
+
+  it('Continuar que não consegue mandar a mensagem acorda', () => {
+    const localId = seedSession()
+    terminalState.markInterrupted(project.id, 'claude', localId, null)
+    brokenSend.add(project.path)
+    settleAndSnooze()
+    expect(() => svc.resumeTerminal(project.id, 'claude')).toThrow('mensagem recusada')
+    expect(svc.list()[0].interruption?.reason).toBe('failed')
     expect(onHeld.mock.calls).toEqual([[project.id]])
     expectAwake()
   })

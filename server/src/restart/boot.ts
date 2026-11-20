@@ -2,6 +2,7 @@ import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
 import { createProjectsService } from '../projects.js'
 import { createTasksService } from '../tasks.js'
+import { enginesOf } from '../terminal-engines.js'
 import { UserError } from '../user-error.js'
 import { toDto, type HoldReason, type TerminalStateDto, type TerminalStateRow, type TerminalStateStore } from './terminal-state.js'
 
@@ -30,20 +31,27 @@ const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
  * com o mesmo motivo, mesmo que o retomar tenha sido ligado depois (e a `failed`
  * não é tentada de novo sozinha).
  *
+ * A lista de motores do terminal (`isListed`) só controla o "iniciar": um motor
+ * fora dela não sobe parado (nem idle, nem hold com `alsoIdle`), mesmo com o
+ * interruptor ligado. Trabalho interrompido segue as regras acima, inclusive a
+ * retomada, porque a sessão estava viva quando o serviço caiu.
+ *
  * Saída ordenada: primeiro as retomadas, depois as subidas paradas (idle e hold
  * com `alsoIdle`) na ordem de entrada e, por último, os holds que não sobem nada.
  */
 export function planBoot(
   rows: TerminalStateRow[],
   latestLocalId: (projectId: number, engine: string) => string | null,
+  isListed: (projectId: number, engine: string) => boolean = () => true,
 ): BootAction[] {
   const resumes: BootAction[] = []
   const risers: BootAction[] = []
   const holds: BootAction[] = []
   for (const r of rows) {
     const { projectId, engine } = r
+    const autostart = r.autostart && isListed(projectId, engine)
     if (r.interruptedAt == null) {
-      if (r.autostart) risers.push({ kind: 'idle', projectId, engine, localId: latestLocalId(projectId, engine) })
+      if (autostart) risers.push({ kind: 'idle', projectId, engine, localId: latestLocalId(projectId, engine) })
       continue
     }
     const localId = r.interruptedLocalId ?? latestLocalId(projectId, engine)
@@ -58,8 +66,8 @@ export function planBoot(
       resumes.push({ kind: 'resume', projectId, engine, localId: localId! })
       continue
     }
-    const hold: BootAction = { kind: 'hold', projectId, engine, reason, alsoIdle: r.autostart, localId }
-    ;(r.autostart ? risers : holds).push(hold)
+    const hold: BootAction = { kind: 'hold', projectId, engine, reason, alsoIdle: autostart, localId }
+    ;(autostart ? risers : holds).push(hold)
   }
   return [...resumes, ...risers, ...holds]
 }
@@ -224,7 +232,7 @@ export function createRestartService(deps: {
      */
     async boot(): Promise<void> {
       deps.closeInterruptedRuns()
-      const actions = planBoot(store.list(), latestLocalId)
+      const actions = planBoot(store.list(), latestLocalId, (p, e) => enginesOf(db, p).includes(e))
       for (const a of actions) {
         if (a.kind !== 'hold') continue
         store.setHold(a.projectId, a.engine, a.reason)

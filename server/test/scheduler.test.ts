@@ -178,6 +178,76 @@ describe('a sessão certa, no estado certo', () => {
     expect(calls.sent[0].localId).toBe('cx')
   })
 
+  it('agendamento sem motor só usa motores da lista', async () => {
+    createProjectsService(db).setEngines(projectId, ['codex'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    // Como no manager.list() real: a mais recente primeiro.
+    const { manager, calls } = fakeManager({
+      sessions: [
+        sessionInfo({ localId: 'cl', engine: 'claude', status: 'stopped', updatedAt: '2026-11-20 12:00:00' }),
+        sessionInfo({ localId: 'cx', engine: 'codex', status: 'stopped', updatedAt: '2026-11-19 12:00:00' }),
+      ],
+    })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.revived).toEqual(['cx'])
+    expect(calls.started).toEqual([])
+    expect(calls.sent[0].localId).toBe('cx')
+  })
+
+  it('agendamento sem motor revive a parada mais recente entre os motores da lista', async () => {
+    createProjectsService(db).setEngines(projectId, ['codex', 'kimi'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager({
+      sessions: [
+        sessionInfo({ localId: 'cx', engine: 'codex', status: 'stopped', updatedAt: '2026-11-19 12:00:00' }),
+        sessionInfo({ localId: 'km', engine: 'kimi', status: 'dead', updatedAt: '2026-11-20 12:00:00' }),
+      ],
+    })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.revived).toEqual(['km'])
+  })
+
+  it('agendamento sem motor ignora sessão ocupada de motor fora da lista', async () => {
+    createProjectsService(db).setEngines(projectId, ['codex'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [sessionInfo({ localId: 'cl', engine: 'claude', status: 'working' })] })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.started).toEqual([{ projectId, engine: 'codex', effort: undefined }])
+    expect(store.listRuns(s.id, 1)[0].status).toBe('ok')
+  })
+
+  it('agendamento sem motor e sem sessão listada começa no primeiro da lista', async () => {
+    createProjectsService(db).setEngines(projectId, ['kimi', 'codex'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [] })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.started).toEqual([{ projectId, engine: 'codex', effort: undefined }])
+  })
+
+  it('agendamento sem motor com lista só de motores desconhecidos começa no padrão do manager', async () => {
+    createProjectsService(db).setEngines(projectId, ['motor-futuro'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [] })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.started).toEqual([{ projectId, engine: undefined, effort: undefined }])
+  })
+
+  it('agendamento preso a motor escondido continua rodando', async () => {
+    createProjectsService(db).setEngines(projectId, ['claude'])
+    const s = store.create(projectId, { ...base, engine: 'codex' })
+    overdue(s.id)
+    const { manager, calls } = fakeManager({
+      sessions: [sessionInfo({ localId: 'cl', engine: 'claude' }), sessionInfo({ localId: 'cx', engine: 'codex' })],
+    })
+    await createScheduler({ db, store, manager }).tick()
+    expect(calls.sent[0].localId).toBe('cx')
+  })
+
   it('falha ao subir vira execução com erro e conta falha', async () => {
     const s = store.create(projectId, base)
     overdue(s.id)

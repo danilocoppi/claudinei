@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '../types'
 import { groupSummary } from '../chat/grouping'
 import { useFold } from '../chat/folds'
+import { useStore } from '../store'
 import { MessageBlock } from './MessageBlock'
 
 /**
@@ -20,8 +21,13 @@ export const ActionGroup = memo(function ActionGroup({ items, currentLocalId }: 
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useFold(currentLocalId, items[0]?.item.key, 'group')
+  // A ocorrência atual da busca está neste grupo: a marca fica no cabeçalho
+  // também, para quem o recolher depois de chegar ainda ver onde ela está. O
+  // item em si leva o `chat-hit` (MessageBlock).
+  const currentKey = useStore((s) => s.find?.currentKey ?? null)
+  const hasHit = currentKey !== null && items.some((x) => x.item.key === currentKey)
   return (
-    <div className={`action-group${open ? ' action-group--open' : ''}`}>
+    <div className={`action-group${open ? ' action-group--open' : ''}${hasHit ? ' action-group--hit' : ''}`}>
       <div className="action-group__header" onClick={() => setOpen(!open)}>
         <span>{open ? '▾' : '▸'}</span>
         <span aria-hidden="true">🧰</span>

@@ -12,6 +12,9 @@ import { useStore } from '../store'
  */
 export type FoldName = 'group' | 'tool' | 'more' | 'summary' | 'thinking'
 
+/** Mensagens acima disso colapsam ("mostrar tudo"): mostra as primeiras linhas + botão de expandir. */
+export const COLLAPSE_LINES = 13
+
 /** Id da dobra no store: a chave do item não tem ':', então o sufixo é o nome. */
 export function foldId(itemKey: string, name: FoldName): string {
   return `${itemKey}:${name}`

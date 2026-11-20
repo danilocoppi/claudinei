@@ -1592,6 +1592,27 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .chat-scroll > [data-viewport-type] { padding-inline: 24px; box-sizing: border-box; }
 .chat-scroll__head { padding-top: 16px; }
 .chat-scroll__foot { padding-bottom: 16px; }
+/* ===== BUSCA NA CONVERSA (Ctrl+F) ==========================================
+   Uma faixa fixa no topo da coluna do chat, entre o cabeçalho e a conversa:
+   sem animação, sem filtro de fundo — a interface precisa andar sem GPU. */
+.find-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 20px; border-bottom: 1px solid var(--glass-border);
+  background: var(--surface); font-size: 12.5px;
+}
+.find-bar__input { flex: 1 1 200px; min-width: 120px; max-width: 420px; padding: 5px 10px; font-size: 13px; }
+.find-bar__status { color: var(--text-dim); white-space: nowrap; display: inline-flex; gap: 8px; }
+.find-bar__capped { color: var(--warn); }
+.find-bar__step, .find-bar__close { padding: 3px 9px; line-height: 1; }
+.find-bar__more { padding: 3px 10px; }
+.find-bar__tools { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); cursor: pointer; user-select: none; }
+/* O item da ocorrência atual: contorno (não muda o tamanho nem as margens do
+   bloco, então a lista não remede nada) e nenhuma transição. */
+.chat-hit { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
+.action-group--hit > .action-group__header { border-color: var(--accent); }
+/* O termo nas mensagens montadas (CSS Custom Highlight API, chat/findHighlight.ts). */
+::highlight(chat-find) { background-color: color-mix(in srgb, var(--warn) 45%, transparent); color: inherit; }
+
 /* Começo da conversa / página anterior chegando: uma linha discreta no topo. */
 .chat-edge { text-align: center; color: var(--text-dim); font-size: 12px; padding: 6px 0 10px; }
 .chat-tofoot {

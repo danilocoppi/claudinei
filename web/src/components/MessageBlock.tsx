@@ -10,7 +10,7 @@ import 'highlight.js/styles/github-dark.css'
 import type { ChatItem } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
-import { useFold } from '../chat/folds'
+import { COLLAPSE_LINES, useFold } from '../chat/folds'
 import { WsContext } from '../wsContext'
 import { extractCandidatePaths, kindOfPath, resolveFiles, resolvedKey, splitCandidatePaths, type ScopeResult } from '../files'
 import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
@@ -38,15 +38,21 @@ export const MessageBlock = memo(function MessageBlock({ item, currentLocalId, e
   onEdit?: (text: string) => void
 }) {
   const edit = editable && onEdit && item.kind === 'user_text' ? () => onEdit(item.text) : undefined
+  // Ocorrência atual da busca (Ctrl+F): seletor estreito, só este booleano —
+  // ir a outra ocorrência re-renderiza o bloco que perde e o que ganha a marca.
+  const hit = useStore((s) => !!item.key && s.find?.currentKey === item.key)
+  // Fronteira de compactação solta: não desenha nada (nem o invólucro).
+  if (item.kind === 'compact_boundary') return null
   const content = <MessageContent item={item} currentLocalId={currentLocalId} onEdit={edit} />
-  if (item.fromSubagent) {
-    return <SubagentWrapper>{content}</SubagentWrapper>
-  }
-  return content
+  // O invólucro existe sempre (sem padding nem borda: as margens do bloco
+  // passam por ele como antes), para a marca não remontar o conteúdo.
+  return (
+    <div className={hit ? 'chat-hit' : undefined}>
+      {item.fromSubagent ? <SubagentWrapper>{content}</SubagentWrapper> : content}
+    </div>
+  )
 })
 
-/** Mensagens acima disso colapsam: mostra as primeiras linhas + botão de expandir. */
-const COLLAPSE_LINES = 13
 
 /** Chaves com resolve em voo: um histórico com 50 menções ao mesmo caminho dispara 1 POST, não 50. */
 const resolveInFlight = new Set<string>()

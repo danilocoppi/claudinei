@@ -111,13 +111,13 @@ describe('a conversa numa lista virtual', () => {
     await montar()
     await rolar(0)
     expect(historyCalls()).toEqual([`/api/sessions/s1/history?before=${TOPO}&limit=200`])
-    expect(screen.getByText('Carregando mensagens anteriores…')).toBeTruthy()
+    expect(screen.getByText('carregando mensagens anteriores…')).toBeTruthy()
     await rolar(ALTURA_ITEM * 40)
     await rolar(0)
     expect(historyCalls(), 'um pedido por vez').toHaveLength(1)
     responder(json({ events: [], before: 0, atStart: true }))
     await esperar()
-    expect(screen.queryByText('Carregando mensagens anteriores…')).toBeNull()
+    expect(screen.queryByText('carregando mensagens anteriores…')).toBeNull()
   })
 
   it('acrescentar no topo mantém o item que estava na tela', async () => {
@@ -228,7 +228,7 @@ describe('a conversa numa lista virtual', () => {
     preparar(conversa(100), { before: TOPO, atStart: true, conv: 'c' })
     await montar()
     await rolar(0)
-    expect(screen.getByText('Início da conversa')).toBeTruthy()
+    expect(screen.getByText('início da conversa')).toBeTruthy()
     expect(historyCalls()).toEqual([])
   })
 
@@ -247,15 +247,15 @@ describe('a conversa numa lista virtual', () => {
     // Parado no topo, sem nova tentativa em laço.
     expect(historyCalls()).toHaveLength(1)
     expect(useStore.getState().historyCursor.s1.atStart).toBe(false)
-    expect(screen.queryByText('Carregando mensagens anteriores…')).toBeNull()
-    expect(screen.queryByText('Início da conversa')).toBeNull()
+    expect(screen.queryByText('carregando mensagens anteriores…')).toBeNull()
+    expect(screen.queryByText('início da conversa')).toBeNull()
     // Saiu do topo e voltou: tenta outra vez, e agora a página entra.
     await rolar(ALTURA_ITEM * 40)
     await rolar(0)
     expect(historyCalls()).toHaveLength(2)
     expect(historyCalls()[1]).toBe(`/api/sessions/s1/history?before=${TOPO}&limit=200`)
     expect(useStore.getState().chat.s1).toHaveLength(101)
-    expect(screen.getByText('Início da conversa')).toBeTruthy()
+    expect(screen.getByText('início da conversa')).toBeTruthy()
   })
 
   it('grudado no fim acompanha item novo; solto não', async () => {

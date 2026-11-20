@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useSta
 import { useTranslation } from 'react-i18next'
 import { Virtuoso, type Components, type ContextProp, type ListProps } from 'react-virtuoso'
 import { useStore } from '../store'
-import { fetchHistory, stopSubagentTask } from '../api'
+import { stopSubagentTask } from '../api'
 import { loadHistoryTail } from '../chat/loadTail'
 import { EngineTabs } from './EngineTabs'
 import { MessageBlock } from './MessageBlock'
@@ -19,8 +19,13 @@ import { InterruptedNotice } from './InterruptedNotice'
 import { UsageLimitNotice } from './UsageLimitNotice'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions, type ChatNode } from '../chat/grouping'
-import { nodeKey, prependedNodes, useFirstItemIndex } from '../chat/nodes'
-import { chatListRef } from '../chat/listHandle'
+import { nodeKey, useFirstItemIndex } from '../chat/nodes'
+import { chatFollow, chatListRef } from '../chat/listHandle'
+import { loadOlderPage, isLoadingOlder, useLoadingOlder } from '../chat/olderPages'
+import { closeFind } from '../chat/findRun'
+import { useFindHighlight } from '../chat/findHighlight'
+import { shouldOpenFind } from '../keyboard'
+import { FindBar } from './FindBar'
 import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
 import { HeadsUpBand } from './HeadsUpBand'
@@ -49,11 +54,6 @@ function StreamingPreview({ localId }: { localId: string }) {
   )
 }
 
-/** Tamanho da página que sobe ao chegar no topo da conversa. */
-export const OLDER_PAGE_LIMIT = 200
-
-/** Sessões com um pedido de página anterior no ar: um por vez, por sessão. */
-const olderInFlight = new Set<string>()
 /**
  * Sessões que esperam o operador voltar ao topo para pedir a página anterior:
  * o último pedido falhou, ou a sequência automática bateu no teto.
@@ -86,8 +86,8 @@ function ListHeader({ context }: { context: ListContext }) {
   return (
     <div className="chat-scroll__head">
       <div className="chat-scroll__inner chat-scroll__inner--top">
-        {context.edge === 'start' && <div className="chat-edge" data-testid="chat-start">{t('chat.historyStart')}</div>}
-        {context.edge === 'loading' && <div className="chat-edge" data-testid="chat-loading-older">{t('chat.historyLoading')}</div>}
+        {context.edge === 'start' && <div className="chat-edge" data-testid="chat-start">{t('chat.startOfConversation')}</div>}
+        {context.edge === 'loading' && <div className="chat-edge" data-testid="chat-loading-older">{t('chat.loadingOlder')}</div>}
       </div>
     </div>
   )
@@ -182,10 +182,20 @@ export function ChatView() {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [following, setFollowing] = useState(true)
   const historyCursor = useStore((s) => activeLocalId ? s.historyCursor[activeLocalId] : undefined)
-  const [olderLoading, setOlderLoading] = useState<string | null>(null)
+  const olderLoading = useLoadingOlder(activeLocalId)
+  const findOpen = useStore((s) => !!activeLocalId && s.find?.localId === activeLocalId)
+  // O termo a destacar só depois de buscar (o que se digita ainda não é busca).
+  const findQ = useStore((s) => (activeLocalId && s.find?.localId === activeLocalId && s.find.hits.length > 0 ? s.find.q : ''))
+  const findKey = useStore((s) => (activeLocalId && s.find?.localId === activeLocalId ? s.find.currentKey : null))
   const scrollerRef = useRef<HTMLElement | null>(null)
+  const mainRef = useRef<HTMLDivElement>(null)
   const followingRef = useRef(following)
   useEffect(() => { followingRef.current = following }, [following])
+  // A busca solta o "grudado no fim" ao levar a tela a uma ocorrência.
+  useEffect(() => {
+    chatFollow.release = () => { followingRef.current = false; setFollowing(false) }
+    return () => { chatFollow.release = () => {} }
+  }, [])
 
   const nodes = useMemo(() => groupActions(items, session?.status === 'working'), [items, session?.status])
   const firstItemIndex = useFirstItemIndex(activeLocalId ?? undefined, nodes)
@@ -251,50 +261,30 @@ export function ChatView() {
   }, [])
 
   /**
-   * Página anterior ao chegar no topo: um pedido por vez por sessão, com o
-   * `before` do cursor — e é esse mesmo `before` que vai para o prependHistory,
-   * que descarta a página se o cursor andou enquanto ela vinha. Falhou: não
-   * marca o começo; a próxima chegada ao topo tenta de novo (sem laço).
+   * Página anterior ao chegar no topo, pelo carregador único da conversa
+   * (chat/olderPages.ts: um pedido por vez por sessão, com o `before` do
+   * cursor). Falhou: não marca o começo; a próxima chegada ao topo tenta de
+   * novo (sem laço).
    */
   const loadOlder = useCallback(() => {
     if (!activeLocalId) return
     const id = activeLocalId
     const pedir = (seguidas = 0) => {
-      const cursor = useStore.getState().historyCursor[id]
-      if (!cursor || cursor.atStart || olderInFlight.has(id)) return
-      const before = cursor.before
-      olderInFlight.add(id)
-      setOlderLoading(id)
-      let deNovo = false
-      fetchHistory(id, before, OLDER_PAGE_LIMIT)
-        .then((page) => {
-          olderWaitTop.delete(id)
-          const st0 = useStore.getState()
-          const working = st0.sessions[id]?.status === 'working'
-          const antes = groupActions(st0.chat[id] ?? [], working)
-          st0.prependHistory(id, page, before)
-          // O topo não ganhou nó novo — página sem nada que apareça, ou só ações
-          // que entraram no grupo do topo: o índice do primeiro nó não mudou, e
-          // a lista não avisa o topo de novo. Segue para a anterior; o cursor
-          // andou para trás, então não é laço.
-          const st = useStore.getState()
-          deNovo = !page.atStart && page.before < before && st.historyCursor[id]?.before === page.before
-            && prependedNodes(antes, groupActions(st.chat[id] ?? [], working)) === 0
-        })
-        .catch((err) => {
-          olderWaitTop.add(id)
-          console.error('[chat] falha ao carregar mensagens anteriores', err)
-        })
-        .finally(() => {
-          olderInFlight.delete(id)
-          setOlderLoading((cur) => (cur === id ? null : cur))
-          if (!deNovo) return
-          // O operador foi para outro terminal: a sequência para aqui (a
-          // página que já veio entrou na conversa dela).
-          if (useStore.getState().activeLocalId !== id) return
-          if (seguidas + 1 >= OLDER_CHAIN_LIMIT) { olderWaitTop.add(id); return }
-          pedir(seguidas + 1)
-        })
+      if (isLoadingOlder(id)) return
+      const pedido = loadOlderPage(id)
+      if (!pedido) return
+      void pedido.then((r) => {
+        if (!r.ok) { olderWaitTop.add(id); return }
+        olderWaitTop.delete(id)
+        // O topo não ganhou nó novo: a lista não avisa o topo de novo. Segue
+        // para a anterior; o cursor andou para trás, então não é laço.
+        if (!r.topUnchanged) return
+        // O operador foi para outro terminal: a sequência para aqui (a
+        // página que já veio entrou na conversa dela).
+        if (useStore.getState().activeLocalId !== id) return
+        if (seguidas + 1 >= OLDER_CHAIN_LIMIT) { olderWaitTop.add(id); return }
+        pedir(seguidas + 1)
+      })
     }
     pedir()
   }, [activeLocalId])
@@ -308,6 +298,37 @@ export function ChatView() {
 
   // Terminal novo é conversa nova: chega-se no fim dela, não preso onde se estava.
   useEffect(() => { setFollowing(true) }, [activeLocalId])
+
+  // A busca é de uma conversa só: trocar de terminal (ou sair do chat) a fecha
+  // e cancela o pedido no ar — nada dela cai em outra conversa.
+  useEffect(() => {
+    const f = useStore.getState().find
+    if (f && f.localId !== activeLocalId) closeFind()
+  }, [activeLocalId])
+  useEffect(() => () => closeFind(), [])
+
+  // Ctrl+F (⌘+F): a busca do Claudinei com o foco no chat, no campo de
+  // mensagem ou em nada; nos outros lugares, e com a barra já aberta, a do
+  // navegador (ver shouldOpenFind).
+  useEffect(() => {
+    if (!activeLocalId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      const campo = mainRef.current?.querySelector<HTMLElement>('.chat-compose__area') ?? null
+      const st = useStore.getState()
+      if (!shouldOpenFind(e, campo, st.find?.localId === activeLocalId)) return
+      e.preventDefault()
+      st.openFind(activeLocalId)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeLocalId])
+
+  // Destaque do termo nas entradas montadas: quando a busca, a ocorrência
+  // atual (dobras que abriram) ou a conversa mudam, e quando a faixa montada
+  // da lista muda (rangeChanged).
+  const paintFind = useFindHighlight(scrollerRef, findQ)
+  useEffect(() => { if (findQ) paintFind() }, [findQ, findKey, items, paintFind])
 
   useEffect(() => {
     if (session?.status === 'needs_attention' && activeLocalId) {
@@ -385,7 +406,7 @@ export function ChatView() {
 
   const edge: ListContext['edge'] = nodes.length === 0 ? null
     : historyCursor?.atStart ? 'start'
-    : olderLoading === activeLocalId ? 'loading' : null
+    : olderLoading ? 'loading' : null
   const listContext = useMemo<ListContext | null>(() => session ? {
     localId: session.localId,
     status: session.status,
@@ -404,7 +425,7 @@ export function ChatView() {
 
   return (
     <div className="chat-layout">
-    <div className="chat-main">
+    <div className="chat-main" ref={mainRef}>
       <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
         {/* O mesmo menu do cartão da lista, aqui no título: quem está lendo a
             conversa não devia ter que voltar à barra lateral para renomear o
@@ -446,6 +467,7 @@ export function ChatView() {
         </button>
       </div>
       {menuAt && <TerminalMenu project={project} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
+      {findOpen && <FindBar key={`find:${session.localId}`} localId={session.localId} />}
       <div className="chat-scroll-wrap">
       {/* Lista virtual: só os nós perto da tela ficam montados. As sequências
           de ações (tool_call/thinking) viram um grupo colapsável; a chave de
@@ -470,6 +492,7 @@ export function ChatView() {
         atTopStateChange={onAtTop}
         increaseViewportBy={{ top: 600, bottom: 600 }}
         scrollerRef={setScroller}
+        rangeChanged={paintFind}
         components={LIST_COMPONENTS}
       />
       {/* A tela está solta: o rodapé da conversa continua andando lá embaixo.

@@ -103,6 +103,16 @@ export interface HistoryPage {
   atStart: boolean
 }
 
+/** Onde a busca achou (iguais aos do servidor, `server/src/history-search.ts`). */
+export type SearchField = 'text' | 'thinking' | 'tool_input' | 'tool_output'
+/**
+ * Uma ocorrência: `pos` é a do evento no arquivo da engine (a mesma das chaves
+ * `p<pos>`); `toolUseId` vem nas entradas e saídas de ferramenta.
+ */
+export interface SearchHit { pos: number; toolUseId?: string; field: SearchField; snippet: string }
+/** Uma fatia da busca: `before` é o começo dela, passado de volta para a fatia anterior. */
+export interface SearchSlice { hits: SearchHit[]; before: number; atStart: boolean }
+
 /**
  * `parentId`: id do tool_use do Agent que produziu este item — presente só no que
  * veio de um subagente. `fromSubagent` diz QUE veio de um; o parentId diz DE QUAL,

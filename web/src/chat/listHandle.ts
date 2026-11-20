@@ -11,3 +11,10 @@ import type { VirtuosoHandle } from 'react-virtuoso'
  * (chat/nodes.ts) acha o nó que contém a chave de um item.
  */
 export const chatListRef: MutableRefObject<VirtuosoHandle | null> = { current: null }
+
+/**
+ * Solta o "grudado no fim" da conversa aberta. Quem registra é o ChatView;
+ * quem chama é a busca, ao levar a tela a uma ocorrência — pedido do operador,
+ * e evento novo que chegar depois não pode arrancá-lo de lá.
+ */
+export const chatFollow: { release: () => void } = { release: () => {} }

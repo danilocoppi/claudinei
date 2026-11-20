@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { CODEX_FALLBACK_CATALOG } from '../../shared/codex-models'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
-import type { ChatItem, EngineMeta, HistoryPage, Project, SessionInfo } from './types'
+import type { ChatItem, EngineMeta, HistoryPage, Project, SearchHit, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import { resolvedKey, type FileKind, type ScopeResult } from './files'
 import { applyEvent, liveKey } from './chat/applyEvent'
@@ -55,6 +55,29 @@ const BUILTIN_ENGINES: EngineMeta[] = [
 const BOARD_MAX = 200
 
 export interface HistoryCursor { before: number; atStart: boolean; conv?: string }
+
+/**
+ * Busca na conversa aberta (Ctrl+F; ver chat/findRun.ts). `hits` da mais nova
+ * para a mais antiga; `index` 0 é a mais recente. `before` é onde a próxima
+ * fatia começa (null: ainda nenhuma, a primeira vai do fim); `scannedBytes`
+ * conta a rodada atual (64 MB, depois "buscar mais para trás"). `currentKey` é
+ * a chave do item da ocorrência atual, na tela (`chat-hit`).
+ */
+export interface FindState {
+  localId: string
+  q: string
+  tools: boolean
+  hits: SearchHit[]
+  index: number
+  scanning: boolean
+  before: number | null
+  atStart: boolean
+  scannedBytes: number
+  capped: boolean
+  currentKey: string | null
+  /** A última fatia falhou (mensagem já no idioma da tela); a busca parou ali. */
+  error: string | null
+}
 
 /**
  * Dobras de uma sessão com as chaves trocadas por `renamed` (velha → nova).
@@ -145,6 +168,15 @@ interface State {
    * não no bloco, porque a lista virtual desmonta o que sai da tela.
    */
   folds: Record<string, Record<string, true>>
+  /** Busca na conversa (Ctrl+F) aberta, ou null. É de UMA sessão: trocar de terminal fecha. */
+  find: FindState | null
+  /** Abre a barra na sessão (mantém a busca se já é dela). */
+  openFind(localId: string): void
+  /** Troca a busca inteira (nova busca). Quem cancela os pedidos é chat/findRun.ts. */
+  setFind(find: FindState): void
+  /** Atualiza a busca aberta, só se ela ainda for de `localId` e da mesma consulta (`q`). */
+  patchFind(localId: string, q: string, patch: Partial<FindState>): void
+  closeFind(): void
   activeLocalId?: string
   /** Pedido de edição em curso: reenche o ChatInput da sessão-alvo com o texto original. `seq` distingue pedidos repetidos com o mesmo texto. */
   editRequest?: { localId: string; text: string; seq: number }
@@ -316,7 +348,7 @@ export const useStore = create<State>((set, get) => ({
     // saved windows also prevents an old ActionRun from launching again later.
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
-      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {}, folds: {},
+      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {}, folds: {}, find: null,
       actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
@@ -329,6 +361,7 @@ export const useStore = create<State>((set, get) => ({
   historyCursor: {},
   orphanResults: {},
   folds: {},
+  find: null,
   activeLocalId: undefined,
   editRequest: undefined,
   slashCommands: BUILTIN_FALLBACK,
@@ -387,11 +420,18 @@ export const useStore = create<State>((set, get) => ({
       const cursor: HistoryCursor = r.reset || !prev
         ? { before: page.before, atStart: page.atStart, conv: conv ?? prev?.conv }
         : { ...prev, conv: conv ?? prev.conv }
+      // A busca aberta nesta sessão: conversa trocada, as posições dela são de
+      // outro arquivo e levariam a itens errados — fecha (a varredura em curso
+      // vê que a busca sumiu e para). Senão, a ocorrência atual, se estava num
+      // item ao vivo, acompanha a chave.
+      const findHere = s.find?.localId === localId ? s.find : null
+      const hitKey = findHere?.currentKey && !changed ? r.renamed[findHere.currentKey] : undefined
       return {
         chat: { ...s.chat, [localId]: r.items },
         historyCursor: { ...s.historyCursor, [localId]: cursor },
         orphanResults: { ...s.orphanResults, [localId]: r.orphans },
         ...(folds !== s.folds[localId] ? { folds: { ...s.folds, [localId]: folds } } : {}),
+        ...(findHere && changed ? { find: null } : hitKey ? { find: { ...findHere!, currentKey: hitKey } } : {}),
       }
     }),
 
@@ -406,6 +446,20 @@ export const useStore = create<State>((set, get) => ({
         orphanResults: { ...s.orphanResults, [localId]: r.orphans },
       }
     }),
+
+  openFind: (localId) => set((s) => (s.find?.localId === localId ? s : {
+    find: {
+      localId, q: '', tools: false, hits: [], index: 0, scanning: false, before: null, atStart: false,
+      scannedBytes: 0, capped: false, currentKey: null, error: null,
+    },
+  })),
+
+  setFind: (find) => set({ find }),
+
+  patchFind: (localId, q, patch) => set((s) => (s.find && s.find.localId === localId && s.find.q === q
+    ? { find: { ...s.find, ...patch } } : s)),
+
+  closeFind: () => set((s) => (s.find ? { find: null } : s)),
 
   setFold: (localId, id, open) =>
     set((s) => {

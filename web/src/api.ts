@@ -1,4 +1,4 @@
-import type { EngineMeta, HistoryPage, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
+import type { EngineMeta, HistoryPage, SearchSlice, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -188,6 +188,16 @@ export const fetchHistory = (localId: string, before?: number, limit?: number) =
   if (limit !== undefined) params.set('limit', String(limit))
   const query = params.toString()
   return req<HistoryPage>(`/api/sessions/${localId}/history${query ? `?${query}` : ''}`)
+}
+
+/**
+ * Uma fatia da busca na conversa (o servidor lê até 8 MB antes de `before`; sem
+ * ele, a partir do fim). A consulta vai codificada: pode ter `+`, `&`, `#` e acentos.
+ */
+export function searchHistory(localId: string, q: string, tools: boolean, before?: number, signal?: AbortSignal): Promise<SearchSlice> {
+  const params = new URLSearchParams({ q, tools: tools ? '1' : '0' })
+  if (before !== undefined) params.set('before', String(before))
+  return req<SearchSlice>(`/api/sessions/${encodeURIComponent(localId)}/search?${params}`, { signal })
 }
 
 export interface DirEntry { name: string; path: string; isDir: boolean }

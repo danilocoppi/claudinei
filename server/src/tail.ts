@@ -99,6 +99,11 @@ const PASSO_VARREDURA = 64 * 1024
  *
  * Decodifica cada linha a partir do seu início, então um caractere multibyte
  * cortado pela borda da janela nunca vira lixo.
+ *
+ * Só o arquivo AUSENTE vira "vazio e no começo". Qualquer outro erro (EIO, uma
+ * linha grande demais para a memória ou para uma string) é lançado: devolvê-lo
+ * como `atStart` faria quem pagina ou busca parar ali achando que chegou ao
+ * início, e tudo antes ficaria inalcançável sem aviso.
  */
 export async function readLinesBefore(
   file: string,
@@ -107,7 +112,10 @@ export async function readLinesBefore(
 ): Promise<{ lines: PositionedLine[]; start: number; atStart: boolean }> {
   const vazio = { lines: [], start: 0, atStart: true }
   let fh
-  try { fh = await open(file, 'r') } catch { return vazio }
+  try { fh = await open(file, 'r') } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return vazio
+    throw err
+  }
   try {
     const size = (await fh.stat()).size
     const fim = Math.max(0, Math.min(before ?? size, size))
@@ -151,8 +159,6 @@ export async function readLinesBefore(
       i = fimLinha + 1
     }
     return { lines, start: comeco, atStart: comeco === 0 }
-  } catch {
-    return vazio
   } finally {
     await fh.close().catch(() => { /* já fechado/sumiu */ })
   }

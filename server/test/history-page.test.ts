@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readLinesBefore, readPositionedTail, type PositionedLine } from '../src/tail.js'
@@ -9,6 +9,13 @@ import { codexEngine } from '../src/engine/codex/codex-engine.js'
 import { kimiEngine } from '../src/engine/kimi/kimi-engine.js'
 import { kimiHomeFor } from '../src/engine/kimi/kimi-home.js'
 import type { AgentEvent, Engine } from '../src/engine/types.js'
+
+// Conta as varreduras de diretório: a página do Codex não pode repetir a busca
+// do rollout em ~/.codex/sessions a cada pedido (ela é síncrona).
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs')>()
+  return { ...real, readdirSync: vi.fn(real.readdirSync) }
+})
 
 /**
  * Histórico em páginas: cada evento leva o byte de início da sua linha no
@@ -150,6 +157,15 @@ describe('readLinesBefore', () => {
   it('arquivo que não existe → vazio e no começo, sem lançar', async () => {
     expect(await readLinesBefore('/nao/existe.jsonl', undefined, 1024)).toEqual({ lines: [], start: 0, atStart: true })
   })
+
+  /** Erro de leitura não é "chegou ao começo": quem pagina ou busca pararia ali,
+   *  e tudo antes ficaria inalcançável sem aviso. */
+  it('erro de leitura que não é arquivo ausente propaga, em vez de virar atStart', async () => {
+    const dir = novoDir('page-erro-') // abrir um diretório funciona; ler dá EISDIR
+    await expect(readLinesBefore(dir, 10, 1024)).rejects.toMatchObject({ code: 'EISDIR' })
+    await expect(readPositionedTail(dir, (ls: PositionedLine[]) => ls, { before: 10, minItems: 1 }))
+      .rejects.toMatchObject({ code: 'EISDIR' })
+  })
 })
 
 describe('readHistoryPage por engine', () => {
@@ -211,6 +227,39 @@ describe('readHistoryPage por engine', () => {
     expect(boundary).toMatchObject({ kind: 'system', subtype: 'compact_boundary' })
     expect(boundary.raw.compact_metadata.pre_tokens).toBe(98765)
     expect(semPos(page.events)).toEqual(await codexEngine.readHistory('/p', threadId))
+  })
+
+  it('Codex: a segunda página não varre ~/.codex/sessions de novo', async () => {
+    const home = novoDir('page-codex-cache-')
+    process.env.CODEX_HOME = home
+    const threadId = '019a0000-0000-7000-8000-00000000cafe'
+    const dir = join(home, 'sessions', '2026', '11', '20')
+    mkdirSync(dir, { recursive: true })
+    const linhas = Array.from({ length: 20 }, (_, i) => JSON.stringify(
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `m${i}` }] } }))
+    const file = join(dir, `rollout-2026-11-20T00-00-00-${threadId}.jsonl`)
+    writeFileSync(file, linhas.map((l) => l + '\n').join(''))
+
+    const varreduras = vi.mocked(readdirSync)
+    varreduras.mockClear()
+    const p1 = await codexEngine.readHistoryPage!('/p', threadId, { minItems: 2, firstChunkBytes: 200 })
+    const depoisDaPrimeira = varreduras.mock.calls.length
+    expect(depoisDaPrimeira).toBeGreaterThan(0)
+    expect(p1.atStart).toBe(false)
+    const p2 = await codexEngine.readHistoryPage!('/p', threadId, { before: p1.start, minItems: 2, firstChunkBytes: 200 })
+    expect(varreduras.mock.calls.length, 'a segunda página varreu a árvore de novo').toBe(depoisDaPrimeira)
+    expect(p2.events.length).toBeGreaterThan(0)
+    expect(Math.max(...p2.events.map((e) => e.pos))).toBeLessThan(p1.start)
+
+    // O caminho guardado sumiu (arquivo movido): volta a varrer e acha o novo.
+    const outro = join(home, 'sessions', '2026', '11', '21')
+    mkdirSync(outro, { recursive: true })
+    const novo = join(outro, `rollout-2026-11-21T00-00-00-${threadId}.jsonl`)
+    writeFileSync(novo, linhas.slice(0, 2).map((l) => l + '\n').join(''))
+    rmSync(file)
+    const p3 = await codexEngine.readHistoryPage!('/p', threadId, { minItems: 300 })
+    expect(p3.atStart).toBe(true)
+    expect(p3.events).toHaveLength(2)
   })
 
   it('Kimi: turn.prompt vira evento com pos', async () => {

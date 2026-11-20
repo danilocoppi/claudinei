@@ -1,4 +1,5 @@
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { parseFromTail, readPositionedTail, type PositionedLine } from '../../tail.js'
@@ -36,6 +37,28 @@ function allRollouts(root: string): string[] {
 
 export function findRollout(root: string, threadId: string): string | null {
   return allRollouts(root).find((p) => p.includes(threadId)) ?? null
+}
+
+// Caminho do rollout por thread, para a leitura em páginas. A varredura de
+// `findRollout` é síncrona e proporcional ao número de rollouts da máquina;
+// paginar e buscar pedem a mesma conversa várias vezes seguidas, e repetir a
+// varredura a cada pedido travaria o laço de eventos outras tantas vezes.
+const rolloutCache = new Map<string, string>()
+
+/**
+ * `findRollout` com memória: confere o caminho guardado com um `stat`
+ * assíncrono e só varre de novo se o arquivo sumiu. Só guarda achados — um
+ * thread sem rollout ainda pode ganhar um no próximo turno.
+ */
+export async function findRolloutCached(root: string, threadId: string): Promise<string | null> {
+  const chave = `${root}\0${threadId}`
+  const guardado = rolloutCache.get(chave)
+  if (guardado) {
+    try { await stat(guardado); return guardado } catch { rolloutCache.delete(chave) }
+  }
+  const achado = findRollout(root, threadId)
+  if (achado) rolloutCache.set(chave, achado)
+  return achado
 }
 
 /**

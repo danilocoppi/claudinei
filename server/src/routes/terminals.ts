@@ -161,13 +161,15 @@ export function registerTerminalStateRoutes(
 
   /**
    * O × do aviso: os resultados pendentes do terminal são dispensados (seguem
-   * em list_tasks). O goal que esperava por eles pausa por operador.
+   * em list_tasks). O goal que esperava por eles pausa por operador — só se
+   * algum foi dispensado de fato. Encerrando, 409 `shutting_down`, como o
+   * Continuar: o pendente fica para a próxima subida.
    */
   app.delete('/api/projects/:id/terminals/:engine/task-results', async (req, reply) => {
     const t = target(req, reply)
     if (!t) return
-    deps.taskWake.dismiss(t.projectId, t.engine)
-    deps.goal.onTaskResultsDismissed(t.projectId, t.engine)
+    if (refuseWhileShuttingDown(reply)) return
+    if (deps.taskWake.dismiss(t.projectId, t.engine) > 0) deps.goal.onTaskResultsDismissed(t.projectId, t.engine)
     return { ok: true }
   })
 }

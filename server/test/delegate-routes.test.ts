@@ -225,9 +225,11 @@ describe('amarrado', () => {
   it('amarrado: resultado pendente + tarefa na fila → sai só o aviso; a tarefa vai na próxima folga', async () => {
     const a = await startIdle(inst, alfa)
     await startIdle(inst, beta)
-    // A origem trabalha (turno aberto até o Esc): o resultado da tarefa dela e uma tarefa para ela esperam o fim do turno.
-    inst.manager.send(a, 'demorada da origem')
-    await waitUntil(() => inst.manager.get(a)?.status === 'working')
+    // A origem trabalha (turno aberto até a resposta à pergunta): o resultado da
+    // tarefa dela e uma tarefa para ela esperam o fim do turno. Não é o Esc: o Esc
+    // no terminal que delegou segura o aviso (R19).
+    inst.manager.send(a, 'faz-pergunta da origem')
+    await waitUntil(() => inst.manager.get(a)?.pendingQuestion !== undefined)
     // `devagar` no resultado deixa o turno do aviso lento: dá para ver a tarefa ainda na fila durante ele.
     const id = await dispatch(alfa, beta, 'devagar parte de Beta')
     await waitUntil(() => tasks().get(id)?.notify === 'pending')
@@ -237,8 +239,8 @@ describe('amarrado', () => {
     // (O envio do operador não ecoa; o do Claudinei e o da tarefa, sim.)
     expect(userTexts(inst, a)).toEqual([])
 
-    // O turno termina (Esc): a sessão livre recebe uma coisa só.
-    await inst.manager.interrupt(a)
+    // O turno termina (bem): a sessão livre recebe uma coisa só.
+    inst.manager.dismissQuestion(a)
     await waitUntil(() => userTexts(inst, a).some((t) => t.startsWith(TASK_RESULT_PREFIX)))
     // Na mesma folga só o aviso: a tarefa segue na fila até o fim do turno dele.
     expect(tasks().get(queued)?.status).toBe('queued')
@@ -348,6 +350,22 @@ describe('rotas de task-results', () => {
     const r2 = await req('DELETE', resultsUrl(beta.id))
     expect(r2.statusCode).toBe(200)
     expect(store.get(beta.id, 'claude').goalStatus).toBe('active')
+  })
+
+  it('DELETE sem nada pendente não pausa o goal esperando; no encerramento, 409 e o aviso fica', async () => {
+    store.startGoal(alfa.id, 'claude', 'esperar Beta')
+    store.setGoalStatus(alfa.id, 'claude', 'waiting')
+    const res = await req('DELETE', resultsUrl(alfa.id))
+    expect(res.statusCode).toBe(200)
+    expect(store.get(alfa.id, 'claude').goalStatus).toBe('waiting')
+    // Encerrando: o × é recusado como o Continuar, e nada muda.
+    const id = pendingResult()
+    inst.manager.beginShutdown()
+    const r2 = await req('DELETE', resultsUrl(alfa.id))
+    expect(r2.statusCode).toBe(409)
+    expect(r2.json().code).toBe('shutting_down')
+    expect(tasks().get(id)?.notify).toBe('pending')
+    expect(store.get(alfa.id, 'claude').goalStatus).toBe('waiting')
   })
 
   it('a rota do limite devolve o estado decorado (com os resultados pendentes)', async () => {

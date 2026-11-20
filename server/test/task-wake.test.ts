@@ -204,6 +204,17 @@ async function dispatch(description: string, from: { fromProjectId?: number; fro
 
 const ended = (id: number) => () => ['completed', 'failed'].includes(tasks().get(id)?.status ?? '')
 
+/**
+ * Turno do operador que fica aberto até a pergunta (AskUserQuestion) ser
+ * respondida, e então fecha BEM: o jeito de acabar um turno longo sem Esc
+ * (o Esc no terminal que delegou segura o aviso, R19).
+ */
+async function openTurn(localId: string, text = 'faz-pergunta'): Promise<void> {
+  mgr.send(localId, text)
+  await waitUntil(() => mgr.get(localId)?.pendingQuestion !== undefined)
+}
+const closeTurn = (localId: string) => mgr.dismissQuestion(localId)
+
 describe('textos do aviso de resultado', () => {
   it('uma tarefa: selo, cabeçalho e o resultado', () => {
     expect(taskResultText([{ id: 7, toProjectName: 'Destino', status: 'completed', result: 'pronto' }]))
@@ -247,8 +258,7 @@ describe('aviso de resultado ao terminal que delegou', () => {
   it('origem trabalhando: o aviso sai no fim do turno, não no meio', async () => {
     const o = await up(origem)
     await up(destino)
-    mgr.send(o, 'demorada')   // turno que só fecha com o Esc
-    await waitUntil(() => mgr.get(o)?.status === 'working')
+    await openTurn(o)   // turno que só fecha com a resposta à pergunta
     const id = await dispatch('faça algo')
     await waitUntil(ended(id))
     await pause()
@@ -256,7 +266,7 @@ describe('aviso de resultado ao terminal que delegou', () => {
     expect(tasks().get(id)!.notify).toBe('pending')
     expect(lastState(origem.id)?.taskResults).toEqual([{ id, toProjectName: 'Destino', status: 'completed' }])
     // O turno acaba: o aviso sai na folga.
-    await mgr.interrupt(o)
+    closeTurn(o)
     await waitUntil(() => notices().length === 1)
     expect(notices()[0].localId).toBe(o)
     expect(tasks().get(id)!.notify).toBe('delivered')
@@ -465,15 +475,14 @@ describe('aviso de resultado ao terminal que delegou', () => {
   it('várias pendentes saem numa mensagem só, uma por bloco', async () => {
     const o = await up(origem)
     await up(destino)
-    mgr.send(o, 'demorada')
-    await waitUntil(() => mgr.get(o)?.status === 'working')
+    await openTurn(o)
     const a = await dispatch('primeira')
     const b = await dispatch('segunda')
     await waitUntil(() => ended(a)() && ended(b)())
     await pause()
     expect(notices()).toEqual([])
     expect(lastState(origem.id)?.taskResults?.map((t) => t.id)).toEqual([a, b])
-    await mgr.interrupt(o)
+    closeTurn(o)
     await waitUntil(() => notices().length === 1)
     await pause()
     expect(notices()).toHaveLength(1)
@@ -658,7 +667,7 @@ describe('aviso de resultado ao terminal que delegou', () => {
       offer: (ctx) => {
         if (ctx.projectId !== origem.id || calls.length > 0) return false
         calls.push('3')
-        mgr.send(ctx.localId, 'demorada da fila')   // só fecha com o Esc
+        mgr.send(ctx.localId, 'faz-pergunta da fila')   // só fecha com a resposta
         return true
       },
     })
@@ -669,8 +678,65 @@ describe('aviso de resultado ao terminal que delegou', () => {
     await pause()
     expect(notices()).toEqual([])
     expect(tasks().get(id)!.notify).toBe('pending')
-    await mgr.interrupt(o)
+    await waitUntil(() => mgr.get(o)?.pendingQuestion !== undefined)
+    closeTurn(o)
     await waitUntil(() => notices().length === 1)
     expect(notices()[0].localId).toBe(o)
+  })
+
+  it('Esc no terminal que delegou segura o aviso (R19): Continuar à vista; o turno bom do operador entrega', async () => {
+    const o = await up(origem)
+    await up(destino)
+    mgr.send(o, 'demorada')   // turno que só fecha com o Esc
+    await waitUntil(() => mgr.get(o)?.status === 'working')
+    const id = await dispatch('faça algo')
+    await waitUntil(ended(id))
+    await pause()
+    expect(tasks().get(id)!.notify).toBe('pending')
+    // O operador interrompe: a folga que vem não é do aviso.
+    await mgr.interrupt(o)
+    await waitUntil(() => mgr.get(o)?.status !== 'working')
+    await pause()
+    expect(notices()).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+    // Segurado como no limite: a tela mostra o Continuar.
+    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: [{ id, toProjectName: 'Destino', status: 'completed' }], taskResultsHeld: true })
+    // O operador volta a trabalhar: no fim do turno dele, o aviso sai.
+    mgr.send(o, 'oi')
+    await waitUntil(() => notices().length === 1)
+    expect(notices()[0].localId).toBe(o)
+    expect(wake.decorate(origem.id, 'claude')).toEqual({ taskResults: [], taskResultsHeld: false })
+  })
+
+  it('Esc no terminal que delegou: o Continuar do aviso entrega', async () => {
+    const o = await up(origem)
+    await up(destino)
+    mgr.send(o, 'demorada')
+    await waitUntil(() => mgr.get(o)?.status === 'working')
+    const id = await dispatch('faça algo')
+    await waitUntil(ended(id))
+    await mgr.interrupt(o)
+    await waitUntil(() => mgr.get(o)?.status !== 'working')
+    await pause()
+    expect(notices()).toEqual([])
+    expect(wake.continueNow(origem.id, 'claude')).toBe(true)
+    await waitUntil(() => notices().length === 1)
+    expect(tasks().get(id)!.notify).toBe('delivered')
+  })
+
+  it('o fim de uma compactação (herda a origem do turno anterior) não tira a marca', async () => {
+    const { o, id } = await limitedWithPending()
+    limit.cancel(origem.id, 'claude')
+    expect(wake.decorate(origem.id, 'claude').taskResultsHeld).toBe(true)
+    // Compactação que termina bem, com a origem do operador herdada do turno do limite.
+    wake.onTurnResult(origem.id, 'claude', { isError: false, interrupted: false, limited: false, origin: 'operator', compaction: true })
+    expect(wake.decorate(origem.id, 'claude').taskResultsHeld).toBe(true)
+    restart.publish(origem.id, 'claude')
+    await pause()
+    expect(notices()).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+    // O turno de verdade do operador ainda tira.
+    mgr.send(o, 'oi')
+    await waitUntil(() => notices().length === 1)
   })
 })

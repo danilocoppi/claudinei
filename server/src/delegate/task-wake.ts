@@ -32,6 +32,11 @@ import { taskResultText } from './texts.js'
  * cutucaria o árbitro e o Claudinei gastaria tokens sozinho só para entregar um
  * resultado. A marca fica só na memória; a subida a refaz pelo estado gravado.
  *
+ * Esc (turno interrompido pelo operador) no terminal que delegou segura do
+ * mesmo jeito, com a mesma marca (R19): a fila e o goal já pausam no Esc, e o
+ * aviso não pode "acordar atropelando" na folga seguinte. O Continuar do aviso
+ * ou um turno bom do operador ou do Claudinei a tira.
+ *
  * O estado do aviso fica na própria tarefa (`notify`), para sobreviver ao
  * reinício: na subida, os pendentes voltam às mesmas regras.
  */
@@ -65,11 +70,14 @@ export function createTaskWake(deps: {
   const projects = createProjectsService(db)
   const holds = deps.holds
 
-  /** Terminais (chave `projeto:motor`) segurados pelo limite de uso até voltarem a trabalhar. */
-  const limitHeld = new Set<string>()
+  /**
+   * Terminais (chave `projeto:motor`) segurados até voltarem a trabalhar: pelo
+   * limite de uso ou pelo Esc do operador (R19).
+   */
+  const held = new Set<string>()
   /** Refaz a marca pelo estado gravado: todo terminal com limite registrado. */
   const markLimitedRows = (): void => {
-    for (const r of store.list()) if (r.limitHitAt != null) limitHeld.add(keyOf(r))
+    for (const r of store.list()) if (r.limitHitAt != null) held.add(keyOf(r))
   }
   // Na construção (o buildApp, antes do startAfterListen): a subida do limite
   // roda antes da deste serviço e limpa o adiado que venceu com o Claudinei
@@ -77,9 +85,9 @@ export function createTaskWake(deps: {
   // `boot`, o limite já teria saído e o aviso iria sem ninguém trabalhar.
   markLimitedRows()
   /** Marca o terminal se ele está no limite agora; devolve se está segurado. */
-  const heldByLimit = (t: Terminal): boolean => {
-    if (store.get(t.projectId, t.engine).limitHitAt != null) limitHeld.add(keyOf(t))
-    return limitHeld.has(keyOf(t))
+  const isHeld = (t: Terminal): boolean => {
+    if (store.get(t.projectId, t.engine).limitHitAt != null) held.add(keyOf(t))
+    return held.has(keyOf(t))
   }
 
   const liveOf = (projectId: number, engine: string) =>
@@ -134,7 +142,7 @@ export function createTaskWake(deps: {
   const route = (t: Terminal): void => {
     // Encerrando: o pendente fica no banco e volta na próxima subida.
     if (manager.isShuttingDown()) return
-    if (heldByLimit(t)) {
+    if (isHeld(t)) {
       // Nem cutuca nem revive: o resultado espera o terminal voltar a trabalhar.
     } else if (liveOf(t.projectId, t.engine)) {
       deps.nextSend()?.poke(t.projectId, t.engine)
@@ -155,7 +163,7 @@ export function createTaskWake(deps: {
     slot: 4,
     /** Todas as pendentes do terminal numa mensagem só, uma por bloco. */
     offer(ctx) {
-      if (heldByLimit(ctx)) return false
+      if (isHeld(ctx)) return false
       const pending = pendingFor(ctx.projectId, ctx.engine)
       if (pending.length === 0) return false
       manager.sendAsClaudinei(ctx.localId, taskResultText(pending.map((t) => ({
@@ -201,9 +209,9 @@ export function createTaskWake(deps: {
     continueNow(projectId: number, engine: string): boolean {
       if (manager.isShuttingDown()) return false
       if (pendingFor(projectId, engine).length === 0) return false
-      // O Continuar é o operador pedindo a entrega: tira a marca do limite, desde
+      // O Continuar é o operador pedindo a entrega: tira a marca (limite ou Esc), desde
       // que o limite já tenha saído (com ele ativo, o árbitro segura de todo jeito).
-      if (store.get(projectId, engine).limitHitAt == null) limitHeld.delete(keyOf({ projectId, engine }))
+      if (store.get(projectId, engine).limitHitAt == null) held.delete(keyOf({ projectId, engine }))
       if (!liveOf(projectId, engine)) deps.restart.bringUp(projectId, engine, null)
       deps.nextSend()?.poke(projectId, engine)
       return true
@@ -211,22 +219,35 @@ export function createTaskWake(deps: {
 
     /**
      * Fim de turno (o mesmo gancho do manager). O turno que bate no limite marca
-     * o terminal; um turno bom do operador ou do Claudinei (a retomada armada do
-     * limite é do Claudinei) tira a marca: o terminal voltou a trabalhar. Turno
-     * com erro, interrompido, ou de tarefa e agendamento não prova isso.
+     * o terminal, e o interrompido pelo operador também (R19); um turno bom do
+     * operador ou do Claudinei (a retomada armada do limite é do Claudinei) tira
+     * a marca: o terminal voltou a trabalhar. Turno com erro, de tarefa, de
+     * agendamento ou de compactação (que herda a origem do turno anterior) não
+     * prova isso.
      */
-    onTurnResult(projectId: number, engine: string, info: { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin }): void {
+    onTurnResult(projectId: number, engine: string, info: { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin; compaction?: boolean }): void {
       const key = keyOf({ projectId, engine })
-      if (info.limited) { limitHeld.add(key); return }
-      if (info.isError || info.interrupted) return
-      if (info.origin === 'operator' || info.origin === 'claudinei') limitHeld.delete(key)
+      if (info.limited) { held.add(key); return }
+      if (info.compaction) return
+      if (info.interrupted) { held.add(key); return }
+      if (info.isError) return
+      if (info.origin === 'operator' || info.origin === 'claudinei') held.delete(key)
     },
 
-    /** O × do aviso: os pendentes do terminal viram dispensados. O resultado segue em list_tasks. */
-    dismiss(projectId: number, engine: string): void {
+    /**
+     * O × do aviso: os pendentes do terminal viram dispensados. O resultado segue
+     * em list_tasks. Devolve quantos foram dispensados.
+     */
+    dismiss(projectId: number, engine: string): number {
       const ids = pendingFor(projectId, engine).map((t) => t.id)
       tasks.setNotify(ids, 'dismissed')
       publish(projectId, engine)
+      return ids.length
+    },
+
+    /** O terminal tem resultado de tarefa esperando para sair (segurado ou não). */
+    hasPending(projectId: number, engine: string): boolean {
+      return pendingFor(projectId, engine).length > 0
     },
 
     /**
@@ -239,7 +260,7 @@ export function createTaskWake(deps: {
         taskResults: pendingFor(projectId, engine).map((t) => ({
           id: t.id, toProjectName: t.toProjectName, status: t.status as 'completed' | 'failed',
         })),
-        taskResultsHeld: limitHeld.has(keyOf({ projectId, engine })) || store.get(projectId, engine).limitHitAt != null,
+        taskResultsHeld: held.has(keyOf({ projectId, engine })) || store.get(projectId, engine).limitHitAt != null,
       }
     },
 

@@ -177,3 +177,7 @@ cada pedido, com modelo e pasta.
 - **Mesma base de cache para os dois motores.** O Codex conta os tokens do cache dentro da entrada; o Claude não. Para o Codex, a entrada nova = entrada − cache, e o percentual de cache e o ranking significam a mesma coisa nos dois.
 - **"Nunca contar duas vezes" vale entre arquivos**: o mesmo id de resposta do Claude aparece em mais de um arquivo de subagente; a deduplicação é global (id da mensagem + requestId), não por arquivo.
 - **Subagentes em subpastas**: o indexador procura `subagents/` recursivamente (há `subagents/workflows/wf_*/`).
+
+## Ctrl+U (decidido pelo operador)
+
+Segue a regra do Ctrl+Space da voz (`isForeignField` em `web/src/keyboard.ts`): com o cursor no terminal interativo ou num campo de texto, Ctrl+U continua com o comportamento de lá (apagar a linha); fora disso, abre a página (com `preventDefault`, para o navegador não abrir o código-fonte). O cartão de uso da lateral ganha um "Ver detalhes" que abre a mesma página.

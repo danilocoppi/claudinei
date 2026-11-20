@@ -458,6 +458,13 @@ export const ptBR: typeof en = {
     armed: 'Retomada armada para {{time}}',
     cardMarker: 'limite até {{time}}', cardMarkerUnknown: 'limite de uso', cardMarkerArmed: 'retoma às {{time}}',
   },
+  stash: {
+    button: '{{count}} prompt guardado. Ctrl+S guarda o que está no campo; com o campo vazio, traz o último.',
+    button_other: '{{count}} prompts guardados. Ctrl+S guarda o que está no campo; com o campo vazio, traz o último.',
+    menu: 'Prompts guardados',
+    attachments: '{{count}} anexo', attachments_other: '{{count}} anexos',
+    missing: 'não disponível',
+  },
   zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. Alt+Z liga e desliga.' },
   fileViewer: {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',

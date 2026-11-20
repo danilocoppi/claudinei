@@ -455,6 +455,13 @@ export const en = {
     armed: 'Resume armed for {{time}}',
     cardMarker: 'limit until {{time}}', cardMarkerUnknown: 'usage limit', cardMarkerArmed: 'resumes at {{time}}',
   },
+  stash: {
+    button: '{{count}} saved prompt. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',
+    button_other: '{{count}} saved prompts. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',
+    menu: 'Saved prompts',
+    attachments: '{{count}} attachment', attachments_other: '{{count}} attachments',
+    missing: 'no longer available',
+  },
   zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',

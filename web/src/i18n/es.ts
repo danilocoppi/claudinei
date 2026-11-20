@@ -457,6 +457,13 @@ export const es: typeof en = {
     armed: 'Reanudación programada para las {{time}}',
     cardMarker: 'límite hasta las {{time}}', cardMarkerUnknown: 'límite de uso', cardMarkerArmed: 'reanuda a las {{time}}',
   },
+  stash: {
+    button: '{{count}} prompt guardado. Ctrl+S guarda lo que está en el campo; con el campo vacío, trae el último.',
+    button_other: '{{count}} prompts guardados. Ctrl+S guarda lo que está en el campo; con el campo vacío, trae el último.',
+    menu: 'Prompts guardados',
+    attachments: '{{count}} adjunto', attachments_other: '{{count}} adjuntos',
+    missing: 'ya no disponible',
+  },
   zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',

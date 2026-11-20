@@ -1291,6 +1291,29 @@ button.subagent__stop:hover { opacity: 1; color: var(--err); background: color-m
   flex: 1; min-width: 0; resize: none; font-size: 15px; line-height: 24px;
 }
 
+/* ---- Guardados (Ctrl+S) --------------------------------------------------
+   O 🗂 com a contagem só existe com algo guardado. A lista sobe do campo, ancorada
+   à direita (onde fica o botão). Fundo sólido do tema, sem blur: nada de custo de
+   composição a mais no rodapé, que fica na tela o tempo todo. */
+.stash-btn { gap: 4px; }
+.stash-btn__count { font-size: 12px; font-variant-numeric: tabular-nums; }
+.stash-menu {
+  position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 21;
+  min-width: 280px; max-width: 440px; max-height: 300px; overflow-y: auto;
+  background: var(--surface-solid); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.stash-menu__title { padding: 4px 10px 6px; font-size: 11.5px; color: var(--text-dim); }
+.stash-item {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  padding: 7px 10px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.stash-item:hover, .stash-item:focus-visible { background: var(--surface-strong); outline: none; }
+.stash-item__text { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stash-item__meta { flex-shrink: 0; font-size: 11.5px; color: var(--text-dim); }
+
 /* ---- A lista que o `@@` abre: com quem este terminal vai falar --------------
    Mesma âncora do menu de barra (sobe do campo), mas com um campo de busca no
    topo: nome de terminal tem espaço, e espaço encerra a palavra em qualquer
@@ -1858,7 +1881,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   }
   /* Os menus do `/` e do `@@` pediam 300px de largura mínima — estouravam a tela
      de 360px. Aqui eles acompanham a largura do campo. */
-  .slash-menu, .mention-menu { min-width: 0; max-width: none; left: 0; right: 0; }
+  .slash-menu, .mention-menu, .stash-menu { min-width: 0; max-width: none; left: 0; right: 0; }
 
   /* A última linha do terminal ficava debaixo da faixa do gesto do iPhone. */
   .terminal-view__screen { padding-bottom: calc(4px + env(safe-area-inset-bottom)); }

@@ -279,6 +279,13 @@ export const fetchUsageReport = (period: UsagePeriod, tz: number, signal?: Abort
     signal ? { signal } : undefined,
   )
 
+/**
+ * Quais destes anexos sumiram do servidor (a rotação apaga os de mais de 30 dias).
+ * O servidor aceita até 200 caminhos por chamada; quem chama manda menos que isso.
+ */
+export const checkUploads = (paths: string[]) =>
+  req<{ missing: string[] }>('/api/uploads/check', { method: 'POST', body: JSON.stringify({ paths }) })
+
 // fetch cru — o req() colocaria Content-Type json e quebraria o boundary do multipart
 export const uploadFile = async (file: File, name?: string): Promise<{ path: string; name: string }> => {
   const fd = new FormData()

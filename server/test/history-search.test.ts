@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, openSync, writeSync, closeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -178,7 +178,7 @@ describe('searchEvents', () => {
     expect(searchEvents(evts, 'a.b', false)).toHaveLength(0)
   })
 
-  it('não pesa no laço de eventos: 8 MB acentuados com uma ocorrência em menos de 150 ms', () => {
+  it('não pesa no laço de eventos: 8 MB acentuados com uma ocorrência em menos de 500 ms', () => {
     const unidade = 'Teste ✓ passou em função da configuração; ação concluída com êxito. '
     let grande = ''
     while (grande.length < 8 * 1024 * 1024) grande += unidade
@@ -190,8 +190,44 @@ describe('searchEvents', () => {
     const dt = performance.now() - t0
     expect(hits).toHaveLength(1)
     expect(hits[0].snippet).toContain('agulha')
-    // Medido ~45 ms (antes da correção, ~850 ms); a folga cobre máquina carregada.
-    expect(dt).toBeLessThan(150)
+    // Medido ~105 ms (o mapa código a código de antes custava ~850 ms); a folga
+    // de ~5× cobre máquina carregada sem deixar passar a volta do custo antigo.
+    expect(dt).toBeLessThan(500)
+  })
+
+  // Quase-acertos: a consulta casa quase toda em quase todo lugar e só falha
+  // no fim. Com o padrão que pulava marcas entre as letras, isso custava
+  // O(texto × consulta): 3 a 7 s numa fatia de 8 MB, com o laço parado.
+  const quaseAcerto = (unidade: string, q: string) => {
+    let grande = ''
+    while (grande.length < 8 * 1024 * 1024) grande += unidade
+    const evts = comPos([usuario([{ type: 'tool_result', tool_use_id: 'tu-1', content: grande }])])
+    const t0 = performance.now()
+    const hits = searchEvents(evts, q, true)
+    return { hits, dt: performance.now() - t0 }
+  }
+
+  it('quase-acerto com acento não trava: "ç"×199+"x" em 8 MB de "ç"', () => {
+    const { hits, dt } = quaseAcerto('ç'.repeat(63) + '\n', 'ç'.repeat(199) + 'x')
+    expect(hits).toEqual([])
+    // Medido ~270 ms depois da correção (antes, ~5,9 s); folga de ~4×.
+    expect(dt).toBeLessThan(1100)
+  })
+
+  it('quase-acerto com caracteres de desenho não trava: "─"×15+" fim"', () => {
+    const { hits, dt } = quaseAcerto('─'.repeat(79) + '\n', '─'.repeat(15) + ' fim')
+    expect(hits).toEqual([])
+    // Medido ~125 ms depois da correção (antes, ~1,5 s); folga de ~5×.
+    expect(dt).toBeLessThan(650)
+  })
+
+  it('quase-acerto com texto decomposto também acha quando casa', () => {
+    // As marcas somem dos dois lados: "c" + cedilha combinante casa com "ç".
+    const texto = 'ç'.normalize('NFD').repeat(500) + 'X fim'
+    const hits = searchEvents(comPos([assistente([{ type: 'text', text: texto }])]), 'ç'.repeat(10) + 'x', false)
+    expect(hits).toHaveLength(1)
+    expect(hits[0].snippet).toContain('X fim')
+    expect(hits[0].snippet).not.toMatch(/^\p{M}/u)
   })
 
   it('consulta curta demais depois de normalizar não acha nada', () => {
@@ -310,7 +346,12 @@ describe('rota de busca', () => {
   it('erro de leitura vira 500, nunca fim da busca', async () => {
     mkdirSync(join(transcriptDir, 'sid-quebrado.jsonl'))
     sessaoCom('s-6', 'sid-quebrado')
+    // O Fastify roda sem logger: o erro tem de ir ao console, senão some.
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     const res = await app.inject({ method: 'GET', url: '/api/sessions/s-6/search?q=qualquer' })
+    const chamadas = [...log.mock.calls]
+    log.mockRestore()
+    expect(chamadas).toContainEqual([expect.stringContaining('s-6'), expect.objectContaining({ code: 'EISDIR' })])
     expect(res.statusCode).toBe(500)
     expect(res.json().code).toBe('history_read_failed')
   })

@@ -39,7 +39,8 @@ export async function parseFromTail<T>(
   try { size = (await stat(file)).size } catch { return [] }
   if (size === 0) return []
 
-  let janela = Math.min(opts.firstChunkBytes ?? FIRST_CHUNK, maxBytes)
+  // Piso de 1 byte: janela 0 nunca cresceria (0 × 4) e o laço não sairia.
+  let janela = Math.max(1, Math.min(opts.firstChunkBytes ?? FIRST_CHUNK, maxBytes))
   let itens: T[] = []
   for (;;) {
     const bytes = Math.min(janela, size, maxBytes)
@@ -197,7 +198,8 @@ export async function readPositionedTail<T>(
   opts: { before?: number; minItems: number; maxBytes?: number; firstChunkBytes?: number },
 ): Promise<{ items: T[]; start: number; atStart: boolean }> {
   const maxBytes = opts.maxBytes ?? MAX_BYTES
-  let janela = Math.min(opts.firstChunkBytes ?? FIRST_CHUNK, maxBytes)
+  // Piso de 1 byte: janela 0 nunca cresceria (0 × 4) e o laço não sairia.
+  let janela = Math.max(1, Math.min(opts.firstChunkBytes ?? FIRST_CHUNK, maxBytes))
   for (;;) {
     const r = await readLinesBefore(file, opts.before, janela)
     const items = parseLines(r.lines)

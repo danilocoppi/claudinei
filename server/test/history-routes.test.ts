@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,7 @@ import { loadConfig } from '../src/config.js'
 import { createSessionManager } from '../src/claude/manager.js'
 import { ClaudeSession, type SessionOptions } from '../src/claude/session.js'
 import { HISTORY_EVENT_LIMIT } from '../src/routes/sessions.js'
+import { claudeEngine } from '../src/engine/claude-engine.js'
 import { lastEventsOf, type HistoryPage, type PositionedEvent } from '../src/history-page.js'
 
 /**
@@ -142,6 +143,38 @@ describe('rota de histórico em páginas', () => {
     expect(vazio).toEqual({ events: [], before: 0, atStart: true })
   })
 
+  it('prévia resolve a conversa uma vez por carga: páginas e busca reusam, e o id real substitui', async () => {
+    const inicios = transcript('sid-anterior', 5)
+    sessaoCom('h-8', null, 1)
+    const latest = vi.spyOn(claudeEngine, 'latestConversationId')
+    try {
+      const p1 = (await app.inject({ method: 'GET', url: '/api/sessions/h-8/history?limit=2' })).json()
+      expect(latest).toHaveBeenCalledTimes(1)
+      // Outra conversa fica mais recente no meio da leitura: as páginas e a
+      // busca seguem na mesma, sem varrer a pasta de novo.
+      transcript('sid-mais-nova', 3)
+      utimesSync(join(transcriptDir, 'sid-mais-nova.jsonl'), new Date(), new Date(Date.now() + 60_000))
+      const p2 = (await app.inject({ method: 'GET', url: `/api/sessions/h-8/history?before=${p1.before}` })).json()
+      expect(p2.events.map(textoDe)).toEqual(['msg-0', 'msg-1', 'msg-2'])
+      const busca = (await app.inject({ method: 'GET', url: `/api/sessions/h-8/search?q=msg-4&before=${inicios[4] + 200}` })).json()
+      expect(busca.hits).toHaveLength(1)
+      expect(latest).toHaveBeenCalledTimes(1)
+
+      // Carga nova do fim (sem `before`) resolve de novo.
+      const fresca = (await app.inject({ method: 'GET', url: '/api/sessions/h-8/history' })).json()
+      expect(fresca.events.map(textoDe)).toEqual(['msg-0', 'msg-1', 'msg-2'])
+      expect(latest).toHaveBeenCalledTimes(2)
+
+      // Ganhou a conversa própria: usa a dela, sem perguntar a mais recente.
+      db.prepare('UPDATE sessions SET claude_session_id=? WHERE local_id=?').run('sid-anterior', 'h-8')
+      const propria = (await app.inject({ method: 'GET', url: `/api/sessions/h-8/history?before=${inicios[2]}` })).json()
+      expect(propria.events.map(textoDe)).toEqual(['msg-0', 'msg-1'])
+      expect(latest).toHaveBeenCalledTimes(2)
+    } finally {
+      latest.mockRestore()
+    }
+  })
+
   it('sem transcript: página vazia no começo', async () => {
     sessaoCom('h-6', 'sid-que-nao-existe')
     const res = await app.inject({ method: 'GET', url: '/api/sessions/h-6/history' })
@@ -153,7 +186,12 @@ describe('rota de histórico em páginas', () => {
     // Um diretório no lugar do transcript: abre, mas a leitura falha (EISDIR).
     mkdirSync(join(transcriptDir, 'sid-quebrado.jsonl'))
     sessaoCom('h-7', 'sid-quebrado')
+    // O Fastify roda sem logger: o erro tem de ir ao console, senão some.
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     const res = await app.inject({ method: 'GET', url: '/api/sessions/h-7/history' })
+    const chamadas = [...log.mock.calls]
+    log.mockRestore()
+    expect(chamadas).toContainEqual([expect.stringContaining('h-7'), expect.objectContaining({ code: 'EISDIR' })])
     expect(res.statusCode).toBe(500)
     expect(res.json().atStart).toBeUndefined()
     expect(res.json().code).toBe('history_read_failed')

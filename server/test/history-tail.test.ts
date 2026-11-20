@@ -125,6 +125,14 @@ describe('leitura pela cauda', () => {
     expect(linhas.at(-1)).toBe('l399')
   })
 
+  it('primeira janela 0 ainda cresce e termina', { timeout: 3000 }, async () => {
+    // Janela 0 × 4 = 0 para sempre: sem um piso, o laço nunca saía.
+    const file = arquivoCom(Array.from({ length: 40 }, (_, i) => `l${i}`))
+    const linhas = await parseFromTail(file, (t) => t.split('\n').filter(Boolean), { minItems: 30, firstChunkBytes: 0 })
+    expect(linhas.length).toBeGreaterThanOrEqual(30)
+    expect(linhas.at(-1)).toBe('l39')
+  })
+
   it('arquivo que não existe → vazio, sem lançar', async () => {
     expect(await parseFromTail('/nao/existe.jsonl', (t) => t.split('\n'), {})).toEqual([])
   })

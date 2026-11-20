@@ -138,6 +138,14 @@ describe('readLinesBefore', () => {
     expect(vistos).toEqual(inicios)
   })
 
+  it('readPositionedTail com primeira janela 0 ainda cresce e termina', { timeout: 3000 }, async () => {
+    // Janela 0 × 4 = 0 para sempre: sem um piso, o laço nunca saía.
+    const { file, inicios } = gravar(Array.from({ length: 40 }, (_, i) => `linha ${i}`))
+    const p = await readPositionedTail(file, (ls: PositionedLine[]) => ls, { minItems: 30, firstChunkBytes: 0 })
+    expect(p.items.length).toBeGreaterThanOrEqual(30)
+    expect(p.items.at(-1)?.pos).toBe(inicios.at(-1))
+  })
+
   it('UTF-8 multibyte na borda da janela não vira lixo', async () => {
     const linhas = ['ação rápida ✓', '🎉 festa — já', 'coração ❤️ 漢字', 'fim ñ']
     const { file } = gravar(linhas)

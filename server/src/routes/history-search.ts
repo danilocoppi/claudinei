@@ -60,7 +60,8 @@ export function registerHistorySearchRoutes(app: FastifyInstance, deps: { db: Db
     } catch (err) {
       // Erro de leitura não é "chegou ao começo": a busca pararia ali e o que
       // vem antes ficaria sem resposta, sem aviso.
-      req.log.error({ err, localId }, 'falha ao ler o histórico para a busca')
+      // O Fastify roda sem logger (`req.log` é mudo): o erro vai ao console.
+      console.error(`[busca] falha ao ler o histórico de ${localId}`, err)
       return reply.code(500).send(fail('history_read_failed', 'não foi possível ler o histórico da conversa'))
     }
   })

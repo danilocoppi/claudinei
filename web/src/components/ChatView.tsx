@@ -16,6 +16,7 @@ import { CompactingIndicator } from './CompactingIndicator'
 import { ReauthBanner } from './ReauthBanner'
 import { InterruptedNotice } from './InterruptedNotice'
 import { UsageLimitNotice } from './UsageLimitNotice'
+import { QueuePanel } from './QueuePanel'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
@@ -216,7 +217,9 @@ export function ChatView() {
   return (
     <div className="chat-layout">
     <div className="chat-main">
-      <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
+      {/* O `display` mora no CSS (.chat-header), não aqui: o modo Zen esconde o
+          cabeçalho por `.app.zen .chat-header`. */}
+      <div className="chat-header" style={{ alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
         {/* O mesmo menu do cartão da lista, aqui no título: quem está lendo a
             conversa não devia ter que voltar à barra lateral para renomear o
             terminal ou abrir a pasta dele. */}
@@ -336,6 +339,8 @@ export function ChatView() {
       <InterruptedNotice projectId={session.projectId} engine={engine} />
       {/* Limite de uso que o terminal desta aba bateu. */}
       <UsageLimitNotice projectId={session.projectId} engine={engine} />
+      {/* Fila do operador do terminal: logo acima do campo, à vista também no Zen. */}
+      <QueuePanel projectId={session.projectId} engine={engine} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

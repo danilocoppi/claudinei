@@ -11,14 +11,20 @@ import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
-import type { HeadsUpNode, Progress, TerminalState, TriageItem } from './types'
+import type { HeadsUpNode, OperatorQueue, Progress, TerminalState, TriageItem } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
+/** Modo Zen (só a conversa e o campo): também por navegador, '1' | '0'. */
+const ZEN_KEY = 'claudinei:zen'
 const PROGRESS_OPEN_KEY = 'claudinei:progressOpen'
 
 /** Chave do acompanhamento de um terminal: projeto + motor. */
 export const progressKey = (projectId: number, engine: string) => `${projectId}:${engine}`
+
+/** O número de filas do terminal que chegaram pelo WebSocket até agora (ver `applyQueueReply`). */
+export const queueSeqOf = (projectId: number, engine: string): number =>
+  useStore.getState().queueWsSeq[progressKey(projectId, engine)] ?? 0
 
 /**
  * Fallback embutido para `store.engines`, usado até `GET /api/engines` resolver (ou se falhar).
@@ -37,6 +43,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
     permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],
     slashSource: 'protocol',
     slashCommands: [],
+    midTurnInput: true,
   },
   {
     id: 'codex',
@@ -47,6 +54,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
     permissions: [],
     slashSource: 'curated',
     slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
+    midTurnInput: true,
   },
 ]
 
@@ -112,6 +120,11 @@ interface State {
   slashCommands: string[]
   /** Engines registradas no backend (metadados + capabilities), populado no boot ('ready'). */
   engines: EngineMeta[]
+  /**
+   * `engines` já veio do servidor (`setEngines`). Antes disso vale o embutido,
+   * que não sabe o que está instalado: quem decide por instalação espera esta marca.
+   */
+  enginesLoaded: boolean
   /** Effort atual por sessão, farejado das respostas do /effort (ausente = auto). */
   sessionEffort: Record<string, string>
   /** Grupos visuais de terminais (sidebar). */
@@ -192,6 +205,9 @@ interface State {
   /** Barra lateral em modo régua (62px, só estados e ícones). */
   railMode: boolean
   toggleRail(): void
+  /** Modo Zen: esconde a moldura (lateral, cabeçalho do chat e coluna do acompanhamento). */
+  zen: boolean
+  toggleZen(): void
   /** Acompanhamento de tarefas longas por terminal (`progressKey`); null = sem acompanhamento. */
   progress: Record<string, Progress | null>
   setProgress(projectId: number, engine: string, progress: Progress | null): void
@@ -208,6 +224,26 @@ interface State {
    */
   terminalStates: Record<string, TerminalState>
   setTerminalState(state: TerminalState): void
+  /**
+   * Fila do operador por terminal (`progressKey`). Terminal fora do mapa ainda
+   * não foi lido (o painel trata como vazia). Lida por `useQueueSync` e mantida
+   * pela mensagem `operator_queue` do WebSocket e pelas respostas da API.
+   */
+  queues: Record<string, OperatorQueue>
+  setQueue(queue: OperatorQueue): void
+  /**
+   * Quantas filas de cada terminal chegaram pelo WebSocket. A resposta HTTP de
+   * uma mudança na fila pode chegar DEPOIS de um `operator_queue` mais novo (o
+   * "enviar agora" responde antes de a entrega acontecer): quem chama a API
+   * anota o número antes e aplica a resposta por `applyQueueReply`.
+   */
+  queueWsSeq: Record<string, number>
+  /**
+   * Aplica a fila devolvida pela API só se nenhum `operator_queue` do terminal
+   * chegou desde `seq` (lido por `queueSeqOf` antes da chamada). Se chegou, a
+   * resposta é descartada: o WebSocket já trouxe um estado pelo menos tão novo.
+   */
+  applyQueueReply(queue: OperatorQueue, seq: number): void
   /**
    * Triagem da lista do usuário logado, por projeto: fixado, assentado e adiado.
    * Projeto fora do mapa está no normal. Lida por `useTriageSync` e mantida pela
@@ -262,7 +298,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, queues: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -275,6 +311,7 @@ export const useStore = create<State>((set, get) => ({
   editRequest: undefined,
   slashCommands: BUILTIN_FALLBACK,
   engines: BUILTIN_ENGINES,
+  enginesLoaded: false,
   sessionEffort: {},
   groups: [],
   sectors: [],
@@ -313,7 +350,7 @@ export const useStore = create<State>((set, get) => ({
 
   setSlashCommands: (cmds) => set((s) => (cmds.length ? { slashCommands: cmds } : s)),
 
-  setEngines: (engines) => set({ engines }),
+  setEngines: (engines) => set({ engines, enginesLoaded: true }),
 
   setHistory: (localId, events) =>
     set((s) => ({ chat: { ...s.chat, [localId]: events.reduce(applyEvent, [] as ChatItem[]) } })),
@@ -385,11 +422,34 @@ export const useStore = create<State>((set, get) => ({
       return { railMode }
     }),
 
+  zen: (() => {
+    try { return localStorage.getItem(ZEN_KEY) === '1' } catch { return false }
+  })(),
+
+  toggleZen: () =>
+    set((s) => {
+      const zen = !s.zen
+      try { localStorage.setItem(ZEN_KEY, zen ? '1' : '0') } catch { /* só não persiste */ }
+      return { zen }
+    }),
+
   progress: {},
   progressEpoch: 0,
   terminalStates: {},
   setTerminalState: (state) =>
     set((s) => ({ terminalStates: { ...s.terminalStates, [progressKey(state.projectId, state.engine)]: state } })),
+  queues: {},
+  setQueue: (queue) => {
+    // Resposta sem a forma de uma fila (servidor antigo, proxy) não entra no store.
+    if (!queue || !Array.isArray(queue.items)) return
+    set((s) => ({ queues: { ...s.queues, [progressKey(queue.projectId, queue.engine)]: queue } }))
+  },
+  queueWsSeq: {},
+  applyQueueReply: (queue, seq) => {
+    if (!queue) return
+    if ((get().queueWsSeq[progressKey(queue.projectId, queue.engine)] ?? 0) !== seq) return
+    get().setQueue(queue)
+  },
   triage: {},
   undo: null,
   triageError: null,
@@ -449,6 +509,15 @@ export const useStore = create<State>((set, get) => ({
       get().setProgress(msg.projectId, msg.engine, (msg.progress ?? null) as Progress | null)
     } else if (msg.type === 'terminal_state' && msg.state && typeof msg.state.projectId === 'number' && typeof msg.state.engine === 'string') {
       get().setTerminalState(msg.state as TerminalState)
+    } else if (msg.type === 'operator_queue' && msg.queue && typeof msg.projectId === 'number' && typeof msg.engine === 'string' && Array.isArray(msg.queue.items)) {
+      // A chave vem do envelope: é ele que diz de que terminal é a fila.
+      // Um set só: a fila e a contagem que invalida as respostas HTTP em voo.
+      const key = progressKey(msg.projectId, msg.engine)
+      const queue: OperatorQueue = { ...(msg.queue as OperatorQueue), projectId: msg.projectId, engine: msg.engine }
+      set((s) => ({
+        queues: { ...s.queues, [key]: queue },
+        queueWsSeq: { ...s.queueWsSeq, [key]: (s.queueWsSeq[key] ?? 0) + 1 },
+      }))
     } else if (msg.type === 'triage' && msg.item && typeof msg.item.projectId === 'number') {
       // Chega só ao dono (ação dele em outra aba, ou o despertar): `userId` não precisa de conferência.
       get().setTriageItem(msg.item as TriageItem)

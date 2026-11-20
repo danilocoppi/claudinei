@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-09-23T12:00:00Z'))
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
   fetchCatalog.mockReset().mockResolvedValue([old])
-  useStore.setState({ engines: [old] })
+  useStore.setState({ engines: [old], enginesLoaded: false })
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
 
@@ -62,9 +62,12 @@ describe('atualização do catálogo sem recarregar a página', () => {
     renderHook(() => useEngineCatalog(true))
     await flush()
     expect(useStore.getState().engines).toEqual([old])
+    // A falha deixa o embutido: ele não conta como carregado do servidor.
+    expect(useStore.getState().enginesLoaded).toBe(false)
     fetchCatalog.mockResolvedValue([current])
     await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000) })
     expect(useStore.getState().engines).toEqual([current])
+    expect(useStore.getState().enginesLoaded).toBe(true)
   })
 
   it('não sobrepõe consultas lentas nem aplica respostas depois do logout', async () => {

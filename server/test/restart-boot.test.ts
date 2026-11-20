@@ -381,11 +381,22 @@ describe('createRestartService.boot', () => {
     return { p, localId, svc }
   }
 
-  /** Tarefa encaminhada DEPOIS da subida, entregue pelo caminho normal (drain). */
+  /**
+   * Tarefa encaminhada DEPOIS da subida, entregue pelo caminho normal (drain).
+   * Com o aviso aberto o terminal não recebe tarefa (ela espera, como a fila do
+   * operador): para montar o caso de uma tarefa em andamento que não é do turno
+   * interrompido, a marca sai, a tarefa é entregue e a marca volta igual.
+   */
   const dispatchAfterBoot = (p: Project) => {
     const tasks = createTasksService(db)
     const { id } = tasks.create(null, p.id, 'tarefa nova', 'queued')
-    orch.drain(p.id)
+    expect(orch.drain(p.id)).toBe(false)
+    expect(tasks.get(id)?.status).toBe('queued')
+    const mark = store.get(p.id, 'claude')
+    store.clearInterruption(p.id, 'claude')
+    expect(orch.drain(p.id)).toBe(true)
+    store.markInterrupted(p.id, 'claude', mark.interruptedLocalId!, mark.lostQuestion)
+    store.setHold(p.id, 'claude', mark.holdReason!)
     expect(tasks.get(id)?.status).toBe('in_progress')
     return { tasks, id }
   }

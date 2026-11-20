@@ -10,6 +10,7 @@ import { EngineIcon } from './EngineIcon'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ContextMeter } from './ContextMeter'
 import { ViewportPopover } from './ViewportPopover'
+import { NewProjectModal } from './NewProjectModal'
 
 /**
  * Abas por engine de um projeto — usadas no header do ChatView E na barra do
@@ -24,6 +25,7 @@ import { ViewportPopover } from './ViewportPopover'
 export function EngineTabs({ projectId, activeLocalId }: { projectId: number; activeLocalId: string }) {
   const { t } = useTranslation()
   const engines = useStore((s) => s.engines)
+  const enginesLoaded = useStore((s) => s.enginesLoaded)
   const sessions = useStore((s) => s.sessions)
   const openSession = useStore((s) => s.openSession)
   const openTerminal = useStore((s) => s.openTerminal)
@@ -38,6 +40,9 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // Encerrar é por ENGINE: um terminal pode ter Claude + Codex + Kimi vivos ao
   // mesmo tempo, e derrubar um não pode derrubar os outros.
   const [stopFor, setStopFor] = useState<{ session: SessionInfo; label: string } | null>(null)
+  // O "editar" do aviso de nenhum motor instalado abre o formulário do terminal
+  // aqui mesmo, o mesmo do ⋮ → Editar.
+  const [editOpen, setEditOpen] = useState(false)
 
   const confirmStop = () => {
     if (!stopFor) return
@@ -76,6 +81,17 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // Sem o terminal no store (ainda não carregou), a lista lida seria o padrão,
   // e gravar a partir dela apagaria a verdadeira: o "+" espera o terminal.
   const hidden = project ? hiddenEngines(engines, listed) : []
+  // Nenhum motor da lista do terminal está instalado (um id que o catálogo não
+  // conhece também não roda) e nenhuma sessão deste terminal está viva. A aba da
+  // conversa aberta na tela continua (o tabEngines a mantém), e o aviso fica ao
+  // lado dela; sem aba nenhuma, ele ocupa o lugar das abas. Só vale com o
+  // catálogo vindo do servidor: o embutido, usado até o GET /api/engines
+  // responder (ou para sempre, se ele falhar), só tem Claude e Codex e não sabe
+  // o que está instalado, e o aviso apareceria à toa. Também espera o terminal
+  // chegar ao store.
+  const noneInstalled = enginesLoaded && !!project
+    && !listed.some((id) => engines.some((e) => e.id === id && e.available !== false))
+    && !Object.values(sessions).some((s) => s.projectId === projectId && isLive(s))
 
   const addEngine = async (engineId: string) => {
     if (adding) return
@@ -168,6 +184,14 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
           </div>
         )
       })}
+      {noneInstalled && (
+        <div className="engine-tabs__none">
+          {t('session.noEngineInstalled')} —{' '}
+          <button type="button" className="engine-tabs__none-edit" onClick={() => setEditOpen(true)}>
+            {t('session.noEngineEdit')}
+          </button>
+        </div>
+      )}
       {hidden.length > 0 && (
         <button
           ref={addRef}
@@ -214,6 +238,7 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
         </div>,
         document.body,
       )}
+      {editOpen && project && <NewProjectModal editProject={project} onClose={() => setEditOpen(false)} />}
       {stopFor && (
         <ConfirmDialog
           title={t('chat.stopEngineTitle', { engine: stopFor.label })}

@@ -61,6 +61,11 @@ export interface EngineMeta extends ModelCatalog {
   available?: boolean
   /** Comando de instalação, mostrado quando available=false. */
   installHint?: string
+  /**
+   * Enter no meio do turno entra no turno atual (Claude e Codex). Sem isto
+   * (Kimi, OpenCode), a mensagem do meio do turno vai para a fila do operador.
+   */
+  midTurnInput?: boolean
 }
 
 export interface ContentBlock {
@@ -211,4 +216,21 @@ export interface Progress {
   tasks: { name: string; status: ProgressStatus; note?: string }[]
   waiting: string[]
   updatedAt: string
+}
+
+/**
+ * Fila do operador de um terminal (projeto + motor): mensagens que esperam o
+ * próximo turno. Espelha `QueueDto` de server/src/queue/operator-queue.ts.
+ * `pauseReason`: erro do turno, interrupção pelo operador, morte da sessão ou
+ * pausa à mão. Só "Retomar fila" tira a pausa. O limite de uso não pausa: o
+ * aviso do limite segura a fila enquanto está aberto.
+ */
+export type QueuePauseReason = 'error' | 'interrupted' | 'dead' | 'manual'
+export interface QueueItem { id: number; text: string; createdAt: string }
+export interface OperatorQueue {
+  projectId: number
+  engine: string
+  items: QueueItem[]
+  paused: boolean
+  pauseReason: QueuePauseReason | null
 }

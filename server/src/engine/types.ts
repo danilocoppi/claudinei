@@ -82,6 +82,12 @@ export interface EngineCapabilities extends ModelCatalog {
   slashCommands: string[]
   /** Comando de instalação da CLI (mostrado na UI quando o binário não está no PATH). */
   installHint?: string
+  /**
+   * A sessão aceita mensagem no meio do turno (entra no turno atual). Sem o
+   * campo, vale `false`: no meio do turno, a mensagem vai para a fila e o
+   * "enviar agora" interrompe o turno para mandar.
+   */
+  midTurnInput?: boolean
 }
 
 /** Uma engine (registrada uma vez). */

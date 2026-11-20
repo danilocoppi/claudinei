@@ -1,4 +1,4 @@
-import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
+import type { ClaudeEvent, EngineMeta, OperatorQueue, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -143,6 +143,30 @@ export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
 /** Grava a lista de motores do terminal. O servidor ordena e devolve o terminal atualizado; não avisa os outros clientes. */
 export const setProjectEngines = (id: number, engines: string[]) =>
   req<Project>(`/api/projects/${id}/engines`, { method: 'PATCH', body: JSON.stringify({ engines }) })
+/**
+ * Fila do operador do terminal (projeto + motor). Toda chamada devolve a fila
+ * inteira, que o servidor também transmite (`operator_queue`) às outras telas.
+ */
+const queueUrl = (projectId: number, engine: string) =>
+  `/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/queue`
+export const fetchQueue = (projectId: number, engine: string) => req<OperatorQueue>(queueUrl(projectId, engine))
+/** Acrescenta ao fim. Fila vazia, sem pausa nem aviso e sessão livre: o servidor já manda na hora. */
+export const addToQueue = (projectId: number, engine: string, text: string) =>
+  req<OperatorQueue>(queueUrl(projectId, engine), { method: 'POST', body: JSON.stringify({ text }) })
+export const editQueueItem = (projectId: number, engine: string, itemId: number, text: string) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/${itemId}`, { method: 'PATCH', body: JSON.stringify({ text }) })
+/** `ids` é a fila inteira na ordem nova. */
+export const reorderQueue = (projectId: number, engine: string, ids: number[]) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/order`, { method: 'PUT', body: JSON.stringify({ ids }) })
+export const removeQueueItem = (projectId: number, engine: string, itemId: number) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/${itemId}`, { method: 'DELETE' })
+/** Manda este item já (ou assim que o turno atual parar), mesmo com a fila pausada, sem tirar a pausa. */
+export const sendQueueItemNow = (projectId: number, engine: string, itemId: number) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/${itemId}/send-now`, { method: 'POST' })
+export const pauseQueue = (projectId: number, engine: string) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/pause`, { method: 'POST' })
+export const resumeQueue = (projectId: number, engine: string) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/resume`, { method: 'POST' })
 /** Triagem da lista do usuário: só os projetos com algo aplicado (os demais estão no normal). */
 export const fetchTriage = () => req<TriageItem[]>('/api/triage')
 /** Fixa, assenta ou adia o projeto para o usuário; `snoozedUntil` é horário absoluto (ISO). */
@@ -278,6 +302,13 @@ export const fetchUsageReport = (period: UsagePeriod, tz: number, signal?: Abort
     `/api/usage/report?period=${encodeURIComponent(period)}&tz=${encodeURIComponent(String(tz))}`,
     signal ? { signal } : undefined,
   )
+
+/**
+ * Quais destes anexos sumiram do servidor (a rotação apaga os de mais de 30 dias).
+ * O servidor aceita até 200 caminhos por chamada; quem chama manda menos que isso.
+ */
+export const checkUploads = (paths: string[]) =>
+  req<{ missing: string[] }>('/api/uploads/check', { method: 'POST', body: JSON.stringify({ paths }) })
 
 // fetch cru — o req() colocaria Content-Type json e quebraria o boundary do multipart
 export const uploadFile = async (file: File, name?: string): Promise<{ path: string; name: string }> => {

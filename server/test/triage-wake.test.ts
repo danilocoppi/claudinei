@@ -120,6 +120,15 @@ describe('o despertador acorda o assentado e o adiado', () => {
     expectAwake()
   })
 
+  it('turno no limite sem o gancho do limite acorda como falha', async () => {
+    const localId = await startIdle()
+    settleAndSnooze()
+    mgr.send(localId, 'limite')
+    await waitUntil(() => onNeedsOperator.mock.calls.length > 0)
+    expect(onNeedsOperator.mock.calls).toEqual([[project.id, 'failed']])
+    expectAwake()
+  })
+
   it('sessão morta acorda', async () => {
     const localId = await startIdle()
     settleAndSnooze()
@@ -388,6 +397,51 @@ describe('aviso de limite de uso', () => {
     limit.onUsageLimit(project.id, 'claude', { localId: 'x', resetsAt: daquiSegs(2 * HORA), origin: 'schedule' })
     expect(onLimitNotice).toHaveBeenCalledTimes(1)
     expectAsleep()
+  })
+
+  it('limite pelo manager acorda uma vez (usage_limit); de novo com o aviso aberto, não', async () => {
+    // Manager com os dois ganchos, como no index.ts: o turno do limite chega com
+    // is_error, e só o caminho do limite pode acordar por ele.
+    const waker = createTriageWaker({ store, broadcast: (m) => triageMsgs.push(m as never) })
+    const wakes: Array<[number, string]> = []
+    let lim: UsageLimitService | undefined
+    let results = 0
+    const mgr2 = createSessionManager({
+      db, sessionFactory: fakeFactory, broadcast: () => {},
+      onNeedsOperator: (projectId, reason) => { wakes.push([projectId, reason]); waker.wake(projectId, reason) },
+      onUsageLimit: (projectId, engine, p) => lim?.onUsageLimit(projectId, engine, p),
+      onTurnResult: (projectId, engine, info) => { results++; lim?.onTurnResult(projectId, engine, info) },
+    })
+    const restart2 = createRestartService({
+      db, manager: mgr2, store: terminalState,
+      orchestrator: () => undefined, broadcast: () => {}, closeInterruptedRuns: () => 0, log: () => {},
+    })
+    lim = createUsageLimitService({
+      manager: mgr2, store: terminalState, restart: restart2,
+      setTimer: () => ({ clear() {} }), log: () => {},
+      onLimitNotice: (projectId) => { wakes.push([projectId, 'usage_limit']); waker.wake(projectId, 'usage_limit') },
+    })
+    try {
+      const { localId } = mgr2.start(project, {})
+      await waitUntil(() => mgr2.get(localId)?.status === 'idle')
+      settleAndSnooze()
+      mgr2.send(localId, 'limite')
+      await waitUntil(() => results === 1)
+      expect(terminalState.get(project.id, 'claude').limitHitAt).not.toBeNull()
+      expect(wakes).toEqual([[project.id, 'usage_limit']])
+      expectAwake()
+
+      // Com o aviso aberto, o operador assenta e adia de novo; outro turno bate no limite.
+      triageMsgs.length = 0
+      settleAndSnooze()
+      mgr2.send(localId, 'limite')
+      await waitUntil(() => results === 2)
+      expect(wakes).toEqual([[project.id, 'usage_limit']])
+      expectAsleep()
+    } finally {
+      lim.dispose()
+      await mgr2.stopAll()
+    }
   })
 
   it('um despertador que lança não impede o registro do limite', () => {

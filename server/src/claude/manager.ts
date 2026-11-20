@@ -456,8 +456,11 @@ export function createSessionManager(deps: Deps) {
       // Mesmo cuidado: os ganchos gravam no banco e rodam dentro do stdout da engine.
       // O limite vem ANTES do fim do turno: quem cuida do limite registra primeiro,
       // e o onTurnResult (com isError) decide depois.
+      // Turno que bateu no limite, com quem cuide dele: é o caminho do limite que
+      // acorda o terminal (só quando o aviso nasce), não a falha abaixo.
+      const limited = event.kind === 'result' ? limitOf(session) : undefined
+      const limitHandled = !!limited && !!deps.onUsageLimit
       if (event.kind === 'result') {
-        const limited = limitOf(session)
         if (limited) {
           const origin = live.get(localId)?.origin ?? 'operator'
           try { deps.onUsageLimit?.(projectId, engine, { localId, resetsAt: limited.resetsAt, origin }) } catch {}
@@ -465,8 +468,8 @@ export function createSessionManager(deps: Deps) {
         try { deps.onTurnResult?.(projectId, engine, { isError: event.isError }) } catch {}
       }
       // Turno que falhou acorda o terminal assentado ou adiado; o interrompido
-      // pelo operador, não.
-      if (event.kind === 'result' && event.isError && event.subtype !== 'interrupted' && !interrupting.has(localId)) {
+      // pelo operador e o do limite de uso (acordado pelo serviço do limite), não.
+      if (event.kind === 'result' && event.isError && event.subtype !== 'interrupted' && !interrupting.has(localId) && !limitHandled) {
         try { deps.onNeedsOperator?.(projectId, 'failed') } catch {}
       }
       if (engine === 'claude' && event.kind === 'raw') {

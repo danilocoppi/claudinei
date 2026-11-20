@@ -151,22 +151,49 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
 })
 
 describe('EngineTabs — aviso de terminal sem motor instalado', () => {
+  // Renderiza como o ChatView: o activeLocalId é sempre a sessão na tela, e a aba
+  // dela fica mesmo parada e fora da lista.
   const notice = () => document.querySelector('.engine-tabs__none') as HTMLElement | null
 
-  it('lista só com motores desinstalados e sem sessão viva mostra o aviso com editar', () => {
-    setup(['codex', 'kimi'], [CLAUDE, { ...CODEX, available: false }, { ...KIMI, available: false }])
-    useStore.setState({ sessions: {} })
-    render(<EngineTabs projectId={1} activeLocalId="" />)
-    expect(screen.queryAllByRole('tab')).toHaveLength(0)
+  it('conversa encerrada de motor instalado fora da lista: a aba fica e o aviso aparece ao lado', () => {
+    // O caso do ensaio: lista ['opencode'] sem o binário, chat aberto numa sessão
+    // do Claude já encerrada.
+    setup(['opencode'], [CLAUDE, CODEX, KIMI, { ...OPENCODE, available: false }])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(tabLabels()).toEqual(['Claude Code'])
     expect(notice()).not.toBeNull()
     expect(notice()!.textContent).toContain('Nenhum motor desta lista está instalado')
     expect(within(notice()!).getByRole('button', { name: 'editar' })).toBeTruthy()
   })
 
-  it('editar abre o formulário do terminal', () => {
+  it('conversa encerrada de motor desinstalado da lista: a aba fica e o aviso aparece', () => {
+    setup(['codex', 'kimi'], [CLAUDE, { ...CODEX, available: false }, { ...KIMI, available: false }])
+    useStore.setState({ sessions: { x1: sess('x1', 'codex', 'dead') } })
+    render(<EngineTabs projectId={1} activeLocalId="x1" />)
+    expect(tabLabels()).toEqual(['Codex'])
+    expect(notice()).not.toBeNull()
+  })
+
+  it('id da lista que o catálogo não conhece conta como não instalado', () => {
+    setup(['futuro'], [CLAUDE, CODEX])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(notice()).not.toBeNull()
+  })
+
+  it('sem aba nenhuma, o aviso ocupa o lugar das abas', () => {
     setup(['codex'], [CLAUDE, { ...CODEX, available: false }])
     useStore.setState({ sessions: {} })
     render(<EngineTabs projectId={1} activeLocalId="" />)
+    expect(screen.queryAllByRole('tab')).toHaveLength(0)
+    expect(notice()).not.toBeNull()
+  })
+
+  it('editar abre o formulário do terminal', () => {
+    setup(['opencode'], [CLAUDE, { ...OPENCODE, available: false }])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
     expect(screen.queryByRole('heading', { name: 'Editar terminal' })).toBeNull()
     fireEvent.click(within(notice()!).getByRole('button', { name: 'editar' }))
     expect(screen.getByRole('heading', { name: 'Editar terminal' })).toBeTruthy()
@@ -176,26 +203,34 @@ describe('EngineTabs — aviso de terminal sem motor instalado', () => {
 
   it('com um motor instalado na lista, o aviso não aparece', () => {
     setup(['codex', 'kimi'], [CLAUDE, { ...CODEX, available: false }, KIMI])
-    useStore.setState({ sessions: {} })
-    render(<EngineTabs projectId={1} activeLocalId="" />)
-    expect(tabLabels()).toEqual(['Kimi Code'])
+    useStore.setState({ sessions: { x1: sess('x1', 'codex', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="x1" />)
+    expect(tabLabels()).toEqual(['Codex', 'Kimi Code'])
     expect(notice()).toBeNull()
   })
 
   it('sessão viva de motor desinstalado mantém a aba e não mostra o aviso', () => {
     setup(['codex'], [CLAUDE, { ...CODEX, available: false }])
     useStore.setState({ sessions: { x1: sess('x1', 'codex', 'idle') } })
-    render(<EngineTabs projectId={1} activeLocalId="" />)
+    render(<EngineTabs projectId={1} activeLocalId="x1" />)
     expect(tabLabels()).toEqual(['Codex'])
     expect(notice()).toBeNull()
   })
 
+  it('sessão viva de motor fora da lista não mostra o aviso', () => {
+    setup(['opencode'], [CLAUDE, { ...OPENCODE, available: false }])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'working') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(tabLabels()).toEqual(['Claude Code'])
+    expect(notice()).toBeNull()
+  })
+
   it('com o catálogo de motores ainda vazio, o aviso não aparece', () => {
-    // O catálogo chega depois do primeiro render: sem ele, nada sobra nas abas,
-    // mas o aviso piscaria à toa até a resposta.
+    // O catálogo chega depois do primeiro render: sem ele, nada consta como
+    // instalado, mas o aviso piscaria à toa até a resposta.
     setup(['claude'], [])
-    useStore.setState({ sessions: {} })
-    render(<EngineTabs projectId={1} activeLocalId="" />)
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
     expect(notice()).toBeNull()
   })
 })

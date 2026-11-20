@@ -80,10 +80,15 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // Sem o terminal no store (ainda não carregou), a lista lida seria o padrão,
   // e gravar a partir dela apagaria a verdadeira: o "+" espera o terminal.
   const hidden = project ? hiddenEngines(engines, listed) : []
-  // Nada sobrou para aba: todos os motores da lista estão desinstalados e não há
-  // sessão viva (uma viva teria aba). Sem o catálogo ou o terminal no store
-  // (ainda carregando), também não sobraria nada, e o aviso piscaria à toa.
-  const noneInstalled = visible.length === 0 && !!project && engines.length > 0
+  // Nenhum motor da lista do terminal está instalado (um id que o catálogo não
+  // conhece também não roda) e nenhuma sessão deste terminal está viva. A aba da
+  // conversa aberta na tela continua (o tabEngines a mantém), e o aviso fica ao
+  // lado dela; sem aba nenhuma, ele ocupa o lugar das abas. Sem o catálogo ou o
+  // terminal no store (ainda carregando), nada está instalado ainda, e o aviso
+  // piscaria à toa.
+  const noneInstalled = !!project && engines.length > 0
+    && !listed.some((id) => engines.some((e) => e.id === id && e.available !== false))
+    && !Object.values(sessions).some((s) => s.projectId === projectId && isLive(s))
 
   const addEngine = async (engineId: string) => {
     if (adding) return
@@ -113,14 +118,6 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
 
   return (
     <div className="engine-tabs" role="tablist" aria-label={t('session.engine')}>
-      {noneInstalled && (
-        <div className="engine-tabs__none">
-          {t('session.noEngineInstalled')} —{' '}
-          <button type="button" className="engine-tabs__none-edit" onClick={() => setEditOpen(true)}>
-            {t('session.noEngineEdit')}
-          </button>
-        </div>
-      )}
       {visible.map((e) => {
         const tabSession = sessionForEngine(projectId, e.id, sessions)
         const live = isLive(tabSession)
@@ -184,6 +181,14 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
           </div>
         )
       })}
+      {noneInstalled && (
+        <div className="engine-tabs__none">
+          {t('session.noEngineInstalled')} —{' '}
+          <button type="button" className="engine-tabs__none-edit" onClick={() => setEditOpen(true)}>
+            {t('session.noEngineEdit')}
+          </button>
+        </div>
+      )}
       {hidden.length > 0 && (
         <button
           ref={addRef}

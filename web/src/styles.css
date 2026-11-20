@@ -1505,7 +1505,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 .engine-picker__missing { font-size: 11px; color: var(--warn); white-space: nowrap; }
 /* Terminal sem nenhum motor da lista instalado: aviso no lugar das abas, com o
    "editar" como link para o formulário do terminal. Sem animação. */
-.engine-tabs__none { display: flex; align-items: center; font-size: 12px; color: var(--warn); white-space: nowrap; padding: 0 4px; }
+.engine-tabs__none { flex: none; display: flex; align-items: center; font-size: 12px; color: var(--warn); white-space: nowrap; padding: 0 4px; }
 .engine-tabs__none-edit {
   background: transparent; border: 0; padding: 0 0 0 4px; font: inherit; color: var(--accent);
   text-decoration: underline; cursor: pointer;

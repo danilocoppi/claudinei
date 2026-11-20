@@ -278,6 +278,112 @@ describe('Sidebar — desempenho da triagem (AGENTS.md)', () => {
   })
 })
 
+describe('Sidebar — ordem dos Fixados', () => {
+  /** Delta, Gama e Alpha fixados, nesta ordem do usuário. */
+  const seedPins = () => {
+    useStore.setState({
+      triage: {
+        ...useStore.getState().triage,
+        4: item(4, { pinned: true, pinOrder: 0 }),
+        3: item(3, { pinned: true, pinOrder: 1 }),
+        1: item(1, { pinned: true, pinOrder: 2 }),
+      },
+    })
+  }
+  const pinnedNames = () => within(section('pinned')).getAllByTestId('term-card')
+    .map((c) => c.querySelector('.term-card__name')?.textContent)
+  /** A rota devolve a triagem com as posições do corpo, como o servidor. */
+  const okOrder = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (String(url) === '/api/triage/pin-order' && init?.method === 'PUT') {
+      const ids: number[] = JSON.parse(String(init.body)).projectIds
+      return new Response(JSON.stringify(ids.map((id, i) => item(id, { pinned: true, pinOrder: i }))), { status: 200 })
+    }
+    return new Response('[]', { status: 200 })
+  })
+  const putCalls = (fetcher: ReturnType<typeof okOrder>) =>
+    fetcher.mock.calls.filter(([url, init]: any[]) => String(url) === '/api/triage/pin-order' && init?.method === 'PUT')
+
+  beforeEach(() => { seedPins() })
+
+  it('arrastar um fixado sobre outro reordena na hora, grava e não remonta o cartão', async () => {
+    const fetcher = okOrder()
+    render(<Sidebar />)
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    const delta = cardOf('Delta')
+    const face = delta.querySelector('[data-face]')
+    expect(delta.draggable).toBe(true)
+
+    fireEvent.dragStart(delta)
+    // Soltar entre os Fixados é permitido (o navegador só aceita o drop com preventDefault).
+    expect(fireEvent.dragOver(cardOf('Gama'))).toBe(false)
+    fireEvent.drop(cardOf('Gama'))
+    // Vindo de cima, entra depois do alvo — já na tela, antes da resposta.
+    expect(pinnedNames()).toEqual(['Gama', 'Delta', 'Alpha'])
+    await settle()
+    expect(putCalls(fetcher).map(([, init]: any[]) => JSON.parse(String(init.body)))).toEqual([{ projectIds: [3, 4, 1] }])
+    expect(useStore.getState().triage[4]?.pinOrder).toBe(1)
+    expect(useStore.getState().triage[3]?.pinOrder).toBe(0)
+    expect(pinnedNames()).toEqual(['Gama', 'Delta', 'Alpha'])
+    // O mesmo nó, com o mesmo rosto: mudou de lugar, não nasceu de novo.
+    expect(cardOf('Delta')).toBe(delta)
+    expect(delta.querySelector('[data-face]')).toBe(face)
+  })
+
+  it('falha ao gravar devolve a ordem de antes e avisa', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({ error: 'falha' }), { status: 500 }))
+    render(<><Sidebar /><UndoToast /></>)
+    fireEvent.dragStart(cardOf('Alpha'))
+    fireEvent.dragOver(cardOf('Delta'))
+    fireEvent.drop(cardOf('Delta'))
+    expect(pinnedNames()).toEqual(['Alpha', 'Delta', 'Gama'])
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    expect(useStore.getState().triage[1]?.pinOrder).toBe(2)
+    expect(screen.getByRole('alert').textContent).toMatch(/ordem dos fixados/)
+  })
+
+  it('soltar entre Fixados e a árvore não faz nada, nos dois sentidos', async () => {
+    const fetcher = okOrder()
+    render(<Sidebar />)
+    // Fixado sobre um cartão da árvore, sobre o grupo e no cabeçalho: nenhum aceita.
+    fireEvent.dragStart(cardOf('Delta'))
+    expect(fireEvent.dragOver(cardOf('Beta'))).toBe(true)
+    fireEvent.drop(cardOf('Beta'))
+    fireEvent.dragStart(cardOf('Delta'))
+    expect(fireEvent.dragOver(screen.getByTestId('term-group'))).toBe(true)
+    fireEvent.drop(screen.getByTestId('term-group'))
+    fireEvent.dragEnd(cardOf('Delta'))
+    // Cartão da árvore sobre um fixado: também não.
+    fireEvent.dragStart(cardOf('Beta'))
+    expect(fireEvent.dragOver(cardOf('Gama'))).toBe(true)
+    fireEvent.drop(cardOf('Gama'))
+    await settle()
+    expect(fetcher.mock.calls.filter(([, init]: any[]) => init?.method === 'PUT')).toEqual([])
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    expect(within(tree()).getByText('Beta')).toBeTruthy()
+  })
+
+  it('quem não é admin também ordena os próprios Fixados (a árvore segue só do admin)', () => {
+    useStore.setState({ me: { setupRequired: false, id: 2, username: 'ana', isAdmin: false } })
+    render(<Sidebar />)
+    expect(cardOf('Delta').draggable).toBe(true)
+    expect(cardOf('Beta').draggable).toBe(false)
+  })
+
+  it('fixar põe o terminal no fim dos Fixados', async () => {
+    let answer: (r: Response) => void = () => {}
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { answer = r }))
+    render(<Sidebar />)
+    fireEvent.click(screen.getByRole('button', { name: 'Fixar Beta' }))
+    // Antes da resposta, já no fim.
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha', 'Beta'])
+    answer(new Response(JSON.stringify(item(2, { pinned: true, pinOrder: 3 })), { status: 200 }))
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha', 'Beta'])
+  })
+})
+
 // O erro de gravação da ⭐ aparece no canto do UndoToast (o desfazer: triage-actions.test.tsx).
 describe('Sidebar — falha ao fixar', () => {
   it('erro de gravação devolve o cartão e avisa', async () => {

@@ -286,6 +286,11 @@ export interface TriageItem {
   pinned: boolean
   settled: boolean
   snoozedUntil: string | null
+  /**
+   * Posição nos Fixados deste usuário (menor primeiro). Ausente ou `null`: sem
+   * pin, ou pin de antes da ordem existir — esses vêm antes, na ordem global.
+   */
+  pinOrder?: number | null
 }
 
 /** Acompanhamento de tarefas longas, por terminal (projeto + motor). Ver server/src/progress.ts. */

@@ -65,7 +65,8 @@ por tempo.
 ### Dados
 
 - Tabela `user_triage (user_id, project_id, pinned_at, settled_at,
-  snoozed_until)`, com chave `(user_id, project_id)`. `ON DELETE CASCADE` no
+  snoozed_until, pin_order)`, com chave `(user_id, project_id)`. `pin_order` é a
+  posição do terminal nos Fixados daquele usuário. `ON DELETE CASCADE` no
   projeto. Sem linha, nada está aplicado.
 - `user_id = 0` é a instalação sem autenticação, como em `user_prefs`
   (`server/src/prefs.ts:63-66`).
@@ -76,6 +77,10 @@ por tempo.
   `PATCH /api/projects/:id/triage` com `{ pinned?, settled?, snoozedUntil? }`.
   Um WebSocket `triage` vai só para o próprio usuário, para os outros aparelhos
   dele.
+- A ordem dos Fixados: `PUT /api/triage/pin-order` com `{ projectIds }`, os
+  fixados de quem pede de cima para baixo. Só aceita terminais que ele acessa e
+  que estão fixados para ele; os outros usuários não mudam. Responde a triagem
+  inteira e manda um `triage` por posição que mudou.
 
 ### Seções da lateral, de cima para baixo
 
@@ -138,8 +143,12 @@ ASSENTADOS (11)              ▸  (recolhida)
   - A chave da ⭐ ("só favoritos") passa a ser "só fixados".
   - A busca também encontra adiados e assentados e abre a seção deles enquanto a
     busca está ativa.
-- **Arrastar** continua só nos setores e grupos. Dentro de Fixados, a ordem segue
-  a ordem global da lateral; não há arrastar próprio nesta versão.
+- **Arrastar**: os Fixados têm ordem própria, de cada usuário, que ele muda
+  arrastando um fixado sobre outro (qualquer usuário, não só o admin: a ordem é
+  dele). Um fixado não se solta na árvore, nem um cartão da árvore nos Fixados.
+  Fixar põe o terminal no fim dos Fixados; desafixar esquece a posição. Os pins
+  de antes da ordem existir vêm primeiro, na ordem global da lateral. Filtrando,
+  não arrasta. Adiados e Assentados não arrastam.
 - **Desempenho**: a divisão entre as seções sai da mesma passagem que monta a
   árvore (`buildEntries`). A faixa Trabalhando lê o estado das sessões por
   seletores estreitos, para não renderizar a lateral inteira a cada evento.
@@ -179,7 +188,7 @@ ASSENTADOS (11)              ▸  (recolhida)
 
 - **Lateral estreita (trilho).** Mostra os Fixados no topo e os terminais da faixa Trabalhando como ícones; Assentados e Adiados não aparecem no trilho — ficam a um clique de abrir a lateral larga. Um adiado ou assentado que acorda volta ao trilho na hora.
 - **Um cartão é assentado ou adiado, nunca os dois**: a ação nova substitui a anterior.
-- **Arrastar** só reordena dentro da própria seção; cartões escondidos não ocupam posição.
+- **Arrastar** só reordena dentro da própria seção: a árvore pela ordem global, os Fixados pela ordem de cada usuário (ver "Arrastar" acima); cartões escondidos não ocupam posição.
 - **"Amanhã às 9 h"** escolhido entre 0 h e 5 h significa o mesmo dia às 9 h.
 - **A rota antiga da ⭐** passa a fixar/desfixar para o usuário que clicou (compatível com o que o front chama hoje).
 

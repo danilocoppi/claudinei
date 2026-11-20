@@ -354,7 +354,7 @@ interface State {
    */
   undo: TriageUndo | null
   /** Chave i18n do aviso de falha da última ação de triagem (no canto do `UndoToast`). */
-  triageError: 'sidebar.pinSaveError' | 'sidebar.triageSaveError' | null
+  triageError: 'sidebar.pinSaveError' | 'sidebar.triageSaveError' | 'sidebar.pinOrderSaveError' | null
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void

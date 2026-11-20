@@ -131,6 +131,7 @@ export const en = {
     emptyPinned: 'No pinned terminals yet.', emptyFiltered: 'No terminals match these filters.',
     pinSaveError: 'Could not pin or unpin the terminal. Try again.',
     triageSaveError: 'Could not change the terminal triage. Try again.',
+    pinOrderSaveError: 'Could not save the order of pinned terminals. Try again.',
     sectionWorking: 'Working', sectionPinned: 'Pinned', sectionSnoozed: 'Snoozed', sectionSettled: 'Settled',
     snoozedBackAt: 'back at {{time}}', snoozedBackOn: 'back {{day}} {{time}}',
     search: 'Search terminals', searchPlaceholder: 'Search terminal…', searchClear: 'Clear search',

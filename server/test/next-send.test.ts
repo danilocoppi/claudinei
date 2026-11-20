@@ -135,12 +135,20 @@ describe('holdsForNotice', () => {
     ...over,
   } as TerminalStateRow)
 
-  it('segura com o aviso do reinício ou com o limite ativo', () => {
+  it('segura com o aviso do reinício ou com o aviso do limite na tela', () => {
     const now = Date.parse('2026-11-20T12:00:00Z')
+    const hit = '2026-11-20 11:00:00'
     expect(holdsForNotice(base(), now)).toBe(false)
-    expect(holdsForNotice(base({ interruptedAt: '2026-11-20 11:00:00' }), now)).toBe(true)
-    // Limite com reabertura no futuro segura; já reaberto, não.
-    expect(holdsForNotice(base({ limitHitAt: '2026-11-20 11:00:00', limitResetsAt: now / 1000 + 60 }), now)).toBe(true)
-    expect(holdsForNotice(base({ limitHitAt: '2026-11-20 11:00:00', limitResetsAt: now / 1000 - 60 }), now)).toBe(false)
+    expect(holdsForNotice(base({ interruptedAt: hit }), now)).toBe(true)
+    // Limite com reabertura no futuro segura, em qualquer ação.
+    for (const limitAction of ['none', 'armed', 'snoozed'] as const) {
+      expect(holdsForNotice(base({ limitHitAt: hit, limitResetsAt: now / 1000 + 60, limitAction }), now)).toBe(true)
+    }
+    // Já reaberto: o aviso em none segue na tela (só sai pelo operador), então segura;
+    // adiado não mostra aviso, então não segura.
+    expect(holdsForNotice(base({ limitHitAt: hit, limitResetsAt: now / 1000 - 60, limitAction: 'none' }), now)).toBe(true)
+    expect(holdsForNotice(base({ limitHitAt: hit, limitResetsAt: now / 1000 - 60, limitAction: 'snoozed' }), now)).toBe(false)
+    // Sem reabertura conhecida e passado o teto de 5 h: o aviso em none segue na tela.
+    expect(holdsForNotice(base({ limitHitAt: '2026-11-20 01:00:00', limitResetsAt: null, limitAction: 'none' }), now)).toBe(true)
   })
 })

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -26,8 +27,13 @@ import type { OperatorQueueService } from '../src/queue/operator-queue.js'
  */
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = join(__dirname, 'fake-claude.mjs')
+/**
+ * `initTardio`: o CLI só emite o init junto da 1ª mensagem, como a CLI real
+ * retomando uma conversa: a sessão revivida fica em `starting` até alguém falar.
+ */
+let initTardio = false
 const fakeFactory = (opts: SessionOptions) =>
-  new ClaudeSession({ ...opts, claudeBin: process.execPath, extraArgsOverride: [FAKE] })
+  new ClaudeSession({ ...opts, claudeBin: process.execPath, extraArgsOverride: initTardio ? [FAKE, '--init-tardio'] : [FAKE] })
 
 const waitUntil = (cond: () => boolean, ms = 5000) => new Promise<void>((res, rej) => {
   const t0 = Date.now()
@@ -103,6 +109,7 @@ beforeEach(async () => {
   db = openDb(':memory:')
   auth = createAuthService({ db })
   store = createTerminalStateStore(db)
+  initTardio = false
   instances.length = 0
   inst = await boot()
   const projects = createProjectsService(db)
@@ -265,6 +272,59 @@ describe('rotas da fila do operador', () => {
     expect(res.statusCode).toBe(200)
     await waitUntil(() => userTexts(inst, localId).includes('espera o aviso'))
     expect((await req('GET', url(p1.id))).json()).toMatchObject({ items: [], paused: false })
+  })
+
+  it('sessão revivida na subida, parada em starting: × entrega o item da fila e a tarefa de outro agente', async () => {
+    // "Iniciar" ligado e "retomar" desligado: a subida revive a sessão e abre o aviso.
+    initTardio = true
+    const prev = randomUUID()
+    db.prepare(`INSERT INTO sessions (local_id, project_id, engine, status) VALUES (?, ?, 'claude', 'stopped')`).run(prev, p1.id)
+    store.setPrefs(p1.id, 'claude', { autostart: true, autoResume: false })
+    store.markInterrupted(p1.id, 'claude', prev, null)
+    await inst.restart!.boot()
+    expect(store.get(p1.id, 'claude').holdReason).toBe('off')
+    const localId = inst.manager.list().find((s) => s.projectId === p1.id && s.engine === 'claude')!.localId
+    expect(inst.manager.get(localId)?.status).toBe('starting')
+
+    await add(p1.id, 'guardado na subida')
+    const { id: taskId } = (await inst.app.inject({
+      method: 'POST', url: '/api/orchestrator/dispatch', cookies: adminCookie,
+      payload: { fromProjectId: p2.id, toProjectName: 'Alfa', description: 'tarefa guardada' },
+    })).json()
+    await sleep(50)
+    expect(userTexts(inst, localId)).toEqual([])
+    expect(inst.manager.get(localId)?.status).toBe('starting')
+
+    const res = await inst.app.inject({ method: 'DELETE', url: `/api/projects/${p1.id}/terminals/claude/interruption`, cookies: adminCookie })
+    expect(res.statusCode).toBe(200)
+    // Lugar 3 primeiro; a tarefa (lugar 5) vai no "livre" seguinte.
+    await waitUntil(() => (db.prepare('SELECT status FROM tasks WHERE id=?').get(taskId) as any)?.status === 'completed')
+    const texts = userTexts(inst, localId)
+    expect(texts.indexOf('guardado na subida')).toBe(0)
+    expect(texts.indexOf('[Task from Beta]: tarefa guardada')).toBeGreaterThan(0)
+  })
+
+  it('aviso do limite em none com a reabertura já passada segura até o operador fechar', async () => {
+    const localId = await startIdle(inst, p1)
+    // Limite que já reabriu, sem retomada armada: o aviso continua na tela.
+    store.recordUsageLimit(p1.id, 'claude', { resetsAt: Math.floor(Date.now() / 1000) - 60, origin: 'operator' })
+    expect(store.get(p1.id, 'claude').limitAction).toBe('none')
+    // Sessão livre: o add tenta entregar na hora, e o aviso segura.
+    await add(p1.id, 'depois do aviso do limite')
+    // Outro terminal_state publicado (o ⚙ do terminal) cutuca o árbitro: segura de novo.
+    const patch = await inst.app.inject({
+      method: 'PATCH', url: `/api/projects/${p1.id}/terminals/claude/restart`, cookies: adminCookie, payload: { autostart: true },
+    })
+    expect(patch.statusCode).toBe(200)
+    await sleep(80)
+    expect(userTexts(inst, localId)).not.toContain('depois do aviso do limite')
+    expect(store.get(p1.id, 'claude').limitHitAt).not.toBeNull()
+
+    const res = await inst.app.inject({
+      method: 'POST', url: `/api/projects/${p1.id}/terminals/claude/limit`, cookies: adminCookie, payload: { action: 'cancel' },
+    })
+    expect(res.statusCode).toBe(200)
+    await waitUntil(() => userTexts(inst, localId).includes('depois do aviso do limite'))
   })
 
   it('retomada do Claudinei (Continuar) vai antes da fila, que segue depois do turno dela', async () => {

@@ -325,8 +325,9 @@ describe('serviço da fila do operador', () => {
   it('sendNow pendente que falha ao sair na hora não é reenviado com a fila pausada', () => {
     queued('kimi', 'a', 'b')
     const b = svc.dto(project.id, 'kimi').items[1]
-    mgr.status.set(LOCAL, 'starting')
-    svc.sendNow(b.id) // pendente: vai quando a sessão ficar livre
+    // Kimi trabalhando: o "enviar agora" interrompe e fica pendente até a sessão ficar livre.
+    mgr.status.set(LOCAL, 'working')
+    svc.sendNow(b.id)
     mgr.status.set(LOCAL, 'idle')
     mgr.failNextSend()
     svc.sendNow(b.id) // livre: tenta na hora e falha
@@ -334,6 +335,13 @@ describe('serviço da fila do operador', () => {
     expect(texts('kimi')).toEqual(['b', 'a'])
     expect(svc.offer(ctx('kimi'))).toBe(false)
     expect(sends()).toHaveLength(0)
+  })
+
+  it('sessão viva em starting (revivida, sem a 1ª mensagem) recebe como livre', () => {
+    queued('claude', 'a')
+    mgr.status.set(LOCAL, 'starting')
+    expect(svc.offer(ctx())).toBe(true)
+    expect(sends().map((c) => c[2])).toEqual(['a'])
   })
 
   it('sendNow pendente respeita o aviso aberto', () => {

@@ -482,6 +482,16 @@ describe('serviço do limite de uso', () => {
     expect(pending()).toHaveLength(0)
   })
 
+  it('turno interrompido não é janela aberta: o limite fica', () => {
+    const svc = makeService()
+    const a = limited(svc, { name: 'A' })
+    store.bumpLimitTries(a.p.id, 'claude')
+    // O manager sintetiza o turno interrompido sem result com isError false.
+    svc.onTurnResult(a.p.id, 'claude', { isError: false, interrupted: true })
+    expect(store.get(a.p.id, 'claude')).toMatchObject({ limitTries: 1 })
+    expect(store.get(a.p.id, 'claude').limitHitAt).not.toBeNull()
+  })
+
   it('mensagem do operador zera as tentativas, com ou sem limite ativo', async () => {
     const svc = makeService()
     // Com o limite ativo.

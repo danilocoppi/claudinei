@@ -153,8 +153,12 @@ export type OperatorQueueStore = ReturnType<typeof createOperatorQueueStore>
 /** O terminal e a sessão viva dele no momento do "livre". */
 export interface SlotContext { projectId: number; engine: string; localId: string }
 
-/** Os mesmos estados "livre" do onSessionAvailable do manager. */
-const FREE = new Set(['idle', 'needs_attention'])
+/**
+ * Sessão que pode receber agora: os estados "livre" do onSessionAvailable e o
+ * `starting` da sessão revivida que ainda não recebeu a 1ª mensagem (o mesmo
+ * do hasFreeSession do manager). Quem pergunta já tem uma sessão viva.
+ */
+const FREE = new Set(['starting', 'idle', 'needs_attention'])
 
 export function createOperatorQueueService(deps: {
   store: OperatorQueueStore

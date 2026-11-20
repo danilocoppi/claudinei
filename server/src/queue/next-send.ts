@@ -21,18 +21,22 @@ import type { SlotContext } from './operator-queue.js'
 export interface NextSendProvider { name: string; slot: number; offer(ctx: SlotContext): boolean }
 
 /**
- * Aviso aberto no terminal: o trabalho interrompido pelo reinício esperando o
- * operador (ou a retomada) e o limite de uso ativo.
+ * Aviso aberto no terminal, o mesmo que o operador vê: o trabalho interrompido
+ * pelo reinício esperando o operador (ou a retomada), o limite de uso ativo e o
+ * aviso do limite que segue na tela depois da reabertura (ação `none`: só sai
+ * pelo operador). Sem isto, o primeiro "livre" depois da reabertura mandaria um
+ * item cujo turno bom zeraria o limite em silêncio. O adiado não mostra aviso.
  */
 export function holdsForNotice(row: TerminalStateRow, now: number = Date.now()): boolean {
-  return row.interruptedAt != null || limitActive(row, now)
+  return row.interruptedAt != null || limitActive(row, now) ||
+    (row.limitHitAt != null && row.limitAction !== 'snoozed')
 }
 
 export function createNextSend(deps: {
   /** Ordenados por lugar aqui dentro; a integração acrescenta os lugares 4 e 6 por `register`. */
   providers: NextSendProvider[]
   holds: (projectId: number, engine: string) => boolean
-  /** Status idle | needs_attention, sessão viva. */
+  /** Sessão viva e não ocupada: starting, idle ou needs_attention (o mesmo do hasFreeSession). */
   isFree: (localId: string) => boolean
   liveLocalId: (projectId: number, engine: string) => string | null
   log?: (m: string) => void

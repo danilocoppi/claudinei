@@ -190,7 +190,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   deps.onOrchestratorReady?.(orchestrator)
   // A fila do operador e o árbitro do próximo envio: depois do orchestrator (o
   // lugar 5 é ele) e antes do reinício (que cutuca o árbitro quando o aviso sai).
-  const FREE = new Set(['idle', 'needs_attention'])
   const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
   const liveLocalId = (projectId: number, engine: string): string | null =>
     deps.manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))?.localId ?? null
@@ -209,7 +208,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       { name: 'agent-tasks', slot: 5, offer: (ctx) => orchestrator.drain(ctx.projectId, ctx.localId) },
     ],
     holds,
-    isFree: (localId) => FREE.has(deps.manager.get(localId)?.status ?? ''),
+    // Viva e não-working, como o hasFreeSession de sempre: a sessão revivida na
+    // subida fica em `starting` até a 1ª mensagem e precisa receber o que esperou.
+    isFree: (localId) => {
+      const s = deps.manager.get(localId)
+      return !!s && deps.manager.hasFreeSession(s.projectId, { localId })
+    },
     liveLocalId,
   })
   registerOperatorQueueRoutes(app, { db: deps.db, queue, store: queueStore })

@@ -9,7 +9,7 @@ aprovação do Danilo para integrar, instalar e reiniciar. A ordem foi aprovada.
 
 | # | Projeto | O que entra | Tamanho | Estado |
 |---|---|---|---|---|
-| 1 | Reinício sem prejuízo | Retomar sozinho o trabalho interrompido; marcar quais terminais iniciam sozinhos com o Claudinei | médio | em desenho |
+| 1 | Reinício sem prejuízo | Retomar sozinho o trabalho interrompido; marcar quais terminais iniciam sozinhos com o Claudinei | médio | desenho escrito |
 | 2 | Motores por terminal | Escolher quais agentes aparecem no cabeçalho de cada terminal | pequeno | — |
 | 3 | Conversa virtualizada | Só as mensagens perto da tela existem na página | médio | — |
 | 4 | Triagem da lista | Fixar, assentar, adiar, seção "Trabalhando", desfazer com Ctrl+Z | médio | — |

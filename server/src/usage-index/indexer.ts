@@ -1,3 +1,4 @@
+import { constants as bufferConstants } from 'node:buffer'
 import { promises as fsp, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -40,9 +41,24 @@ function errCode(e: unknown): string {
   return typeof code === 'string' ? code : e instanceof Error ? e.name : 'erro'
 }
 
-// Erros de sistema de arquivos (arquivo sumiu, sem permissão...) pulam o arquivo;
-// o resto (o banco, por exemplo) derruba a passada.
-const isFsError = (e: unknown): boolean => /^E[A-Z]+$/.test(String((e as NodeJS.ErrnoException | null)?.code ?? ''))
+/**
+ * Falha do banco do índice. Ela derruba a passada (o `start` registra e tenta de novo no
+ * próximo relógio), porque se repetiria em todos os arquivos. Qualquer outro erro dentro de
+ * um arquivo (sistema de arquivos, decodificação, leitor) só pula aquele arquivo.
+ */
+class StoreFailure extends Error {
+  constructor(readonly original: unknown) {
+    super('falha no banco do índice de uso')
+  }
+}
+
+function inStore<T>(fn: () => T): T {
+  try {
+    return fn()
+  } catch (e) {
+    throw new StoreFailure(e)
+  }
+}
 
 /**
  * Indexador incremental dos históricos JSONL do Claude e do Codex.
@@ -121,10 +137,13 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
     if (!info.isFile()) return false
     const size = info.size
     const mtimeMs = Math.floor(info.mtimeMs)
-    let saved = store.file(t.path)
+    let saved = inStore(() => store.file(t.path))
     if (saved && saved.size === size && saved.mtimeMs === mtimeMs) return false
+    // Arquivo reescrito: o que veio dele só é apagado logo antes do primeiro commit, depois
+    // de abrir e ler o arquivo novo. Se ele sumir ou não abrir, os números antigos ficam.
+    let resetPending = false
     if (saved && (size < saved.offset || mtimeMs < saved.mtimeMs)) {
-      store.resetFile(t.path)
+      resetPending = true
       saved = undefined
     }
     const codex: CodexParser | null = t.engine === 'codex' ? createCodexParser(saved?.parser ?? null) : null
@@ -136,10 +155,20 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
       const state: FileState = {
         path: t.path, engine: t.engine, size: final ? size : offset, mtimeMs, offset, parser: codex ? codex.state() : null,
       }
-      store.commitSlice(state, hits)
+      const batch = hits
       hits = []
+      inStore(() => {
+        if (resetPending) store.resetFile(t.path)
+        resetPending = false
+        store.commitSlice(state, batch)
+      })
     }
     const handle = (line: Buffer): void => {
+      // Uma linha maior que a maior string do V8 nem pode ser decodificada: fica de fora.
+      if (line.length > bufferConstants.MAX_STRING_LENGTH) {
+        log(`uso: linha grande demais ignorada em ${t.path} (${line.length} bytes)`)
+        return
+      }
       if (codex) {
         if (!CODEX_MARKS.some((m) => line.includes(m))) return
         const row = codex.feed(line.toString('utf8'))
@@ -151,7 +180,7 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
       }
     }
 
-    if (offset < size) {
+    if (offset < size || resetPending) {
       const fh = await fsp.open(t.path, 'r')
       try {
         let pos = offset
@@ -201,7 +230,8 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
         try {
           if (await indexFile(t, p)) return
         } catch (e) {
-          if (!isFsError(e)) throw e
+          if (e instanceof StoreFailure) throw e.original
+          // Só o caminho e o código (ou o nome) do erro: a mensagem pode trazer texto da linha.
           log(`uso: arquivo ignorado ${t.path}: ${errCode(e)}`)
         }
         st.filesDone++
@@ -214,19 +244,29 @@ export function createUsageIndexer(deps: UsageIndexerDeps): UsageIndexer {
     }
   }
 
+  /**
+   * Uma passada por vez. Se a atual já foi interrompida por `stop()`, a nova espera ela
+   * sair e só então começa; chamadas seguintes recebem essa mesma passada nova.
+   */
   function runPass(): Promise<void> {
-    if (current) return current
+    if (current && currentPass && !currentPass.aborted) return current
     const p: Pass = { aborted: false }
-    currentPass = p
-    current = pass(p).finally(() => {
-      current = null
-      currentPass = null
+    const run = current
+      ? current.catch(() => {}).then(() => (p.aborted ? undefined : pass(p)))
+      : pass(p)
+    const tracked: Promise<void> = run.finally(() => {
+      if (current === tracked) {
+        current = null
+        currentPass = null
+      }
     })
-    return current
+    current = tracked
+    currentPass = p
+    return tracked
   }
 
   function tick(): void {
-    if (current) return
+    if (current && currentPass && !currentPass.aborted) return
     runPass().catch((e) => log(`uso: passada do índice falhou: ${errCode(e)}`))
   }
 

@@ -8,6 +8,18 @@ import { createUsageIndexer } from '../src/usage-index/indexer.js'
 
 // Históricos falsos escritos pelo teste num diretório temporário; o texto é fictício.
 
+// O leitor do Claude real, exceto numa linha marcada, onde lança um erro inesperado.
+vi.mock('../src/usage-index/readers.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/usage-index/readers.js')>()
+  return {
+    ...actual,
+    readClaudeLine: (line: string) => {
+      if (line.includes('EXPLODE')) throw new TypeError('conteúdo EXPLODE')
+      return actual.readClaudeLine(line)
+    },
+  }
+})
+
 let dir: string
 let claudeDir: string
 let codexDir: string
@@ -94,6 +106,18 @@ const arquivoGrande = (path: string): { total: number; size: number } => {
     text += claudeLine(`msg_${i}`, i + 1, { text: `ação nº ${i} ✓ 🚀 ` + 'é'.repeat(i % 7) })
     total += i + 1
     if (i % 40 === 0) text += userLine('saída de ferramenta 🚀 ' + 'x'.repeat(5000))
+  }
+  write(path, text)
+  return { total, size: Buffer.byteLength(text) }
+}
+
+// Arquivo grande do Codex: sem chave de deduplicação, então ler duas vezes somaria em dobro.
+const codexGrande = (path: string): { total: number; size: number } => {
+  let text = turnContext()
+  let total = 0
+  for (let i = 0; i < 150; i++) {
+    total += i + 1
+    text += tokenCount(i + 1, total) + JSON.stringify({ type: 'response_item', payload: { text: 'ação ✓ '.repeat(40) } }) + '\n'
   }
   write(path, text)
   return { total, size: Buffer.byteLength(text) }
@@ -327,5 +351,78 @@ describe('createUsageIndexer', () => {
     await vi.waitFor(() => expect(log).toHaveBeenCalled())
     await ix.stop()
     expect(ix.status()).toMatchObject({ running: false, lastPassAt: null })
+  })
+  it('reset só depois de abrir: arquivo reescrito e ilegível mantém os números', async () => {
+    const f = write(join(claudeDir, 'proj-a', 's1.jsonl'), claudeLine('m1', 10) + claudeLine('m2', 20) + claudeLine('m3', 30))
+    const log = vi.fn()
+    const ix = indexer({ log })
+    await ix.runPass()
+    writeFileSync(f, claudeLine('m1', 10))
+    chmodSync(f, 0o000)
+    try {
+      await ix.runPass()
+    } finally {
+      chmodSync(f, 0o644)
+    }
+    expect(soma()).toBe(60)
+    expect(log.mock.calls.some((c) => String(c[0]).includes(f) && String(c[0]).includes('EACCES'))).toBe(true)
+    await ix.runPass()
+    expect(soma()).toBe(10)
+  })
+
+  it('erro inesperado num arquivo não derruba a passada', async () => {
+    const a = write(join(claudeDir, 'proj-a', 's1.jsonl'), claudeLine('m1', 10, { text: 'EXPLODE' }))
+    write(join(claudeDir, 'proj-a', 's2.jsonl'), claudeLine('m2', 20))
+    write(join(codexDir, 'r.jsonl'), turnContext() + tokenCount(40, 40))
+    const log = vi.fn()
+    const ix = indexer({ log })
+    await ix.runPass()
+    expect(soma('claude')).toBe(20)
+    expect(soma('codex')).toBe(40)
+    expect(ix.status()).toMatchObject({ running: false, filesDone: 3, filesTotal: 3 })
+    expect(ix.status().lastPassAt).not.toBeNull()
+    const msgs = log.mock.calls.map((c) => String(c[0]))
+    expect(msgs.some((m) => m.includes(a) && m.includes('TypeError'))).toBe(true)
+    // o log nunca leva conteúdo da linha nem a mensagem do erro
+    expect(msgs.some((m) => m.includes('EXPLODE'))).toBe(false)
+  })
+
+  it('runPass depois de um stop sem await faz uma passada nova, sem rodar em paralelo', async () => {
+    const f = join(codexDir, '2026', '11', '20', 'rollout-1.jsonl')
+    const { total, size } = codexGrande(f)
+    let rodando = 0
+    let maximo = 0
+    const ix = indexer({
+      sliceBytes: 1024,
+      yieldNow: async () => {
+        rodando++
+        maximo = Math.max(maximo, rodando)
+        await immediate()
+        rodando--
+      },
+    })
+    const a = ix.runPass()
+    const parando = ix.stop()
+    const b = ix.runPass()
+    expect(b).not.toBe(a)
+    expect(ix.runPass()).toBe(b)
+    await Promise.all([a, parando, b])
+    expect(maximo).toBe(1)
+    expect(soma('codex')).toBe(total)
+    expect(store.file(f)?.offset).toBe(size)
+    expect(ix.status().lastPassAt).not.toBeNull()
+  })
+
+  it('start depois de um stop sem await roda a passada imediata', async () => {
+    const f = join(codexDir, '2026', '11', '20', 'rollout-1.jsonl')
+    const { total } = codexGrande(f)
+    const ix = indexer({ sliceBytes: 1024 })
+    const a = ix.runPass()
+    const parando = ix.stop()
+    ix.start(60_000)
+    await Promise.all([a, parando])
+    await vi.waitFor(() => expect(ix.status().lastPassAt).not.toBeNull())
+    await ix.stop()
+    expect(soma('codex')).toBe(total)
   })
 })

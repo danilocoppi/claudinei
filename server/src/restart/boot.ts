@@ -94,11 +94,21 @@ export function createRestartService(deps: {
     return state
   }
 
-  /** Fecha como interrompidas as tarefas em andamento do terminal: o turno delas não volta. */
+  /**
+   * Tarefas presas ao turno interrompido de cada terminal que vai retomar
+   * (chave `projeto:motor`), anotadas na subida. Só elas são religadas ou
+   * fechadas: uma tarefa entregue ao terminal DEPOIS da subida corre num turno
+   * novo e não tem nada a ver com o reinício.
+   */
+  const interruptedTasks = new Map<string, number[]>()
+  const keyOf = (projectId: number, engine: string) => `${projectId}:${engine}`
+
+  /** Fecha como interrompidas as tarefas anotadas do terminal: o turno delas não volta. */
   const failTasksOf = (projectId: number, engine: string): void => {
+    const ids = interruptedTasks.get(keyOf(projectId, engine)) ?? []
+    interruptedTasks.delete(keyOf(projectId, engine))
     const orch = deps.orchestrator()
-    if (!orch) return
-    for (const t of tasks.inProgressFor(projectId, engine)) orch.failInterrupted(t.id)
+    if (orch) for (const id of ids) orch.failInterrupted(id)
   }
 
   /**
@@ -141,8 +151,12 @@ export function createRestartService(deps: {
       publish(projectId, engine)
       throw err
     }
+    // Só as tarefas do turno interrompido (anotadas na subida). As de um terminal
+    // segurado já fecharam na subida; as entregues depois dela têm o próprio ouvinte.
+    const ids = interruptedTasks.get(keyOf(projectId, engine)) ?? []
+    interruptedTasks.delete(keyOf(projectId, engine))
     const orch = deps.orchestrator()
-    if (orch) for (const t of tasks.inProgressFor(projectId, engine)) orch.reattach(t.id, localId)
+    if (orch) for (const id of ids) orch.reattach(id, localId)
     publish(projectId, engine)
     return true
   }
@@ -189,12 +203,12 @@ export function createRestartService(deps: {
         store.setHold(a.projectId, a.engine, a.reason)
         publish(a.projectId, a.engine)
       }
-      const resuming = new Set(actions.filter((a) => a.kind === 'resume').map((a) => `${a.projectId}:${a.engine}`))
+      const resuming = new Set(actions.filter((a) => a.kind === 'resume').map((a) => keyOf(a.projectId, a.engine)))
       const orch = deps.orchestrator()
-      if (orch) {
-        for (const t of tasks.listInProgress()) {
-          if (!resuming.has(`${t.toProjectId}:${t.toEngine}`)) orch.failInterrupted(t.id)
-        }
+      for (const t of tasks.listInProgress()) {
+        const key = keyOf(t.toProjectId, t.toEngine ?? '')
+        if (resuming.has(key)) interruptedTasks.set(key, [...(interruptedTasks.get(key) ?? []), t.id])
+        else orch?.failInterrupted(t.id)
       }
       const risers = actions.filter((a) => a.kind !== 'hold' || a.alsoIdle)
       for (let i = 0; i < risers.length; i += batchSize) {

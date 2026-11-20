@@ -130,6 +130,7 @@ let db: Db
 let mgr: ReturnType<typeof createSessionManager>
 let store: TerminalStateStore
 let mgrBroadcasts: any[]
+let appBroadcasts: any[]
 let stateBroadcasts: any[]
 let brokenPaths: Set<string>
 let orch: OrchestratorHooks
@@ -157,13 +158,14 @@ const resumeEchoes = () => mgrBroadcasts.filter((b) =>
 beforeEach(async () => {
   db = openDb(':memory:')
   mgrBroadcasts = []
+  appBroadcasts = []
   stateBroadcasts = []
   brokenPaths = new Set()
   mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => mgrBroadcasts.push(m) })
   store = createTerminalStateStore(db)
   await buildApp({
     config: loadConfig({}), db, manager: mgr,
-    wsHub: { broadcast: () => {}, register: () => {} } as any,
+    wsHub: { broadcast: (m: object) => appBroadcasts.push(m), register: () => {} } as any,
     onOrchestratorReady: (o) => { orch = o },
   })
 })
@@ -248,6 +250,60 @@ describe('createRestartService.boot', () => {
     expect(activeOf(p)?.localId).toBe(localId)
     await waitUntil(() => mgr.get(localId)?.status === 'idle')
     expect(resumeEchoes()).toHaveLength(0)
+  })
+
+  /** Terminal segurado (retomar desligado) com iniciar: de pé e parado depois da subida. */
+  const heldAndLive = async () => {
+    const p = newProject('P')
+    const localId = seedSession(p)
+    store.setPrefs(p.id, 'claude', { autostart: true })
+    store.markInterrupted(p.id, 'claude', localId, null)
+    const { svc } = makeService()
+    await svc.boot()
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    expect(store.get(p.id, 'claude').holdReason).toBe('off')
+    return { p, localId, svc }
+  }
+
+  /** Tarefa encaminhada DEPOIS da subida, entregue pelo caminho normal (drain). */
+  const dispatchAfterBoot = (p: Project) => {
+    const tasks = createTasksService(db)
+    const { id } = tasks.create(null, p.id, 'tarefa nova', 'queued')
+    orch.drain(p.id)
+    expect(tasks.get(id)?.status).toBe('in_progress')
+    return { tasks, id }
+  }
+  const taskUpdates = (id: number, status: string) =>
+    appBroadcasts.filter((b) => b.type === 'task_update' && b.task.id === id && b.task.status === status)
+
+  for (const via of ['dismiss', 'onOperatorMessage'] as const) {
+    it(`tarefa entregue depois da subida sobrevive ao ${via}`, async () => {
+      const { p, svc } = await heldAndLive()
+      const { tasks, id } = dispatchAfterBoot(p)
+
+      svc[via](p.id, 'claude')
+      expect(store.get(p.id, 'claude').interruptedAt).toBeNull()
+      expect(tasks.get(id)?.status).toBe('in_progress')
+
+      await waitUntil(() => tasks.get(id)?.status === 'completed')
+      expect(tasks.get(id)?.result).toBe('eco: [Task from unknown]: tarefa nova')
+      expect(taskUpdates(id, 'failed')).toHaveLength(0)
+    })
+  }
+
+  it('Continuar não põe um segundo ouvinte na tarefa entregue depois da subida', async () => {
+    const { p, localId, svc } = await heldAndLive()
+    const { tasks, id } = dispatchAfterBoot(p)
+
+    expect(svc.resumeTerminal(p.id, 'claude')).toBe(true)
+    await waitUntil(() => tasks.get(id)?.status === 'completed')
+    expect(tasks.get(id)?.result).toBe('eco: [Task from unknown]: tarefa nova')
+    // O turno da mensagem de retomada também fecha; um ouvinte a mais fecharia de novo.
+    await waitUntil(() => mgrBroadcasts.some((b) => b.type === 'session_event' && b.localId === localId &&
+      b.event?.kind === 'result' && JSON.stringify(b.event).includes('eco: [Claudinei: resume')))
+    await new Promise((r) => setTimeout(r, 100))
+    expect(taskUpdates(id, 'completed')).toHaveLength(1)
+    expect(tasks.get(id)?.result).toBe('eco: [Task from unknown]: tarefa nova')
   })
 
   it('boot em lotes de 3', async () => {
@@ -363,15 +419,33 @@ describe('createRestartService: mensagens e interruptores', () => {
     expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: expect.objectContaining({ projectId: p.id, interruption: null }) })
   })
 
-  it('aviso dispensado fecha as tarefas presas ao turno que não volta', async () => {
-    const p = newProject('P')
-    store.markInterrupted(p.id, 'claude', 'x', null)
+  it('aviso dispensado entre os lotes fecha a tarefa do turno que não volta', async () => {
+    // Dois terminais que retomam, um por lote: o segundo espera o sleep.
+    const [p1, p2] = [newProject('P1'), newProject('P2')]
+    for (const p of [p1, p2]) {
+      store.setPrefs(p.id, 'claude', { autoResume: true })
+      store.markInterrupted(p.id, 'claude', seedSession(p), null)
+    }
     const tasks = createTasksService(db)
-    const t = tasks.create(null, p.id, 'faça', 'in_progress').id
+    const t = tasks.create(null, p2.id, 'faça', 'in_progress').id
     tasks.setToEngine(t, 'claude')
-    const { svc } = makeService()
-    svc.onOperatorMessage(p.id, 'claude')
+    let release!: () => void
+    const svc = createRestartService({
+      db, manager: mgr, store, orchestrator: () => orch, broadcast: (m) => stateBroadcasts.push(m),
+      batchSize: 1, sleep: () => new Promise<void>((r) => { release = r }), log: () => {},
+    })
+    const booting = svc.boot()
+    await waitUntil(() => release !== undefined)
+    expect(tasks.get(t)?.status).toBe('in_progress')
+
+    svc.onOperatorMessage(p2.id, 'claude')
     expect(tasks.get(t)).toMatchObject({ status: 'failed', result: RESTART_FAIL_TEXT })
+
+    release()
+    await booting
+    // O lote encontra a marca já tirada: não retoma nem religa.
+    expect(svc.resumeTerminal(p2.id, 'claude')).toBe(false)
+    expect(tasks.get(t)?.status).toBe('failed')
   })
 
   it('mensagem do operador sem interrupção não faz broadcast', () => {

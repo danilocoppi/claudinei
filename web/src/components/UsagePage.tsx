@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchUsageReport, type IndexStatus, type UsagePeriod, type UsageReport, type UsageTotals } from '../api'
 import { useStore } from '../store'
+import { byPriorityThenRecency, primarySessionOf } from '../engineSession'
 
 const PERIODS: readonly UsagePeriod[] = ['24h', '7d', '30d', '90d']
 const PERIOD_DAYS: Record<UsagePeriod, number> = { '24h': 1, '7d': 7, '30d': 30, '90d': 90 }
@@ -81,13 +82,16 @@ export function UsagePage() {
 
   const openTerminal = (term: Terminal) => {
     const s = useStore.getState()
-    // A sessão mais recente de qualquer terminal da pasta; sem nenhuma, o painel.
-    const latest = Object.values(s.sessions)
-      .filter((x) => term.projectIds.includes(x.projectId))
-      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
-    if (!latest) s.openDashboard()
-    else if (latest.status === 'in_terminal') s.openTerminal(latest.localId)
-    else s.openSession(latest.localId)
+    // A sessão "cara" de cada terminal da pasta (prioridade de status, depois a mais
+    // recente — a regra da lateral) e, entre elas, a melhor. Parada ou morta não abre,
+    // como no cartão da lateral: sem sessão aberta, o painel.
+    const best = term.projectIds
+      .map((id) => primarySessionOf(id, s.sessions))
+      .filter((x): x is NonNullable<typeof x> => !!x && x.status !== 'stopped' && x.status !== 'dead')
+      .sort(byPriorityThenRecency)[0]
+    if (!best) s.openDashboard()
+    else if (best.status === 'in_terminal') s.openTerminal(best.localId)
+    else s.openSession(best.localId)
   }
 
   const terminalName = (term: Terminal) =>

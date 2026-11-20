@@ -143,6 +143,32 @@ describe('UsagePage', () => {
     expect(useStore.getState().activeLocalId).toBe('neu')
   })
 
+  it('pasta compartilhada: sessão viva vence a morta mais recente', async () => {
+    useStore.setState({
+      sessions: {
+        morta: { localId: 'morta', projectId: 1, status: 'dead', engineSessionId: null, updatedAt: '2026-11-19T00:00:00Z', engine: 'claude' },
+        viva: { localId: 'viva', projectId: 2, status: 'working', engineSessionId: null, updatedAt: '2026-11-01T00:00:00Z', engine: 'claude' },
+      },
+    } as never)
+    render(<UsagePage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Alfa \/ Beta/ }))
+    expect(useStore.getState().view).toBe('chat')
+    expect(useStore.getState().activeLocalId).toBe('viva')
+  })
+
+  it('só sessões paradas ou mortas: abre o painel', async () => {
+    useStore.setState({
+      view: 'usage',
+      sessions: {
+        parada: { localId: 'parada', projectId: 3, status: 'stopped', engineSessionId: null, updatedAt: '2026-11-19T00:00:00Z', engine: 'codex' },
+      },
+    } as never)
+    render(<UsagePage />)
+    fireEvent.click(await screen.findByRole('button', { name: /Gama/ }))
+    expect(useStore.getState().view).toBe('dashboard')
+    expect(useStore.getState().activeLocalId).toBeUndefined()
+  })
+
   it('terminal sem sessão abre o painel', async () => {
     useStore.setState({ view: 'usage' } as never)
     render(<UsagePage />)
@@ -242,7 +268,9 @@ describe('atalho no App', () => {
 describe('cartão Uso', () => {
   it('Ver detalhes no cartão Uso abre a página', async () => {
     render(<UsageCard />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Ver detalhes' }))
+    // Antes da resposta o cartão já é o mínimo; espera o completo para clicar no botão que fica.
+    await screen.findByText('Sessão atual')
+    fireEvent.click(screen.getByRole('button', { name: 'Ver detalhes' }))
     expect(useStore.getState().view).toBe('usage')
   })
 })

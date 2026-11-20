@@ -65,7 +65,7 @@ const STATUS_PRIORITY: Record<SessionInfo['status'], number> = {
 
 /** A sessão "cara do projeto": maior prioridade de status; empate → mais recente. */
 /** Prioridade de status; empate → mais recente. Ordem única do card e das bolinhas. */
-const byPriorityThenRecency = (a: SessionInfo, b: SessionInfo): number => {
+export const byPriorityThenRecency = (a: SessionInfo, b: SessionInfo): number => {
   const pa = STATUS_PRIORITY[a.status] ?? 0
   const pb = STATUS_PRIORITY[b.status] ?? 0
   if (pa !== pb) return pb - pa

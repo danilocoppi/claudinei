@@ -810,10 +810,12 @@ button.term-card__favorite:disabled { cursor: wait; }
 .usage-tokens__breakdown { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 /* "Ver detalhes": abre a página de uso. Botão discreto, sem o gradiente padrão. */
 button.usage-card__details {
-  align-self: flex-start; padding: 2px 0; font-size: 11.5px; font-weight: 500;
+  align-self: flex-start; padding: 2px 0; font-size: 11.5px; font-weight: 500; font-family: inherit;
   background: transparent; color: var(--accent); border: 0; transition: none;
 }
 button.usage-card__details:hover { filter: none; text-decoration: underline; }
+/* Cartão sem limites nem tokens: só o "Ver detalhes", sem ocupar espaço à toa. */
+.usage-card--empty { padding: 6px 12px; }
 
 /* Página de uso. Sem GPU (AGENTS.md): blocos sem backdrop-filter, barras em div
    com largura em %, nada de transition nem animation. */
@@ -847,6 +849,7 @@ button.usage-page__period.on { background: var(--surface-strong); border-color: 
 }
 button.usage-page__row--link {
   background: transparent; border: 0; color: var(--text); font-weight: 400; transition: none;
+  font-family: inherit; font-size: 13px; line-height: inherit; text-align: left;
 }
 button.usage-page__row--link:hover { filter: none; background: var(--surface-strong); }
 .usage-page__row-head { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }

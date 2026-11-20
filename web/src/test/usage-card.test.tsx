@@ -38,11 +38,22 @@ describe('UsageCard', () => {
     expect((fills[0] as HTMLElement).style.background).toContain('--usage-low')
   })
 
-  it('sem limites → não renderiza nada', async () => {
+  // A página de uso não depende do /api/usage: sem limites nem tokens, o cartão
+  // encolhe para só o "Ver detalhes" — é a única entrada da página no celular.
+  it('sem limites → cartão mínimo, só com o Ver detalhes', async () => {
     ;(fetchUsage as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ limits: [] })
     const { container } = render(<UsageCard />)
     await waitFor(() => expect(fetchUsage).toHaveBeenCalled())
-    expect(container.firstChild).toBeNull()
+    expect(screen.getByRole('button', { name: 'Ver detalhes' })).toBeTruthy()
+    expect(screen.queryByText('Uso')).toBeNull()
+    expect(container.querySelectorAll('button')).toHaveLength(1)
+  })
+
+  it('/api/usage falhando → o Ver detalhes continua lá', async () => {
+    ;(fetchUsage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'))
+    render(<UsageCard />)
+    await waitFor(() => expect(fetchUsage).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Ver detalhes' })).toBeTruthy()
   })
 
   it('modo simples (toggle off) mostra só a sessão; toggle liga o avançado e persiste', async () => {

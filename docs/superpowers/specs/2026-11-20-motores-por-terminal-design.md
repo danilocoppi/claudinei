@@ -142,3 +142,10 @@ nunca usou nenhum, recebe só o Claude.
   `heads-up`, ou dentro do `PATCH` do terminal).
 - O visual do "+" e do selo "não instalada" no menu.
 - Os textos e as chaves de i18n (pt-BR, en, es).
+
+## Decisões depois da revisão do desenho (de quem escreveu)
+
+- **Cartão e conversa aberta.** Sem sessão viva, o cartão da lateral abre a sessão mais recente entre os motores **da lista**. Se a conversa na tela for de um motor escondido (aberta por link, notificação ou histórico), ela ganha aba enquanto estiver na tela — o operador nunca fica numa conversa sem aba.
+- **Interrupção pendente conta como "viva".** Um motor escondido com aviso de trabalho interrompido (do reinício) mostra a aba até o aviso sair, para o operador alcançar o Continuar. A retomada automática segue o interruptor do próprio terminal: esconder o motor tira o "iniciar com o Claudinei", não o trabalho que estava rodando.
+- **Agendamento sem motor ("manter o atual").** Só usa motores da lista: revive a sessão parada mais recente de um motor listado; sem nenhuma, começa no primeiro da lista. Agendamento preso a um motor escondido continua rodando, como já decidido.
+- **Terminal temporário.** A lista nasce com o motor escolhido ao criá-lo.

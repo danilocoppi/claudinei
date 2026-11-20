@@ -300,6 +300,23 @@ export function openDb(path: string): Db {
   )`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_threads_own ON project_threads(project_id, engine, seq DESC)`)
 
+  // Reinício sem prejuízo: interruptores por terminal (projeto + motor) e a marca
+  // de turno interrompido pelo reinício. Por projeto + motor, e não na linha de
+  // `sessions`, porque a poda de sessões antigas levaria as preferências junto.
+  // Ver restart/terminal-state.ts.
+  db.exec(`CREATE TABLE IF NOT EXISTS terminal_state (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    engine TEXT NOT NULL,
+    autostart INTEGER NOT NULL DEFAULT 0,
+    auto_resume INTEGER NOT NULL DEFAULT 0,
+    interrupted_at TEXT, interrupted_local_id TEXT, lost_question TEXT,
+    resume_count INTEGER NOT NULL DEFAULT 0, hold_reason TEXT,
+    PRIMARY KEY (project_id, engine))`)
+  // Pergunta (AskUserQuestion) aberta, em JSON, enquanto espera o operador: é o
+  // que sobra dela depois de uma queda brusca, quando não há encerramento para
+  // registrar nada.
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN pending_question TEXT`) } catch { /* já existe */ }
+
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).
   // Recriado aqui a cada boot porque o DROP TABLE da migração leva os índices

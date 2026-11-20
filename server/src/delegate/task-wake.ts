@@ -1,8 +1,8 @@
 import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
-import type { TerminalStateDto, TerminalStateStore } from '../restart/terminal-state.js'
+import type { LimitOrigin, TerminalStateDto, TerminalStateStore } from '../restart/terminal-state.js'
 import type { RestartService } from '../restart/boot.js'
-import { holdsForNotice, type NextSend, type NextSendProvider } from '../queue/next-send.js'
+import type { NextSend, NextSendProvider } from '../queue/next-send.js'
 import { createProjectsService } from '../projects.js'
 import { createTasksService, type Task } from '../tasks.js'
 import { taskResultText } from './texts.js'
@@ -25,6 +25,13 @@ import { taskResultText } from './texts.js'
  * sem aviso aberto; senão o aviso fica à vista (`taskResults` no estado do
  * terminal) com Continuar e ×.
  *
+ * Limite de uso: além do que o árbitro segura, este lugar segura por conta
+ * própria o terminal que passou pelo limite até ele voltar a trabalhar por
+ * iniciativa do operador ou da retomada armada (um turno bom do operador ou do
+ * Claudinei). Sem isto, a reabertura de um limite adiado, ou o × no aviso dele,
+ * cutucaria o árbitro e o Claudinei gastaria tokens sozinho só para entregar um
+ * resultado. A marca fica só na memória; a subida a refaz pelo estado gravado.
+ *
  * O estado do aviso fica na própria tarefa (`notify`), para sobreviver ao
  * reinício: na subida, os pendentes voltam às mesmas regras.
  */
@@ -42,17 +49,24 @@ export function createTaskWake(deps: {
   /**
    * Aviso aberto no terminal (o mesmo `holds` do árbitro, montado no app.ts).
    * Só decide se um terminal PARADO pode ser revivido; a entrega em si é do
-   * árbitro. Ausente: o mesmo cálculo do app.ts.
+   * árbitro.
    */
-  holds?: (projectId: number, engine: string) => boolean
+  holds: (projectId: number, engine: string) => boolean
   log?: (msg: string) => void
 }) {
   const { db, manager, store } = deps
   const log = deps.log ?? ((msg: string) => console.error(msg))
   const tasks = createTasksService(db)
   const projects = createProjectsService(db)
-  const holds = deps.holds ?? ((projectId: number, engine: string): boolean =>
-    manager.isShuttingDown() || holdsForNotice(store.get(projectId, engine)))
+  const holds = deps.holds
+
+  /** Terminais (chave `projeto:motor`) segurados pelo limite de uso até voltarem a trabalhar. */
+  const limitHeld = new Set<string>()
+  /** Marca o terminal se ele está no limite agora; devolve se está segurado. */
+  const heldByLimit = (t: Terminal): boolean => {
+    if (store.get(t.projectId, t.engine).limitHitAt != null) limitHeld.add(keyOf(t))
+    return limitHeld.has(keyOf(t))
+  }
 
   const liveOf = (projectId: number, engine: string) =>
     manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))
@@ -106,7 +120,9 @@ export function createTaskWake(deps: {
   const route = (t: Terminal): void => {
     // Encerrando: o pendente fica no banco e volta na próxima subida.
     if (manager.isShuttingDown()) return
-    if (liveOf(t.projectId, t.engine)) {
+    if (heldByLimit(t)) {
+      // Nem cutuca nem revive: o resultado espera o terminal voltar a trabalhar.
+    } else if (liveOf(t.projectId, t.engine)) {
       deps.nextSend()?.poke(t.projectId, t.engine)
     } else if (store.get(t.projectId, t.engine).autoResume && !holds(t.projectId, t.engine)) {
       try {
@@ -125,6 +141,7 @@ export function createTaskWake(deps: {
     slot: 4,
     /** Todas as pendentes do terminal numa mensagem só, uma por bloco. */
     offer(ctx) {
+      if (heldByLimit(ctx)) return false
       const pending = pendingFor(ctx.projectId, ctx.engine)
       if (pending.length === 0) return false
       manager.sendAsClaudinei(ctx.localId, taskResultText(pending.map((t) => ({
@@ -165,9 +182,25 @@ export function createTaskWake(deps: {
     continueNow(projectId: number, engine: string): boolean {
       if (manager.isShuttingDown()) return false
       if (pendingFor(projectId, engine).length === 0) return false
+      // O Continuar é o operador pedindo a entrega: tira a marca do limite, desde
+      // que o limite já tenha saído (com ele ativo, o árbitro segura de todo jeito).
+      if (store.get(projectId, engine).limitHitAt == null) limitHeld.delete(keyOf({ projectId, engine }))
       if (!liveOf(projectId, engine)) deps.restart.bringUp(projectId, engine, null)
       deps.nextSend()?.poke(projectId, engine)
       return true
+    },
+
+    /**
+     * Fim de turno (o mesmo gancho do manager). O turno que bate no limite marca
+     * o terminal; um turno bom do operador ou do Claudinei (a retomada armada do
+     * limite é do Claudinei) tira a marca: o terminal voltou a trabalhar. Turno
+     * com erro, interrompido, ou de tarefa e agendamento não prova isso.
+     */
+    onTurnResult(projectId: number, engine: string, info: { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin }): void {
+      const key = keyOf({ projectId, engine })
+      if (info.limited) { limitHeld.add(key); return }
+      if (info.isError || info.interrupted) return
+      if (info.origin === 'operator' || info.origin === 'claudinei') limitHeld.delete(key)
     },
 
     /** O × do aviso: os pendentes do terminal viram dispensados. O resultado segue em list_tasks. */
@@ -206,8 +239,13 @@ export function createTaskWake(deps: {
      * projeto de origem foi apagado) vira `none`.
      */
     async boot(): Promise<void> {
+      // A marca do limite é só da memória: refeita pelo estado gravado.
+      for (const r of store.list()) if (r.limitHitAt != null) limitHeld.add(keyOf(r))
       const targets = new Map<string, Terminal>()
       for (const t of tasks.allPendingNotify()) {
+        // Desvio deliberado da regra "só a sessão viva": um aviso sem motor de
+        // origem que já estava pendente fica na sessão mais recente do projeto,
+        // mesmo sem nenhuma viva, para seguir à vista (e no Continuar).
         const target = originOf(t, true)
         if (!target) { tasks.setNotify([t.id], 'none'); continue }
         targets.set(keyOf(target), target)

@@ -14,6 +14,7 @@ import { registerOrchestratorRoutes, type OrchestratorHooks } from '../src/route
 import { createNextSend, holdsForNotice, type NextSend } from '../src/queue/next-send.js'
 import { createTasksService } from '../src/tasks.js'
 import { createTaskWake } from '../src/delegate/task-wake.js'
+import { createUsageLimitService, type UsageLimitService } from '../src/limit/usage-limit.js'
 import { TASK_RESULT_PREFIX, TASK_RESULT_MAX, taskResultText } from '../src/delegate/texts.js'
 import '../src/engine/index.js'
 
@@ -59,6 +60,10 @@ let states: TerminalStateDto[]
 let logs: string[]
 /** O que o manager publica (eventos das sessões): prova que a mensagem chegou ao agente. */
 let mgrEvents: any[]
+let limit: UsageLimitService
+/** Relógio e timers falsos do serviço do limite (a reabertura é disparada à mão). */
+let clock: number
+let timers: { fn: () => unknown; ms: number; cleared: boolean }[]
 
 const tasks = () => createTasksService(db)
 const notices = () => sent.filter((s) => s.text.startsWith(TASK_RESULT_PREFIX))
@@ -71,6 +76,8 @@ beforeEach(async () => {
   states = []
   logs = []
   mgrEvents = []
+  clock = Date.now()
+  timers = []
   const projects = createProjectsService(db)
   origem = projects.create({ name: 'Origem', path: mkdtempSync(join(tmpdir(), 'tw-o-')) })
   destino = projects.create({ name: 'Destino', path: mkdtempSync(join(tmpdir(), 'tw-d-')) })
@@ -80,6 +87,17 @@ beforeEach(async () => {
   mgr = createSessionManager({
     db, sessionFactory: fakeFactory, broadcast: (m) => mgrEvents.push(m),
     onSessionAvailable: (projectId, ctx) => { if (ctx) arbiter?.onSessionAvailable({ projectId, ...ctx }) },
+    // Os ganchos como o index.ts os amarra (o do aviso de tarefa entra na Task 5).
+    onTurnResult: (projectId, engine, info) => {
+      restart?.onTurnResult(projectId, engine)
+      limit?.onTurnResult(projectId, engine, info)
+      wake?.onTurnResult(projectId, engine, info)
+    },
+    onOperatorMessage: (projectId, engine) => {
+      restart?.onOperatorMessage(projectId, engine)
+      limit?.onOperatorMessage(projectId, engine)
+    },
+    onUsageLimit: (projectId, engine, p) => limit?.onUsageLimit(projectId, engine, p),
   })
   // Registra o que o Claudinei manda, sem mudar o envio.
   const original = mgr.sendAsClaudinei.bind(mgr)
@@ -122,11 +140,32 @@ beforeEach(async () => {
     decorate: (projectId, engine) => wake.decorate(projectId, engine),
     decoratedTerminals: () => wake.terminals(),
   })
-  wake = createTaskWake({ db, manager: mgr, store, restart, nextSend: () => nextSend, log: (m) => logs.push(m) })
+  limit = createUsageLimitService({
+    manager: mgr, store, restart,
+    now: () => clock,
+    setTimer: (fn, ms) => {
+      const t = { fn, ms, cleared: false }
+      timers.push(t)
+      return { clear() { t.cleared = true } }
+    },
+    sleep: async () => {},
+    log: (m) => logs.push(m),
+  })
+  wake = createTaskWake({ db, manager: mgr, store, restart, nextSend: () => nextSend, holds, log: (m) => logs.push(m) })
   nextSend.register(wake.provider)
 })
 
+/** A reabertura do limite: avança o relógio até o timer pendente e o dispara. */
+async function reopen(): Promise<void> {
+  const live = timers.filter((t) => !t.cleared)
+  expect(live).toHaveLength(1)
+  live[0].cleared = true
+  clock += live[0].ms
+  await live[0].fn()
+}
+
 afterEach(async () => {
+  limit.dispose()
   await mgr.stopAll()
   await app.close()
 })
@@ -269,7 +308,9 @@ describe('aviso de resultado ao terminal que delegou', () => {
     expect(wake.continueNow(origem.id, 'claude')).toBe(false)
   })
 
-  it('origem em limite: segura; limite limpo → entrega na próxima folga', async () => {
+  // Ajustado pela decisão R11 (linha 178 do desenho): antes, o limite limpo
+  // entregava na hora; agora o resultado espera o terminal voltar a trabalhar.
+  it('origem em limite: segura; limite limpo sem trabalho não entrega; o turno do operador entrega na folga seguinte', async () => {
     const o = await up(origem)
     await up(destino)
     store.recordUsageLimit(origem.id, 'claude', { resetsAt: Math.floor(Date.now() / 1000) + 3600, origin: 'operator' })
@@ -279,11 +320,99 @@ describe('aviso de resultado ao terminal que delegou', () => {
     expect(notices()).toEqual([])
     expect(tasks().get(id)!.notify).toBe('pending')
     expect(lastState(origem.id)?.taskResults).toEqual([{ id, toProjectName: 'Destino', status: 'completed' }])
-    // O aviso do limite sai (a reabertura, o ×): o estado publicado cutuca o árbitro.
+    // O aviso do limite sai sem ninguém trabalhar: o estado publicado cutuca o
+    // árbitro, mas o lugar 4 segura (o Claudinei não gasta tokens sozinho).
     store.clearLimit(origem.id, 'claude')
     restart.publish(origem.id, 'claude')
+    await pause()
+    expect(notices()).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+    // O operador volta a trabalhar: no fim do turno dele, o aviso sai.
+    mgr.send(o, 'oi')
     await waitUntil(() => notices().length === 1)
     expect(notices()[0].localId).toBe(o)
+    expect(tasks().get(id)!.notify).toBe('delivered')
+  })
+
+  /** A origem bate no limite de verdade (o CLI falso) e uma tarefa termina durante ele. */
+  async function limitedWithPending(): Promise<{ o: string; id: number }> {
+    const o = await up(origem)
+    await up(destino)
+    mgr.send(o, 'limite')
+    await waitUntil(() => store.get(origem.id, 'claude').limitHitAt != null && mgr.get(o)?.status !== 'working')
+    const id = await dispatch('faça algo')
+    await waitUntil(ended(id))
+    await pause()
+    expect(notices()).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+    return { o, id }
+  }
+
+  it('limite adiado que reabre não entrega sozinho; o turno do operador entrega', async () => {
+    const { o, id } = await limitedWithPending()
+    limit.snooze(origem.id, 'claude')
+    await reopen()
+    expect(store.get(origem.id, 'claude').limitHitAt).toBeNull()
+    await pause()
+    expect(notices()).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+    mgr.send(o, 'oi')
+    await waitUntil(() => notices().length === 1)
+    expect(notices()[0].localId).toBe(o)
+    expect(tasks().get(id)!.notify).toBe('delivered')
+  })
+
+  it('× no aviso do limite não entrega; o turno do operador entrega', async () => {
+    const { o, id } = await limitedWithPending()
+    limit.cancel(origem.id, 'claude')
+    expect(store.get(origem.id, 'claude').limitHitAt).toBeNull()
+    await pause()
+    expect(notices()).toEqual([])
+    mgr.send(o, 'oi')
+    await waitUntil(() => notices().length === 1)
+    expect(tasks().get(id)!.notify).toBe('delivered')
+  })
+
+  it('depois do limite, o Continuar do aviso da tarefa é o operador pedindo: entrega', async () => {
+    const { o, id } = await limitedWithPending()
+    // Com o limite ainda ativo, o Continuar não tira a marca: segue segurado.
+    expect(wake.continueNow(origem.id, 'claude')).toBe(true)
+    await pause()
+    expect(notices()).toEqual([])
+    limit.cancel(origem.id, 'claude')
+    await pause()
+    expect(notices()).toEqual([])
+    expect(wake.continueNow(origem.id, 'claude')).toBe(true)
+    await waitUntil(() => notices().length === 1)
+    expect(notices()[0].localId).toBe(o)
+    expect(tasks().get(id)!.notify).toBe('delivered')
+  })
+
+  it('retomada armada do limite conta como volta ao trabalho: o aviso sai depois do turno dela', async () => {
+    const { o, id } = await limitedWithPending()
+    limit.arm(origem.id, 'claude')
+    await reopen()
+    // A retomada (do Claudinei) saiu primeiro; o aviso, só no fim do turno dela.
+    expect(sent.filter((m) => !m.text.startsWith(TASK_RESULT_PREFIX))).toHaveLength(1)
+    await waitUntil(() => notices().length === 1)
+    expect(notices()[0].localId).toBe(o)
+    expect(sent.findIndex((m) => m.text.startsWith(TASK_RESULT_PREFIX))).toBe(1)
+    expect(tasks().get(id)!.notify).toBe('delivered')
+  })
+
+  it('boot refaz a marca do limite: limite limpo depois da subida não entrega sozinho', async () => {
+    const o = await up(origem)
+    const { id } = tasks().create(origem.id, destino.id, 'antes do reinício', 'queued', 'claude')
+    tasks().setResult(id, 'completed', 'feito')
+    tasks().setNotify([id], 'pending')
+    store.recordUsageLimit(origem.id, 'claude', { resetsAt: Math.floor(Date.now() / 1000) + 3600, origin: 'operator' })
+    await wake.boot()
+    store.clearLimit(origem.id, 'claude')
+    restart.publish(origem.id, 'claude')
+    await pause()
+    expect(notices()).toEqual([])
+    mgr.send(o, 'oi')
+    await waitUntil(() => notices().length === 1)
     expect(tasks().get(id)!.notify).toBe('delivered')
   })
 

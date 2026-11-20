@@ -253,6 +253,8 @@ describe('Sidebar — desempenho da triagem (AGENTS.md)', () => {
     expect(within(section('pinned')).getByText('Delta')).toBeTruthy()
   })
 
+  // Montada sozinha, sem pai: mede o seletor estreito. O `memo` (a faixa não
+  // renderiza quando a lateral renderiza) é medido em working-strip-render.test.tsx.
   it('a faixa não renderiza com status de quem está fora dela', () => {
     seed({ s1: session(1, 'working'), s2: session(2, 'idle') })
     useStore.setState({ unread: { s2: 3 } })

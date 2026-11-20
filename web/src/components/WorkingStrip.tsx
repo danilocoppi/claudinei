@@ -24,12 +24,24 @@ const loadCollapsed = (): boolean => {
 
 type Row = WorkingRow & { project: Project }
 
+type StoreState = ReturnType<typeof useStore.getState>
+
 /**
- * O `Date.now()` daqui só decide se um adiamento ainda vale. Quando um vence, o
- * relógio da lateral limpa o `snoozedUntil` no store, e o seletor roda de novo.
+ * O seletor roda a CADA escrita no store, inclusive as do streaming do chat
+ * aberto (o caminho caro, segundo o AGENTS.md). Por isso ele só refaz a conta
+ * quando `sessions` ou `triage` trocam de referência; nas outras escritas
+ * devolve a chave anterior. Uma entrada só basta: a faixa larga e a do trilho
+ * nunca estão montadas ao mesmo tempo, e as duas leem a mesma chave.
+ *
+ * O `Date.now()` só decide se um adiamento ainda vale. Quando um vence, o relógio
+ * da lateral limpa o `snoozedUntil` no store — a `triage` muda, e a conta é refeita.
  */
-const selectRowsKey = (s: ReturnType<typeof useStore.getState>) =>
-  JSON.stringify(workingRows(s.sessions, s.triage, Date.now()))
+let last: { sessions: StoreState['sessions']; triage: StoreState['triage']; key: string } | null = null
+const selectRowsKey = (s: StoreState) => {
+  if (last && last.sessions === s.sessions && last.triage === s.triage) return last.key
+  last = { sessions: s.sessions, triage: s.triage, key: JSON.stringify(workingRows(s.sessions, s.triage, Date.now())) }
+  return last.key
+}
 
 function useWorkingRows(): Row[] {
   const key = useStore(selectRowsKey)

@@ -214,6 +214,19 @@ por ação, e o casamento é uma consulta ao mapa `resolved`.
 - **Teclas aceitas:** letras, dígitos, Enter, Espaço e F1–F12. Pontuação fica de fora por
   mudar de lugar entre layouts.
 - **Ctrl+Alt recusado fora do Mac**, por causa do AltGr.
+- **Option+letra no Mac casa pela posição física** (`e.code`, `KeyX`), tanto ao gravar quanto ao
+  disparar, porque o Option troca a letra (`å`, `ß`, `ç`, `∂`…) e o casamento por `e.key`
+  nunca acertaria. Aceita-se errar em Dvorak/AZERTY no Mac; o operador usa Linux. Fora desse
+  caso vale a regra geral (letra primeiro, posição só para outro alfabeto ou tecla morta).
+- **Listas de fixos e reservados completadas** (checagem do construtor):
+  - fixos do navegador em qualquer lugar, inclusive fora de campos: Mod+C, Mod+V, Mod+X e
+    Mod+A (copiar, colar, recortar e selecionar o texto da conversa);
+  - fixos de edição do macOS dentro de campos: Control+A, B, D, E, F, H, K, N, P e U;
+  - reservados fora do Mac: além dos já listados, Ctrl+F4 e Ctrl+1 a Ctrl+9; no Mac,
+    ⌘+1 a ⌘+9.
+- **Teclas F podem ser usadas sozinhas** (ex.: F2), porque não roubam digitação. Ficam
+  reservadas F1, F5, F11, F12 e Ctrl+F5. Letras, dígitos, Enter e Espaço continuam exigindo
+  Ctrl, ⌘ ou Alt.
 
 ## Depois
 

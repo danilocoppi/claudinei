@@ -89,7 +89,8 @@ export function ChatView() {
     const key = session.engineSessionId
       ?? (['starting', 'in_terminal', 'stopped'].includes(session.status) ? '(preview)' : null)
     if (!key || loadedEngineSessionId === key) return
-    loadHistoryTail(activeLocalId, key).then((page) => {
+    // Só a releitura mais recente da sessão chega a este callback (ver loadHistoryTail).
+    loadHistoryTail(activeLocalId, key, (page) => {
       // Preview vazio não apaga nada. No resto, a reconciliação por chave não
       // deixa a releitura ENCOLHER a conversa: as páginas antigas já carregadas
       // ficam (num turno longo, loadHistoryTail lê para trás até encostar nelas),

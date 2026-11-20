@@ -4,7 +4,7 @@ import { itemsEqual, reconcileByKey, reducePage } from '../chat/reconcile'
 import { useStore } from '../store'
 import { fetchHistory } from '../api'
 import { loadHistoryTail, TAIL_CATCHUP_PAGES } from '../chat/loadTail'
-import type { ChatItem, ClaudeEvent } from '../types'
+import type { ChatItem, ClaudeEvent, HistoryPage } from '../types'
 
 /**
  * Chaves estáveis por posição (byte da linha no arquivo da engine), refetch do
@@ -232,6 +232,62 @@ describe('setHistoryTail / prependHistory', () => {
     expect(keys(st().chat.s).filter((k) => k!.startsWith('p'))).toEqual(['p100', 'p110', 'p130', 'p140', 'p150', 'p160'])
   })
 
+  describe('slash command enviado pelo chat', () => {
+    const st = () => useStore.getState()
+    const ao = (event: ClaudeEvent) => st().applyWsMessage({ type: 'session_event', localId: 's', event })
+    const visto = () => st().chat.s.map((it) =>
+      it.kind === 'local_command' ? `chip ${it.command}${it.args ? ` ${it.args}` : ''}` : `${it.kind}: ${(it as { text?: string }).text ?? ''}`)
+
+    it('Claude: o transcript grava o chip; a bolha ao vivo casa com ele e não fica duplicada', () => {
+      st().setHistoryTail('s', tail1, 'c')
+      st().addLocalUserText('s', '/effort xhigh')
+      const bolha = st().chat.s[st().chat.s.length - 1].key!
+      st().addLocalUserText('s', '/superpowers:brainstorming  uma ideia ')
+      st().setHistoryTail('s', page([
+        texto('a-130', 130),
+        user('<command-name>/effort</command-name>\n<command-message>effort</command-message>\n<command-args>xhigh</command-args>', 140),
+        user('<local-command-stdout>Set effort level to xhigh</local-command-stdout>', 150),
+        user('<command-name>/superpowers:brainstorming</command-name>\n<command-args>uma ideia</command-args>', 160),
+      ], 130), 'c')
+      expect(visto().slice(3)).toEqual([
+        'chip /effort xhigh', 'command_output: Set effort level to xhigh', 'chip /superpowers:brainstorming uma ideia',
+      ])
+      expect(st().chat.s.find((it) => it.key === 'p140')).toBeDefined()
+      expect(keys(st().chat.s)).not.toContain(bolha)
+    })
+
+    it('Codex: /compact não grava texto; a bolha ao vivo sem par não fica como fantasma', () => {
+      st().setHistoryTail('s', tail1, 'c')
+      st().addLocalUserText('s', '/compact')
+      ao(texto('compactando'))
+      st().setHistoryTail('s', page([
+        texto('a-130', 130),
+        { kind: 'system', subtype: 'compact_boundary', raw: { compact_metadata: { pre_tokens: 9000 } }, pos: 140 } as ClaudeEvent,
+        texto('compactando', 150),
+      ], 130), 'c')
+      expect(visto().some((v) => v.includes('/compact'))).toBe(false)
+    })
+
+    it('texto que só começa com um caminho não é slash command: sem par, fica', () => {
+      st().setHistoryTail('s', tail1, 'c')
+      st().addLocalUserText('s', '/home/x/a.ts quebrou')
+      st().setHistoryTail('s', page([texto('a-130', 130)], 130), 'c')
+      expect(visto()).toContain('user_text: /home/x/a.ts quebrou')
+    })
+  })
+
+  it('prompt de subagente ao vivo sem par não fica (não é texto do operador)', () => {
+    const st = () => useStore.getState()
+    st().setHistoryTail('s', tail1, 'c')
+    st().applyWsMessage({ type: 'session_event', localId: 's', event: user([{ type: 'text', text: 'investigue o módulo X' }], undefined, { parent_tool_use_id: 'toolu_agent' }) })
+    expect(st().chat.s[st().chat.s.length - 1]).toMatchObject({ kind: 'user_text', fromSubagent: true })
+    st().addLocalUserText('s', 'pedido do operador')
+    st().setHistoryTail('s', page([texto('a-130', 130)], 130), 'c')
+    const textos = st().chat.s.map((it) => (it as { text?: string }).text)
+    expect(textos).not.toContain('investigue o módulo X')
+    expect(textos).toContain('pedido do operador')
+  })
+
   it('página vazia da mesma conversa não mexe na tela nem no cursor', () => {
     const st = () => useStore.getState()
     st().setHistoryTail('s', tail1, 'c1')
@@ -363,6 +419,12 @@ describe('loadHistoryTail: turno maior que uma página', () => {
     return pedidos
   }
   const st = () => useStore.getState()
+  /** Relê e devolve a página entregue ao `apply` (null se não houve entrega). */
+  const reler = async (localId: string, conv: string) => {
+    let entregue: HistoryPage | null = null
+    await loadHistoryTail(localId, conv, (p) => { entregue = p })
+    return entregue as HistoryPage | null
+  }
   const telaComPaginasAntigas = () => {
     st().setHistoryTail('s', page([pedido('p-100', 100), texto('a-130', 130)], 100), 'c')
     st().prependHistory('s', page([pedido('p-0', 0), texto('a-40', 40)], 0, true), 100)
@@ -379,7 +441,7 @@ describe('loadHistoryTail: turno maior que uma página', () => {
       400: page([texto('a-200', 200), texto('a-300', 300)], 200),
       200: page([texto('a-130', 130), pedido('p-140', 140), texto('a-150', 150), texto('a-190', 190)], 130),
     })
-    const tail = await loadHistoryTail('s', 'c')
+    const tail = (await reler('s', 'c'))!
     expect(pedidos).toEqual(['', '?before=400&limit=500', '?before=200&limit=500'])
     expect(tail.before).toBe(130)
     st().setHistoryTail('s', tail, 'c')
@@ -392,7 +454,7 @@ describe('loadHistoryTail: turno maior que uma página', () => {
   it('a cauda que já encosta na tela não pede página extra', async () => {
     telaComPaginasAntigas()
     const pedidos = rota({ fim: page([texto('a-130', 130), pedido('p-140', 140), texto('a-150', 150)], 130) })
-    await loadHistoryTail('s', 'c')
+    await reler('s', 'c')
     expect(pedidos).toEqual([''])
   })
 
@@ -404,7 +466,7 @@ describe('loadHistoryTail: turno maior que uma página', () => {
       paginas[b] = page([texto(`t-${b - 1000}`, b - 1000)], b - 1000)
     }
     const pedidos = rota(paginas)
-    const tail = await loadHistoryTail('s', 'c')
+    const tail = (await reler('s', 'c'))!
     expect(pedidos).toHaveLength(1 + TAIL_CATCHUP_PAGES)
     st().setHistoryTail('s', tail, 'c')
     expect(st().historyCursor.s).toEqual({ before: tail.before, atStart: false, conv: 'c' })
@@ -416,7 +478,34 @@ describe('loadHistoryTail: turno maior que uma página', () => {
   it('outra conversa não lê para trás (as chaves são de outro arquivo)', async () => {
     telaComPaginasAntigas()
     const pedidos = rota({ fim: page([texto('a-400', 400)], 400), 400: page([texto('a-200', 200)], 200) })
-    await loadHistoryTail('s', 'outra')
+    await reler('s', 'outra')
     expect(pedidos).toEqual([''])
+  })
+
+  it('releituras concorrentes: só a mais recente é aplicada, e a velha que chega depois é ignorada', async () => {
+    telaComPaginasAntigas()
+    const respostas: ((r: Response) => void)[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((res) => { respostas.push(res) }))
+    const aplicadas: string[] = []
+    const primeira = loadHistoryTail('s', 'c', () => aplicadas.push('primeira'))
+    const segunda = loadHistoryTail('s', 'c', () => aplicadas.push('segunda'))
+    // a mais nova responde antes; a velha (cauda mais curta) chega depois
+    respostas[1](ok(page([texto('a-130', 130), pedido('p-140', 140), texto('a-150', 150), texto('a-160', 160)], 130)))
+    await expect(segunda).resolves.toBe(true)
+    respostas[0](ok(page([texto('a-130', 130)], 130)))
+    await expect(primeira).resolves.toBe(false)
+    expect(aplicadas).toEqual(['segunda'])
+  })
+
+  it('a velha também não aplica quando a mais nova ainda está a caminho', async () => {
+    telaComPaginasAntigas()
+    const respostas: ((r: Response) => void)[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((res) => { respostas.push(res) }))
+    const aplicadas: string[] = []
+    const primeira = loadHistoryTail('s', 'c', () => aplicadas.push('primeira'))
+    void loadHistoryTail('s', 'c', () => aplicadas.push('segunda'))
+    respostas[0](ok(page([texto('a-130', 130)], 130)))
+    await expect(primeira).resolves.toBe(false)
+    expect(aplicadas).toEqual([])
   })
 })

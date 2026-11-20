@@ -83,7 +83,29 @@ function contentSig(it: ChatItem): string {
  * substituía a lista.
  */
 function keepsUnmatched(it: ChatItem): boolean {
-  return (it.kind === 'user_text' && !it.fromEngine) || it.kind === 'command_output' || it.kind === 'local_command'
+  if (it.kind === 'user_text') return isOperatorText(it) && slashSig(it.text) === undefined
+  return it.kind === 'command_output' || it.kind === 'local_command'
+}
+
+/** Digitado pelo operador: nem injeção da engine (resumo de compactação incluído), nem prompt de subagente. */
+function isOperatorText(it: Extract<ChatItem, { kind: 'user_text' }>): boolean {
+  return !it.fromEngine && !it.compactSummary && !it.fromSubagent && !it.parentId
+}
+
+/**
+ * Slash command enviado pelo chat (`/effort xhigh`, `/compact`, `/superpowers:…`):
+ * na tela nasce como texto do operador, mas o transcript do Claude o grava como
+ * `<command-name>/effort</command-name><command-args>xhigh</command-args>`, que
+ * `classifyUserText` transforma em `local_command`. Esta é a assinatura desse
+ * chip, com a mesma normalização (trim do comando e dos args). Sem par, o slash
+ * command NÃO fica: o chip confirmado, ou a saída da própria engine (o Codex não
+ * grava texto nenhum no /compact), já o representa.
+ */
+function slashSig(text: string): string | undefined {
+  // Nome sem outra barra: `/home/x/a.ts quebrou` é texto, não comando.
+  const m = text.trim().match(/^(\/[\w:.-]+)(?:\s+([\s\S]*))?$/)
+  if (!m) return undefined
+  return `local_command\0${m[1]}\0${m[2]?.trim() ?? ''}`
 }
 
 /**
@@ -105,11 +127,18 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
   }
   // Fila por assinatura dos itens ao vivo, em ordem: textos repetidos casam na ordem em que vieram.
   const queues = new Map<string, { idx: number[]; at: number }>()
-  live.forEach((it, i) => {
-    const sig = contentSig(it)
+  const enqueue = (sig: string, i: number) => {
     const q = queues.get(sig)
     if (q) q.idx.push(i)
     else queues.set(sig, { idx: [i], at: 0 })
+  }
+  live.forEach((it, i) => {
+    enqueue(contentSig(it), i)
+    // O slash command ao vivo também casa com o chip que o transcript grava.
+    if (it.kind === 'user_text') {
+      const slash = slashSig(it.text)
+      if (slash) enqueue(slash, i)
+    }
   })
   // Chave confirmada de cada item ao vivo que casou ('' = casou com item sem chave).
   const matchedTo: (string | undefined)[] = []
@@ -119,6 +148,8 @@ export function reconcileByKey(prev: ChatItem[], next: ChatItem[]): { items: Cha
     if (old) return itemsEqual(old, n) ? old : n
     if (live.length === 0) return n
     const q = queues.get(contentSig(n))
+    // Um item ao vivo pode estar em duas filas (slash command): pula o que já casou.
+    while (q && q.at < q.idx.length && matchedTo[q.idx[q.at]] !== undefined) q.at++
     if (q && q.at < q.idx.length) {
       const i = q.idx[q.at++]
       matchedTo[i] = n.key ?? ''

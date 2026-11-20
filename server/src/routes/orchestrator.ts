@@ -9,8 +9,12 @@ import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
 
 /** O que o orchestrator expõe ao resto do servidor (manager e subida). */
 export interface OrchestratorHooks {
-  /** Entrega a próxima tarefa da fila do projeto, se ele estiver livre. */
-  drain(projectId: number): void
+  /**
+   * Entrega a próxima tarefa da fila do projeto, se ele estiver livre. Devolve
+   * se entregou. `localId`: só naquela sessão (o árbitro do próximo envio
+   * oferece a sessão que ficou livre, lugar 5).
+   */
+  drain(projectId: number, localId?: string): boolean
   /**
    * Religa uma tarefa `in_progress` ao turno da sessão (reinício: o turno
    * interrompido foi retomado). Fecha como o dispatch fecharia. `false` se a
@@ -23,7 +27,20 @@ export interface OrchestratorHooks {
 
 export function registerOrchestratorRoutes(
   app: FastifyInstance,
-  deps: { db: Db; manager: SessionManager; broadcast?: (msg: object) => void },
+  deps: {
+    db: Db; manager: SessionManager; broadcast?: (msg: object) => void
+    /**
+     * O terminal (projeto + motor) pode receber uma tarefa agora? Falso com
+     * aviso aberto esperando o operador: a tarefa espera, como a fila do
+     * operador. Ausente = todos podem.
+     */
+    canTake?: (projectId: number, engine: string) => boolean
+    /**
+     * A tarefa terminou (concluída ou falha) e o resultado já está gravado: o
+     * aviso ao terminal que a encaminhou. Uma falha dele não pode desfazer o fim.
+     */
+    onTaskEnded?: (taskId: number) => void
+  },
 ): OrchestratorHooks {
   const projects = createProjectsService(deps.db)
   const tasks = createTasksService(deps.db)
@@ -33,11 +50,16 @@ export function registerOrchestratorRoutes(
     if (task) deps.broadcast?.({ type: 'task_update', task })
   }
 
+  const taskEnded = (id: number): void => {
+    try { deps.onTaskEnded?.(id) } catch (err) { console.error('[orchestrator] aviso de fim de tarefa falhou', err) }
+  }
+
   // Fim do turno que executa a tarefa: grava o resultado e avisa. Mesmo fecho
   // para a entrega (drain) e para a tarefa religada depois de um reinício.
   const onTaskEnd = (task: Task) => (status: 'completed' | 'failed', result: string): void => {
     tasks.setResult(task.id, status, result)
     broadcastTask(task.id)
+    taskEnded(task.id)
     // Falha (timeout/dead/stopped/busy) não passa por onSessionAvailable —
     // sem este drain a próxima queued do projeto ficaria parada até o
     // próximo POST /dispatch. setImmediate quebra a reentrância do caminho
@@ -51,16 +73,25 @@ export function registerOrchestratorRoutes(
   // que o alvo já está livre nesse instante. O encadeamento da fila (tarefa
   // termina → próxima é entregue) vem do hook onSessionAvailable do manager
   // chamando drain de novo quando o alvo volta a ficar livre.
-  const drain = (projectId: number): void => {
-    if (!deps.manager.hasFreeSession(projectId)) return
+  //
+  // Terminal com aviso aberto (`canTake` falso) não recebe: a tarefa espera o
+  // aviso sair, e o árbitro cutuca quando ele sai. A escolha vai inteira ao
+  // manager, antes de marcar a tarefa: sem sessão que sirva, ela segue queued.
+  const drain = (projectId: number, localId?: string): boolean => {
+    const target = {
+      localId,
+      accept: deps.canTake ? (engine: string) => deps.canTake!(projectId, engine) : undefined,
+    }
+    if (!deps.manager.hasFreeSession(projectId, target)) return false
     const next = tasks.nextQueued(projectId)
-    if (!next) return
+    if (!next) return false
     tasks.markInProgress(next.id)
-    const delivered = deps.manager.dispatchTask(next.toProjectId, next.fromProjectName ?? 'unknown', next.description, onTaskEnd(next))
+    const delivered = deps.manager.dispatchTask(next.toProjectId, next.fromProjectName ?? 'unknown', next.description, onTaskEnd(next), undefined, target)
     // A engine que executa só é conhecida na entrega (o dispatch pega a 1ª sessão
     // livre do projeto — pode ser o Claude, o Codex ou o OpenCode dele).
     if (delivered) tasks.setToEngine(next.id, delivered)
     broadcastTask(next.id)
+    return !!delivered
   }
 
   app.get('/api/orchestrator/tasks', async (req) => {
@@ -107,6 +138,7 @@ export function registerOrchestratorRoutes(
     if (tasks.get(taskId)?.status !== 'in_progress') return
     tasks.setResult(taskId, 'failed', RESTART_FAIL_TEXT)
     broadcastTask(taskId)
+    taskEnded(taskId)
   }
 
   return { drain, reattach, failInterrupted }

@@ -267,9 +267,13 @@ export function createUsageLimitService(deps: {
       dropLimit(projectId, engine)
     },
 
-    /** Turno sem erro: a janela está aberta. Limpa o limite e zera as tentativas. */
-    onTurnResult(projectId: number, engine: string, info: { isError: boolean }): void {
-      if (info.isError) return
+    /**
+     * Turno sem erro: a janela está aberta. Limpa o limite e zera as tentativas.
+     * O interrompido não prova nada (o manager sintetiza o que fecha sem result
+     * com isError false).
+     */
+    onTurnResult(projectId: number, engine: string, info: { isError: boolean; interrupted?: boolean }): void {
+      if (info.isError || info.interrupted) return
       store.resetLimitTries(projectId, engine)
       dropLimit(projectId, engine)
     },

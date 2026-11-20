@@ -400,3 +400,86 @@ describe('laço', () => {
     vi.useRealTimers()
   })
 })
+
+describe('aviso aberto esperando o operador', () => {
+  // O terminal (projeto + motor) com o aviso do reinício ou do limite aberto.
+  const heldOn = (engine: string) => (pid: number, e: string) => pid === projectId && e === engine
+
+  it('sessão de pé com o aviso aberto: pulada com o motivo, nada enviado, sem contar falha', async () => {
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    db.prepare(`UPDATE schedules SET consecutive_failures=2 WHERE id=?`).run(s.id)
+    const { manager, calls } = fakeManager()
+    await createScheduler({ db, store, manager, holds: heldOn('claude') }).tick()
+    expect(calls.sent).toEqual([])
+    const [run] = store.listRuns(s.id, 1)
+    expect(run.status).toBe('skipped')
+    expect(run.error).toBe('aviso aberto esperando o operador')
+    // Nem soma nem zera: o aviso não diz nada da tarefa.
+    expect(store.get(s.id)!.consecutiveFailures).toBe(2)
+  })
+
+  it('sessão parada com o aviso aberto: não revive nem começa outra', async () => {
+    const s = store.create(projectId, { ...base, engine: 'claude' })
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [sessionInfo({ status: 'stopped' })] })
+    await createScheduler({ db, store, manager, holds: heldOn('claude') }).tick()
+    expect(calls.revived).toEqual([])
+    expect(calls.started).toEqual([])
+    expect(calls.sent).toEqual([])
+    expect(store.listRuns(s.id, 1)[0]).toMatchObject({ status: 'skipped', error: 'aviso aberto esperando o operador' })
+  })
+
+  it('sem sessão e com o aviso aberto: não começa uma nova', async () => {
+    const s = store.create(projectId, { ...base, engine: 'claude' })
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [] })
+    await createScheduler({ db, store, manager, holds: heldOn('claude') }).tick()
+    expect(calls.started).toEqual([])
+    expect(store.listRuns(s.id, 1)[0].status).toBe('skipped')
+  })
+
+  it('sem motor fixo: a parada mais recente com aviso aberto dá a vez a outro motor listado sem aviso', async () => {
+    createProjectsService(db).setEngines(projectId, ['claude', 'codex'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [
+      sessionInfo({ localId: 'c-velha', engine: 'codex', status: 'stopped', updatedAt: '2026-11-19 10:00:00' }),
+      sessionInfo({ localId: 'cl-nova', engine: 'claude', status: 'stopped', updatedAt: '2026-11-20 10:00:00' }),
+    ] })
+    await createScheduler({ db, store, manager, holds: heldOn('claude') }).tick()
+    expect(calls.revived).toEqual(['c-velha'])
+    expect(calls.sent.map((c) => c.localId)).toEqual(['c-velha'])
+    expect(store.listRuns(s.id, 1)[0].status).toBe('ok')
+  })
+
+  it('sem motor fixo e sem sessão: o primeiro listado com aviso aberto dá a vez ao seguinte', async () => {
+    createProjectsService(db).setEngines(projectId, ['claude', 'codex'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [] })
+    await createScheduler({ db, store, manager, holds: heldOn('claude') }).tick()
+    expect(calls.started.map((c) => c.engine)).toEqual(['codex'])
+    expect(store.listRuns(s.id, 1)[0].status).toBe('ok')
+  })
+
+  it('sem motor fixo e todos os listados com aviso aberto: pulada', async () => {
+    createProjectsService(db).setEngines(projectId, ['claude', 'codex'])
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager({ sessions: [sessionInfo({ status: 'stopped' })] })
+    await createScheduler({ db, store, manager, holds: () => true }).tick()
+    expect(calls.revived).toEqual([])
+    expect(calls.started).toEqual([])
+    expect(store.listRuns(s.id, 1)[0]).toMatchObject({ status: 'skipped', error: 'aviso aberto esperando o operador' })
+  })
+
+  it('aviso aberto em outro motor não segura este', async () => {
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager()
+    await createScheduler({ db, store, manager, holds: heldOn('codex') }).tick()
+    expect(calls.sent).toHaveLength(1)
+    expect(store.listRuns(s.id, 1)[0].status).toBe('ok')
+  })
+})

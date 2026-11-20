@@ -87,7 +87,7 @@ describe('server-enforced access windows', () => {
     for (const [method, url] of [
       ['GET', '/api/projects'], ['GET', '/%61pi/projects'], ['GET', '/api/engines'],
       ['POST', '/api/projects'], ['POST', `/api/projects/${projectId}/sessions`],
-      ['GET', '/api/sessions/session/history'], ['POST', '/api/sessions/session/terminal'],
+      ['GET', '/api/sessions/session/history'], ['GET', '/api/sessions/session/search?q=ok'], ['POST', '/api/sessions/session/terminal'],
       ['POST', `/api/actions/${actionId}/run`], ['DELETE', `/api/actions/${actionId}/run`],
       ['POST', '/api/orchestrator/dispatch'], ['POST', '/api/uploads'],
     ] as const) {

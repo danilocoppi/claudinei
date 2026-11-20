@@ -10,6 +10,7 @@ import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { COOKIE_NAME } from '../src/auth/plugin.js'
 import { createSchedulesStore } from '../src/schedules/store.js'
+import { createTerminalStateStore } from '../src/restart/terminal-state.js'
 
 let db: Db
 let app: Awaited<ReturnType<typeof buildApp>>
@@ -218,5 +219,22 @@ describe('apagar resultados em lote', () => {
     const s = await comResultados(meu.id, 1)
     const enorme = Array.from({ length: 201 }, (_, i) => i + 1)
     expect((await app.inject({ method: 'DELETE', url: `/api/schedules/${s.id}/runs`, payload: { seqs: enorme }, cookies: admin })).statusCode).toBe(400)
+  })
+})
+
+describe('aviso aberto no terminal', () => {
+  it('executar agora com o aviso do reinício aberto: pulada com o motivo, sem subir sessão', async () => {
+    const admin = await login('root')
+    const s = (await app.inject({ method: 'POST', url: `/api/projects/${meu.id}/schedules`, payload: { ...base, engine: 'claude' }, cookies: admin })).json()
+    db.prepare(`INSERT INTO sessions (local_id, project_id, engine, status) VALUES ('antiga', ?, 'claude', 'stopped')`).run(meu.id)
+    createTerminalStateStore(db).markInterrupted(meu.id, 'claude', 'antiga', null)
+    expect((await app.inject({ method: 'POST', url: `/api/schedules/${s.id}/run`, cookies: admin })).statusCode).toBe(202)
+    let runs: any[] = []
+    for (let i = 0; i < 50 && !runs[0]?.finishedAt; i++) {
+      await new Promise((r) => setTimeout(r, 10))
+      runs = (await app.inject({ method: 'GET', url: `/api/schedules/${s.id}/runs`, cookies: admin })).json()
+    }
+    expect(runs[0]).toMatchObject({ status: 'skipped', error: 'aviso aberto esperando o operador' })
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE project_id=?`).get(meu.id) as any).n).toBe(1)
   })
 })

@@ -11,8 +11,8 @@ describe('store', () => {
     useStore.getState().addLocalUserText('a', 'pedido')
     useStore.getState().applyWsMessage({ type: 'error', localId: 'a', message: 'envio recusado' })
     expect(useStore.getState().chat.a).toEqual([
-      { kind: 'user_text', text: 'pedido' },
-      { kind: 'command_output', text: 'envio recusado', isError: true },
+      { kind: 'user_text', text: 'pedido', key: expect.stringMatching(/^l\d+$/) },
+      { kind: 'command_output', text: 'envio recusado', isError: true, key: expect.stringMatching(/^l\d+$/) },
     ])
   })
 
@@ -20,7 +20,7 @@ describe('store', () => {
     useStore.getState().applyWsMessage({ type: 'session_event', localId: 'a', event: {
       kind: 'system', subtype: 'message_error', raw: { message: 'Mensagem pendente: pedido\nProcesso encerrado.' },
     } })
-    expect(useStore.getState().chat.a).toEqual([{ kind: 'command_output', text: 'Mensagem pendente: pedido\nProcesso encerrado.', isError: true }])
+    expect(useStore.getState().chat.a).toEqual([{ kind: 'command_output', text: 'Mensagem pendente: pedido\nProcesso encerrado.', isError: true, key: expect.stringMatching(/^l\d+$/) }])
   })
 
   it('compact_boundary limpa contextTokens: a barra não fica presa no valor pré-compactação', () => {
@@ -437,5 +437,22 @@ describe('compactação em curso', () => {
     expect(displayStatusKey(sess({ compactingSince: 1 }))).toBe('compacting')
     expect(displayStatusKey(sess({ compactingSince: 1, pendingQuestion: { toolUseId: 't', questions: [] } }))).toBe('question')
     expect(displayStatusKey(sess({}))).toBe('working')
+  })
+})
+
+describe('motores embutidos', () => {
+  it('o catálogo começa como o embutido, sem a marca de carregado do servidor', () => {
+    expect(useStore.getInitialState().enginesLoaded).toBe(false)
+  })
+
+  it('setEngines marca o catálogo como carregado do servidor', () => {
+    useStore.setState({ enginesLoaded: false })
+    useStore.getState().setEngines(useStore.getInitialState().engines)
+    expect(useStore.getState().enginesLoaded).toBe(true)
+  })
+
+  it('Claude e Codex aceitam mensagem no meio do turno (midTurnInput) no fallback embutido', () => {
+    const embutidos = useStore.getInitialState().engines
+    expect(embutidos.filter((e) => e.midTurnInput).map((e) => e.id).sort()).toEqual(['claude', 'codex'])
   })
 })

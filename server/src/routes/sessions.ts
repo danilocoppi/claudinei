@@ -9,6 +9,8 @@ import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/gu
 import { hasEngine, DEFAULT_ENGINE_ID, getEngine } from '../engine/index.js'
 import { ownLatestThread, isSharedPath } from '../project-threads.js'
 import { errorBody, fail } from '../user-error.js'
+import { lastEventsOf, readPage, type HistoryResponse } from '../history-page.js'
+import type { Engine } from '../engine/types.js'
 
 const PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'plan', 'bypassPermissions'])
 // Níveis persistíveis do effort ('auto' limpa; 'ultracode' é por sessão — o front não persiste).
@@ -23,6 +25,71 @@ function isValidEffort(engine: string, effort: string): boolean {
  * congela o navegador; o operador precisa do fim da conversa, não do começo.
  */
 export const HISTORY_EVENT_LIMIT = 300
+/** Teto do `limit` que o cliente pode pedir numa página. */
+export const HISTORY_MAX_LIMIT = 500
+const EMPTY_HISTORY: HistoryResponse = { events: [], before: 0, atStart: true }
+
+/**
+ * Inteiro decimal em `[min, max]` vindo da query string. Qualquer outra coisa
+ * (vazio, fração, sinal, parâmetro repetido, que vira array) → null.
+ */
+export function parseIntIn(v: unknown, min: number, max: number): number | null {
+  if (typeof v !== 'string' || !/^\d+$/.test(v)) return null
+  const n = Number(v)
+  return Number.isSafeInteger(n) && n >= min && n <= max ? n : null
+}
+
+/** `before` da query: ausente → undefined (até o fim); inválido → null. */
+export function parseBefore(v: unknown): number | undefined | null {
+  return v === undefined ? undefined : parseIntIn(v, 0, Number.MAX_SAFE_INTEGER)
+}
+
+/**
+ * Conversa resolvida para cada prévia, por banco: a varredura da pasta pode ser
+ * cara (no Codex, a árvore inteira de rollouts, síncrona) e a "mais recente"
+ * pode mudar entre uma página e outra. A carga do fim (`refresh`) resolve de
+ * novo; as páginas antigas e a busca reusam o que ela achou.
+ */
+const previaResolvida = new WeakMap<Db, Map<string, string | null>>()
+/** Teto de prévias lembradas: sessões que nunca ganharam conversa não acumulam. */
+const PREVIAS_MAX = 256
+
+/**
+ * A conversa cujo histórico a sessão mostra: a dela, ou — na prévia, sessão
+ * iniciada com --continue que ainda não emitiu o init (só vem com a 1ª
+ * mensagem) — a que ela vai DE FATO retomar, para o operador se
+ * contextualizar. Null = nada a mostrar.
+ *
+ * `refresh`: carga do fim da conversa — a prévia é resolvida de novo. Sem ele
+ * (página antiga, busca), vale a resolução da última carga.
+ */
+export function historyConversationId(
+  db: Db, info: { localId: string; projectId: number; engine: string; engineSessionId: string | null },
+  projectPath: string, engine: Engine, opts: { refresh?: boolean } = {},
+): string | null {
+  let previas = previaResolvida.get(db)
+  if (!previas) { previas = new Map(); previaResolvida.set(db, previas) }
+  // Pasta e engine entram na chave: o terminal pode trocar de motor.
+  const chave = `${info.localId}\u0000${info.engine}\u0000${projectPath}`
+  if (info.engineSessionId) {
+    // Ganhou a conversa própria: a prévia acabou.
+    previas.delete(chave)
+    return info.engineSessionId
+  }
+  const row = db.prepare('SELECT continue_latest FROM sessions WHERE local_id=?').get(info.localId) as any
+  if (!row?.continue_latest) { previas.delete(chave); return null }
+  if (!opts.refresh && previas.has(chave)) return previas.get(chave)!
+  // Em pasta compartilhada, "a mais recente da pasta" pode ser a do terminal
+  // vizinho — e a sessão não vai retomá-la. Sem conversa própria, vazio é a
+  // resposta honesta.
+  const id = isSharedPath(db, info.projectId)
+    ? ownLatestThread(db, info.projectId, info.engine)
+    : engine.latestConversationId(projectPath)
+  previas.delete(chave)
+  previas.set(chave, id)
+  if (previas.size > PREVIAS_MAX) previas.delete(previas.keys().next().value!)
+  return id
+}
 // Nomes completos (ex.: claude-fable-5, claude-haiku-4-5-20251001): charset
 // estrito — vai ao argv do claude, então nada de metachars.
 const FULL_MODEL_RE = /^claude-[a-z0-9-]+$/
@@ -188,26 +255,26 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
 
   app.get('/api/sessions/:localId/history', async (req, reply) => {
     const { localId } = req.params as { localId: string }
-    const info = deps.manager.get(localId)
-    if (!info) return reply.code(404).send(fail('session_not_found', 'sessão não existe'))
-    if (!requireProjectAccess(req, reply, info.projectId)) return
+    const info = guardSession(req, reply, localId)
+    if (!info) return
+    const query = req.query as Record<string, unknown>
+    const before = parseBefore(query.before)
+    if (before === null) return reply.code(400).send(fail('invalid_before', 'before deve ser um inteiro não negativo'))
+    const limit = query.limit === undefined ? HISTORY_EVENT_LIMIT : parseIntIn(query.limit, 1, HISTORY_MAX_LIMIT)
+    if (limit === null) return reply.code(400).send(fail('invalid_limit', `limit deve ser um inteiro de 1 a ${HISTORY_MAX_LIMIT}`, { max: HISTORY_MAX_LIMIT }))
     const project = projects.get(info.projectId)
-    if (!project) return []
+    if (!project) return EMPTY_HISTORY
     const engine = getEngine(info.engine as string)
-    if (!info.engineSessionId) {
-      // Preview: sessão iniciada com --continue ainda não emitiu o init (só vem
-      // com a 1ª mensagem), mas o operador precisa se contextualizar. Mostra a
-      // conversa que a sessão vai DE FATO retomar.
-      const row = deps.db.prepare('SELECT continue_latest FROM sessions WHERE local_id=?').get(localId) as any
-      if (!row?.continue_latest) return []
-      // Em pasta compartilhada, "a mais recente da pasta" pode ser a do terminal
-      // vizinho — e a sessão não vai retomá-la. Sem conversa própria, vazio é a
-      // resposta honesta.
-      const prev = isSharedPath(deps.db, info.projectId)
-        ? ownLatestThread(deps.db, info.projectId, info.engine)
-        : engine.latestConversationId(project.path)
-      return prev ? (await engine.readHistory(project.path, prev)).slice(-HISTORY_EVENT_LIMIT) : []
+    try {
+      const id = historyConversationId(deps.db, info, project.path, engine, { refresh: before === undefined })
+      if (!id) return EMPTY_HISTORY
+      return lastEventsOf(await readPage(engine, project.path, id, { before, minItems: limit }), limit)
+    } catch (err) {
+      // Erro de leitura não é "começo da conversa": a tela mostraria o fim
+      // como se fosse tudo, e o que vem antes ficaria inalcançável sem aviso.
+      // O Fastify roda sem logger (`req.log` é mudo): o erro vai ao console.
+      console.error(`[histórico] falha ao ler o histórico de ${localId}`, err)
+      return reply.code(500).send(fail('history_read_failed', 'não foi possível ler o histórico da conversa'))
     }
-    return (await engine.readHistory(project.path, info.engineSessionId)).slice(-HISTORY_EVENT_LIMIT)
   })
 }

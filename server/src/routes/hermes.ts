@@ -5,6 +5,9 @@ import { createProjectsService } from '../projects.js'
 import { createMuralService } from '../mural.js'
 import { createGroupsService } from '../groups.js'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
+import type { GoalService } from '../goal/goal.js'
+import { GOAL_EVIDENCE_MAX } from '../goal/texts.js'
+import { fail } from '../user-error.js'
 
 // Teto de tamanho: título/conteúdo/pergunta vão direto ao SQLite e ao
 // broadcast WS — sem limite, um agente em loop incha o banco de todos.
@@ -13,7 +16,17 @@ const MAX_TEXT_CHARS = 50_000
 
 export function registerHermesRoutes(
   app: FastifyInstance,
-  deps: { db: Db; manager: SessionManager; broadcast?: (msg: object) => void },
+  deps: {
+    db: Db; manager: SessionManager; broadcast?: (msg: object) => void
+    /**
+     * O terminal (projeto + motor) pode receber uma pergunta agora? Falso com
+     * aviso aberto esperando o operador: o ask_agent falha na hora, sem injetar.
+     * Ausente = todos podem.
+     */
+    canTake?: (projectId: number, engine: string) => boolean
+    /** O serviço do goal (nasce depois destas rotas, por isso a referência tardia). Ausente = nenhum goal ativo. */
+    goal?: () => Pick<GoalService, 'done'> | undefined
+  },
 ) {
   const projects = createProjectsService(deps.db)
   const board = createMuralService(deps.db)
@@ -72,6 +85,23 @@ export function registerHermesRoutes(
     return reply.code(201).send(result)
   })
 
+  // O goal_done do agente: o goal do terminal (projeto + motor) está cumprido.
+  app.post('/api/hermes/goal-done', async (req, reply) => {
+    const body = (req.body ?? {}) as { projectId?: unknown; engine?: unknown; evidence?: unknown }
+    const project = projects.get(Number(body.projectId))
+    if (!project) return reply.code(404).send({ error: 'project does not exist' })
+    if (!requireProjectAccess(req, reply, project.id)) return
+    const engine = typeof body.engine === 'string' ? body.engine : ''
+    if (!engine) return reply.code(400).send({ error: 'engine is required' })
+    const evidence = typeof body.evidence === 'string' ? body.evidence : ''
+    if (evidence.trim().length === 0 || evidence.length > GOAL_EVIDENCE_MAX) {
+      return reply.code(400).send({ error: `evidence is required, at most ${GOAL_EVIDENCE_MAX} characters` })
+    }
+    const r = deps.goal?.()?.done(project.id, engine, evidence) ?? { ok: false as const, error: 'no_active_goal' }
+    if (!r.ok) return reply.code(409).send(fail('no_active_goal', 'no active goal in this terminal'))
+    return { ok: true }
+  })
+
   app.post('/api/hermes/ask', async (req, reply) => {
     const body = req.body as { fromProjectId?: number; toProjectName?: string; question?: string }
     if (!body?.toProjectName || !body?.question) {
@@ -87,8 +117,16 @@ export function registerHermesRoutes(
     const fromProject = body.fromProjectId ? projects.get(Number(body.fromProjectId)) : undefined
     const fromLabel = fromProject?.name ?? 'unknown'
 
+    // Encerrando (reinício do serviço): o motivo é este, e não o aviso do terminal.
+    if (deps.manager.isShuttingDown()) {
+      return reply.code(400).send({
+        error: 'Claudinei is shutting down (service restart in progress); try again in a minute, '
+          + 'or use dispatch_task instead (the task waits for the restart)',
+      })
+    }
     try {
-      const answer = await deps.manager.askAgent(target.id, fromLabel, body.question)
+      const accept = deps.canTake ? (engine: string) => deps.canTake!(target.id, engine) : undefined
+      const answer = await deps.manager.askAgent(target.id, fromLabel, body.question, undefined, { accept })
       return { answer }
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message })

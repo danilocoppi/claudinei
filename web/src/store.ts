@@ -1,24 +1,32 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { CODEX_FALLBACK_CATALOG } from '../../shared/codex-models'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
-import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
+import type { ChatItem, EngineMeta, HistoryPage, Project, SearchHit, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import { resolvedKey, type FileKind, type ScopeResult } from './files'
-import { applyEvent } from './chat/applyEvent'
+import { applyEvent, liveKey } from './chat/applyEvent'
+import { mergeOlder, mergeTail, type OrphanResults } from './chat/reconcile'
 import { notifyQuestion, notifySessionChange } from './notifications'
-import { BUILTIN_FALLBACK } from './slash'
+import { BUILTIN_FALLBACK, CLAUDINEI_COMMANDS } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
-import type { HeadsUpNode, Progress, TerminalState, TriageItem } from './types'
+import type { HeadsUpNode, OperatorQueue, Progress, TerminalState, TriageItem } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
+/** Modo Zen (só a conversa e o campo): também por navegador, '1' | '0'. */
+const ZEN_KEY = 'claudinei:zen'
 const PROGRESS_OPEN_KEY = 'claudinei:progressOpen'
 
 /** Chave do acompanhamento de um terminal: projeto + motor. */
 export const progressKey = (projectId: number, engine: string) => `${projectId}:${engine}`
+
+/** O número de filas do terminal que chegaram pelo WebSocket até agora (ver `applyQueueReply`). */
+export const queueSeqOf = (projectId: number, engine: string): number =>
+  useStore.getState().queueWsSeq[progressKey(projectId, engine)] ?? 0
 
 /**
  * Fallback embutido para `store.engines`, usado até `GET /api/engines` resolver (ou se falhar).
@@ -37,6 +45,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
     permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],
     slashSource: 'protocol',
     slashCommands: [],
+    midTurnInput: true,
   },
   {
     id: 'codex',
@@ -47,11 +56,59 @@ const BUILTIN_ENGINES: EngineMeta[] = [
     permissions: [],
     slashSource: 'curated',
     slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
+    midTurnInput: true,
   },
 ]
 
 /** Teto do feed do board em memória: broadcasts só fazem prepend — sem poda, cresce sem limite. */
 const BOARD_MAX = 200
+
+export interface HistoryCursor { before: number; atStart: boolean; conv?: string }
+
+/**
+ * Busca na conversa aberta (Ctrl+F; ver chat/findRun.ts). `hits` da mais nova
+ * para a mais antiga; `index` 0 é a mais recente. `before` é onde a próxima
+ * fatia começa (null: ainda nenhuma, a primeira vai do fim); `scannedBytes`
+ * conta a rodada atual (64 MB, depois "buscar mais para trás"). `currentKey` é
+ * a chave do item da ocorrência atual, na tela (`chat-hit`).
+ */
+export interface FindState {
+  localId: string
+  q: string
+  tools: boolean
+  hits: SearchHit[]
+  index: number
+  scanning: boolean
+  before: number | null
+  atStart: boolean
+  scannedBytes: number
+  capped: boolean
+  currentKey: string | null
+  /** A última fatia falhou (mensagem já no idioma da tela); a busca parou ali. */
+  error: string | null
+}
+
+/**
+ * Dobras de uma sessão com as chaves trocadas por `renamed` (velha → nova).
+ * `keepOthers` falso descarta as que a troca não levou. Devolve o próprio
+ * `folds` quando nada muda, para o store não trocar o objeto à toa.
+ */
+function moveFolds<F extends Record<string, true> | undefined>(folds: F, renamed: Record<string, string>, keepOthers: boolean): F {
+  if (!folds) return folds
+  // Refetch sem troca de chave (o caso comum): nada a percorrer.
+  if (keepOthers && Object.keys(renamed).length === 0) return folds
+  let changed = false
+  const out: Record<string, true> = {}
+  for (const id in folds) {
+    // foldId = `${chave}:${nome}`; a chave não tem ':' (p<pos>, p<pos>.n, l<n>).
+    const sep = id.lastIndexOf(':')
+    const to = renamed[id.slice(0, sep)]
+    if (to !== undefined) { out[`${to}${id.slice(sep)}`] = true; changed = true }
+    else if (keepOthers) out[id] = true
+    else changed = true
+  }
+  return changed ? out as F : folds
+}
 
 /** Mantém em `map` só as chaves presentes em `keep`; devolve o próprio `map` se nada mudou. */
 function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>): Record<string, T> {
@@ -105,6 +162,30 @@ interface State {
   /** Preview efêmero de streaming token-a-token, por localId. Nunca entra em chat[]; some quando o evento assistant/result real chega. */
   streaming: Record<string, string>
   historyLoadedFor: Record<string, string>
+  /**
+   * Até onde as páginas do histórico já foram carregadas, por localId: `before`
+   * da mais antiga, se ela chegou ao começo, e de qual conversa (`conv`: o
+   * engineSessionId, ou '(preview)') são as chaves que estão na tela.
+   */
+  historyCursor: Record<string, HistoryCursor>
+  /** Resultados de ferramenta à espera da chamada, que está numa página antiga ainda não carregada, por localId. */
+  orphanResults: Record<string, OrphanResults>
+  /**
+   * Dobras abertas do chat, por localId: `foldId` (chave do item + nome da
+   * dobra: grupo, ferramenta, "mostrar tudo", resumo da compactação ou
+   * raciocínio; ver chat/folds.ts) → aberta. Fechada não fica no mapa. Mora aqui, e
+   * não no bloco, porque a lista virtual desmonta o que sai da tela.
+   */
+  folds: Record<string, Record<string, true>>
+  /** Busca na conversa (Ctrl+F) aberta, ou null. É de UMA sessão: trocar de terminal fecha. */
+  find: FindState | null
+  /** Abre a barra na sessão (mantém a busca se já é dela). */
+  openFind(localId: string): void
+  /** Troca a busca inteira (nova busca). Quem cancela os pedidos é chat/findRun.ts. */
+  setFind(find: FindState): void
+  /** Atualiza a busca aberta, só se ela ainda for de `localId` e da mesma consulta (`q`). */
+  patchFind(localId: string, q: string, patch: Partial<FindState>): void
+  closeFind(): void
   activeLocalId?: string
   /** Pedido de edição em curso: reenche o ChatInput da sessão-alvo com o texto original. `seq` distingue pedidos repetidos com o mesmo texto. */
   editRequest?: { localId: string; text: string; seq: number }
@@ -112,6 +193,11 @@ interface State {
   slashCommands: string[]
   /** Engines registradas no backend (metadados + capabilities), populado no boot ('ready'). */
   engines: EngineMeta[]
+  /**
+   * `engines` já veio do servidor (`setEngines`). Antes disso vale o embutido,
+   * que não sabe o que está instalado: quem decide por instalação espera esta marca.
+   */
+  enginesLoaded: boolean
   /** Effort atual por sessão, farejado das respostas do /effort (ausente = auto). */
   sessionEffort: Record<string, string>
   /** Grupos visuais de terminais (sidebar). */
@@ -135,6 +221,12 @@ interface State {
   headsUps: Record<string, HeadsUpCard[]>
   /** Avisos fechados no X, por chat: o mesmo cartão chegando de novo (snapshot) não volta. */
   dismissedHeadsUps: Record<string, string[]>
+  /**
+   * Erros do WebSocket por chat (envio recusado pelo servidor ou expirado com a
+   * conexão caída), só contados: quem trava um botão até a resposta (o aviso do
+   * goal) o solta quando o número muda.
+   */
+  sendErrors: Record<string, number>
   /** Arquivo aberto INLINE (painel dockado acima do input do chat), por sessão. */
   inlineFile: { localId: string; path: string; kind: FileKind; projectId?: number } | null
   /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
@@ -154,9 +246,27 @@ interface State {
   openSchedules(): void
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
-  setHistory(localId: string, events: ClaudeEvent[]): void
-  /** Substitui os itens do chat já reduzidos (usado pelo retag de sessões longas). */
-  setChatItems(localId: string, items: ChatItem[]): void
+  /**
+   * O fim do histórico (1ª carga ou refetch): reconcilia por chave com o que está
+   * na tela, sem perder as páginas antigas já carregadas. Ver `mergeTail`.
+   */
+  setHistoryTail(localId: string, page: HistoryPage, conv?: string): void
+  /**
+   * Página mais antiga, acrescentada no topo. Ver `mergeOlder`. `requestedBefore`
+   * é o `before` pedido: se o cursor andou enquanto a página vinha (refetch que
+   * substituiu a lista, troca de conversa), ela é velha e é descartada.
+   */
+  prependHistory(localId: string, page: HistoryPage, requestedBefore: number): void
+  setFold(localId: string, id: string, open: boolean): void
+  /**
+   * Leva as dobras das chaves ao vivo para as confirmadas (`renamed` de `reconcileByKey`).
+   * Faz parte da interface das dobras no store (plano da Task 4), para quem
+   * trocar chaves FORA do `setHistoryTail`. Hoje nenhum caminho da tela faz
+   * isso: o `setHistoryTail` troca as dobras por dentro (`moveFolds`), no mesmo
+   * `set` dos itens, para não haver um quadro com a chave nova e a dobra velha.
+   * Coberta em folds.test.tsx.
+   */
+  renameFolds(localId: string, renamed: Record<string, string>): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
   /** Reconexão do WS: eventos podem ter se perdido na queda. Invalida os históricos
    *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
@@ -192,6 +302,9 @@ interface State {
   /** Barra lateral em modo régua (62px, só estados e ícones). */
   railMode: boolean
   toggleRail(): void
+  /** Modo Zen: esconde a moldura (lateral, cabeçalho do chat e coluna do acompanhamento). */
+  zen: boolean
+  toggleZen(): void
   /** Acompanhamento de tarefas longas por terminal (`progressKey`); null = sem acompanhamento. */
   progress: Record<string, Progress | null>
   setProgress(projectId: number, engine: string, progress: Progress | null): void
@@ -208,6 +321,26 @@ interface State {
    */
   terminalStates: Record<string, TerminalState>
   setTerminalState(state: TerminalState): void
+  /**
+   * Fila do operador por terminal (`progressKey`). Terminal fora do mapa ainda
+   * não foi lido (o painel trata como vazia). Lida por `useQueueSync` e mantida
+   * pela mensagem `operator_queue` do WebSocket e pelas respostas da API.
+   */
+  queues: Record<string, OperatorQueue>
+  setQueue(queue: OperatorQueue): void
+  /**
+   * Quantas filas de cada terminal chegaram pelo WebSocket. A resposta HTTP de
+   * uma mudança na fila pode chegar DEPOIS de um `operator_queue` mais novo (o
+   * "enviar agora" responde antes de a entrega acontecer): quem chama a API
+   * anota o número antes e aplica a resposta por `applyQueueReply`.
+   */
+  queueWsSeq: Record<string, number>
+  /**
+   * Aplica a fila devolvida pela API só se nenhum `operator_queue` do terminal
+   * chegou desde `seq` (lido por `queueSeqOf` antes da chamada). Se chegou, a
+   * resposta é descartada: o WebSocket já trouxe um estado pelo menos tão novo.
+   */
+  applyQueueReply(queue: OperatorQueue, seq: number): void
   /**
    * Triagem da lista do usuário logado, por projeto: fixado, assentado e adiado.
    * Projeto fora do mapa está no normal. Lida por `useTriageSync` e mantida pela
@@ -261,8 +394,8 @@ export const useStore = create<State>((set, get) => ({
     // saved windows also prevents an old ActionRun from launching again later.
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
-      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
+      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {}, folds: {}, find: null,
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, queues: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -271,10 +404,15 @@ export const useStore = create<State>((set, get) => ({
   unread: {},
   streaming: {},
   historyLoadedFor: {},
+  historyCursor: {},
+  orphanResults: {},
+  folds: {},
+  find: null,
   activeLocalId: undefined,
   editRequest: undefined,
   slashCommands: BUILTIN_FALLBACK,
   engines: BUILTIN_ENGINES,
+  enginesLoaded: false,
   sessionEffort: {},
   groups: [],
   sectors: [],
@@ -288,6 +426,7 @@ export const useStore = create<State>((set, get) => ({
   fileMenu: null,
   headsUps: {},
   dismissedHeadsUps: {},
+  sendErrors: {},
   inlineFile: null,
   fileResolved: {},
   externalLink: null,
@@ -313,13 +452,77 @@ export const useStore = create<State>((set, get) => ({
 
   setSlashCommands: (cmds) => set((s) => (cmds.length ? { slashCommands: cmds } : s)),
 
-  setEngines: (engines) => set({ engines }),
+  setEngines: (engines) => set({ engines, enginesLoaded: true }),
 
-  setHistory: (localId, events) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: events.reduce(applyEvent, [] as ChatItem[]) } })),
+  setHistoryTail: (localId, page, conv) =>
+    set((s) => {
+      const prev = s.historyCursor[localId]
+      const changed = conv !== undefined && prev?.conv !== undefined && prev.conv !== conv
+      const r = mergeTail(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {}, changed)
+      if (r.unchanged) return s
+      // As dobras acompanham a troca de chave (ao vivo → confirmada) no mesmo
+      // `set` que troca os itens: nenhum quadro com a chave nova e a dobra velha.
+      // Conversa trocada: as posições são de outro arquivo, e uma dobra antiga
+      // abriria o item que caiu na mesma posição; só ficam as que a troca levou.
+      const folds = moveFolds(s.folds[localId], r.renamed, !changed)
+      const cursor: HistoryCursor = r.reset || !prev
+        ? { before: page.before, atStart: page.atStart, conv: conv ?? prev?.conv }
+        : { ...prev, conv: conv ?? prev.conv }
+      // A busca aberta nesta sessão: conversa trocada, as posições dela são de
+      // outro arquivo e levariam a itens errados — fecha (a varredura em curso
+      // vê que a busca sumiu e para). Senão, a ocorrência atual, se estava num
+      // item ao vivo, acompanha a chave.
+      const findHere = s.find?.localId === localId ? s.find : null
+      const hitKey = findHere?.currentKey && !changed ? r.renamed[findHere.currentKey] : undefined
+      return {
+        chat: { ...s.chat, [localId]: r.items },
+        historyCursor: { ...s.historyCursor, [localId]: cursor },
+        orphanResults: { ...s.orphanResults, [localId]: r.orphans },
+        ...(folds !== s.folds[localId] ? { folds: { ...s.folds, [localId]: folds } } : {}),
+        ...(findHere && changed ? { find: null } : hitKey ? { find: { ...findHere!, currentKey: hitKey } } : {}),
+      }
+    }),
 
-  setChatItems: (localId, items) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: items } })),
+  prependHistory: (localId, page, requestedBefore) =>
+    set((s) => {
+      const cursor = s.historyCursor[localId]
+      if (!cursor || cursor.before !== requestedBefore) return s
+      const r = mergeOlder(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {})
+      return {
+        chat: { ...s.chat, [localId]: r.items },
+        historyCursor: { ...s.historyCursor, [localId]: { ...cursor, before: page.before, atStart: page.atStart } },
+        orphanResults: { ...s.orphanResults, [localId]: r.orphans },
+      }
+    }),
+
+  openFind: (localId) => set((s) => (s.find?.localId === localId ? s : {
+    find: {
+      localId, q: '', tools: false, hits: [], index: 0, scanning: false, before: null, atStart: false,
+      scannedBytes: 0, capped: false, currentKey: null, error: null,
+    },
+  })),
+
+  setFind: (find) => set({ find }),
+
+  patchFind: (localId, q, patch) => set((s) => (s.find && s.find.localId === localId && s.find.q === q
+    ? { find: { ...s.find, ...patch } } : s)),
+
+  closeFind: () => set((s) => (s.find ? { find: null } : s)),
+
+  setFold: (localId, id, open) =>
+    set((s) => {
+      const cur = s.folds[localId]
+      if (!!cur?.[id] === open) return s
+      if (open) return { folds: { ...s.folds, [localId]: { ...cur, [id]: true } } }
+      const { [id]: _closed, ...rest } = cur!
+      return { folds: { ...s.folds, [localId]: rest } }
+    }),
+
+  renameFolds: (localId, renamed) =>
+    set((s) => {
+      const folds = moveFolds(s.folds[localId], renamed, true)
+      return folds === s.folds[localId] ? s : { folds: { ...s.folds, [localId]: folds } }
+    }),
 
   markHistoryLoaded: (localId, engineSessionId) =>
     set((s) => ({ historyLoadedFor: { ...s.historyLoadedFor, [localId]: engineSessionId } })),
@@ -385,11 +588,34 @@ export const useStore = create<State>((set, get) => ({
       return { railMode }
     }),
 
+  zen: (() => {
+    try { return localStorage.getItem(ZEN_KEY) === '1' } catch { return false }
+  })(),
+
+  toggleZen: () =>
+    set((s) => {
+      const zen = !s.zen
+      try { localStorage.setItem(ZEN_KEY, zen ? '1' : '0') } catch { /* só não persiste */ }
+      return { zen }
+    }),
+
   progress: {},
   progressEpoch: 0,
   terminalStates: {},
   setTerminalState: (state) =>
     set((s) => ({ terminalStates: { ...s.terminalStates, [progressKey(state.projectId, state.engine)]: state } })),
+  queues: {},
+  setQueue: (queue) => {
+    // Resposta sem a forma de uma fila (servidor antigo, proxy) não entra no store.
+    if (!queue || !Array.isArray(queue.items)) return
+    set((s) => ({ queues: { ...s.queues, [progressKey(queue.projectId, queue.engine)]: queue } }))
+  },
+  queueWsSeq: {},
+  applyQueueReply: (queue, seq) => {
+    if (!queue) return
+    if ((get().queueWsSeq[progressKey(queue.projectId, queue.engine)] ?? 0) !== seq) return
+    get().setQueue(queue)
+  },
   triage: {},
   undo: null,
   triageError: null,
@@ -407,7 +633,7 @@ export const useStore = create<State>((set, get) => ({
     }),
 
   addLocalUserText: (localId, text) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text }] } })),
+    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text, key: liveKey() }] } })),
 
   /**
    * Item que nasce AQUI, sem passar pela engine — hoje só o `!comando`.
@@ -417,7 +643,7 @@ export const useStore = create<State>((set, get) => ({
    * atalho existe justamente para não custar isso.
    */
   addLocalItem: (localId, item) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), item] } })),
+    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { ...item, key: item.key ?? liveKey() }] } })),
 
   requestEdit: (localId, text) =>
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
@@ -433,6 +659,8 @@ export const useStore = create<State>((set, get) => ({
     })
     if (msg.type === 'error' && typeof msg.localId === 'string' && typeof msg.message === 'string') {
       get().addLocalItem(msg.localId, { kind: 'command_output', text: localizeServerError(msg), isError: true })
+      const errLocalId = msg.localId
+      set((s) => ({ sendErrors: { ...s.sendErrors, [errLocalId]: (s.sendErrors[errLocalId] ?? 0) + 1 } }))
     } else if (msg.type === 'action_exit') {
       const runs = get().actionRuns
       if (!runs.some((r) => r.actionId === msg.actionId)) return
@@ -449,6 +677,15 @@ export const useStore = create<State>((set, get) => ({
       get().setProgress(msg.projectId, msg.engine, (msg.progress ?? null) as Progress | null)
     } else if (msg.type === 'terminal_state' && msg.state && typeof msg.state.projectId === 'number' && typeof msg.state.engine === 'string') {
       get().setTerminalState(msg.state as TerminalState)
+    } else if (msg.type === 'operator_queue' && msg.queue && typeof msg.projectId === 'number' && typeof msg.engine === 'string' && Array.isArray(msg.queue.items)) {
+      // A chave vem do envelope: é ele que diz de que terminal é a fila.
+      // Um set só: a fila e a contagem que invalida as respostas HTTP em voo.
+      const key = progressKey(msg.projectId, msg.engine)
+      const queue: OperatorQueue = { ...(msg.queue as OperatorQueue), projectId: msg.projectId, engine: msg.engine }
+      set((s) => ({
+        queues: { ...s.queues, [key]: queue },
+        queueWsSeq: { ...s.queueWsSeq, [key]: (s.queueWsSeq[key] ?? 0) + 1 },
+      }))
     } else if (msg.type === 'triage' && msg.item && typeof msg.item.projectId === 'number') {
       // Chega só ao dono (ação dele em outra aba, ou o despertar): `userId` não precisa de conferência.
       get().setTriageItem(msg.item as TriageItem)
@@ -465,6 +702,9 @@ export const useStore = create<State>((set, get) => ({
         chat: pruneOrphans(s.chat, sessions),
         unread: pruneOrphans(s.unread, sessions),
         historyLoadedFor: pruneOrphans(s.historyLoadedFor, sessions),
+        historyCursor: pruneOrphans(s.historyCursor, sessions),
+        orphanResults: pruneOrphans(s.orphanResults, sessions),
+        folds: pruneOrphans(s.folds, sessions),
         streaming: pruneOrphans(s.streaming, sessions),
         headsUps: pruneOrphans(s.headsUps, sessions),
         dismissedHeadsUps: pruneOrphans(s.dismissedHeadsUps, sessions),
@@ -617,7 +857,7 @@ export const useStore = create<State>((set, get) => ({
       set((s) => ({
         chat: {
           ...s.chat,
-          [localId]: [...(s.chat[localId] ?? []), { kind: 'command_output', text: output, ...(isError ? { isError: true } : {}) }],
+          [localId]: [...(s.chat[localId] ?? []), { kind: 'command_output', text: output, ...(isError ? { isError: true } : {}), key: liveKey() }],
         },
       }))
     } else if (msg.type === 'board_post') {
@@ -735,7 +975,8 @@ export function useEngineFor(session: SessionInfo | undefined): EngineMeta | und
  * Lista de slash commands efetiva da sessão, dirigida pela engine:
  * - `slashSource === 'protocol'` → `store.slashCommands` (hoje só o Claude; farejado do evento `init`).
  * - `slashSource === 'curated'` → `engine.slashCommands` (lista fixa da engine, ex.: Codex).
- * - `slashSource === 'none'` → nenhum autocomplete.
+ * - `slashSource === 'none'` → só os do Claudinei.
+ * Em todos, mais os comandos do próprio Claudinei (`CLAUDINEI_COMMANDS`: `/goal`).
  * Sem engine resolvida ainda (boot) → cai no protocolo (comportamento idêntico ao de hoje).
  * Reativa: use dentro do corpo de componentes.
  */
@@ -743,7 +984,9 @@ export function useSessionSlashCommands(session: SessionInfo | undefined): strin
   const engine = useEngineFor(session)
   const protocolCommands = useStore((s) => s.slashCommands)
   const source = engine?.slashSource ?? 'protocol'
-  if (source === 'none') return []
-  if (source === 'curated') return engine?.slashCommands ?? []
-  return protocolCommands
+  const base = source === 'none' ? EMPTY_COMMANDS : source === 'curated' ? engine?.slashCommands ?? EMPTY_COMMANDS : protocolCommands
+  // Os do Claudinei (`/goal`) valem em todo motor; filterCommands tira o repetido.
+  return useMemo(() => [...base, ...CLAUDINEI_COMMANDS], [base])
 }
+/** Referência estável: o useMemo acima não refaz a lista a cada render. */
+const EMPTY_COMMANDS: string[] = []

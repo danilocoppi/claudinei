@@ -1,7 +1,9 @@
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { parseFromTail } from '../../tail.js'
+import { parseFromTail, readPositionedTail, type PositionedLine } from '../../tail.js'
+import type { HistoryPage, HistoryPageOptions, PositionedEvent } from '../../history-page.js'
 import type { AgentEvent } from '../types.js'
 
 // O harness envia estes blocos como role:user. A autoria vem dos metadados,
@@ -37,6 +39,28 @@ export function findRollout(root: string, threadId: string): string | null {
   return allRollouts(root).find((p) => p.includes(threadId)) ?? null
 }
 
+// Caminho do rollout por thread, para a leitura em páginas. A varredura de
+// `findRollout` é síncrona e proporcional ao número de rollouts da máquina;
+// paginar e buscar pedem a mesma conversa várias vezes seguidas, e repetir a
+// varredura a cada pedido travaria o laço de eventos outras tantas vezes.
+const rolloutCache = new Map<string, string>()
+
+/**
+ * `findRollout` com memória: confere o caminho guardado com um `stat`
+ * assíncrono e só varre de novo se o arquivo sumiu. Só guarda achados — um
+ * thread sem rollout ainda pode ganhar um no próximo turno.
+ */
+export async function findRolloutCached(root: string, threadId: string): Promise<string | null> {
+  const chave = `${root}\0${threadId}`
+  const guardado = rolloutCache.get(chave)
+  if (guardado) {
+    try { await stat(guardado); return guardado } catch { rolloutCache.delete(chave) }
+  }
+  const achado = findRollout(root, threadId)
+  if (achado) rolloutCache.set(chave, achado)
+  return achado
+}
+
 /**
  * Normaliza um rollout do Codex (response_item da Responses API) para AgentEvent[].
  *
@@ -50,41 +74,64 @@ export function parseRollout(file: string): Promise<AgentEvent[]> {
 
 export function parseRolloutText(text: string): AgentEvent[] {
   const events: AgentEvent[] = []
-  let preTokens: number | undefined
-  for (const line of text.split('\n')) {
-    const s = line.trim(); if (!s) continue
-    let o: any; try { o = JSON.parse(s) } catch { continue }
-    if (o.type === 'event_msg' && o.payload?.type === 'token_count') {
-      const n = o.payload.info?.last_token_usage?.total_tokens
-      preTokens = typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined
-    }
-    if (o.type === 'compacted') {
-      events.push({ kind: 'system', subtype: 'compact_boundary', raw: { compact_metadata: { pre_tokens: preTokens } } })
-      preTokens = undefined
-    }
-    if (o.type !== 'response_item') continue
-    const p = o.payload
-    if (p?.type === 'message') {
-      const role = p.role ?? 'user'
-      const text = (Array.isArray(p.content) ? p.content : []).map((c: any) => c.text ?? '').join('')
-      // O rollout também guarda instruções internas (skills, permissões etc.).
-      // Preserva o papel original e sinaliza a autoria sem adulterar o raw.
-      const kinds: unknown = p.internal_chat_message_metadata_passthrough?.content_item_kinds
-      const injectedUser = role === 'user' && Array.isArray(kinds) && kinds.length > 0 &&
-        kinds.every((kind) => ENGINE_USER_CONTENT_KINDS.has(kind))
-      const fromEngine = role === 'developer' || role === 'system' || injectedUser
-      if (text) events.push({
-        kind: role === 'assistant' ? 'assistant' : 'user',
-        message: { role, content: [{ type: 'text', text }] },
-        ...(fromEngine ? { fromEngine: true } : {}), raw: o,
-      })
-    } else if (p?.type === 'reasoning') {
-      const text = p.summary?.map?.((s: any) => s.text ?? '').join('') ?? p.text ?? ''
-      if (text) events.push({ kind: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: text }] } as never, raw: o })
-    }
-    // function_call/output do rollout: omitidos do preview (evita ruído; o ao vivo já mostra tools)
-  }
+  const estado: EstadoRollout = {}
+  for (const line of text.split('\n')) parseRolloutLine(line, estado, (e) => events.push(e))
   return events
+}
+
+/**
+ * O mesmo parser, linha a linha, com o byte de cada linha no evento. O
+ * `preTokens` atravessa a janela inteira, como no texto: o token_count que
+ * precede um `compacted` costuma estar algumas linhas antes dele.
+ */
+export function parseRolloutLines(lines: PositionedLine[]): PositionedEvent[] {
+  const events: PositionedEvent[] = []
+  const estado: EstadoRollout = {}
+  for (const { text, pos } of lines) parseRolloutLine(text, estado, (e) => events.push({ ...e, pos }))
+  return events
+}
+
+/** Uma página do rollout: os eventos antes de `opts.before`, de trás para a frente. */
+export async function readRolloutPage(file: string, opts: HistoryPageOptions): Promise<HistoryPage> {
+  const r = await readPositionedTail(file, parseRolloutLines, opts)
+  return { events: r.items, start: r.start, atStart: r.atStart }
+}
+
+/** Estado que passa de uma linha para a outra: os tokens antes da compactação. */
+interface EstadoRollout { preTokens?: number }
+
+function parseRolloutLine(line: string, estado: EstadoRollout, emit: (e: AgentEvent) => void): void {
+  const s = line.trim(); if (!s) return
+  let o: any; try { o = JSON.parse(s) } catch { return }
+  if (o.type === 'event_msg' && o.payload?.type === 'token_count') {
+    const n = o.payload.info?.last_token_usage?.total_tokens
+    estado.preTokens = typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined
+  }
+  if (o.type === 'compacted') {
+    emit({ kind: 'system', subtype: 'compact_boundary', raw: { compact_metadata: { pre_tokens: estado.preTokens } } })
+    estado.preTokens = undefined
+  }
+  if (o.type !== 'response_item') return
+  const p = o.payload
+  if (p?.type === 'message') {
+    const role = p.role ?? 'user'
+    const text = (Array.isArray(p.content) ? p.content : []).map((c: any) => c.text ?? '').join('')
+    // O rollout também guarda instruções internas (skills, permissões etc.).
+    // Preserva o papel original e sinaliza a autoria sem adulterar o raw.
+    const kinds: unknown = p.internal_chat_message_metadata_passthrough?.content_item_kinds
+    const injectedUser = role === 'user' && Array.isArray(kinds) && kinds.length > 0 &&
+      kinds.every((kind) => ENGINE_USER_CONTENT_KINDS.has(kind))
+    const fromEngine = role === 'developer' || role === 'system' || injectedUser
+    if (text) emit({
+      kind: role === 'assistant' ? 'assistant' : 'user',
+      message: { role, content: [{ type: 'text', text }] },
+      ...(fromEngine ? { fromEngine: true } : {}), raw: o,
+    })
+  } else if (p?.type === 'reasoning') {
+    const text = p.summary?.map?.((s: any) => s.text ?? '').join('') ?? p.text ?? ''
+    if (text) emit({ kind: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: text }] } as never, raw: o })
+  }
+  // function_call/output do rollout: omitidos do preview (evita ruído; o ao vivo já mostra tools)
 }
 
 // Lê só o início do arquivo: o session_meta é a 1ª linha e o rollout inteiro

@@ -158,7 +158,9 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
         "Delegates a task to another project's agent and returns immediately, without waiting for the work to be done. "
         + 'Use it to run work in parallel; when you cannot continue without the answer, use ask_agent instead. '
         + 'The task is queued even when the target has no session running, so it does not fail for unavailability — it starts once that project has an agent. '
-        + 'What comes back is a task id: call list_tasks later to read the outcome.',
+        + 'There is no time limit: the task runs as long as the other agent needs to finish its turn. '
+        + 'What comes back is a task id. '
+        + 'You will be woken with the result in a Claudinei message when the task ends; you do not need to poll list_tasks.',
       inputSchema: {
         project: z.string().describe('exact project name, as list_projects prints it'),
         task: z.string().describe('what to do, self-contained: the other agent cannot see your conversation'),
@@ -178,7 +180,8 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
     {
       description:
         'Lists dispatched tasks with the status of each one (queued, in_progress, completed, failed) and the result text once it is ready. '
-        + 'Call it to collect what you delegated with dispatch_task — a dispatch returns only an id, and this is where the outcome shows up. '
+        + 'You do not need it to learn that a task ended: the result of what you delegated with dispatch_task arrives on its own in a Claudinei message, cut when it is long. '
+        + 'Call it to reread a result in full or to see how delegated work is progressing. '
         + 'Each line carries the task id, so match on the id the dispatch gave you rather than on position.',
       inputSchema: {},
     },
@@ -233,6 +236,40 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
         return text('progress updated')
       } catch (err) {
         return { ...text(`progress rejected: ${(err as Error).message}`), isError: true }
+      }
+    },
+  )
+
+  // Goal (`/goal` do operador): o agente declara o objetivo cumprido e o laço
+  // de "continue" do Claudinei para. Vale para o terminal (projeto + motor).
+  server.registerTool(
+    'goal_done',
+    {
+      description:
+        'Declares that the goal the operator set in this terminal with /goal is fully met, and ends the goal loop: Claudinei stops sending its "Continue toward the goal" messages. '
+        + 'Only the main agent calls this; subagents never do. '
+        + 'Call it only when the goal is entirely met, every part of the criterion: not when it is partly done, blocked or merely close. '
+        + 'If you cannot finish, say so in your reply instead; the loop pauses at its turn cap and the operator decides. '
+        + 'The evidence must be concrete and checkable: the commands you ran and their results (test output, build status), the files changed, what the operator can verify without redoing the work. '
+        + 'Fails when this terminal has no active goal.',
+      inputSchema: {
+        evidence: z.string().min(1).max(4000).describe('concrete proof the goal is met: commands run and their results, files changed (at most 4000 characters)'),
+      },
+    },
+    async ({ evidence }) => {
+      try {
+        await call('/api/hermes/goal-done', {
+          method: 'POST',
+          body: JSON.stringify({ projectId: PROJECT_ID, engine: ENGINE || 'claude', evidence }),
+        })
+        return text('goal marked as done; the goal loop has ended')
+      } catch (err) {
+        const msg = (err as Error).message
+        // Sem goal: diz ao agente que não há o que fechar (e não para tentar de novo).
+        const hint = /no active goal/i.test(msg)
+          ? '. There is nothing to close: goal_done is only for a goal the operator started with /goal in this terminal.'
+          : ''
+        return { ...text(`goal_done rejected: ${msg}${hint}`), isError: true }
       }
     },
   )

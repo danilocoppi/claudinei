@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
+import { applyEvent as applyEventComChave } from '../chat/applyEvent'
 import type { ChatItem, ClaudeEvent } from '../types'
+
+/**
+ * Aqui interessa o conteúdo dos itens; as chaves (`l<n>` vêm de um contador do
+ * módulo) têm os testes delas em history-pages.test.ts.
+ */
+const applyEvent = (items: ChatItem[], evt: ClaudeEvent): ChatItem[] => {
+  const out = applyEventComChave(items, evt)
+  return out === items ? items : out.map(({ key: _key, ...it }) => it as ChatItem)
+}
 
 const assistantEvt = (content: object[], raw: unknown = {}): ClaudeEvent =>
   ({ kind: 'assistant', message: { role: 'assistant', content }, raw }) as ClaudeEvent
@@ -220,32 +229,6 @@ describe('erro da API da engine (isApiErrorMessage)', () => {
   })
 })
 
-describe('mergeEngineFlags — retag em sessão longa (histórico limitado)', () => {
-  it('copia fromEngine/isApiError da rebusca para os itens já na tela (match por texto)', () => {
-    const current: ChatItem[] = [
-      { kind: 'user_text', text: 'meu pedido' },
-      { kind: 'user_text', text: 'Base directory for this skill: /x' },
-      { kind: 'assistant_text', text: 'API Error: 500' },
-      { kind: 'assistant_text', text: 'resposta normal' },
-    ]
-    const reduced: ChatItem[] = [
-      { kind: 'user_text', text: 'Base directory for this skill: /x', fromEngine: true },
-      { kind: 'assistant_text', text: 'API Error: 500', isApiError: true },
-    ]
-    const out = mergeEngineFlags(current, reduced)!
-    expect(out[0]).toEqual({ kind: 'user_text', text: 'meu pedido' })
-    expect(out[1]).toMatchObject({ fromEngine: true })
-    expect(out[2]).toMatchObject({ isApiError: true })
-    expect(out[3]).toEqual({ kind: 'assistant_text', text: 'resposta normal' })
-  })
-
-  it('sem nada para retaguear devolve null (evita re-render à toa)', () => {
-    const current: ChatItem[] = [{ kind: 'user_text', text: 'oi' }]
-    expect(mergeEngineFlags(current, [{ kind: 'user_text', text: 'oi' }])).toBeNull()
-    expect(mergeEngineFlags(current, [{ kind: 'user_text', text: 'outra', fromEngine: true }])).toBeNull()
-  })
-})
-
 describe('task despachada de outro terminal ([Task from …])', () => {
   const evt = (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } })
 
@@ -318,6 +301,63 @@ describe('mensagem de retomada do limite ([Claudinei: resume after usage limit])
     const [, evt] = formatos[0]
     const text = 'veja: [Claudinei: resume after usage limit]: no meio da frase'
     expect(applyEvent([], evt(text) as never)).toEqual([{ kind: 'user_text', text }])
+  })
+})
+
+describe('selos do aviso de tarefa e do goal ([Claudinei: task result] / goal / goal start)', () => {
+  // Transcript: `content` em string. Eco ao vivo: `content` em lista de blocos.
+  const formatos = [
+    ['content em string', (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } })],
+    ['content em lista (eco ao vivo)', (text: string) => ({ kind: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, raw: {} })],
+  ] as const
+  const [, comoTexto] = formatos[0]
+
+  // Cópias literais de server/src/delegate/texts.ts e server/src/goal/texts.ts.
+  const UMA = '[Claudinei: task result]: Task #7 sent to Vaexa - Backend completed.\nTudo **pronto**.\n\nDetalhe na linha 2.'
+  const VARIAS = '[Claudinei: task result]: Task #7 sent to Vaexa - Backend completed.\nFeito.\n\nTask #9 sent to NFE failed.\nQuebrou no build.\n(full text: list_tasks #9)\n\nTask #12 sent to Portaria completed.'
+  const GOAL = '[Claudinei: goal]: Continue toward the goal: os testes passam. Turn 3/20. When it is fully met, call goal_done with the evidence.'
+  const GOAL_START = '[Claudinei: goal start]: New goal: os testes passam. Work toward it turn after turn. Only when it is entirely met, call goal_done with the evidence.'
+
+  it('selo de resultado vira claudinei_message task_result; no meio da frase segue user_text', () => {
+    expect(applyEvent([], comoTexto(UMA) as never)).toEqual([{
+      kind: 'claudinei_message', reason: 'task_result', text: UMA.slice('[Claudinei: task result]: '.length),
+      tasks: [{ id: 7, project: 'Vaexa - Backend', status: 'completed', body: 'Tudo **pronto**.\n\nDetalhe na linha 2.' }],
+    }])
+    const meio = 'olha isto: [Claudinei: task result]: Task #7 sent to X completed.'
+    expect(applyEvent([], comoTexto(meio) as never)).toEqual([{ kind: 'user_text', text: meio }])
+  })
+
+  it('várias tarefas numa mensagem: um bloco por tarefa, com o corte e o rodapé reconhecidos', () => {
+    const [item] = applyEvent([], comoTexto(VARIAS) as never)
+    expect(item).toMatchObject({ kind: 'claudinei_message', reason: 'task_result' })
+    expect((item as { tasks: unknown[] }).tasks).toEqual([
+      { id: 7, project: 'Vaexa - Backend', status: 'completed', body: 'Feito.' },
+      { id: 9, project: 'NFE', status: 'failed', body: 'Quebrou no build.', truncated: true },
+      { id: 12, project: 'Portaria', status: 'completed', body: '' },
+    ])
+  })
+
+  it('selo do resultado ignora o system-reminder anexado pelo harness', () => {
+    const [item] = applyEvent([], comoTexto(`${UMA}<system-reminder>ruído</system-reminder>`) as never)
+    expect((item as { tasks: { body: string }[] }).tasks[0].body).toBe('Tudo **pronto**.\n\nDetalhe na linha 2.')
+  })
+
+  it('selos de goal e goal start viram claudinei_message com o critério e o turno', () => {
+    expect(applyEvent([], comoTexto(GOAL) as never)).toEqual([{
+      kind: 'claudinei_message', reason: 'goal', text: GOAL.slice('[Claudinei: goal]: '.length),
+      criterion: 'os testes passam', turn: 3, max: 20,
+    }])
+    expect(applyEvent([], comoTexto(GOAL_START) as never)).toEqual([{
+      kind: 'claudinei_message', reason: 'goal_start', text: GOAL_START.slice('[Claudinei: goal start]: '.length),
+      criterion: 'os testes passam',
+    }])
+    const meio = 'veja: [Claudinei: goal]: Continue toward the goal: x. Turn 1/20.'
+    expect(applyEvent([], comoTexto(meio) as never)).toEqual([{ kind: 'user_text', text: meio }])
+  })
+
+  it.each(formatos)('forma ao vivo (content em array de blocos) também é reconhecida (%s)', (_nome, evt) => {
+    const reasons = [UMA, GOAL, GOAL_START].map((t) => (applyEvent([], evt(t) as never)[0] as { reason?: string }).reason)
+    expect(reasons).toEqual(['task_result', 'goal', 'goal_start'])
   })
 })
 

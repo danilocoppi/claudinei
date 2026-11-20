@@ -1,7 +1,8 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ClaudeSession, type PermissionMode } from '../claude/session.js'
-import { latestTranscriptId, readTranscript, transcriptExists } from '../history.js'
+import { latestTranscriptId, readTranscript, readTranscriptPage, transcriptExists } from '../history.js'
+import type { HistoryPage, HistoryPageOptions } from '../history-page.js'
 import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, AgentEvent } from './types.js'
 
 // Diretório de config do Claude (mesma regra do config.ts) — a engine resolve
@@ -20,6 +21,7 @@ const CAPABILITIES: EngineCapabilities = {
   icon: 'claude', // token → o frontend renderiza o logomark oficial do Claude (EngineIcon)
   slashCommands: [],
   installHint: 'npm install -g @anthropic-ai/claude-code',
+  midTurnInput: true, // Enter no meio do turno entra no turno atual
 }
 
 export const claudeEngine: Engine = {
@@ -46,6 +48,10 @@ export const claudeEngine: Engine = {
 
   readHistory(projectPath: string, engineSessionId: string): Promise<AgentEvent[]> {
     return readTranscript(claudeConfigDir(), projectPath, engineSessionId)
+  },
+
+  readHistoryPage(projectPath: string, engineSessionId: string, opts: HistoryPageOptions): Promise<HistoryPage> {
+    return readTranscriptPage(claudeConfigDir(), projectPath, engineSessionId, opts)
   },
 
   latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {

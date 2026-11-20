@@ -91,7 +91,7 @@ describe('EngineTabs — engine não instalada', () => {
     useStore.setState({
       engines: [CLAUDE, { ...KIMI, available: false }],
       sessions: { c1: sess('c1', 'claude', 'idle') },
-      terminalStates: { '1:kimi': { projectId: 1, engine: 'kimi', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null } },
+      terminalStates: { '1:kimi': { projectId: 1, engine: 'kimi', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null } },
     })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)
     const tabs = screen.getAllByRole('tab')

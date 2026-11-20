@@ -1,4 +1,4 @@
-import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
+import type { EngineMeta, HistoryPage, OperatorQueue, QueueVia, SearchSlice, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -138,11 +138,45 @@ export const usageLimitAction = (projectId: number, engine: string, action: 'arm
 /** O × do aviso: tira a marca de interrompido sem retomar. */
 export const dismissInterruption = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/interruption`, { method: 'DELETE' })
+/**
+ * Continuar do aviso de resultado de tarefa: revive o terminal, se preciso, e
+ * entrega os resultados pendentes quando ele estiver livre. 409
+ * `nothing_to_continue` quando não há mais nada pendente.
+ */
+export const continueTaskResults = (projectId: number, engine: string) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/task-results/continue`, { method: 'POST' })
+/** O × do aviso de resultado: dispensa os pendentes (o agente ainda os lê em list_tasks). */
+export const dismissTaskResults = (projectId: number, engine: string) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/task-results`, { method: 'DELETE' })
 export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
   req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
 /** Grava a lista de motores do terminal. O servidor ordena e devolve o terminal atualizado; não avisa os outros clientes. */
 export const setProjectEngines = (id: number, engines: string[]) =>
   req<Project>(`/api/projects/${id}/engines`, { method: 'PATCH', body: JSON.stringify({ engines }) })
+/**
+ * Fila do operador do terminal (projeto + motor). Toda chamada devolve a fila
+ * inteira, que o servidor também transmite (`operator_queue`) às outras telas.
+ */
+const queueUrl = (projectId: number, engine: string) =>
+  `/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/queue`
+export const fetchQueue = (projectId: number, engine: string) => req<OperatorQueue>(queueUrl(projectId, engine))
+/** Acrescenta ao fim. Fila vazia, sem pausa nem aviso e sessão livre: o servidor já manda na hora. */
+export const addToQueue = (projectId: number, engine: string, text: string, via: QueueVia) =>
+  req<OperatorQueue>(queueUrl(projectId, engine), { method: 'POST', body: JSON.stringify({ text, via }) })
+export const editQueueItem = (projectId: number, engine: string, itemId: number, text: string) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/${itemId}`, { method: 'PATCH', body: JSON.stringify({ text }) })
+/** `ids` é a fila inteira na ordem nova. */
+export const reorderQueue = (projectId: number, engine: string, ids: number[]) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/order`, { method: 'PUT', body: JSON.stringify({ ids }) })
+export const removeQueueItem = (projectId: number, engine: string, itemId: number) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/${itemId}`, { method: 'DELETE' })
+/** Manda este item já (ou assim que o turno atual parar), mesmo com a fila pausada, sem tirar a pausa. */
+export const sendQueueItemNow = (projectId: number, engine: string, itemId: number) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/${itemId}/send-now`, { method: 'POST' })
+export const pauseQueue = (projectId: number, engine: string) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/pause`, { method: 'POST' })
+export const resumeQueue = (projectId: number, engine: string) =>
+  req<OperatorQueue>(`${queueUrl(projectId, engine)}/resume`, { method: 'POST' })
 /** Triagem da lista do usuário: só os projetos com algo aplicado (os demais estão no normal). */
 export const fetchTriage = () => req<TriageItem[]>('/api/triage')
 /** Fixa, assenta ou adia o projeto para o usuário; `snoozedUntil` é horário absoluto (ISO). */
@@ -178,8 +212,27 @@ export const openTerminal = (localId: string) =>
   req<{ token: string; wsUrl: string }>(`/api/sessions/${localId}/terminal`, { method: 'POST' })
 export const closeTerminal = (localId: string) =>
   req<void>(`/api/sessions/${localId}/terminal`, { method: 'DELETE' })
-export const fetchHistory = (localId: string) =>
-  req<ClaudeEvent[]>(`/api/sessions/${localId}/history`)
+/**
+ * Uma página do histórico: sem `before`, o fim da conversa; com ele, os eventos
+ * anteriores àquela posição (o `before` da página mais antiga já carregada).
+ */
+export const fetchHistory = (localId: string, before?: number, limit?: number) => {
+  const params = new URLSearchParams()
+  if (before !== undefined) params.set('before', String(before))
+  if (limit !== undefined) params.set('limit', String(limit))
+  const query = params.toString()
+  return req<HistoryPage>(`/api/sessions/${localId}/history${query ? `?${query}` : ''}`)
+}
+
+/**
+ * Uma fatia da busca na conversa (o servidor lê até 8 MB antes de `before`; sem
+ * ele, a partir do fim). A consulta vai codificada: pode ter `+`, `&`, `#` e acentos.
+ */
+export function searchHistory(localId: string, q: string, tools: boolean, before?: number, signal?: AbortSignal): Promise<SearchSlice> {
+  const params = new URLSearchParams({ q, tools: tools ? '1' : '0' })
+  if (before !== undefined) params.set('before', String(before))
+  return req<SearchSlice>(`/api/sessions/${encodeURIComponent(localId)}/search?${params}`, { signal })
+}
 
 export interface DirEntry { name: string; path: string; isDir: boolean }
 export interface DirListing { path: string; parent: string | null; entries: DirEntry[] }
@@ -278,6 +331,13 @@ export const fetchUsageReport = (period: UsagePeriod, tz: number, signal?: Abort
     `/api/usage/report?period=${encodeURIComponent(period)}&tz=${encodeURIComponent(String(tz))}`,
     signal ? { signal } : undefined,
   )
+
+/**
+ * Quais destes anexos sumiram do servidor (a rotação apaga os de mais de 30 dias).
+ * O servidor aceita até 200 caminhos por chamada; quem chama manda menos que isso.
+ */
+export const checkUploads = (paths: string[]) =>
+  req<{ missing: string[] }>('/api/uploads/check', { method: 'POST', body: JSON.stringify({ paths }) })
 
 // fetch cru — o req() colocaria Content-Type json e quebraria o boundary do multipart
 export const uploadFile = async (file: File, name?: string): Promise<{ path: string; name: string }> => {

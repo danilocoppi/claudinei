@@ -102,6 +102,34 @@ describe('auto-compact por limiar', () => {
     await mgr.stopAll()
   })
 
+  it('a auto-compactação vem antes de quem pega a sessão livre (lugar 1 antes do 3)', async () => {
+    process.env.CLAUDE_FAKE_CTX = '150000' // 75% da janela de 200k
+    let armed = false
+    let mgr: ReturnType<typeof createSessionManager>
+    // Como o árbitro do próximo envio: no "livre", manda o próximo item se a sessão segue livre.
+    mgr = createSessionManager({
+      db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m),
+      autoCompactPct: () => 50,
+      onSessionAvailable: (_p, ctx) => {
+        if (!armed || !ctx || !['idle', 'needs_attention'].includes(mgr.get(ctx.localId)?.status ?? '')) return
+        armed = false
+        mgr.send(ctx.localId, 'da fila', { echo: true })
+      },
+    })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    await new Promise((r) => setTimeout(r, 20))
+    armed = true
+    mgr.send(localId, 'oi')
+    await waitUntil(() => ecos().some((b) => b.event.resultText === 'eco: da fila'))
+    const userTexts = broadcasts
+      .filter((b) => b.type === 'session_event' && b.event?.kind === 'user')
+      .map((b) => b.event.message?.content?.[0]?.text)
+    expect(userTexts.indexOf('/compact')).toBeGreaterThan(-1)
+    expect(userTexts.indexOf('/compact')).toBeLessThan(userTexts.indexOf('da fila'))
+    await mgr.stopAll()
+  })
+
   it('desligado (pct 0/ausente) não compacta nem com contexto alto', async () => {
     process.env.CLAUDE_FAKE_CTX = '190000'
     const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })
@@ -126,6 +154,36 @@ describe('auto-compact por limiar', () => {
     await waitUntil(() => ecos().length >= 1)
     await new Promise((r) => setTimeout(r, 300))
     expect(ecos().some((b) => b.event.resultText === 'eco: /compact')).toBe(false)
+    await mgr.stopAll()
+  })
+
+  // O goal conta turnos pela origem, e a compactação herda a da mensagem
+  // anterior: o fim dela chega marcado. E um cutucão na mesma folga do result
+  // (o estado publicado no fim do turno) vê a compactação pendente.
+  it('o fim do turno da compactação chega com compaction; entre o result e o /compact, compactionPending', async () => {
+    process.env.CLAUDE_FAKE_CTX = '150000' // 75% da janela de 200k
+    const infos: any[] = []
+    const pendentes: boolean[] = []
+    let mgr: ReturnType<typeof createSessionManager>
+    mgr = createSessionManager({
+      db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m),
+      autoCompactPct: () => 50,
+      onTurnResult: (_p, _e, info) => {
+        infos.push(info)
+        const id = mgr.list()[0].localId
+        queueMicrotask(() => pendentes.push(mgr.compactionPending(id)))
+      },
+    })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    expect(mgr.compactionPending(localId)).toBe(false)
+    mgr.sendAsClaudinei(localId, 'oi')
+    await waitUntil(() => infos.length === 2)
+    // O turno comum segue sem o campo; o da compactação traz a origem herdada e a marca.
+    expect(infos[0]).toEqual({ isError: false, interrupted: false, limited: false, origin: 'claudinei' })
+    expect(infos[1]).toEqual({ isError: false, interrupted: false, limited: false, origin: 'claudinei', compaction: true })
+    expect(pendentes[0]).toBe(true)
+    expect(mgr.compactionPending(localId)).toBe(false)
     await mgr.stopAll()
   })
 })

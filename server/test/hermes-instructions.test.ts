@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { createHash } from 'node:crypto'
 import { buildInstructions, type HermesProject } from '../src/hermes/instructions.js'
 
 /**
@@ -90,5 +91,24 @@ describe('instructions do Hermes: mensagem de outro projeto', () => {
     expect(txt).toContain('ToolSearch')
     expect(txt).toContain('three or more steps')
     expect(txt.indexOf('update_progress')).toBeLessThan(txt.indexOf('Other projects'))
+  })
+})
+
+// Delegar e goals: tudo de novo foi para descrições de ferramenta e mensagens do
+// Claudinei; as instructions (teto de 4096 do Claude, e a mesma regra que o
+// Codex recebe nas developerInstructions) não mudam. Os hashes foram tirados da
+// buildInstructions do commit d56133b (antes da trilha), não desta.
+describe('instructions do Hermes idênticas às de antes da trilha', () => {
+  const sha = (s: string) => createHash('sha256').update(s).digest('hex')
+  it('mesma entrada, mesmo texto que em d56133b', () => {
+    const muitos = Array.from({ length: 200 }, (_, i) => ({ id: i + 1, name: `Projeto ${i + 1}` }))
+    const dois = buildInstructions(1, PROJETOS)
+    const generica = buildInstructions(1, undefined)
+    const duzentos = buildInstructions(1, muitos)
+    expect([dois.length, generica.length, duzentos.length]).toEqual([1993, 1942, 2792])
+    expect(sha(dois)).toBe('4afd51b6a05c81943152ad5fe63482e7cd3f2ba3572d9fcc52922608f13ce1aa')
+    expect(sha(generica)).toBe('eaee8d9cea6ea6ad7c6bff211a3ea0cab830d9e0cae4be8eaa4a6265f244bc48')
+    expect(sha(duzentos)).toBe('e8d67fff6cd144aa9f93e30cb75a1e91f8ec836ee37641876de506b2898e9f8b')
+    for (const s of [dois, generica, duzentos]) expect(s).not.toMatch(/goal/i)
   })
 })

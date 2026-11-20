@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within, act } from '@testing-library/react'
 import { EngineTabs } from '../components/EngineTabs'
 import { useStore } from '../store'
 import * as api from '../api'
@@ -22,6 +22,7 @@ const sess = (localId: string, engine: string, status: SessionStatus): SessionIn
 const setup = (engines: string[], catalog: EngineMeta[] = [CLAUDE, CODEX, KIMI, OPENCODE]) => {
   useStore.setState({
     engines: catalog,
+    enginesLoaded: true,
     projects: [project(engines)],
     sessions: { c1: sess('c1', 'claude', 'idle') },
   })
@@ -129,7 +130,7 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
     setup(['claude'])
     useStore.setState({
       terminalStates: {
-        '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null },
+        '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null },
       },
     })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)
@@ -142,10 +143,106 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
     useStore.setState({
       terminalStates: {
         '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: null, autoResumeLimit: false,
-          usageLimit: { hitAt: 'x', resetsAt: null, action: 'none', origin: 'operator' } },
+          usageLimit: { hitAt: 'x', resetsAt: null, action: 'none', origin: 'operator' }, taskResults: [], taskResultsHeld: false, goal: null },
       },
     })
     render(<EngineTabs projectId={1} activeLocalId="c1" />)
     expect(tabLabels()).toEqual(['Claude Code', 'Codex'])
+  })
+})
+
+describe('EngineTabs — aviso de terminal sem motor instalado', () => {
+  // Renderiza como o ChatView: o activeLocalId é sempre a sessão na tela, e a aba
+  // dela fica mesmo parada e fora da lista.
+  const notice = () => document.querySelector('.engine-tabs__none') as HTMLElement | null
+
+  it('conversa encerrada de motor instalado fora da lista: a aba fica e o aviso aparece ao lado', () => {
+    // O caso do ensaio: lista ['opencode'] sem o binário, chat aberto numa sessão
+    // do Claude já encerrada.
+    setup(['opencode'], [CLAUDE, CODEX, KIMI, { ...OPENCODE, available: false }])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(tabLabels()).toEqual(['Claude Code'])
+    expect(notice()).not.toBeNull()
+    expect(notice()!.textContent).toContain('Nenhum motor desta lista está instalado')
+    expect(within(notice()!).getByRole('button', { name: 'editar' })).toBeTruthy()
+  })
+
+  it('conversa encerrada de motor desinstalado da lista: a aba fica e o aviso aparece', () => {
+    setup(['codex', 'kimi'], [CLAUDE, { ...CODEX, available: false }, { ...KIMI, available: false }])
+    useStore.setState({ sessions: { x1: sess('x1', 'codex', 'dead') } })
+    render(<EngineTabs projectId={1} activeLocalId="x1" />)
+    expect(tabLabels()).toEqual(['Codex'])
+    expect(notice()).not.toBeNull()
+  })
+
+  it('id da lista que o catálogo não conhece conta como não instalado', () => {
+    setup(['futuro'], [CLAUDE, CODEX])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(notice()).not.toBeNull()
+  })
+
+  it('sem aba nenhuma, o aviso ocupa o lugar das abas', () => {
+    setup(['codex'], [CLAUDE, { ...CODEX, available: false }])
+    useStore.setState({ sessions: {} })
+    render(<EngineTabs projectId={1} activeLocalId="" />)
+    expect(screen.queryAllByRole('tab')).toHaveLength(0)
+    expect(notice()).not.toBeNull()
+  })
+
+  it('editar abre o formulário do terminal', () => {
+    setup(['opencode'], [CLAUDE, { ...OPENCODE, available: false }])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(screen.queryByRole('heading', { name: 'Editar terminal' })).toBeNull()
+    fireEvent.click(within(notice()!).getByRole('button', { name: 'editar' }))
+    expect(screen.getByRole('heading', { name: 'Editar terminal' })).toBeTruthy()
+    // O formulário é o da edição deste terminal, com o nome dele.
+    expect((screen.getByDisplayValue('Terminal') as HTMLInputElement).value).toBe('Terminal')
+  })
+
+  it('com um motor instalado na lista, o aviso não aparece', () => {
+    setup(['codex', 'kimi'], [CLAUDE, { ...CODEX, available: false }, KIMI])
+    useStore.setState({ sessions: { x1: sess('x1', 'codex', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="x1" />)
+    expect(tabLabels()).toEqual(['Codex', 'Kimi Code'])
+    expect(notice()).toBeNull()
+  })
+
+  it('sessão viva de motor desinstalado mantém a aba e não mostra o aviso', () => {
+    setup(['codex'], [CLAUDE, { ...CODEX, available: false }])
+    useStore.setState({ sessions: { x1: sess('x1', 'codex', 'idle') } })
+    render(<EngineTabs projectId={1} activeLocalId="x1" />)
+    expect(tabLabels()).toEqual(['Codex'])
+    expect(notice()).toBeNull()
+  })
+
+  it('sessão viva de motor fora da lista não mostra o aviso', () => {
+    setup(['opencode'], [CLAUDE, { ...OPENCODE, available: false }])
+    useStore.setState({ sessions: { c1: sess('c1', 'claude', 'working') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(tabLabels()).toEqual(['Claude Code'])
+    expect(notice()).toBeNull()
+  })
+
+  it('com o catálogo embutido, antes da resposta do servidor, o aviso não aparece', () => {
+    // O store nasce com o catálogo embutido (só Claude e Codex, sem `available`).
+    // Um terminal com ['kimi'] parece sem motor instalado até o GET /api/engines
+    // responder, ou para sempre se ele falhar: o aviso não pode piscar nem ficar.
+    setup(['kimi'], useStore.getInitialState().engines)
+    useStore.setState({ enginesLoaded: false, sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(tabLabels()).toEqual(['Claude Code'])
+    expect(notice()).toBeNull()
+  })
+
+  it('com o catálogo do servidor e o kimi não instalado, o aviso aparece', () => {
+    setup(['kimi'], [CLAUDE, CODEX, { ...KIMI, available: false }])
+    useStore.setState({ enginesLoaded: false, sessions: { c1: sess('c1', 'claude', 'stopped') } })
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(notice()).toBeNull()
+    act(() => { useStore.getState().setEngines([CLAUDE, CODEX, { ...KIMI, available: false }]) })
+    expect(notice()).not.toBeNull()
   })
 })

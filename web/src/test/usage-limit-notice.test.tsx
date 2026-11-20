@@ -34,7 +34,7 @@ const REABRE = new Date(2026, 10, 20, 15, 0, 0).getTime() / 1000 // epoch SEGUND
 type Limite = NonNullable<TerminalState['usageLimit']>
 const estado = (o: Partial<TerminalState> = {}): TerminalState => ({
   projectId: 1, engine: 'claude', autostart: false, autoResume: false, interruption: null,
-  autoResumeLimit: false, usageLimit: null, ...o,
+  autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null, ...o,
 })
 const limitado = (o: Partial<Limite> = {}, extra: Partial<TerminalState> = {}): TerminalState =>
   estado({ usageLimit: { hitAt: '2026-11-20 15:50:00', resetsAt: REABRE, action: 'none', origin: 'operator', ...o }, ...extra })

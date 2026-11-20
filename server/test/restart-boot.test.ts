@@ -40,6 +40,7 @@ const row = (over: Partial<TerminalStateRow> = {}): TerminalStateRow => ({
   lostQuestion: null, resumeCount: 0, holdReason: null,
   autoResumeLimit: false,
   limitHitAt: null, limitResetsAt: null, limitAction: 'none', limitOrigin: null, limitTries: 0,
+  goalCriterion: null, goalStatus: null, goalPause: null, goalTurns: 0, goalEvidence: null, goalStartedAt: null,
   ...over,
 })
 const interrupted = (over: Partial<TerminalStateRow> = {}) =>
@@ -381,11 +382,22 @@ describe('createRestartService.boot', () => {
     return { p, localId, svc }
   }
 
-  /** Tarefa encaminhada DEPOIS da subida, entregue pelo caminho normal (drain). */
+  /**
+   * Tarefa encaminhada DEPOIS da subida, entregue pelo caminho normal (drain).
+   * Com o aviso aberto o terminal não recebe tarefa (ela espera, como a fila do
+   * operador): para montar o caso de uma tarefa em andamento que não é do turno
+   * interrompido, a marca sai, a tarefa é entregue e a marca volta igual.
+   */
   const dispatchAfterBoot = (p: Project) => {
     const tasks = createTasksService(db)
     const { id } = tasks.create(null, p.id, 'tarefa nova', 'queued')
-    orch.drain(p.id)
+    expect(orch.drain(p.id)).toBe(false)
+    expect(tasks.get(id)?.status).toBe('queued')
+    const mark = store.get(p.id, 'claude')
+    store.clearInterruption(p.id, 'claude')
+    expect(orch.drain(p.id)).toBe(true)
+    store.markInterrupted(p.id, 'claude', mark.interruptedLocalId!, mark.lostQuestion)
+    store.setHold(p.id, 'claude', mark.holdReason!)
     expect(tasks.get(id)?.status).toBe('in_progress')
     return { tasks, id }
   }
@@ -814,7 +826,7 @@ describe('createRestartService: mensagens e interruptores', () => {
     const dto = svc.setPrefs(p.id, 'claude', { autostart: true })
     expect(dto).toEqual({
       projectId: p.id, engine: 'claude', autostart: true, autoResume: false, interruption: null,
-      autoResumeLimit: false, usageLimit: null,
+      autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null,
     })
     expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: dto })
     expect(svc.list()).toEqual([dto])

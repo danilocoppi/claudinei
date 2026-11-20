@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseFromTail } from './tail.js'
+import { parseFromTail, readPositionedTail, type PositionedLine } from './tail.js'
+import type { HistoryPage, HistoryPageOptions, PositionedEvent } from './history-page.js'
 import { classifyLine } from './claude/parser.js'
 import type { ClaudeEvent } from './claude/events.js'
 
@@ -59,4 +60,22 @@ export function parseTranscriptText(text: string): ClaudeEvent[] {
     if (evt && evt.kind !== 'parse_error') events.push(evt)
   }
   return events
+}
+
+/** O mesmo parser, linha a linha, com o byte de cada linha no evento. */
+export function parseTranscriptLines(lines: PositionedLine[]): PositionedEvent[] {
+  const events: PositionedEvent[] = []
+  for (const { text, pos } of lines) {
+    const evt = classifyLine(text)
+    if (evt && evt.kind !== 'parse_error') events.push({ ...evt, pos })
+  }
+  return events
+}
+
+/** Uma página do transcript: os eventos antes de `opts.before`, de trás para a frente. */
+export async function readTranscriptPage(
+  claudeConfigDir: string, projectPath: string, engineSessionId: string, opts: HistoryPageOptions,
+): Promise<HistoryPage> {
+  const r = await readPositionedTail(transcriptPath(claudeConfigDir, projectPath, engineSessionId), parseTranscriptLines, opts)
+  return { events: r.items, start: r.start, atStart: r.atStart }
 }

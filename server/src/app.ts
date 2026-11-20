@@ -14,6 +14,7 @@ import { registerAuth, registerSecurityHeaders } from './auth/plugin.js'
 import { registerAuthRoutes } from './auth/routes.js'
 import { registerProjectRoutes } from './routes/projects.js'
 import { registerSessionRoutes } from './routes/sessions.js'
+import { registerHistorySearchRoutes } from './routes/history-search.js'
 import { registerEngineRoutes } from './routes/engines.js'
 import { registerHermesRoutes } from './routes/hermes.js'
 import { registerProgressRoutes } from './routes/progress.js'
@@ -48,6 +49,12 @@ import { registerTerminalStateRoutes } from './routes/terminals.js'
 import { createTerminalStateStore } from './restart/terminal-state.js'
 import { createRestartService, type RestartService } from './restart/boot.js'
 import { createUsageLimitService, type UsageLimitService } from './limit/usage-limit.js'
+import { createOperatorQueueService, createOperatorQueueStore, type OperatorQueueService } from './queue/operator-queue.js'
+import { createNextSend, holdsForNotice, holdsForSchedule, type NextSend } from './queue/next-send.js'
+import { registerOperatorQueueRoutes } from './routes/operator-queue.js'
+import { createTaskWake, type TaskWake } from './delegate/task-wake.js'
+import { createGoalService, type GoalService } from './goal/goal.js'
+import { getEngine } from './engine/index.js'
 
 export interface AppDeps {
   config: Config
@@ -124,6 +131,32 @@ export interface AppDeps {
    * (`boot`) depois da do reinício e o desliga (`dispose`) no encerramento.
    */
   onLimitReady?: (limit: UsageLimitService) => void
+  /**
+   * Recebe o árbitro do próximo envio, pelo mesmo motivo do `onOrchestratorReady`:
+   * o `onSessionAvailable` do manager (com a sessão que ficou livre) lê a
+   * referência que index.ts preenche aqui. A integração registra nele os lugares
+   * 4 e 6 (`register`).
+   */
+  onNextSendReady?: (nextSend: NextSend) => void
+  /**
+   * Recebe a fila do operador: os ganchos `onTurnResult` e `onSessionDied` do
+   * manager leem a referência que index.ts preenche aqui (a fila pausa no erro,
+   * na interrupção pelo operador e na morte da sessão; o limite de uso não
+   * pausa, quem segura a fila é o aviso do limite).
+   */
+  onQueueReady?: (queue: OperatorQueueService) => void
+  /**
+   * Recebe o aviso de resultado de tarefa delegada (lugar 4 do árbitro), pelo
+   * mesmo motivo do `onRestartReady`: o fim de turno do manager lê a referência
+   * que index.ts preenche aqui, e a subida dele (`boot`) roda depois do listen.
+   */
+  onTaskWakeReady?: (taskWake: TaskWake) => void
+  /**
+   * Recebe o serviço do goal (lugar 6 do árbitro): o fim de turno, a mensagem
+   * do operador e o `/goal` interceptado no manager leem a referência que
+   * index.ts preenche aqui.
+   */
+  onGoalReady?: (goal: GoalService) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -156,11 +189,65 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const triageWaker = createTriageWaker({ store: triage, broadcast: (m) => deps.wsHub?.broadcast(m) })
   deps.onTriageWakerReady?.(triageWaker)
   registerSessionRoutes(app, deps)
+  registerHistorySearchRoutes(app, { db: deps.db, manager: deps.manager })
   registerEngineRoutes(app)
-  registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
+  // O aviso de resultado e o goal nascem com o reinício, mais abaixo; as rotas
+  // do Hermes (goal_done) e o orchestrator (fim de tarefa) leem as referências.
+  let taskWake: TaskWake | undefined
+  let goal: GoalService | undefined
+  // O estado dos terminais (aviso do reinício, limite de uso) nasce antes do
+  // Hermes e do orchestrator: com aviso aberto, nem a fila, nem as tarefas de
+  // outros agentes, nem as perguntas (ask_agent), nem os agendamentos chegam ao
+  // terminal. O encerramento do serviço segura também: entregar agora mandaria
+  // a mensagem a um processo que vai ser derrubado.
+  const terminalState = createTerminalStateStore(deps.db)
+  const holds = (projectId: number, engine: string): boolean =>
+    deps.manager.isShuttingDown() || holdsForNotice(terminalState.get(projectId, engine))
+  registerHermesRoutes(app, {
+    db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast, goal: () => goal,
+    canTake: (projectId, engine) => !holds(projectId, engine),
+  })
   registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })
-  const orchestrator = registerOrchestratorRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
+  const orchestrator = registerOrchestratorRoutes(app, {
+    db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast,
+    canTake: (projectId, engine) => !holds(projectId, engine),
+    onTaskEnded: (taskId) => taskWake?.onTaskEnded(taskId),
+  })
   deps.onOrchestratorReady?.(orchestrator)
+  // A fila do operador e o árbitro do próximo envio: depois do orchestrator (o
+  // lugar 5 é ele) e antes do reinício (que cutuca o árbitro quando o aviso sai).
+  const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
+  const liveLocalId = (projectId: number, engine: string): string | null =>
+    deps.manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))?.localId ?? null
+  const queueStore = createOperatorQueueStore(deps.db)
+  const queue = createOperatorQueueService({
+    store: queueStore, manager: deps.manager,
+    broadcast: (m) => deps.wsHub?.broadcast(m),
+    holds,
+    acceptsMidTurn: (engine) => !!getEngine(engine).capabilities().midTurnInput,
+    liveLocalId,
+    isShuttingDown: () => deps.manager.isShuttingDown(),
+  })
+  const nextSend = createNextSend({
+    providers: [
+      { name: 'operator-queue', slot: 3, offer: (ctx) => queue.offer(ctx) },
+      { name: 'agent-tasks', slot: 5, offer: (ctx) => orchestrator.drain(ctx.projectId, ctx.localId) },
+    ],
+    holds,
+    // Viva e não-working, como o hasFreeSession de sempre: a sessão revivida na
+    // subida fica em `starting` até a 1ª mensagem e precisa receber o que esperou.
+    // Com a auto-compactação decidida e ainda não aberta, não está livre: um
+    // cutucão na mesma folga (o estado publicado no fim do turno) passaria na
+    // frente dela (lugar 1).
+    isFree: (localId) => {
+      const s = deps.manager.get(localId)
+      return !!s && deps.manager.hasFreeSession(s.projectId, { localId }) && !deps.manager.compactionPending(localId)
+    },
+    liveLocalId,
+  })
+  registerOperatorQueueRoutes(app, { db: deps.db, queue, store: queueStore })
+  deps.onQueueReady?.(queue)
+  deps.onNextSendReady?.(nextSend)
   registerFsRoutes(app)
   registerGroupRoutes(app, { db: deps.db })
   registerPrefsRoutes(app, { prefs: createPrefsService(deps.db) })
@@ -181,18 +268,39 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })
   const scheduler = createScheduler({
     db: deps.db, store: schedulesStore, manager: deps.manager, broadcast: deps.wsHub?.broadcast,
+    // Só o reinício esperando e a janela do limite fechada (o encerramento já
+    // para o laço e fecha as execuções na subida). O aviso do limite que ficou
+    // depois da reabertura não segura: o turno bom do agendamento o tira.
+    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine)),
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)
   // O reinício nasce depois do orchestrator (religa as tarefas do turno
   // interrompido) e dos agendamentos (fecha as execuções que o reinício matou).
-  const terminalState = createTerminalStateStore(deps.db)
+  // O broadcast do reinício (e do limite, que publica por ele) cutuca o árbitro:
+  // o aviso que sai (×, Continuar, limite que reabre) libera o terminal. Na
+  // microtask, e não aqui dentro: quem publica pode estar no meio do result de
+  // um turno ou logo antes de mandar a retomada, e o árbitro reconfere a sessão.
+  const publishTerminalState = (m: object): void => {
+    deps.wsHub?.broadcast(m)
+    const state = (m as { type?: string; state?: { projectId: number; engine: string } }).type === 'terminal_state'
+      ? (m as { state: { projectId: number; engine: string } }).state : undefined
+    if (!state) return
+    queueMicrotask(() => {
+      // Erro aqui seria uma exceção sem dono (derruba o processo): só no log.
+      try { nextSend.poke(state.projectId, state.engine) } catch (err) { console.error('[próximo envio] cutucar falhou', err) }
+    })
+  }
   const restart = createRestartService({
     db: deps.db, manager: deps.manager, store: terminalState,
     orchestrator: () => orchestrator,
-    broadcast: (m) => deps.wsHub?.broadcast(m),
+    broadcast: publishTerminalState,
     closeInterruptedRuns: () => schedulesStore.closeInterruptedRuns(),
     onHeld: (projectId) => triageWaker.wake(projectId, 'interrupted'),
+    // Os resultados de tarefa pendentes vão no estado publicado e na lista (o
+    // goal já vem do próprio estado gravado).
+    decorate: (projectId, engine) => taskWake?.decorate(projectId, engine) ?? {},
+    decoratedTerminals: () => taskWake?.terminals() ?? [],
   })
   // O limite nasce junto do reinício: revive e publica pelo serviço dele, e
   // absorve a marca do reinício quando o limite bate.
@@ -202,9 +310,31 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   })
   // Fechar o app desliga o relógio: nenhuma retomada dispara num app fechado.
   app.addHook('onClose', async () => { limit.dispose() })
-  registerTerminalStateRoutes(app, { db: deps.db, restart, limit })
+  // O goal (lugar 6) e o aviso de resultado (lugar 4): depois do reinício (que
+  // revive e publica por eles). O aviso nasce AQUI, antes do startAfterListen:
+  // ele tira as marcas do limite do banco na construção, e a subida do limite
+  // (que limpa o adiado vencido) roda antes da dele.
+  const goalService = createGoalService({
+    db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend,
+    // O goal esperando só volta sozinho sem aviso de resultado por sair (é o aviso que o acorda).
+    hasPendingResults: (projectId, engine) => taskWake?.hasPending(projectId, engine) ?? false,
+    // O gancho da fila roda antes do goal no fim de turno (index.ts): a marca já está posta.
+    queueInterrupted: (projectId, engine) => queue.wasOwnInterrupt(projectId, engine),
+  })
+  const wake = createTaskWake({
+    db: deps.db, manager: deps.manager, store: terminalState, restart, nextSend: () => nextSend, holds,
+    // O goal que esperava as tarefas delegadas volta a ativo quando o aviso sai.
+    onDelivered: (projectId, engine) => goalService.onTaskResultDelivered(projectId, engine),
+  })
+  goal = goalService
+  taskWake = wake
+  nextSend.register(wake.provider)
+  nextSend.register(goalService.provider)
+  registerTerminalStateRoutes(app, { db: deps.db, restart, limit, taskWake: wake, goal: goalService })
   deps.onRestartReady?.(restart)
   deps.onLimitReady?.(limit)
+  deps.onTaskWakeReady?.(wake)
+  deps.onGoalReady?.(goalService)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })

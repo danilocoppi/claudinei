@@ -8,6 +8,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createTerminalStateStore } from '../src/restart/terminal-state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = join(__dirname, 'fake-claude.mjs')
@@ -167,6 +168,35 @@ describe('rotas hermes', () => {
       payload: { fromProjectId: fromId, toProjectName: 'destino', question: 'oi?' },
     })
     expect(res.statusCode).toBe(200)
+
+    await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
+  })
+
+  it('POST /api/hermes/ask com o aviso aberto no terminal alvo falha na hora, sem injetar a pergunta', async () => {
+    const sessionRes = await app.inject({ method: 'POST', url: `/api/projects/${toId}/sessions` })
+    const { localId } = sessionRes.json()
+    await waitUntil(() => (db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any)?.status === 'idle')
+    createTerminalStateStore(db).markInterrupted(toId, 'claude', localId, null)
+
+    const t0 = Date.now()
+    const res = await app.inject({
+      method: 'POST', url: '/api/hermes/ask',
+      payload: { fromProjectId: fromId, toProjectName: 'Destino', question: 'como vai?' },
+    })
+    expect(Date.now() - t0).toBeLessThan(1000)
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/notice open waiting for the operator/)
+    // Nada foi à sessão: ela segue livre.
+    await new Promise((r) => setTimeout(r, 50))
+    expect((db.prepare('SELECT status FROM sessions WHERE local_id=?').get(localId) as any).status).toBe('idle')
+
+    // Fechado o aviso, a pergunta vai.
+    await app.inject({ method: 'DELETE', url: `/api/projects/${toId}/terminals/claude/interruption` })
+    const ok = await app.inject({
+      method: 'POST', url: '/api/hermes/ask',
+      payload: { fromProjectId: fromId, toProjectName: 'Destino', question: 'e agora?' },
+    })
+    expect(ok.statusCode).toBe(200)
 
     await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
   })

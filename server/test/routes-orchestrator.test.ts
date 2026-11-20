@@ -8,6 +8,11 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { OrchestratorHooks } from '../src/routes/orchestrator.js'
+import type { NextSend } from '../src/queue/next-send.js'
+import type { OperatorQueueService } from '../src/queue/operator-queue.js'
+import { createTasksService } from '../src/tasks.js'
+import { createTerminalStateStore } from '../src/restart/terminal-state.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = join(__dirname, 'fake-claude.mjs')
@@ -28,22 +33,34 @@ let fromId: number
 let toId: number
 let broadcasts: object[]
 let manager: ReturnType<typeof createSessionManager>
+let orchestrator: OrchestratorHooks | undefined
+let mgrBroadcasts: any[]
 
 beforeEach(async () => {
   db = openDb(':memory:')
   broadcasts = []
-  // Mesma amarração de index.ts: o manager nasce antes do orchestrator
-  // existir, então onSessionAvailable lê uma referência mutável que
-  // onOrchestratorReady preenche assim que buildApp registra as rotas.
-  let drain: ((projectId: number) => void) | undefined
+  mgrBroadcasts = []
+  // Mesma amarração de index.ts: o manager nasce antes do orchestrator, da fila
+  // e do árbitro existirem, então os ganchos leem referências mutáveis que os
+  // on…Ready preenchem assim que buildApp registra as rotas.
+  orchestrator = undefined
+  let nextSend: NextSend | undefined
+  let queue: OperatorQueueService | undefined
   manager = createSessionManager({
-    db, sessionFactory: fakeFactory, broadcast: () => {},
-    onSessionAvailable: (projectId) => drain?.(projectId),
+    db, sessionFactory: fakeFactory, broadcast: (m) => mgrBroadcasts.push(m),
+    onSessionAvailable: (projectId, ctx) => {
+      if (ctx && nextSend) nextSend.onSessionAvailable({ projectId, ...ctx })
+      else orchestrator?.drain(projectId)
+    },
+    onTurnResult: (projectId, engine, info) => queue?.onTurnResult(projectId, engine, info),
+    onSessionDied: (projectId, engine) => queue?.onSessionDied(projectId, engine),
   })
   app = await buildApp({
     config: loadConfig({}), db, manager,
     wsHub: { broadcast: (m: object) => broadcasts.push(m), register: () => {} } as any,
-    onOrchestratorReady: (o) => { drain = o.drain },
+    onOrchestratorReady: (o) => { orchestrator = o },
+    onNextSendReady: (n) => { nextSend = n },
+    onQueueReady: (q) => { queue = q },
   })
 
   const from = await app.inject({
@@ -272,5 +289,94 @@ describe('engine de quem despachou → quem executou', () => {
     const { id } = res.json()
     const row = db.prepare('SELECT status, from_engine, to_engine FROM tasks WHERE id=?').get(id) as any
     expect(row).toMatchObject({ status: 'queued', from_engine: 'claude', to_engine: null })
+  })
+})
+
+describe('drain e o árbitro do próximo envio', () => {
+  /** Textos que entraram no chat do alvo, na ordem (eco do usuário). */
+  const userTexts = (localId: string) => mgrBroadcasts
+    .filter((b) => b.type === 'session_event' && b.localId === localId && b.event?.kind === 'user')
+    .map((b) => String(b.event.message?.content?.[0]?.text ?? ''))
+    .filter((t) => t)
+  const statusOf = (localId: string) => manager.get(localId)?.status
+
+  const startIdle = async () => {
+    const { localId } = (await app.inject({ method: 'POST', url: `/api/projects/${toId}/sessions` })).json()
+    await waitUntil(() => statusOf(localId) === 'idle')
+    // O "livre" do arranque já passou pelo árbitro.
+    await new Promise((r) => setTimeout(r, 20))
+    return localId as string
+  }
+
+  it('drain devolve true quando entrega e false quando não há nada', async () => {
+    expect(orchestrator).toBeDefined()
+    // Sem sessão.
+    expect(orchestrator!.drain(toId)).toBe(false)
+    const localId = await startIdle()
+    // Sessão livre, nada na fila.
+    expect(orchestrator!.drain(toId)).toBe(false)
+    const tasks = createTasksService(db)
+    const { id } = tasks.create(fromId, toId, 'direto', 'queued', null)
+    expect(orchestrator!.drain(toId)).toBe(true)
+    expect(tasks.get(id)?.status).toBe('in_progress')
+    // A sessão está ocupada com a tarefa: a próxima espera.
+    const { id: id2 } = tasks.create(fromId, toId, 'depois', 'queued', null)
+    expect(orchestrator!.drain(toId)).toBe(false)
+    expect(tasks.get(id2)?.status).not.toBe('failed')
+    // Com o local id de outra sessão (ou de nenhuma), não entrega.
+    await waitUntil(() => tasks.get(id2)?.status === 'completed')
+    expect(orchestrator!.drain(toId, 'nao-existe')).toBe(false)
+    await manager.stop(localId)
+  })
+
+  it('tarefa de outro agente espera a fila do operador (lugar 3 antes do 5)', async () => {
+    const localId = await startIdle()
+    manager.send(localId, 'devagar primeiro')
+    expect(statusOf(localId)).toBe('working')
+    // Um item na fila do operador e uma tarefa de outro agente, os dois esperando.
+    const q = await app.inject({ method: 'POST', url: `/api/projects/${toId}/terminals/claude/queue`, payload: { text: 'da fila' } })
+    expect(q.statusCode).toBe(201)
+    const { id } = (await app.inject({
+      method: 'POST', url: '/api/orchestrator/dispatch',
+      payload: { fromProjectId: fromId, toProjectName: 'Destino', description: 'tarefa' },
+    })).json()
+    expect((db.prepare('SELECT status FROM tasks WHERE id=?').get(id) as any).status).toBe('queued')
+
+    await waitUntil(() => (db.prepare('SELECT status FROM tasks WHERE id=?').get(id) as any)?.status === 'completed')
+    const texts = userTexts(localId)
+    expect(texts.indexOf('da fila')).toBeGreaterThan(-1)
+    expect(texts.indexOf('da fila')).toBeLessThan(texts.indexOf('[Task from Origem]: tarefa'))
+    await manager.stop(localId)
+  })
+
+  it('com o aviso do limite de uso aberto, a tarefa de outro agente espera (drain pula a sessão livre)', async () => {
+    const localId = await startIdle()
+    createTerminalStateStore(db).recordUsageLimit(toId, 'claude', { resetsAt: Math.floor(Date.now() / 1000) + 3600, origin: 'operator' })
+    const { id } = (await app.inject({
+      method: 'POST', url: '/api/orchestrator/dispatch',
+      payload: { fromProjectId: fromId, toProjectName: 'Destino', description: 'tarefa' },
+    })).json()
+    await new Promise((r) => setTimeout(r, 50))
+    expect((db.prepare('SELECT status FROM tasks WHERE id=?').get(id) as any).status).toBe('queued')
+    expect(statusOf(localId)).toBe('idle')
+    expect(userTexts(localId)).toEqual([])
+    await manager.stop(localId)
+  })
+
+  it('com o aviso aberto, a tarefa de outro agente espera; fechar o aviso entrega', async () => {
+    const localId = await startIdle()
+    createTerminalStateStore(db).markInterrupted(toId, 'claude', localId, null)
+    const { id } = (await app.inject({
+      method: 'POST', url: '/api/orchestrator/dispatch',
+      payload: { fromProjectId: fromId, toProjectName: 'Destino', description: 'tarefa' },
+    })).json()
+    await new Promise((r) => setTimeout(r, 50))
+    expect((db.prepare('SELECT status FROM tasks WHERE id=?').get(id) as any).status).toBe('queued')
+    expect(statusOf(localId)).toBe('idle')
+
+    const res = await app.inject({ method: 'DELETE', url: `/api/projects/${toId}/terminals/claude/interruption` })
+    expect(res.statusCode).toBe(200)
+    await waitUntil(() => (db.prepare('SELECT status FROM tasks WHERE id=?').get(id) as any)?.status === 'completed')
+    await manager.stop(localId)
   })
 })

@@ -94,6 +94,7 @@ describe('sessões', () => {
     expect(list.json()).toEqual([])
     for (const [method, url] of [
       ['GET', `/api/sessions/${s2.localId}/history`],
+      ['GET', `/api/sessions/${s2.localId}/search?q=ok`],
       ['POST', `/api/sessions/${s2.localId}/stop`],
       ['POST', `/api/sessions/${s2.localId}/revive`],
       ['PATCH', `/api/sessions/${s2.localId}/options`],

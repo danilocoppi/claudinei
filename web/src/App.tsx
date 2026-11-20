@@ -23,6 +23,7 @@ import { useEngineCatalog } from './useEngineCatalog'
 import { useTerminalStatesSync } from './useTerminalStatesSync'
 import { useUsageShortcut } from './useUsageShortcut'
 import { useTriageSync } from './useTriageSync'
+import { useZenShortcut } from './useZenShortcut'
 import { AccessLocked } from './components/AccessLocked'
 import './access-hours.css'
 
@@ -55,11 +56,32 @@ function FileViewerGate() {
   return aberto ? <Suspense fallback={null}><FileViewerModal /></Suspense> : null
 }
 
+/**
+ * O atalho e a saída do modo Zen. Só monta com o app liberado: na tela de login o
+ * Alt+Z não tem moldura para esconder. O botão é estático (sem animação: a
+ * interface precisa andar sem GPU) e serve a quem não lembra a tecla e ao celular.
+ */
+function ZenControls() {
+  const { t } = useTranslation()
+  useZenShortcut()
+  const zen = useStore((s) => s.zen)
+  const toggleZen = useStore((s) => s.toggleZen)
+  if (!zen) return null
+  return (
+    <button type="button" className="ghost zen-exit" title={t('zen.hint')} onClick={toggleZen}>
+      {t('zen.exit')}
+    </button>
+  )
+}
+
 export default function App() {
   const { t } = useTranslation()
   const view = useStore((s) => s.view)
   const setProjects = useStore((s) => s.setProjects)
   const authStatus = useStore((s) => s.authStatus)
+  // Zen esconde a moldura (lateral, topbar do celular, cabeçalho do chat e coluna
+  // do acompanhamento); a conversa, os avisos e o campo ficam.
+  const zen = useStore((s) => s.zen)
   const setAuth = useStore((s) => s.setAuth)
   useAccessHours()
   useEngineCatalog(authStatus === 'ready')
@@ -142,7 +164,8 @@ export default function App() {
   // Gaveta mobile: navegar (trocar de visão/sessão) fecha; Esc fecha.
   const [navOpen, setNavOpen] = useState(false)
   const activeLocalId = useStore((s) => s.activeLocalId)
-  useEffect(() => { setNavOpen(false) }, [view, activeLocalId])
+  // Entrar ou sair do Zen também fecha: a gaveta não reaparece aberta ao sair.
+  useEffect(() => { setNavOpen(false) }, [view, activeLocalId, zen])
   useEffect(() => {
     if (!navOpen) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
@@ -169,7 +192,11 @@ export default function App() {
 
   return (
     <WsContext.Provider value={ws ?? null}>
-      <div className={`app ${navOpen ? 'nav-open' : ''}`}>
+      {/* Zen esconde a moldura por CSS (`.app.zen`), sem desmontá-la: um modal aberto
+          a partir da lateral (Aparência, Novo terminal…) ou um campo meio preenchido
+          nela sobrevivem ao Alt+Z, e o "cancelar" deles continua sendo o único jeito
+          de desfazer uma prévia. */}
+      <div className={`app ${navOpen ? 'nav-open' : ''} ${zen ? 'zen' : ''}`}>
         {/* Nas visões de detalhe (conversa e terminal) o ☰ vira "voltar", e voltar
             é trazer a lista de terminais — que no celular É a gaveta. */}
         <MobileTopbar
@@ -196,6 +223,7 @@ export default function App() {
         <FileOpenMenu />
         <ExternalLinkConfirm />
         <UndoToast />
+        <ZenControls />
       </div>
     </WsContext.Provider>
   )

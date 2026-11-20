@@ -16,8 +16,12 @@ const css = readFileSync(join(here, '..', 'styles.css'), 'utf8')
  * seleção — trocar a propriedade pelo foco era redundante.
  */
 describe('mensagens do chat e content-visibility', () => {
-  it('continuam com content-visibility: auto (o histórico longo segue leve)', () => {
-    expect(css).toMatch(/^\.chat-entry \{[^}]*content-visibility:\s*auto/m)
+  it('.chat-entry não usa content-visibility: a lista virtual já tira o que está fora da tela', () => {
+    // A propriedade brigava com a medição da lista virtual (altura estimada de
+    // 120px no lugar da real), e o que sai da tela nem está mais montado.
+    const regras = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, seletor]) => /\.chat-entry\b/.test(seletor))
+    expect(regras.filter(([, , corpo]) => /content-visibility|contain-intrinsic-size/.test(corpo))).toEqual([])
   })
 
   it('nenhuma regra troca content-visibility conforme foco, hover ou clique', () => {

@@ -52,6 +52,8 @@ export function UsageLimitNotice({ projectId, engine }: { projectId: number; eng
   const { t, i18n } = useTranslation()
   const key = progressKey(projectId, engine)
   const limit = useStore((s) => s.terminalStates[key]?.usageLimit ?? null)
+  // Resultados de tarefa guardados até o terminal voltar a trabalhar depois do limite.
+  const waiting = useStore((s) => s.terminalStates[key]?.taskResults?.length ?? 0)
   const [busy, setBusy] = useState(false)
   // O erro é do limite em que aconteceu: um limite novo começa sem ele.
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
@@ -91,6 +93,7 @@ export function UsageLimitNotice({ projectId, engine }: { projectId: number; eng
 
   const lang = i18n.language
   const errorLine = error?.at === limit.hitAt && <div className="restart-notice__error">{error.message}</div>
+  const waitingLine = waiting > 0 && <div className="limit-notice__waiting">{t('limit.taskResultsWaiting', { count: waiting })}</div>
   const continueNow = (
     <button type="button" disabled={busy} onClick={() => void run('continue')}>{t('limit.continueNow')}</button>
   )
@@ -107,6 +110,7 @@ export function UsageLimitNotice({ projectId, engine }: { projectId: number; eng
           <button type="button" className="ghost" disabled={busy} onClick={() => void run('cancel')}>{t('limit.cancel')}</button>
           {continueNow}
         </div>
+        {waitingLine}
         {errorLine}
       </div>
     )
@@ -135,6 +139,7 @@ export function UsageLimitNotice({ projectId, engine }: { projectId: number; eng
         )}
         {continueNow}
       </div>
+      {waitingLine}
       {errorLine}
     </div>
   )

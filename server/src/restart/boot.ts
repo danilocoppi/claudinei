@@ -126,6 +126,16 @@ export function createRestartService(deps: {
    * operador (na subida ou na retomada que falha): liga ao despertador da triagem.
    */
   onHeld?: (projectId: number) => void
+  /**
+   * Acrescenta ao estado publicado (e à lista) o que é de outros serviços, como
+   * os resultados de tarefa pendentes. Lido a cada publicação.
+   */
+  decorate?: (projectId: number, engine: string) => Partial<TerminalStateDto>
+  /**
+   * Terminais que o `decorate` tem algo a mostrar: entram na lista mesmo sem
+   * linha de estado (a linha só nasce quando algo do reinício é gravado).
+   */
+  decoratedTerminals?: () => Array<{ projectId: number; engine: string }>
 }) {
   const { db, manager, store } = deps
   const batchSize = deps.batchSize ?? 3
@@ -143,8 +153,20 @@ export function createRestartService(deps: {
   const latestLocalId = (projectId: number, engine: string): string | null =>
     (latestSql.get(projectId, engine) as { local_id: string } | undefined)?.local_id ?? null
 
+  /** O estado do terminal com o que os outros serviços acrescentam; falha deles não derruba a publicação. */
+  const stateOf = (row: TerminalStateRow): TerminalStateDto => {
+    const dto = toDto(row)
+    if (!deps.decorate) return dto
+    try {
+      return { ...dto, ...deps.decorate(row.projectId, row.engine) }
+    } catch (err) {
+      log(`[reinício] decorar ${row.projectId}/${row.engine} falhou: ${(err as Error)?.message ?? err}`)
+      return dto
+    }
+  }
+
   const publish = (projectId: number, engine: string): TerminalStateDto => {
-    const state = toDto(store.get(projectId, engine))
+    const state = stateOf(store.get(projectId, engine))
     deps.broadcast({ type: 'terminal_state', state })
     return state
   }
@@ -332,6 +354,9 @@ export function createRestartService(deps: {
     /** Para o serviço do limite publicar o estado no mesmo formato. */
     publish,
 
+    /** O estado do terminal como as telas o recebem (com o que os outros serviços acrescentam), sem publicar. */
+    state: (projectId: number, engine: string): TerminalStateDto => stateOf(store.get(projectId, engine)),
+
     /**
      * O limite absorve a marca do reinício: ela sai sem retomar, e as tarefas
      * anotadas do turno fecham como no ×. Nada durante o encerramento (a marca
@@ -380,7 +405,18 @@ export function createRestartService(deps: {
     },
 
     list(): TerminalStateDto[] {
-      return store.list().map(toDto)
+      const rows = store.list()
+      const known = new Set(rows.map((r) => keyOf(r.projectId, r.engine)))
+      let extra: Array<{ projectId: number; engine: string }> = []
+      try { extra = deps.decoratedTerminals?.() ?? [] } catch (err) {
+        log(`[reinício] terminais decorados falharam: ${(err as Error)?.message ?? err}`)
+      }
+      for (const t of extra) {
+        if (known.has(keyOf(t.projectId, t.engine))) continue
+        known.add(keyOf(t.projectId, t.engine))
+        rows.push(store.get(t.projectId, t.engine))
+      }
+      return rows.map(stateOf)
     },
   }
 }
@@ -389,16 +425,19 @@ export type RestartService = ReturnType<typeof createRestartService>
 
 /**
  * O que roda depois do `listen`: primeiro a subida dos terminais, depois a do
- * limite de uso, por fim o agendador, para que um agendamento não dispute a
- * sessão com uma retomada. A ordem entre as duas subidas importa: uma retomada
- * armada absorve a marca do reinício, e a garantia de uma só mensagem por
- * janela depende de a subida do reinício ter terminado antes. Falha de uma
- * subida é registrada e nunca sobe: ela não pode impedir as seguintes. Se o
- * encerramento começou no meio, o que falta fica desligado.
+ * limite de uso, então a dos avisos de resultado de tarefa pendentes (que
+ * esperam as retomadas: o terminal interrompido segura até a dele), por fim o
+ * agendador, para que um agendamento não dispute a sessão com uma retomada. A
+ * ordem entre as duas primeiras importa: uma retomada armada absorve a marca do
+ * reinício, e a garantia de uma só mensagem por janela depende de a subida do
+ * reinício ter terminado antes. Falha de uma subida é registrada e nunca sobe:
+ * ela não pode impedir as seguintes. Se o encerramento começou no meio, o que
+ * falta fica desligado.
  */
 export async function startAfterListen(deps: {
   restart: Pick<RestartService, 'boot'> | undefined
   limit?: Pick<UsageLimitService, 'boot'>
+  taskWake?: { boot(): Promise<void> }
   scheduler: { start(): void } | undefined
   isShuttingDown?: () => boolean
   log?: (msg: string) => void
@@ -414,6 +453,12 @@ export async function startAfterListen(deps: {
     await deps.limit?.boot()
   } catch (err) {
     log(`[limite] a subida do limite de uso falhou: ${(err as Error)?.message ?? err}`)
+  }
+  if (deps.isShuttingDown?.()) return
+  try {
+    await deps.taskWake?.boot()
+  } catch (err) {
+    log(`[aviso de tarefa] a subida dos avisos pendentes falhou: ${(err as Error)?.message ?? err}`)
   }
   if (deps.isShuttingDown?.()) return
   deps.scheduler?.start()

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { cleanup, screen, fireEvent, act, waitFor } from '@testing-library/react'
+// A conversa é uma lista virtual: sem medidas fixas, o jsdom não montaria nada.
+import { renderComJanela as render } from './viewport'
 import { ChatView } from '../components/ChatView'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
@@ -10,16 +12,22 @@ const sess = (localId: string, overrides: Partial<SessionInfo> = {}): SessionInf
 
 const jsonResponse = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+/** Página do histórico no formato da rota: `{ events, before, atStart }`. */
+const pagina = (events: ClaudeEvent[]) => ({ events, before: 0, atStart: true })
+/** Resposta padrão: o histórico vem como página; o resto, lista vazia. */
+const vazio = (url: unknown) => jsonResponse(String(url).includes('/history') ? pagina([]) : [])
 
 const CLAUDE: EngineMeta = {
   id: 'claude', label: 'Claude Code', icon: 'claude',
   models: ['', 'fable', 'opus', 'sonnet', 'haiku'], efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
   permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'], slashSource: 'protocol', slashCommands: [],
+  midTurnInput: true,
 }
 const CODEX: EngineMeta = {
   id: 'codex', label: 'Codex', icon: '◆',
   models: ['', 'gpt-5.6-sol'], efforts: ['low', 'medium', 'high', 'xhigh'], permissions: [],
   slashSource: 'curated', slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
+  midTurnInput: true,
 }
 
 beforeEach(() => {
@@ -43,9 +51,7 @@ afterEach(() => cleanup())
 
 it('troca entre duas sessões needs_attention envia mark_read para a segunda', async () => {
   const send = vi.fn()
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
-    Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } })),
-  )
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   const { rerender } = render(
     <WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>,
   )
@@ -57,7 +63,7 @@ it('troca entre duas sessões needs_attention envia mark_read para a segunda', a
 })
 
 it('mostra "Abrir no terminal" quando idle e ao clicar abre a view de terminal', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({ sessions: { a: sess('a', { status: 'idle' }) }, activeLocalId: 'a', view: 'chat' })
   render(<ChatView />)
   fireEvent.click(await screen.findByRole('button', { name: /Abrir no terminal/i }))
@@ -68,7 +74,7 @@ it('mostra "Abrir no terminal" quando idle e ao clicar abre a view de terminal',
 
 it('durante working o botão "Abrir no terminal" fica habilitado mas abre um diálogo de confirmação em vez de ir direto', async () => {
   useStore.setState({ sessions: { a: sess('a', { status: 'working' }), b: sess('b') } })
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   const btn = screen.getByRole('button', { name: /Abrir no terminal/i }) as HTMLButtonElement
   expect(btn.disabled).toBe(false)
@@ -81,7 +87,7 @@ it('durante working o botão "Abrir no terminal" fica habilitado mas abre um di�
 it('durante working o campo NÃO fica desabilitado (adendo/enfileirar) e o Enviar dispara', async () => {
   useStore.setState({ sessions: { a: sess('a', { status: 'working' }) }, activeLocalId: 'a', view: 'chat' })
   const send = vi.fn()
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
   const ta = screen.getByPlaceholderText(/processando|Mensagem para o Claude/) as HTMLTextAreaElement
   expect(ta.disabled).toBe(false)
@@ -93,7 +99,7 @@ it('durante working o campo NÃO fica desabilitado (adendo/enfileirar) e o Envia
 
 it('sessão parada (stopped) mantém o campo desabilitado', () => {
   useStore.setState({ sessions: { a: sess('a', { status: 'stopped' }) }, activeLocalId: 'a', view: 'chat' })
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   const ta = screen.queryByPlaceholderText(/Mensagem para o Claude|processando/) as HTMLTextAreaElement | null
   if (ta) expect(ta.disabled).toBe(true)
@@ -102,7 +108,7 @@ it('sessão parada (stopped) mantém o campo desabilitado', () => {
 
 it('quando status é in_terminal, mostra o aviso e esconde a entrada de mensagem', async () => {
   useStore.setState({ sessions: { a: sess('a', { status: 'in_terminal' }), b: sess('b') } })
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
 
   expect(await screen.findByText(/aberta no terminal/)).toBeTruthy()
@@ -121,7 +127,7 @@ describe('D4: carrega conversa anterior ao abrir/retomar sessão', () => {
 
   it('carrega histórico quando a sessão ativa tem engineSessionId e o chat está vazio', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/history')) return Promise.resolve(jsonResponse(events))
+      if (String(url).includes('/history')) return Promise.resolve(jsonResponse(pagina(events)))
       return Promise.resolve(jsonResponse([]))
     })
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
@@ -138,7 +144,7 @@ describe('D4: carrega conversa anterior ao abrir/retomar sessão', () => {
       historyLoadedFor: { a: 'c' },
     })
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/history')) return Promise.resolve(jsonResponse(events))
+      if (String(url).includes('/history')) return Promise.resolve(jsonResponse(pagina(events)))
       return Promise.resolve(jsonResponse([]))
     })
     const { rerender } = render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
@@ -158,7 +164,7 @@ describe('D4: carrega conversa anterior ao abrir/retomar sessão', () => {
 
 describe('item 20: preview de streaming token-a-token (efêmero, fora do chat[])', () => {
   it('mostra o texto parcial de streaming[activeLocalId] quando presente', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     useStore.setState({ streaming: { a: 'respondendo aos pouc' } })
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
 
@@ -167,7 +173,7 @@ describe('item 20: preview de streaming token-a-token (efêmero, fora do chat[])
   })
 
   it('não mostra nada quando streaming[activeLocalId] está vazio ou ausente', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
     await new Promise((r) => setTimeout(r, 0))
 
@@ -176,7 +182,7 @@ describe('item 20: preview de streaming token-a-token (efêmero, fora do chat[])
   })
 
   it('some quando streaming[activeLocalId] é limpo (turno terminou)', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     useStore.setState({ streaming: { a: 'meio caminho' } })
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
     expect(await screen.findByText(/meio caminho/)).toBeTruthy()
@@ -191,7 +197,7 @@ it('sessão nova em starting (sem engineSessionId) busca e mostra o preview da c
   const previewEvents: ClaudeEvent[] = [
     { kind: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'conversa anterior da pasta' }] }, raw: {} },
   ]
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse(previewEvents)))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse(pagina(previewEvents))))
   useStore.setState({
     sessions: { a: sess('a', { status: 'starting', engineSessionId: null }) },
     activeLocalId: 'a', view: 'chat',
@@ -206,7 +212,7 @@ it('sessão vinda do terminal SEM id (stopped) busca o preview — o TUI convers
   const previewEvents: ClaudeEvent[] = [
     { kind: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'conversa do terminal' }] }, raw: {} },
   ]
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse(previewEvents)))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse(pagina(previewEvents))))
   useStore.setState({
     sessions: { a: sess('a', { status: 'stopped', engineSessionId: null, engine: 'opencode' }) },
     activeLocalId: 'a', view: 'chat',
@@ -218,7 +224,7 @@ it('sessão vinda do terminal SEM id (stopped) busca o preview — o TUI convers
 })
 
 it('volta do terminal com o MESMO engineSessionId rebusca o histórico (OpenCode continua no mesmo id)', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({
     sessions: { a: sess('a', { status: 'in_terminal', engineSessionId: 'c', engine: 'opencode' }) },
     historyLoadedFor: { a: 'c' }, // já carregado ANTES de abrir o terminal
@@ -237,7 +243,7 @@ it('volta do terminal com o MESMO engineSessionId rebusca o histórico (OpenCode
 
 describe('abas de engine no header (engine-tabs)', () => {
   it('mostra uma aba por engine registrada; a aba da engine da sessão aberta fica ativa', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     render(<ChatView />)
     await vi.waitFor(() => expect(screen.getByText('Claude Code')).toBeTruthy())
     const tabs = document.querySelectorAll('.engine-tab')
@@ -253,7 +259,7 @@ describe('abas de engine no header (engine-tabs)', () => {
   })
 
   it('sessão Codex aberta ativa a aba Codex, não a Claude', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     useStore.setState({ sessions: { a: sess('a', { engine: 'codex' }), b: sess('b') } })
     render(<ChatView />)
     await vi.waitFor(() => expect(screen.getByText('Codex')).toBeTruthy())
@@ -266,7 +272,7 @@ describe('abas de engine no header (engine-tabs)', () => {
   })
 
   it('clicar numa aba com sessão viva abre aquela sessão (openSession)', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     useStore.setState({
       sessions: {
         a: sess('a', { engine: 'claude' }),
@@ -283,7 +289,7 @@ describe('abas de engine no header (engine-tabs)', () => {
   it('▶ numa engine sem sessão inicia uma sessão nova com essa engine e a abre', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => {
       const u = String(url)
-      if (u.includes('/history')) return Promise.resolve(jsonResponse([]))
+      if (u.includes('/history')) return Promise.resolve(jsonResponse(pagina([])))
       if (u === '/api/projects/1/sessions') {
         expect(JSON.parse((init as RequestInit).body as string)).toEqual({ engine: 'codex' })
         return Promise.resolve(jsonResponse({ localId: 'novo-codex', projectId: 1, status: 'starting', engineSessionId: null, updatedAt: 'x', engine: 'codex' }))
@@ -306,7 +312,7 @@ describe('abas de engine no header (engine-tabs)', () => {
     })
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
       const u = String(url)
-      if (u.includes('/history')) return Promise.resolve(jsonResponse([]))
+      if (u.includes('/history')) return Promise.resolve(jsonResponse(pagina([])))
       if (u === '/api/sessions/c/revive') return Promise.resolve(jsonResponse({ localId: 'c', projectId: 1, status: 'starting', engineSessionId: null, updatedAt: 'x', engine: 'codex' }))
       return Promise.resolve(jsonResponse([]))
     })
@@ -321,7 +327,7 @@ describe('abas de engine no header (engine-tabs)', () => {
 
 describe('placeholder engine-aware do input (SP-C Task 7)', () => {
   it('sessão Claude mostra "Mensagem para o Claude Code…"', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     useStore.setState({ sessions: { a: sess('a', { status: 'idle' }), b: sess('b') } })
     render(<ChatView />)
     expect(await screen.findByPlaceholderText('Mensagem para o Claude Code… (arraste ou cole arquivos)')).toBeTruthy()
@@ -329,7 +335,7 @@ describe('placeholder engine-aware do input (SP-C Task 7)', () => {
   })
 
   it('sessão Codex mostra "Mensagem para o Codex…"', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
     useStore.setState({ sessions: { a: sess('a', { status: 'idle', engine: 'codex' }), b: sess('b') } })
     render(<ChatView />)
     expect(await screen.findByPlaceholderText('Mensagem para o Codex… (arraste ou cole arquivos)')).toBeTruthy()
@@ -338,8 +344,7 @@ describe('placeholder engine-aware do input (SP-C Task 7)', () => {
 })
 
 it('1ª mensagem otimista NÃO some quando o init chega com o transcript ainda vazio (corrida)', async () => {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
-    Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+  vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({
     sessions: { a: sess('a', { status: 'starting', engineSessionId: null }) },
     chat: { a: [{ kind: 'user_text', text: 'primeira mensagem' }] },
@@ -358,7 +363,7 @@ it('1ª mensagem otimista NÃO some quando o init chega com o transcript ainda v
 })
 
 it('I9: rascunho do input NÃO vaza ao trocar de sessão (key remonta o ChatInput)', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({ sessions: { a: sess('a', { status: 'idle' }), b: sess('b', { status: 'idle' }) } })
   const { rerender } = render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   const ta = (await screen.findByPlaceholderText(/Mensagem para o Claude Code/)) as HTMLTextAreaElement
@@ -389,14 +394,14 @@ it('M15: falha do fetchHistory não marca como carregado (retry possível) e nã
 })
 
 it('engine com CLI não instalada: aba mostra "não instalada" e NÃO oferece o ▶', async () => {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({
     engines: [CLAUDE, { ...CODEX, available: false, installHint: 'npm install -g @openai/codex' }],
     sessions: { a: sess('a', { status: 'idle' }) }, // só claude vivo
     activeLocalId: 'a',
     // Listada mas não instalada não ganha aba sozinha (motores por terminal); o
     // aviso de trabalho interrompido é um dos casos em que ela aparece assim.
-    terminalStates: { '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null } },
+    terminalStates: { '1:codex': { projectId: 1, engine: 'codex', autostart: false, autoResume: false, interruption: { at: 'x', reason: 'off' }, autoResumeLimit: false, usageLimit: null, taskResults: [], taskResultsHeld: false, goal: null } },
   })
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   const badge = await screen.findByText('não instalada')
@@ -411,7 +416,7 @@ const PENDING = { toolUseId: 'toolu_q_1', questions: [
 ] }
 
 it('pergunta pendente: o painel aparece acima da caixa e o placeholder muda', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({ sessions: { a: sess('a', { status: 'working', pendingQuestion: PENDING }) }, activeLocalId: 'a', view: 'chat' })
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   expect(screen.getByTestId('question-panel')).toBeTruthy()
@@ -421,7 +426,7 @@ it('pergunta pendente: o painel aparece acima da caixa e o placeholder muda', as
 })
 
 it('sem pergunta pendente não há painel, e o placeholder de working continua o de sempre', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({ sessions: { a: sess('a', { status: 'working' }) }, activeLocalId: 'a', view: 'chat' })
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   expect(screen.queryByTestId('question-panel')).toBeNull()
@@ -436,7 +441,7 @@ it('sem pergunta pendente não há painel, e o placeholder de working continua o
  * e tempo decorrido.
  */
 it('compactando: a linha "Compactando o contexto…" com o tempo toma o lugar dos três pontinhos', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({ sessions: { a: sess('a', { status: 'working', compactingSince: Date.now() - 14_000 }) }, activeLocalId: 'a', view: 'chat' })
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   const linha = screen.getByTestId('compacting-indicator')
@@ -447,7 +452,7 @@ it('compactando: a linha "Compactando o contexto…" com o tempo toma o lugar do
 })
 
 it('sem compactação, os três pontinhos continuam como sempre', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({ sessions: { a: sess('a', { status: 'working' }) }, activeLocalId: 'a', view: 'chat' })
   render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
   expect(screen.getByTestId('typing-indicator')).toBeTruthy()
@@ -458,7 +463,7 @@ it('sem compactação, os três pontinhos continuam como sempre', async () => {
 // Duas entradas da sidebar podem apontar para a mesma pasta: o nome do terminal
 // deixa de ser suficiente para o operador saber onde está.
 it('mostra o indicador quando outro terminal aponta para a mesma pasta', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   useStore.setState({ projects: [
     { id: 1, name: 'P', path: '/tmp/juntos', color: '#fff', icon: '📁' },
     { id: 2, name: 'Vizinho', path: '/tmp/juntos', color: '#fff', icon: '📁' },
@@ -469,7 +474,7 @@ it('mostra o indicador quando outro terminal aponta para a mesma pasta', async (
 })
 
 it('pasta com um terminal só não mostra indicador', async () => {
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(jsonResponse([])))
+  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
   render(<ChatView />) // o beforeEach deixa um projeto só
   await screen.findByText('P')
   expect(screen.queryByTestId('shared-path')).toBeNull()

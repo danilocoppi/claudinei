@@ -23,7 +23,7 @@ export interface Config {
   selfUrl: string
   /** Sessões terminais mantidas por projeto no prune de arranque (default 5). */
   keepSessionsPerProject: number
-  /** Pasta global de uploads do chat (rotação de 100). */
+  /** Pasta global de uploads do chat (rotação por idade: some o que passa de 30 dias, com teto de 5 000 arquivos). */
   uploadsDir: string
   /** Pasta do modelo de fala (Parakeet/sherpa) e do libstdc++ portátil. */
   speechDir: string

@@ -213,6 +213,9 @@ export function openDb(path: string): Db {
   // projeto: "Vaexa → Vaexa" não dizia quem mandou pra quem).
   try { db.exec(`ALTER TABLE tasks ADD COLUMN from_engine TEXT`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE tasks ADD COLUMN to_engine TEXT`) } catch { /* já migrado */ }
+  // Estado do aviso de resultado ao terminal que delegou: 'pending' | 'delivered' |
+  // 'dismissed' | 'none'. NULL nas tarefas antigas e nas que ainda não terminaram.
+  try { db.exec(`ALTER TABLE tasks ADD COLUMN notify TEXT`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN titulo TO title`) } catch { /* já migrado */ }
   try { db.exec(`ALTER TABLE mural RENAME COLUMN conteudo TO content`) } catch { /* já migrado */ }
   // Agendamentos por terminal. O resultado NÃO mora aqui: o banco guarda o título e
@@ -325,6 +328,15 @@ export function openDb(path: string): Db {
   try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_origin TEXT`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_tries INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
   try { db.exec(`ALTER TABLE terminal_state ADD COLUMN auto_resume_limit INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
+  // Goal (`/goal`): o objetivo do terminal, o estado do laço (ativo, esperando
+  // tarefas, pausado e por quê, no teto, cumprido), os turnos contados, a
+  // evidência do goal_done e quando começou. Ver goal/goal.ts.
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_criterion TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_status TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_pause_reason TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_turns INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_evidence TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN goal_started_at TEXT`) } catch { /* já existe */ }
   // Pergunta (AskUserQuestion) aberta, em JSON, enquanto espera o operador: é o
   // que sobra dela depois de uma queda brusca, quando não há encerramento para
   // registrar nada.
@@ -354,6 +366,25 @@ export function openDb(path: string): Db {
     PRIMARY KEY (user_id, project_id))`)
   // A ⭐ global vira pin de cada usuário com acesso, uma vez na vida da instalação.
   migrateFavoritesToPins(db)
+
+  // Fila do operador: mensagens que esperam o próximo turno, por terminal
+  // (projeto + motor), para sobreviver a sessões novas e a recarregar a página.
+  // A pausa fica numa tabela à parte porque vale mesmo com a fila vazia.
+  // Ver queue/operator-queue.ts.
+  db.exec(`CREATE TABLE IF NOT EXISTS operator_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    engine TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_opq_terminal ON operator_queue(project_id, engine, position)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS operator_queue_state (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, engine TEXT NOT NULL,
+    paused INTEGER NOT NULL DEFAULT 0, pause_reason TEXT, PRIMARY KEY (project_id, engine))`)
+  // Como o item entrou na fila: 'alt-enter' (enfileirado de propósito) ou
+  // 'enter-busy' (Enter com o motor ocupado, que só aceita na fila). O goal só
+  // não pausa pelos de propósito.
+  const queueCols = db.prepare('PRAGMA table_info(operator_queue)').all() as { name: string }[]
+  if (!queueCols.some((c) => c.name === 'via')) db.exec(`ALTER TABLE operator_queue ADD COLUMN via TEXT NOT NULL DEFAULT 'alt-enter'`)
 
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).

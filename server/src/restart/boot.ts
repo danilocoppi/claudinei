@@ -226,10 +226,13 @@ export function createRestartService(deps: {
       }
     } catch (err) {
       log(`[reinício] terminal ${a.projectId}/${a.engine} não subiu: ${(err as Error)?.message ?? err}`)
+      // Um aviso que já estava retido (de uma subida anterior, ou deste mesmo
+      // boot) só troca de motivo: não nasce agora, então não acorda de novo.
+      const wasHeld = store.get(a.projectId, a.engine).holdReason != null
       store.setHold(a.projectId, a.engine, 'failed')
       failTasksOf(a.projectId, a.engine)
       publish(a.projectId, a.engine)
-      held(a.projectId)
+      if (!wasHeld) held(a.projectId)
     }
   }
 
@@ -245,9 +248,13 @@ export function createRestartService(deps: {
       const actions = planBoot(store.list(), latestLocalId)
       for (const a of actions) {
         if (a.kind !== 'hold') continue
+        // Marca que já tinha motivo foi retida (e acordou) numa subida anterior e
+        // segue esperando o operador: acordar de novo a cada reinício desfaria o
+        // assentar ou o adiar que ele fez depois.
+        const wasHeld = store.get(a.projectId, a.engine).holdReason != null
         store.setHold(a.projectId, a.engine, a.reason)
         publish(a.projectId, a.engine)
-        held(a.projectId)
+        if (!wasHeld) held(a.projectId)
       }
       const resuming = new Set(actions.filter((a) => a.kind === 'resume').map((a) => keyOf(a.projectId, a.engine)))
       const orch = deps.orchestrator()

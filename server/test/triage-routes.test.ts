@@ -163,6 +163,17 @@ describe('rotas da triagem (com auth)', () => {
     anaWs.close(); brunoWs.close(); rootWs.close()
   })
 
+  it('WS triage de um projeto que o usuário não acessa mais não chega a ele', async () => {
+    // ana tinha triagem em Beta (o despertar alcança toda linha do projeto) e perdeu o acesso.
+    const anaId = auth!.users.getByUsername('ana')!.id
+    const anaWs = await openWs(await login('ana'))
+    hub.broadcast({ type: 'triage', userId: anaId, item: { projectId: p2, pinned: false, settled: false, snoozedUntil: null } })
+    hub.broadcast({ type: 'triage', userId: anaId, item: { projectId: p1, pinned: false, settled: false, snoozedUntil: null } })
+    await expect(nextTriage(anaWs)).resolves.toMatchObject({ item: { projectId: p1 } })
+    await expect(nextTriage(anaWs, 300)).rejects.toThrow('timeout')
+    anaWs.close()
+  })
+
   it('rota da ⭐ fixa para quem clicou e não para os outros', async () => {
     const ana = await login('ana')
     const bruno = await login('bruno')

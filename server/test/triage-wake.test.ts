@@ -278,6 +278,31 @@ describe('aviso de trabalho interrompido do reinício', () => {
     expectAwake()
   })
 
+  it('aviso retido numa subida anterior não acorda de novo na subida seguinte', async () => {
+    terminalState.markInterrupted(project.id, 'claude', 'x', null)
+    await svc.boot()
+    expect(onHeld.mock.calls).toEqual([[project.id]])
+
+    // O operador assentou e adiou com o aviso ainda aberto; o serviço reinicia de novo.
+    settleAndSnooze()
+    await svc.boot()
+    expect(svc.list()[0].interruption?.reason).toBe('off')
+    expect(onHeld.mock.calls).toEqual([[project.id]])
+    expectAsleep()
+  })
+
+  it('aviso retido com iniciar ligado que não sobe na subida seguinte não acorda de novo', async () => {
+    terminalState.markInterrupted(project.id, 'claude', 'x', null)
+    terminalState.setPrefs(project.id, 'claude', { autostart: true })
+    terminalState.setHold(project.id, 'claude', 'off')
+    brokenStart.add(project.path)
+    settleAndSnooze()
+    await svc.boot()
+    expect(svc.list()[0].interruption?.reason).toBe('failed')
+    expect(onHeld).not.toHaveBeenCalled()
+    expectAsleep()
+  })
+
   it('mexer nos interruptores de um terminal com aviso retido não acorda de novo', () => {
     // O aviso já foi retido (e acordou) numa subida; depois o operador assentou de novo.
     terminalState.markInterrupted(project.id, 'claude', 'x', null)

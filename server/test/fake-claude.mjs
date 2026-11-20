@@ -32,6 +32,12 @@
 //   ui_attach / ui_detach / ui_render / ui_press -> superfície remota (desktop): o
 //                         press no botão de handle 1 (dismiss) tira o cartão; o de
 //                         handle 2 (Explique) troca pela explicação.
+//   contém "limite"    -> bate no limite de uso como a CLI real: rate_limit_event
+//                         rejeitado (five_hour, resetsAt = agora + 60 s, em SEGUNDOS),
+//                         assistant isApiErrorMessage com o texto do limite e result
+//                         is_error com o mesmo texto.
+//   contém "limite-sem-evento" -> o mesmo, sem o rate_limit_event (o horário fica
+//                         por conta do que o uso já sabia).
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -319,6 +325,17 @@ rl.on('line', (line) => {
       else out({ type: 'result', subtype: 'success', is_error: false, result: 'fim', session_id: sid, num_turns: 1, total_cost_usd: 0, usage: turnUsage(), modelUsage: modelUsage() })
     }
     ciclo()
+    return
+  }
+  if (text.includes('limite')) {
+    const LIMIT_TEXT = "You've hit your session limit · resets 3:40pm (America/Sao_Paulo)"
+    if (!text.includes('limite-sem-evento')) {
+      out({ type: 'rate_limit_event', session_id: sid, rate_limit_info: {
+        status: 'rejected', rateLimitType: 'five_hour', resetsAt: Math.floor(Date.now() / 1000) + 60, utilization: 1 } })
+    }
+    out({ type: 'assistant', session_id: sid, isApiErrorMessage: true, error: 'rate_limit', apiErrorStatus: 429,
+      message: { role: 'assistant', content: [{ type: 'text', text: LIMIT_TEXT }] } })
+    out({ type: 'result', subtype: 'success', is_error: true, result: LIMIT_TEXT, session_id: sid, num_turns: 1, total_cost_usd: 0 })
     return
   }
   if (text.includes('demorada')) {

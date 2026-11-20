@@ -23,6 +23,13 @@ export interface UsageService {
   getLimits(): Promise<UsageLimit[]>
   /** `rate_limit_info` de um `rate_limit_event` de terminal do Claude. */
   observe(info: unknown): void
+  /**
+   * Quando reabre a janela que barrou o Claude: o maior `resetsAt` (epoch
+   * SEGUNDOS) ainda no futuro entre as janelas vistas nos terminais com
+   * severidade `critical` (status `rejected`). null = nenhuma barrada agora.
+   * É o recurso do limite detectado só pelo texto, sem o evento no turno.
+   */
+  lastRejectedResetsAt(): number | null
 }
 
 interface Opts {
@@ -95,7 +102,7 @@ export function createUsageService(opts: Opts = {}): UsageService {
     observe(info: unknown): void {
       const at = now()
       let changed = false
-      for (const [type, w] of windowsOf(info)) {
+      for (const [type, w] of rateLimitWindows(info)) {
         const target = WINDOWS[type]
         if (!target) continue
         state.windows[target.kind] = {
@@ -110,6 +117,18 @@ export function createUsageService(opts: Opts = {}): UsageService {
         changed = true
       }
       if (changed) save()
+    },
+    lastRejectedResetsAt(): number | null {
+      const t = now()
+      let best: number | null = null
+      for (const { limit } of Object.values(state.windows)) {
+        if (limit.severity !== 'critical') continue
+        const ms = Date.parse(limit.resetsAt)
+        if (!(ms > t)) continue
+        const sec = Math.floor(ms / 1000)
+        if (best === null || sec > best) best = sec
+      }
+      return best
     },
   }
 
@@ -201,8 +220,8 @@ class RateLimited extends Error {
   constructor(readonly retryAfterMs: number) { super('429') }
 }
 
-/** Janelas de um `rate_limit_info`: as de `unifiedWindows`, ou a do topo. Utilização em %. */
-function windowsOf(info: unknown): Array<[string, { utilization: number; resetsAt: number; status: string }]> {
+/** Janelas de um `rate_limit_info`: as de `unifiedWindows`, ou a do topo. Utilização em %; `resetsAt` em epoch segundos. */
+export function rateLimitWindows(info: unknown): Array<[string, { utilization: number; resetsAt: number; status: string }]> {
   if (!info || typeof info !== 'object') return []
   const i = info as Record<string, unknown>
   const one = (w: Record<string, unknown>) => {

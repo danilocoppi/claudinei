@@ -37,6 +37,11 @@ export interface EngineSession extends EventEmitter {
   readonly backgroundTasks?: BackgroundTask[]
   /** Credencial expirada (só Claude): a UI oferece reautenticar em vez de mais um erro. */
   readonly authExpired?: boolean
+  /**
+   * O último turno bateu no limite de uso (só Claude). `resetsAt` em epoch
+   * SEGUNDOS, null = horário desconhecido. Lido pelo manager no result.
+   */
+  readonly usageLimit?: { resetsAt: number | null }
   /** Fluxo OAuth de reautenticação — só o Claude Code expõe. */
   startAuth?(): Promise<{ manualUrl: string; automaticUrl: string }>
   completeAuth?(codeOrUrl: string): Promise<void>

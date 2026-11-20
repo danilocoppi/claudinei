@@ -6,6 +6,8 @@ import type { ClaudeEvent } from './events.js'
 import type { EngineSession } from '../engine/types.js'
 import { userEchoEvent } from '../engine/echo.js'
 import { PROGRESS_RULE } from '../hermes/instructions.js'
+import { rateLimitWindows } from '../usage.js'
+import { LIMIT_TEXT_RE } from '../limit/texts.js'
 
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' | 'stopped' | 'dead' | 'in_terminal'
 
@@ -136,6 +138,14 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
   private foregroundTurnActive = false
   /** OAuth do Claude expirado (a CLI respondeu `auth_expired`). Ver detectAuthExpired. */
   private authExpiredFlag = false
+  /**
+   * Maior `resetsAt` (epoch segundos) de uma janela `rejected` vista num
+   * rate_limit_event deste turno. Fica pendente: só vira limite se o turno de
+   * fato falhar (ver detectUsageLimit). O result consome; o send zera.
+   */
+  private pendingRejectedResetsAt?: number
+  /** O turno bateu no limite de uso do Claude. Ver detectUsageLimit. */
+  private usageLimitHit?: { resetsAt: number | null }
   private pendingControls = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   /** Pergunta (AskUserQuestion) esperando o operador — ver PendingQuestion. `input` volta inteiro no updatedInput. */
   private pending?: PendingState
@@ -161,6 +171,13 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    * erro genérico de API.
    */
   get authExpired(): boolean { return this.authExpiredFlag }
+
+  /**
+   * O último turno bateu no limite de uso do Claude. `resetsAt` (epoch SEGUNDOS)
+   * vem do rate_limit_event do turno; null = a CLI não disse quando reabre. O
+   * manager lê isto no result. Zera no send seguinte.
+   */
+  get usageLimit(): { resetsAt: number | null } | undefined { return this.usageLimitHit }
 
   /** Tasks em background ainda rodando nesta sessão. */
   get backgroundTasks(): BackgroundTask[] {
@@ -291,6 +308,9 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       this.foregroundTurnActive = true
       if (this.status === 'idle' || this.status === 'needs_attention') {
         this.turnSeq++
+        // Turno novo que a engine abriu sozinha: o limite do turno anterior não
+        // vale para ele (o horário pendente fica, ele pode ser deste turno).
+        this.usageLimitHit = undefined
         this.setStatus('working')
       }
     }
@@ -315,6 +335,8 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     if (evt.kind === 'result' && this.pending) {
       this.pending = undefined
     }
+    // Depois do descarte do result póstumo: o turno morto não liga o limite.
+    this.detectUsageLimit(evt)
     if (evt.kind === 'result') {
       this.foregroundTurnActive = false
       this.finishIfNoWork()
@@ -333,6 +355,9 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     }
     const msg = { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }
     this.proc.stdin.write(JSON.stringify(msg) + '\n')
+    // Mensagem nova: o limite do turno anterior (e o horário pendente) não vale para ela.
+    this.usageLimitHit = undefined
+    this.pendingRejectedResetsAt = undefined
     if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
     this.turnSeq++
     this.foregroundTurnActive = true
@@ -575,6 +600,48 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
     this.authExpiredFlag = true
     // Reusa o canal de status: é assim que o manager retransmite aos clientes.
     this.emit('status', this.status)
+  }
+
+  /**
+   * Limite de uso do Claude (a janela de 5 h ou a semanal fechou).
+   *
+   * A CLI avisa em duas partes. Primeiro um `rate_limit_event` com a janela
+   * `rejected` e o `resetsAt` em epoch segundos: guardado como pendente, porque
+   * o evento sozinho não garante que o turno falhou. Depois um `assistant`
+   * sintético (isApiErrorMessage, error 'rate_limit') com "You've hit your …
+   * limit · resets …", e o `result` com is_error e o mesmo texto.
+   *
+   * Liga o limite: o assistant de erro de API ou o result com erro cujo texto
+   * casa LIMIT_TEXT_RE; ou um result com erro e um horário pendente. O horário
+   * é sempre o do evento: o "resets 3:40pm" do texto não é interpretado.
+   */
+  private detectUsageLimit(evt: ClaudeEvent): void {
+    if (evt.kind === 'raw') {
+      const raw = evt.raw as { type?: unknown; rate_limit_info?: unknown } | null
+      if (raw?.type !== 'rate_limit_event') return
+      const rejected = rateLimitWindows(raw.rate_limit_info).filter(([, w]) => w.status === 'rejected')
+      if (rejected.length === 0) return
+      const resetsAt = Math.max(...rejected.map(([, w]) => w.resetsAt))
+      this.pendingRejectedResetsAt = Math.max(this.pendingRejectedResetsAt ?? resetsAt, resetsAt)
+      return
+    }
+    if (evt.kind === 'assistant') {
+      const raw = evt.raw as { isApiErrorMessage?: unknown; error?: unknown } | undefined
+      if (raw?.isApiErrorMessage !== true && raw?.error !== 'rate_limit') return
+      const blocks = Array.isArray(evt.message?.content) ? evt.message.content : []
+      const text = blocks.map((b) => (b as { text?: string }).text ?? '').join(' ')
+      if (LIMIT_TEXT_RE.test(text)) this.hitUsageLimit()
+      return
+    }
+    if (evt.kind === 'result') {
+      if (evt.isError && (this.pendingRejectedResetsAt !== undefined || LIMIT_TEXT_RE.test(evt.resultText))) this.hitUsageLimit()
+      // O result fecha o turno: o horário pendente era dele.
+      this.pendingRejectedResetsAt = undefined
+    }
+  }
+
+  private hitUsageLimit(): void {
+    this.usageLimitHit = { resetsAt: this.pendingRejectedResetsAt ?? this.usageLimitHit?.resetsAt ?? null }
   }
 
   /**

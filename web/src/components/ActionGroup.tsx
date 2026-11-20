@@ -1,7 +1,8 @@
-import { memo, useState } from 'react'
+import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '../types'
 import { groupSummary } from '../chat/grouping'
+import { useFold } from '../chat/folds'
 import { MessageBlock } from './MessageBlock'
 
 /**
@@ -9,13 +10,16 @@ import { MessageBlock } from './MessageBlock'
  * chat/grouping.ts para as regras de formação. Recolhido mostra contagem +
  * resumo por ferramenta; expandido renderiza os cards individuais normais
  * (cada um continua expansível por conta própria).
+ *
+ * A dobra do grupo é a do 1º item dele (`useFold`): a chave desse item é
+ * estável, e o grupo só cresce pelo fim.
  */
 export const ActionGroup = memo(function ActionGroup({ items, currentLocalId }: {
   items: { item: ChatItem; index: number }[]
   currentLocalId?: string
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFold(currentLocalId, items[0]?.item.key, 'group')
   return (
     <div className={`action-group${open ? ' action-group--open' : ''}`}>
       <div className="action-group__header" onClick={() => setOpen(!open)}>

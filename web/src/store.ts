@@ -54,9 +54,31 @@ const BUILTIN_ENGINES: EngineMeta[] = [
 /** Teto do feed do board em memória: broadcasts só fazem prepend — sem poda, cresce sem limite. */
 const BOARD_MAX = 200
 
-/** Mantém em `map` só as chaves presentes em `keep`; devolve o próprio `map` se nada mudou. */
 export interface HistoryCursor { before: number; atStart: boolean; conv?: string }
 
+/**
+ * Dobras de uma sessão com as chaves trocadas por `renamed` (velha → nova).
+ * `keepOthers` falso descarta as que a troca não levou. Devolve o próprio
+ * `folds` quando nada muda, para o store não trocar o objeto à toa.
+ */
+function moveFolds<F extends Record<string, true> | undefined>(folds: F, renamed: Record<string, string>, keepOthers: boolean): F {
+  if (!folds) return folds
+  // Refetch sem troca de chave (o caso comum): nada a percorrer.
+  if (keepOthers && Object.keys(renamed).length === 0) return folds
+  let changed = false
+  const out: Record<string, true> = {}
+  for (const id in folds) {
+    // foldId = `${chave}:${nome}`; a chave não tem ':' (p<pos>, p<pos>.n, l<n>).
+    const sep = id.lastIndexOf(':')
+    const to = renamed[id.slice(0, sep)]
+    if (to !== undefined) { out[`${to}${id.slice(sep)}`] = true; changed = true }
+    else if (keepOthers) out[id] = true
+    else changed = true
+  }
+  return changed ? out as F : folds
+}
+
+/** Mantém em `map` só as chaves presentes em `keep`; devolve o próprio `map` se nada mudou. */
 function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>): Record<string, T> {
   const kept = Object.keys(map).filter((k) => k in keep)
   if (kept.length === Object.keys(map).length) return map
@@ -116,6 +138,12 @@ interface State {
   historyCursor: Record<string, HistoryCursor>
   /** Resultados de ferramenta à espera da chamada, que está numa página antiga ainda não carregada, por localId. */
   orphanResults: Record<string, OrphanResults>
+  /**
+   * Dobras abertas do chat, por localId: `foldId` (chave do item + nome da
+   * dobra, ver chat/folds.ts) → aberta. Fechada não fica no mapa. Mora aqui, e
+   * não no bloco, porque a lista virtual desmonta o que sai da tela.
+   */
+  folds: Record<string, Record<string, true>>
   activeLocalId?: string
   /** Pedido de edição em curso: reenche o ChatInput da sessão-alvo com o texto original. `seq` distingue pedidos repetidos com o mesmo texto. */
   editRequest?: { localId: string; text: string; seq: number }
@@ -176,6 +204,9 @@ interface State {
    * substituiu a lista, troca de conversa), ela é velha e é descartada.
    */
   prependHistory(localId: string, page: HistoryPage, requestedBefore: number): void
+  setFold(localId: string, id: string, open: boolean): void
+  /** Leva as dobras das chaves ao vivo para as confirmadas (`renamed` de `reconcileByKey`). */
+  renameFolds(localId: string, renamed: Record<string, string>): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
   /** Reconexão do WS: eventos podem ter se perdido na queda. Invalida os históricos
    *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
@@ -280,7 +311,7 @@ export const useStore = create<State>((set, get) => ({
     // saved windows also prevents an old ActionRun from launching again later.
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
-      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {},
+      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {}, folds: {},
       actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
@@ -292,6 +323,7 @@ export const useStore = create<State>((set, get) => ({
   historyLoadedFor: {},
   historyCursor: {},
   orphanResults: {},
+  folds: {},
   activeLocalId: undefined,
   editRequest: undefined,
   slashCommands: BUILTIN_FALLBACK,
@@ -342,8 +374,11 @@ export const useStore = create<State>((set, get) => ({
       const changed = conv !== undefined && prev?.conv !== undefined && prev.conv !== conv
       const r = mergeTail(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {}, changed)
       if (r.unchanged) return s
-      // `r.renamed` (chave ao vivo → confirmada) é o gancho das dobras abertas:
-      // quem guardar estado por chave aplica a troca aqui (Task 4).
+      // As dobras acompanham a troca de chave (ao vivo → confirmada) no mesmo
+      // `set` que troca os itens: nenhum quadro com a chave nova e a dobra velha.
+      // Conversa trocada: as posições são de outro arquivo, e uma dobra antiga
+      // abriria o item que caiu na mesma posição; só ficam as que a troca levou.
+      const folds = moveFolds(s.folds[localId], r.renamed, !changed)
       const cursor: HistoryCursor = r.reset || !prev
         ? { before: page.before, atStart: page.atStart, conv: conv ?? prev?.conv }
         : { ...prev, conv: conv ?? prev.conv }
@@ -351,6 +386,7 @@ export const useStore = create<State>((set, get) => ({
         chat: { ...s.chat, [localId]: r.items },
         historyCursor: { ...s.historyCursor, [localId]: cursor },
         orphanResults: { ...s.orphanResults, [localId]: r.orphans },
+        ...(folds !== s.folds[localId] ? { folds: { ...s.folds, [localId]: folds } } : {}),
       }
     }),
 
@@ -364,6 +400,21 @@ export const useStore = create<State>((set, get) => ({
         historyCursor: { ...s.historyCursor, [localId]: { ...cursor, before: page.before, atStart: page.atStart } },
         orphanResults: { ...s.orphanResults, [localId]: r.orphans },
       }
+    }),
+
+  setFold: (localId, id, open) =>
+    set((s) => {
+      const cur = s.folds[localId]
+      if (!!cur?.[id] === open) return s
+      if (open) return { folds: { ...s.folds, [localId]: { ...cur, [id]: true } } }
+      const { [id]: _closed, ...rest } = cur!
+      return { folds: { ...s.folds, [localId]: rest } }
+    }),
+
+  renameFolds: (localId, renamed) =>
+    set((s) => {
+      const folds = moveFolds(s.folds[localId], renamed, true)
+      return folds === s.folds[localId] ? s : { folds: { ...s.folds, [localId]: folds } }
     }),
 
   markHistoryLoaded: (localId, engineSessionId) =>
@@ -512,6 +563,7 @@ export const useStore = create<State>((set, get) => ({
         historyLoadedFor: pruneOrphans(s.historyLoadedFor, sessions),
         historyCursor: pruneOrphans(s.historyCursor, sessions),
         orphanResults: pruneOrphans(s.orphanResults, sessions),
+        folds: pruneOrphans(s.folds, sessions),
         streaming: pruneOrphans(s.streaming, sessions),
         headsUps: pruneOrphans(s.headsUps, sessions),
         dismissedHeadsUps: pruneOrphans(s.dismissedHeadsUps, sessions),

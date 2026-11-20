@@ -1,8 +1,8 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '../types'
 import { DiffView } from './DiffView'
 import { CopyButton } from './CopyButton'
+import { useFold } from '../chat/folds'
 
 type ToolCallItem = Extract<ChatItem, { kind: 'tool_call' }>
 
@@ -25,9 +25,9 @@ function summarize(item: ToolCallItem): string {
   return s.length > 80 ? s.slice(0, 80) + '…' : s
 }
 
-export function ToolCallCard({ item }: { item: ToolCallItem }) {
+export function ToolCallCard({ item, currentLocalId }: { item: ToolCallItem; currentLocalId?: string }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFold(currentLocalId, item.key, 'tool')
   const input = (item.input ?? {}) as Record<string, unknown>
   const isEdit = ['Edit', 'Write', 'MultiEdit'].includes(item.name)
 

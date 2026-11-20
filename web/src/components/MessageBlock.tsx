@@ -10,6 +10,7 @@ import 'highlight.js/styles/github-dark.css'
 import type { ChatItem } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
+import { useFold } from '../chat/folds'
 import { WsContext } from '../wsContext'
 import { extractCandidatePaths, kindOfPath, resolveFiles, resolvedKey, splitCandidatePaths, type ScopeResult } from '../files'
 import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
@@ -155,7 +156,7 @@ function CompactSummaryBlock({ item, currentLocalId }: {
   currentLocalId?: string
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFold(currentLocalId, item.key, 'summary')
   const lines = item.text.split('\n').length
   return (
     <div className={`action-group compact-summary${open ? ' action-group--open' : ''}`} role="note">
@@ -190,7 +191,7 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
   onEdit?: () => void
 }) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useFold(currentLocalId, item.key, 'more')
   const engines = useStore((s) => s.engines)
   // Só o que a bolha usa da sessão: o mapa inteiro muda a cada evento de
   // qualquer terminal e re-renderizava todas as bolhas da conversa.
@@ -277,7 +278,7 @@ function ScheduledMessageBubble({
   currentLocalId?: string
 }) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useFold(currentLocalId, item.key, 'more')
 
   const lines = item.text.split('\n')
   const overflow = lines.length - COLLAPSE_LINES
@@ -313,7 +314,7 @@ function TaskMessageBubble({
   currentLocalId?: string
 }) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useFold(currentLocalId, item.key, 'more')
 
   const lines = item.text.split('\n')
   const overflow = lines.length - COLLAPSE_LINES
@@ -455,7 +456,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
     case 'claudinei_message':
       return <ClaudineiMessageBubble reason={item.reason} />
     case 'tool_call':
-      return <ToolCallCard item={item} />
+      return <ToolCallCard item={item} currentLocalId={currentLocalId} />
   }
 }
 

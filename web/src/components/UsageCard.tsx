@@ -65,6 +65,7 @@ export function UsageCard() {
   const [limits, setLimits] = useState<UsageLimit[]>([])
   const [tokens, setTokens] = useState<Record<string, EngineUsage>>({})
   const engines = useStore((s) => s.engines)
+  const openUsage = useStore((s) => s.openUsage)
   // avançado = todas as barras; desligado = só a sessão atual. Persistido.
   const [advanced, setAdvanced] = useState(() => localStorage.getItem(ADVANCED_KEY) === '1')
   const [showInfo, setShowInfo] = useState(false)
@@ -94,7 +95,16 @@ export function UsageCard() {
 
   // Só engines que já reportaram tokens (ex.: Codex; o Claude reporta limites, não tokens).
   const tokenEntries = Object.entries(tokens).filter(([, v]) => v?.total && v.total.total > 0)
-  if (limits.length === 0 && tokenEntries.length === 0) return null
+  // Sem limites nem tokens (ou o /api/usage falhou) o cartão encolhe para só o
+  // "Ver detalhes": a página de uso lê o índice local, não depende disto, e no
+  // celular este botão é a única entrada para ela.
+  if (limits.length === 0 && tokenEntries.length === 0) {
+    return (
+      <div className="usage-card usage-card--empty glass">
+        <button type="button" className="usage-card__details" onClick={openUsage}>{t('usagePage.viewDetails')}</button>
+      </div>
+    )
+  }
 
   const now = Date.now()
   const paceFormat = new Intl.NumberFormat(i18n.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
@@ -214,6 +224,8 @@ export function UsageCard() {
           </div>
         )
       })}
+      {/* A página de uso: tokens por terminal, modelo e período (também no Ctrl+U). */}
+      <button type="button" className="usage-card__details" onClick={openUsage}>{t('usagePage.viewDetails')}</button>
       {showInfo && <UsageInfo onClose={() => setShowInfo(false)} />}
     </div>
   )

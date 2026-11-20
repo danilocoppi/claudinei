@@ -235,6 +235,37 @@ export interface EngineUsage { total: EngineTokens; today: EngineTokens }
 /** Barras do /usage (limites do Claude via proxy OAuth) + tokens por engine (total + hoje). */
 export const fetchUsage = () => req<{ limits: UsageLimit[]; tokens?: Record<string, EngineUsage> }>('/api/usage')
 
+/** Espelho de `server/src/usage-index/report.ts` e `indexer.ts` (relatório de uso por período). */
+export type UsagePeriod = '24h' | '7d' | '30d' | '90d'
+/** `spent` = entrada + saída + escrito no cache; no Codex o raciocínio já está dentro da saída. */
+export interface UsageTotals { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number; spent: number }
+export interface IndexStatus { running: boolean; filesDone: number; filesTotal: number; lastPassAt: string | null }
+export interface UsageReport {
+  period: UsagePeriod
+  totals: UsageTotals
+  /** 0..100, uma casa decimal; 0 sem entrada. */
+  cachePct: number
+  terminals: Array<{
+    /** Vazio = "Fora do Claudinei"; vários = pasta compartilhada. */
+    projectIds: number[]
+    names: string[]
+    path: string | null
+    byEngine: Record<string, UsageTotals>
+    totals: UsageTotals
+  }>
+  models: Array<{ model: string; engine: string; totals: UsageTotals }>
+  /** Crescente e preenchida com zero; rótulo LOCAL ('YYYY-MM-DDTHH' em 24h, 'YYYY-MM-DD' nos outros). */
+  series: Array<{ bucket: string; spent: number; cacheRead: number }>
+  /** Hora UTC mais antiga indexada ('YYYY-MM-DDTHH'). */
+  oldestHour: string | null
+}
+/** Relatório do período; `tz` = `new Date().getTimezoneOffset()` (os baldes da série saem no fuso local). */
+export const fetchUsageReport = (period: UsagePeriod, tz: number, signal?: AbortSignal) =>
+  req<UsageReport & { index: IndexStatus }>(
+    `/api/usage/report?period=${encodeURIComponent(period)}&tz=${encodeURIComponent(String(tz))}`,
+    signal ? { signal } : undefined,
+  )
+
 // fetch cru — o req() colocaria Content-Type json e quebraria o boundary do multipart
 export const uploadFile = async (file: File, name?: string): Promise<{ path: string; name: string }> => {
   const fd = new FormData()

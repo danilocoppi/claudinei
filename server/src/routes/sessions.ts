@@ -261,7 +261,7 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     const before = parseBefore(query.before)
     if (before === null) return reply.code(400).send(fail('invalid_before', 'before deve ser um inteiro não negativo'))
     const limit = query.limit === undefined ? HISTORY_EVENT_LIMIT : parseIntIn(query.limit, 1, HISTORY_MAX_LIMIT)
-    if (limit === null) return reply.code(400).send(fail('invalid_limit', `limit deve ser um inteiro de 1 a ${HISTORY_MAX_LIMIT}`))
+    if (limit === null) return reply.code(400).send(fail('invalid_limit', `limit deve ser um inteiro de 1 a ${HISTORY_MAX_LIMIT}`, { max: HISTORY_MAX_LIMIT }))
     const project = projects.get(info.projectId)
     if (!project) return EMPTY_HISTORY
     const engine = getEngine(info.engine as string)

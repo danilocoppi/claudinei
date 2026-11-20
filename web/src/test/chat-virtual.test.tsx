@@ -203,6 +203,44 @@ describe('a conversa numa lista virtual', () => {
     expect(useStore.getState().historyCursor.s1.atStart).toBe(true)
   })
 
+  it('passado o teto da sequência, o topo oferece carregar mais; o clique segue de onde parou', async () => {
+    preparar([acao(TOPO), acao(TOPO + 10), acao(TOPO + 20), ...conversa(100, TOPO + 30)])
+    vi.mocked(globalThis.fetch).mockImplementation(sóAções)
+    await montar()
+    await rolar(0)
+    await esperar(600)
+    expect(historyCalls()).toHaveLength(5)
+    expect(screen.queryByText('carregando mensagens anteriores…')).toBeNull()
+    fireEvent.click(screen.getByText('carregar mensagens anteriores'))
+    await esperar(600)
+    expect(historyCalls()).toHaveLength(10)
+    expect(historyCalls()[5]).toBe(`/api/sessions/s1/history?before=${TOPO - 100}&limit=200`)
+    // Chegou ao começo: o convite some e fica o aviso do começo.
+    expect(screen.queryByText('carregar mensagens anteriores')).toBeNull()
+    expect(screen.getByText('início da conversa')).toBeTruthy()
+  })
+
+  it('depois de uma falha, o topo oferece carregar mais; o clique tenta de novo', async () => {
+    preparar(conversa(100))
+    let falhas = 1
+    vi.mocked(globalThis.fetch).mockImplementation(async (url) => {
+      if (!String(url).includes('/history')) return json([])
+      if (falhas-- > 0) throw new Error('rede caiu')
+      return json({ events: [evFala(1000)], before: 1000, atStart: false })
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await montar()
+    await rolar(0)
+    await esperar(600)
+    expect(historyCalls()).toHaveLength(1)
+    fireEvent.click(screen.getByText('carregar mensagens anteriores'))
+    await esperar(600)
+    expect(historyCalls()).toHaveLength(2)
+    expect(useStore.getState().chat.s1).toHaveLength(101)
+    // A página entrou: o topo volta a pedir sozinho, sem convite.
+    expect(screen.queryByText('carregar mensagens anteriores')).toBeNull()
+  })
+
   it('a sequência para quando o operador troca de terminal', async () => {
     preparar([acao(TOPO), acao(TOPO + 10), acao(TOPO + 20), ...conversa(100, TOPO + 30)])
     let responder = () => {}

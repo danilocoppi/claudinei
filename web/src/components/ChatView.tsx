@@ -21,7 +21,7 @@ import { QuestionPanel } from './QuestionPanel'
 import { groupActions, type ChatNode } from '../chat/grouping'
 import { nodeKey, useFirstItemIndex } from '../chat/nodes'
 import { chatFollow, chatListRef, chatUserScroll } from '../chat/listHandle'
-import { loadOlderPage, isLoadingOlder, useLoadingOlder } from '../chat/olderPages'
+import { loadOlderPage, isLoadingOlder, useLoadingOlder, markOlderWaiting, isOlderWaiting, useOlderWaiting } from '../chat/olderPages'
 import { closeFind } from '../chat/findRun'
 import { useFindHighlight } from '../chat/findHighlight'
 import { shouldOpenFind } from '../keyboard'
@@ -30,7 +30,7 @@ import { ActionGroup } from './ActionGroup'
 import { InlineFileView } from './InlineFileView'
 import { HeadsUpBand } from './HeadsUpBand'
 import { Icon } from './Icon'
-import { SLACK } from '../scrollFollow'
+import { isAtBottom, SLACK } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { ProgressButton, ProgressColumn } from './ProgressColumn'
@@ -57,11 +57,6 @@ function StreamingPreview({ localId }: { localId: string }) {
 }
 
 /**
- * Sessões que esperam o operador voltar ao topo para pedir a página anterior:
- * o último pedido falhou, ou a sequência automática bateu no teto.
- */
-const olderWaitTop = new Set<string>()
-/**
  * Teto de páginas seguidas que só engordam o grupo do topo. Um turno longo de
  * ações pode ter milhares delas, e sem GPU cada página custa render na thread
  * principal: passou disso, espera o operador voltar ao topo.
@@ -76,8 +71,13 @@ interface ListContext {
   backgroundTasks: SessionInfo['backgroundTasks']
   compactingSince?: number
   hasStreaming: boolean
-  /** Topo da lista: começo da conversa, página anterior chegando, ou nada. */
-  edge: 'start' | 'loading' | null
+  /**
+   * Topo da lista: começo da conversa, página anterior chegando, convite a
+   * carregar a anterior (o pedido falhou ou a sequência parou no teto), ou nada.
+   */
+  edge: 'start' | 'loading' | 'more' | null
+  /** Pede a página anterior pelo mesmo carregador do topo (o convite `more`). */
+  onLoadOlder: () => void
   /** O rodapé cresceu `grew` px (texto do streaming, indicadores). */
   onFooterGrow: (grew: number) => void
 }
@@ -90,6 +90,13 @@ function ListHeader({ context }: { context: ListContext }) {
       <div className="chat-scroll__inner chat-scroll__inner--top">
         {context.edge === 'start' && <div className="chat-edge" data-testid="chat-start">{t('chat.startOfConversation')}</div>}
         {context.edge === 'loading' && <div className="chat-edge" data-testid="chat-loading-older">{t('chat.loadingOlder')}</div>}
+        {context.edge === 'more' && (
+          <div className="chat-edge">
+            <button type="button" className="chat-edge__more" data-testid="chat-load-older" onClick={context.onLoadOlder}>
+              {t('chat.loadOlder')}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -185,6 +192,7 @@ export function ChatView() {
   const [following, setFollowing] = useState(true)
   const historyCursor = useStore((s) => activeLocalId ? s.historyCursor[activeLocalId] : undefined)
   const olderLoading = useLoadingOlder(activeLocalId)
+  const olderWaiting = useOlderWaiting(activeLocalId)
   const findOpen = useStore((s) => !!activeLocalId && s.find?.localId === activeLocalId)
   // O termo a destacar só depois de buscar (o que se digita ainda não é busca).
   const findQ = useStore((s) => (activeLocalId && s.find?.localId === activeLocalId && s.find.hits.length > 0 ? s.find.q : ''))
@@ -255,7 +263,8 @@ export function ChatView() {
   const onFooterGrow = useCallback((grew: number) => {
     const el = scrollerRef.current
     if (!el || !followingRef.current) return
-    if (el.scrollHeight - el.scrollTop - el.clientHeight - grew > SLACK) return
+    // Estava no fim antes de o rodapé crescer `grew` px: a folga conta o crescimento.
+    if (!isAtBottom(el, SLACK + grew)) return
     el.scrollTop = el.scrollHeight
   }, [])
   // Gestos de rolagem do operador (não as rolagens da própria lista): a busca
@@ -295,15 +304,14 @@ export function ChatView() {
       const pedido = loadOlderPage(id)
       if (!pedido) return
       void pedido.then((r) => {
-        if (!r.ok) { olderWaitTop.add(id); return }
-        olderWaitTop.delete(id)
+        if (!r.ok) { markOlderWaiting(id); return }
         // O topo não ganhou nó novo: a lista não avisa o topo de novo. Segue
         // para a anterior; o cursor andou para trás, então não é laço.
         if (!r.topUnchanged) return
         // O operador foi para outro terminal: a sequência para aqui (a
         // página que já veio entrou na conversa dela).
         if (useStore.getState().activeLocalId !== id) return
-        if (seguidas + 1 >= OLDER_CHAIN_LIMIT) { olderWaitTop.add(id); return }
+        if (seguidas + 1 >= OLDER_CHAIN_LIMIT) { markOlderWaiting(id); return }
         pedir(seguidas + 1)
       })
     }
@@ -314,7 +322,7 @@ export function ChatView() {
   // conversa a lista passa pelo topo antes de descer ao fim, e isso não é
   // pedido do operador.
   const onAtTop = useCallback((atTop: boolean) => {
-    if (atTop && activeLocalId && olderWaitTop.has(activeLocalId)) loadOlder()
+    if (atTop && activeLocalId && isOlderWaiting(activeLocalId)) loadOlder()
   }, [activeLocalId, loadOlder])
 
   // Terminal novo é conversa nova: chega-se no fim dela, não preso onde se estava.
@@ -428,7 +436,8 @@ export function ChatView() {
 
   const edge: ListContext['edge'] = nodes.length === 0 ? null
     : historyCursor?.atStart ? 'start'
-    : olderLoading ? 'loading' : null
+    : olderLoading ? 'loading'
+    : olderWaiting ? 'more' : null
   const listContext = useMemo<ListContext | null>(() => session ? {
     localId: session.localId,
     status: session.status,
@@ -437,8 +446,9 @@ export function ChatView() {
     compactingSince: session.compactingSince,
     hasStreaming,
     edge,
+    onLoadOlder: loadOlder,
     onFooterGrow,
-  } : null, [session?.localId, session?.status, session?.backgroundTasks, session?.compactingSince, items, hasStreaming, edge, onFooterGrow])
+  } : null, [session?.localId, session?.status, session?.backgroundTasks, session?.compactingSince, items, hasStreaming, edge, loadOlder, onFooterGrow])
 
   if (!session || !project || !listContext) return <div style={{ padding: 24 }}>{t('chat.select')}</div>
 

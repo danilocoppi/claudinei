@@ -236,7 +236,7 @@ export const en = {
     noAgents: 'No other active agents', subagent: 'subagent', unknownProject: 'project',
     stop: 'Stop the turn',
     toFoot: 'Jump to latest',
-    startOfConversation: 'start of the conversation', loadingOlder: 'loading earlier messages…',
+    startOfConversation: 'start of the conversation', loadOlder: 'load earlier messages', loadingOlder: 'loading earlier messages…',
     interrupted: 'Interrupted by the user',
     actionsGroup: '{{count}} actions',
     compactSummary: 'Context compacted', compactSummaryHint: 'summary of the earlier conversation · {{n}} lines', compactSummaryFrom: 'from {{tokens}} tokens',
@@ -538,6 +538,10 @@ export const en = {
     admin_only: 'Only administrators can do this.',
     not_found: 'Not found.',
     file_too_large: 'File too large.',
+    history_read_failed: "Couldn't read the conversation history.",
+    invalid_query: 'The search must be {{min}} to {{max}} characters long.',
+    invalid_before: 'Invalid position in the history (before).',
+    invalid_limit: 'limit must be a whole number from 1 to {{max}}.',
   },
 }
 export default en

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 vi.mock('../notifications', () => ({ notifySessionChange: vi.fn(), notifyQuestion: vi.fn() }))
 import i18n from '../i18n'
-import { localizeServerError } from '../serverErrors'
+import { localizeServerError, type ServerErrorBody } from '../serverErrors'
 import { deleteProject } from '../api'
 import { useStore } from '../store'
 
@@ -32,6 +32,30 @@ describe('localizeServerError', () => {
     await i18n.changeLanguage('en')
     expect(localizeServerError({ error: 'forbidden' })).toBe('Not allowed.')
     expect(localizeServerError({ error: 'file too large' })).toBe('File too large.')
+  })
+})
+
+describe('erros da conversa em páginas e da busca', () => {
+  // A barra de busca e o topo da lista mostram estes; sem tradução, ficariam em português.
+  const corpos: ServerErrorBody[] = [
+    { error: 'não foi possível ler o histórico da conversa', code: 'history_read_failed' },
+    { error: 'a busca deve ter de 2 a 200 caracteres', code: 'invalid_query', params: { min: 2, max: 200 } },
+    { error: 'before deve ser um inteiro não negativo', code: 'invalid_before' },
+    { error: 'limit deve ser um inteiro de 1 a 500', code: 'invalid_limit', params: { max: 500 } },
+  ]
+
+  it('vêm no idioma da tela, com os limites', async () => {
+    for (const lang of ['en', 'es', 'pt-BR']) {
+      await i18n.changeLanguage(lang)
+      for (const corpo of corpos) {
+        const msg = localizeServerError(corpo)
+        expect(i18n.exists(`serverErrors.${corpo.code!}`), `${lang}: ${corpo.code}`).toBe(true)
+        if (lang !== 'pt-BR') expect(msg, `${lang}: ${corpo.code}`).not.toBe(corpo.error)
+      }
+    }
+    await i18n.changeLanguage('en')
+    expect(localizeServerError(corpos[1])).toBe('The search must be 2 to 200 characters long.')
+    expect(localizeServerError(corpos[3])).toBe('limit must be a whole number from 1 to 500.')
   })
 })
 

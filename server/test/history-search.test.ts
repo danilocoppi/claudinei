@@ -314,6 +314,9 @@ describe('rota de busca', () => {
       const res = await app.inject({ method: 'GET', url: `/api/sessions/s-2/search?${q}` })
       expect(res.statusCode, q).toBe(400)
     }
+    // Os limites vão como parâmetros: a tela traduz a mensagem (serverErrors.invalid_query).
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/s-2/search?q=a' })).json())
+      .toMatchObject({ code: 'invalid_query', params: { min: 2, max: 200 } })
     for (const q of ['q=ok', 'q=ok&tools=0', 'q=ok&tools=1&before=0', `q=${'a'.repeat(200)}`]) {
       const res = await app.inject({ method: 'GET', url: `/api/sessions/s-2/search?${q}` })
       expect(res.statusCode, q).toBe(200)

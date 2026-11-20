@@ -238,7 +238,7 @@ export const es: typeof en = {
     noAgents: 'Ningún otro agente activo', subagent: 'subagente', unknownProject: 'proyecto',
     stop: 'Detener el turno',
     toFoot: 'Ir al final',
-    startOfConversation: 'inicio de la conversación', loadingOlder: 'cargando mensajes anteriores…',
+    startOfConversation: 'inicio de la conversación', loadOlder: 'cargar mensajes anteriores', loadingOlder: 'cargando mensajes anteriores…',
     interrupted: 'Interrumpido por el usuario',
     actionsGroup: '{{count}} acciones',
     compactSummary: 'Contexto compactado', compactSummaryHint: 'resumen de la conversación anterior · {{n}} líneas', compactSummaryFrom: 'de {{tokens}} tokens',
@@ -540,6 +540,10 @@ export const es: typeof en = {
     admin_only: 'Solo los administradores pueden hacer esto.',
     not_found: 'No encontrado.',
     file_too_large: 'Archivo demasiado grande.',
+    history_read_failed: 'No se pudo leer el historial de la conversación.',
+    invalid_query: 'La búsqueda debe tener de {{min}} a {{max}} caracteres.',
+    invalid_before: 'Posición no válida en el historial (before).',
+    invalid_limit: 'limit debe ser un número entero de 1 a {{max}}.',
   },
 }
 export default es

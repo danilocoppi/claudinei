@@ -27,8 +27,28 @@ export interface OlderResult {
 }
 
 const inFlight = new Map<string, Promise<OlderResult>>()
+/**
+ * Sessões que esperam o operador para pedir a página anterior: o último pedido
+ * falhou, ou a sequência automática do topo bateu no teto. O topo da lista
+ * mostra "carregar mensagens anteriores" (sem isso, nem "carregando" nem
+ * "início": o operador não saberia que há mais acima). Uma página que entra,
+ * venha de quem vier, tira a espera.
+ */
+const waitingTop = new Set<string>()
 const listeners = new Set<() => void>()
 const notify = () => { for (const l of listeners) l() }
+
+/** Põe a sessão à espera do operador no topo (falha ou teto da sequência). */
+export function markOlderWaiting(localId: string): void {
+  if (waitingTop.has(localId)) return
+  waitingTop.add(localId)
+  notify()
+}
+
+/** A sessão espera o operador para pedir a página anterior? */
+export function isOlderWaiting(localId: string): boolean {
+  return waitingTop.has(localId)
+}
 
 /** Há uma página anterior a caminho para a sessão? */
 export function isLoadingOlder(localId: string): boolean {
@@ -53,6 +73,7 @@ export function loadOlderPage(localId: string): Promise<OlderResult> | null {
       const working = st0.sessions[localId]?.status === 'working'
       const antes = groupActions(st0.chat[localId] ?? [], working)
       st0.prependHistory(localId, page, before)
+      waitingTop.delete(localId)
       const st = useStore.getState()
       const topUnchanged = !page.atStart && page.before < before && st.historyCursor[localId]?.before === page.before
         && prependedNodes(antes, groupActions(st.chat[localId] ?? [], working)) === 0
@@ -78,4 +99,13 @@ export function useLoadingOlder(localId: string | undefined): boolean {
     return () => { listeners.delete(cb) }
   }, [])
   return useSyncExternalStore(subscribe, () => (localId ? inFlight.has(localId) : false))
+}
+
+/** O topo da lista convida a carregar a página anterior: falhou, ou a sequência automática parou no teto. */
+export function useOlderWaiting(localId: string | undefined): boolean {
+  const subscribe = useCallback((cb: () => void) => {
+    listeners.add(cb)
+    return () => { listeners.delete(cb) }
+  }, [])
+  return useSyncExternalStore(subscribe, () => (localId ? waitingTop.has(localId) : false))
 }

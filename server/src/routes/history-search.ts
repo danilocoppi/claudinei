@@ -35,7 +35,7 @@ export function registerHistorySearchRoutes(app: FastifyInstance, deps: { db: Db
     const query = req.query as Record<string, unknown>
     const q = typeof query.q === 'string' ? query.q.trim() : ''
     if (q.length < Q_MIN || q.length > Q_MAX) {
-      return reply.code(400).send(fail('invalid_query', `a busca deve ter de ${Q_MIN} a ${Q_MAX} caracteres`))
+      return reply.code(400).send(fail('invalid_query', `a busca deve ter de ${Q_MIN} a ${Q_MAX} caracteres`, { min: Q_MIN, max: Q_MAX }))
     }
     if (query.tools !== undefined && query.tools !== '0' && query.tools !== '1') {
       return reply.code(400).send(fail('invalid_tools', 'tools deve ser 0 ou 1'))

@@ -239,7 +239,7 @@ export const ptBR: typeof en = {
     noAgents: 'Nenhum outro agente ativo', subagent: 'subagente', unknownProject: 'projeto',
     stop: 'Parar o turno',
     toFoot: 'Ir para o fim',
-    startOfConversation: 'início da conversa', loadingOlder: 'carregando mensagens anteriores…',
+    startOfConversation: 'início da conversa', loadOlder: 'carregar mensagens anteriores', loadingOlder: 'carregando mensagens anteriores…',
     interrupted: 'Interrompido pelo usuário',
     actionsGroup: '{{count}} ações',
     compactSummary: 'Contexto compactado', compactSummaryHint: 'resumo da conversa anterior · {{n}} linhas', compactSummaryFrom: 'de {{tokens}} tokens',
@@ -541,6 +541,10 @@ export const ptBR: typeof en = {
     admin_only: 'Só administradores podem fazer isso.',
     not_found: 'Não encontrado.',
     file_too_large: 'Arquivo grande demais.',
+    history_read_failed: 'Não foi possível ler o histórico da conversa.',
+    invalid_query: 'A busca deve ter de {{min}} a {{max}} caracteres.',
+    invalid_before: 'Posição inválida no histórico (before).',
+    invalid_limit: 'limit deve ser um número inteiro de 1 a {{max}}.',
   },
 }
 export default ptBR

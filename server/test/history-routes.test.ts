@@ -121,6 +121,8 @@ describe('rota de histórico em páginas', () => {
       const res = await app.inject({ method: 'GET', url: `/api/sessions/h-3/history?${q}` })
       expect(res.statusCode, q).toBe(400)
     }
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/h-3/history?limit=0' })).json())
+      .toMatchObject({ code: 'invalid_limit', params: { max: 500 } })
     expect((await app.inject({ method: 'GET', url: '/api/sessions/h-3/history?limit=500&before=0' })).statusCode).toBe(200)
   })
 

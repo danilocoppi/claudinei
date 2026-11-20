@@ -240,8 +240,11 @@ interface State {
   setFold(localId: string, id: string, open: boolean): void
   /**
    * Leva as dobras das chaves ao vivo para as confirmadas (`renamed` de `reconcileByKey`).
-   * O `setHistoryTail` faz a mesma troca por dentro (`moveFolds`), no mesmo `set`
-   * dos itens; esta ação é para quem trocar chaves fora dele.
+   * Faz parte da interface das dobras no store (plano da Task 4), para quem
+   * trocar chaves FORA do `setHistoryTail`. Hoje nenhum caminho da tela faz
+   * isso: o `setHistoryTail` troca as dobras por dentro (`moveFolds`), no mesmo
+   * `set` dos itens, para não haver um quadro com a chave nova e a dobra velha.
+   * Coberta em folds.test.tsx.
    */
   renameFolds(localId: string, renamed: Record<string, string>): void
   markHistoryLoaded(localId: string, engineSessionId: string): void

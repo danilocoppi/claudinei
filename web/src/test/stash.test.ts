@@ -64,6 +64,16 @@ describe('guardados por terminal', () => {
     expect(readStash(k)).toEqual([{ text: 'olha [📎 a.png]', attachments: [['[📎 a.png]', '/ups/a.png']], savedAt: 5 }])
   })
 
+  it('pushStash diz se gravou de fato', () => {
+    const k = stashKey(1, 'claude')
+    expect(pushStash(k, entrada('ok'))).toBe(true)
+    // cota estourada mesmo sem outros terminais para descartar: não gravou
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError') })
+    expect(pushStash(k, entrada('não cabe'))).toBe(false)
+    vi.restoreAllMocks()
+    expect(readStash(k).map((e) => e.text)).toEqual(['ok'])
+  })
+
   it('lixo no localStorage vira lista vazia', () => {
     const k = stashKey(1, 'claude')
     localStorage.setItem(STASH_KEY, 'isto não é json')
@@ -108,6 +118,8 @@ describe('guardados por terminal', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('bloqueado') })
     const k = stashKey(1, 'claude')
     expect(() => pushStash(k, entrada('x'))).not.toThrow()
+    // e avisa que não guardou: quem chama não pode apagar o campo
+    expect(pushStash(k, entrada('x'))).toBe(false)
     expect(readStash(k)).toEqual([])
     expect(popStash(k)).toBeUndefined()
   })

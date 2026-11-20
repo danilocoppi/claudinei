@@ -72,6 +72,27 @@ describe('Ctrl+S guarda o prompt para depois', () => {
     expect(enviadas).toEqual([])
   })
 
+  it('Ctrl+S que não consegue gravar mantém o campo e avisa', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okUpload('001-a.png'))
+    abrir('s1')
+    fireEvent.paste(campo(), { clipboardData: { files: [new File(['x'], 'a.png', { type: 'image/png' })] } })
+    await vi.waitFor(() => expect(campo().value).toContain('[📎 001-a.png]'))
+    digitar(`não perca ${campo().value}`)
+    // armazenamento cheio/bloqueado só para os guardados
+    const real = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+      if (k === 'claudinei:stash') throw new DOMException('quota', 'QuotaExceededError')
+      real.call(this, k, v)
+    })
+    expect(ctrlS()).toBe(false)
+    expect(campo().value).toBe('não perca [📎 001-a.png]')
+    expect(readStash(K1)).toEqual([])
+    expect(screen.getByText(/Não deu para guardar/)).toBeTruthy()
+    // o anexo continua valendo no envio
+    fireEvent.keyDown(campo(), { key: 'Enter' })
+    expect(enviadas).toEqual([{ type: 'send_message', localId: 's1', text: 'não perca /ups/001-a.png' }])
+  })
+
   it('Ctrl+S com o campo vazio e nada guardado não faz nada (mas segura o navegador)', () => {
     abrir('s1')
     expect(ctrlS()).toBe(false)

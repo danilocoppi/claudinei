@@ -84,6 +84,7 @@ export function ChatInput({
   const [stash, setStash] = useState<StashEntry[]>(() => (termKey ? readStash(termKey) : []))
   useEffect(() => { setStash(termKey ? readStash(termKey) : []) }, [termKey])
   const [stashOpen, setStashOpen] = useState(false)
+  const [stashError, setStashError] = useState<string | null>(null)
   const stashBtnRef = useRef<HTMLButtonElement>(null)
   // checagem dos anexos de um guardado em andamento: outro Ctrl+S espera
   const restoring = useRef(false)
@@ -277,7 +278,13 @@ export function ChatInput({
     }
     // Só os anexos cujo token ainda está no texto: apagar o token não limpa o mapa.
     const anexos = [...attachments.current].filter(([tok]) => text.includes(tok))
-    pushStash(termKey, { text, attachments: anexos, savedAt: Date.now() })
+    // Não gravou (armazenamento cheio ou bloqueado): o campo fica como está, com
+    // os anexos valendo. Limpar aqui seria perder o texto sem rastro.
+    if (!pushStash(termKey, { text, attachments: anexos, savedAt: Date.now() })) {
+      setStashError(t('stash.saveFailed'))
+      return
+    }
+    setStashError(null)
     setStash(readStash(termKey))
     setText('')
     histIdxRef.current = null
@@ -486,6 +493,7 @@ export function ChatInput({
           onChange={(e) => {
             setText(e.target.value)
             setSlashDismissed(false); setActiveIndex(0); histIdxRef.current = null
+            setStashError(null)
             // `@@` abre terminais; `@!` abre arquivos. A conferência é pela
             // POSIÇÃO DO CURSOR, não pelo texto inteiro: um gatilho mais atrás
             // na frase já foi resolvido ou foi descartado, e reabrir a lista por
@@ -574,8 +582,8 @@ export function ChatInput({
         <button className="chat-send" onClick={submit} disabled={disabled || uploading > 0}
                 title={t('chat.sendHint')}>{t('common.send')}</button>
       </div>
-      {(uploadError || micError) && (
-        <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError}</div>
+      {(uploadError || micError || stashError) && (
+        <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError ?? stashError}</div>
       )}
     </div>
   )

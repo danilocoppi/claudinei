@@ -55,14 +55,15 @@ const write = (s: Stash): boolean => {
 /**
  * Grava; se a cota estourar, saem os guardados dos OUTROS terminais, do mais
  * antigo para o mais novo (ordem de inserção das chaves), até caber. Os deste
- * terminal nunca são os sacrificados.
+ * terminal nunca são os sacrificados. Devolve se gravou de fato.
  */
-function save(s: Stash, key: string): void {
-  if (write(s)) return
+function save(s: Stash, key: string): boolean {
+  if (write(s)) return true
   for (const k of Object.keys(s).filter((k) => k !== key)) {
     delete s[k]
-    if (write(s)) return
+    if (write(s)) return true
   }
+  return false
 }
 
 /** Lista vazia não deixa a chave para trás. */
@@ -75,11 +76,16 @@ export function readStash(key: string): StashEntry[] {
   return readAll()[key] ?? []
 }
 
-export function pushStash(key: string, entry: StashEntry): void {
+/**
+ * `true` só quando o guardado foi gravado de fato. Com o armazenamento cheio ou
+ * bloqueado devolve `false`, e quem chama NÃO pode apagar o campo: o texto só
+ * existiria ali.
+ */
+export function pushStash(key: string, entry: StashEntry): boolean {
   const s = readAll()
   // passando do teto, o mais antigo (o do começo) sai
   setList(s, key, [...(s[key] ?? []), entry].slice(-STASH_MAX))
-  save(s, key)
+  return save(s, key)
 }
 
 /** Tira e devolve o mais novo. */

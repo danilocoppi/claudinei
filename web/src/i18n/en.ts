@@ -461,6 +461,7 @@ export const en = {
     menu: 'Saved prompts',
     attachments: '{{count}} attachment', attachments_other: '{{count}} attachments',
     missing: 'no longer available',
+    saveFailed: 'Could not save: the browser storage is full or blocked. The text is still in the input.',
   },
   zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
   fileViewer: {

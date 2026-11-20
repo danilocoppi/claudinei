@@ -463,6 +463,7 @@ export const es: typeof en = {
     menu: 'Prompts guardados',
     attachments: '{{count}} adjunto', attachments_other: '{{count}} adjuntos',
     missing: 'ya no disponible',
+    saveFailed: 'No se pudo guardar: el almacenamiento del navegador está lleno o bloqueado. El texto sigue en el campo.',
   },
   zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
   fileViewer: {

@@ -464,6 +464,7 @@ export const ptBR: typeof en = {
     menu: 'Prompts guardados',
     attachments: '{{count}} anexo', attachments_other: '{{count}} anexos',
     missing: 'não disponível',
+    saveFailed: 'Não deu para guardar: o armazenamento do navegador está cheio ou bloqueado. O texto continua no campo.',
   },
   zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. Alt+Z liga e desliga.' },
   fileViewer: {

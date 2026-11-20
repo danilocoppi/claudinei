@@ -109,7 +109,7 @@ interface State {
   schedules: Schedule[]
   /** Aparência do usuário. O servidor é a verdade; aqui fica o que está aplicado. */
   appearance: Appearance
-  view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal' | 'schedules'
+  view: 'dashboard' | 'chat' | 'board' | 'tasks' | 'terminal' | 'schedules' | 'usage'
   board: BoardPost[]
   tasks: Task[]
   /** Arquivo aberto no FileViewerModal (path detectado/resolvido no chat), ou null se fechado. */
@@ -206,6 +206,8 @@ interface State {
   openBoard(): void
   setTasks(tasks: Task[]): void
   openTasks(): void
+  /** Página de uso (tokens por terminal, modelo e período). Só administrador chega aqui. */
+  openUsage(): void
   openFile(path: string, kind: FileKind, projectId?: number): void
   closeFile(): void
   setFileEditDirty(v: boolean): void
@@ -626,6 +628,8 @@ export const useStore = create<State>((set, get) => ({
   setTasks: (tasks) => set({ tasks }),
 
   openTasks: () => set({ view: 'tasks', activeLocalId: undefined }),
+
+  openUsage: () => set({ view: 'usage', activeLocalId: undefined }),
 
   openFile: (path, kind, projectId) => set({ fileViewer: { path, kind, projectId } }),
 

@@ -65,6 +65,7 @@ export function UsageCard() {
   const [limits, setLimits] = useState<UsageLimit[]>([])
   const [tokens, setTokens] = useState<Record<string, EngineUsage>>({})
   const engines = useStore((s) => s.engines)
+  const openUsage = useStore((s) => s.openUsage)
   // avançado = todas as barras; desligado = só a sessão atual. Persistido.
   const [advanced, setAdvanced] = useState(() => localStorage.getItem(ADVANCED_KEY) === '1')
   const [showInfo, setShowInfo] = useState(false)
@@ -214,6 +215,8 @@ export function UsageCard() {
           </div>
         )
       })}
+      {/* A página de uso: tokens por terminal, modelo e período (também no Ctrl+U). */}
+      <button type="button" className="usage-card__details" onClick={openUsage}>{t('usagePage.viewDetails')}</button>
       {showInfo && <UsageInfo onClose={() => setShowInfo(false)} />}
     </div>
   )

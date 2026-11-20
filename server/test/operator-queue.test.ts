@@ -170,7 +170,7 @@ describe('serviço da fila do operador', () => {
     expect(svc.offer(ctx())).toBe(true)
     // Segundo aviso de "livre" no mesmo tique: a sessão já está trabalhando.
     expect(svc.offer(ctx())).toBe(false)
-    expect(sends()).toEqual([['send', LOCAL, 'a', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'a', { echo: true, queued: true }]])
     expect(texts()).toEqual(['b'])
     // needs_attention também é livre.
     mgr.status.set(LOCAL, 'needs_attention')
@@ -246,7 +246,7 @@ describe('serviço da fila do operador', () => {
     svc2.add(project.id, 'claude', 'só um')
     mgr.status.set(LOCAL, 'idle')
     expect(svc2.offer(ctx())).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'só um', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'só um', { echo: true, queued: true }]])
     expect(svc2.dto(project.id, 'claude')).toMatchObject({ items: [], paused: false, pauseReason: null })
     expect(warnings).toHaveLength(1)
   })
@@ -254,7 +254,7 @@ describe('serviço da fila do operador', () => {
   it('add com sessão livre e fila vazia entrega na hora', () => {
     mgr.status.set(LOCAL, 'idle')
     const dto = svc.add(project.id, 'claude', 'agora')
-    expect(sends()).toEqual([['send', LOCAL, 'agora', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'agora', { echo: true, queued: true }]])
     expect(dto.items).toEqual([])
     // Trabalhando: guarda.
     const dto2 = svc.add(project.id, 'claude', 'depois')
@@ -284,7 +284,7 @@ describe('serviço da fila do operador', () => {
     queued('claude', 'a', 'b')
     const b = svc.dto(project.id, 'claude').items[1]
     const dto = svc.sendNow(b.id)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
     expect(mgr.calls.some((c) => c[0] === 'interrupt')).toBe(false)
     expect(dto.items.map((i) => i.text)).toEqual(['a'])
     // Com a fila pausada também injeta, e a pausa continua enquanto sobra item.
@@ -300,7 +300,7 @@ describe('serviço da fila do operador', () => {
     queued('claude', 'c', 'd')
     mgr.status.set(LOCAL, 'idle')
     svc.sendNow(svc.dto(project.id, 'claude').items[1].id)
-    expect(sends().at(-1)).toEqual(['send', LOCAL, 'd', { echo: true }])
+    expect(sends().at(-1)).toEqual(['send', LOCAL, 'd', { echo: true, queued: true }])
     expect(texts()).toEqual(['c'])
     expect(codeOf(() => svc.sendNow(9999))).toBe('queue_item_not_found')
   })
@@ -316,7 +316,7 @@ describe('serviço da fila do operador', () => {
     expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: false, pauseReason: null })
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
     // A marca foi consumida: a próxima interrupção já é do operador.
     svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
     expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: true, pauseReason: 'interrupted' })
@@ -330,7 +330,7 @@ describe('serviço da fila do operador', () => {
     svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
     // Só o item do "enviar agora" passou; o resto espera o Retomar.
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(false)
@@ -344,7 +344,7 @@ describe('serviço da fila do operador', () => {
     // Kimi e OpenCode interrompidos só voltam a idle, sem result.
     mgr.status.set(LOCAL, 'idle')
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
     // O Esc do turno seguinte é do operador e pausa.
     svc.onTurnResult(project.id, 'kimi', { isError: false, interrupted: true, limited: false })
     expect(svc.dto(project.id, 'kimi')).toMatchObject({ paused: true, pauseReason: 'interrupted', items: [{ text: 'a' }] })
@@ -382,7 +382,7 @@ describe('serviço da fila do operador', () => {
     expect(texts('kimi')).toEqual(['b', 'a'])
     holding = false
     expect(svc.offer(ctx('kimi'))).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'b', { echo: true, queued: true }]])
   })
 
   it('fila vazia não pausa, e a fila que esvazia perde a pausa', () => {
@@ -437,7 +437,7 @@ describe('serviço da fila do operador', () => {
     // O aviso saiu (a retomada do Claudinei terminou): a fila continua sem Retomar.
     holding = false
     expect(svc.offer(ctx())).toBe(true)
-    expect(sends()).toEqual([['send', LOCAL, 'a', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'a', { echo: true, queued: true }]])
     // Mesmo com o turno do limite marcado como interrompido, não pausa.
     svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: true, limited: true })
     expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: false, pauseReason: null, items: [{ text: 'b' }] })
@@ -471,7 +471,7 @@ describe('serviço da fila do operador', () => {
     svc.pause(project.id, 'claude')
     mgr.status.set(LOCAL, 'idle')
     dto = svc.resume(project.id, 'claude')
-    expect(sends()).toEqual([['send', LOCAL, 'a', { echo: true }]])
+    expect(sends()).toEqual([['send', LOCAL, 'a', { echo: true, queued: true }]])
     expect(dto).toMatchObject({ paused: false, items: [{ text: 'b' }] })
     // Segurando: tira a pausa mas não entrega.
     svc.pause(project.id, 'claude')

@@ -209,8 +209,14 @@ export function createGoalService(deps: {
       publish(projectId, engine)
     },
 
-    /** Mensagem do operador que não é `/goal`: o goal que não acabou pausa. */
-    onOperatorMessage(projectId: number, engine: string): void {
+    /**
+     * Mensagem do operador que não é `/goal`: o goal que não acabou pausa. O item
+     * da fila do operador (`queued`) não pausa: a ordem única do próximo envio
+     * põe a fila (lugar 3) antes do continue (lugar 6), e o goal segue depois
+     * dela; o turno do item não conta.
+     */
+    onOperatorMessage(projectId: number, engine: string, info?: { queued?: boolean }): void {
+      if (info?.queued) return
       const key = keyOf({ projectId, engine })
       if (sendingStart.has(key)) return
       // O operador falou no meio da partida: aquele turno já não é do goal.

@@ -131,8 +131,10 @@ interface Deps {
   /**
    * Chamado quando o OPERADOR manda uma mensagem (manager.send, o que ele digita).
    * O que o próprio Claudinei manda (sendAsClaudinei, tarefas, agendamentos) não conta.
+   * `queued`: a mensagem saiu da fila do operador (lugar 3 do árbitro), não foi
+   * digitada agora; o goal não pausa por ela (ele vem sempre depois da fila).
    */
-  onOperatorMessage?: (projectId: number, engine: EngineId) => void
+  onOperatorMessage?: (projectId: number, engine: EngineId, info: { queued: boolean }) => void
   /**
    * Comando do Claudinei digitado no chat (hoje só o `/goal`: `/goal` sozinho ou
    * `/goal <...>`, não `/goalx`). Chamado no início do `send`, com a sessão viva.
@@ -869,8 +871,9 @@ export function createSessionManager(deps: Deps) {
     /**
      * Mensagem do operador. `echo`: a sessão emite também o evento `user`, para a
      * mensagem aparecer no chat quando não foi digitada nele (ex.: item da fila).
+     * `queued`: vem da fila do operador (repassado ao `onOperatorMessage`).
      */
-    send(localId: string, text: string, opts?: { echo?: boolean }): void {
+    send(localId: string, text: string, opts?: { echo?: boolean; queued?: boolean }): void {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
       // O /goal tratado pelo Claudinei não vai à sessão nem conta como mensagem do operador.
@@ -886,7 +889,7 @@ export function createSessionManager(deps: Deps) {
       else entry.session.send(text)
       entry.origin = 'operator'
       // Só depois do envio aceito: mensagem recusada não conta como o operador agindo.
-      try { deps.onOperatorMessage?.(entry.projectId, entry.engine) } catch {}
+      try { deps.onOperatorMessage?.(entry.projectId, entry.engine, { queued: !!opts?.queued }) } catch {}
     },
 
     /**

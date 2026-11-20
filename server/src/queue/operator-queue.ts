@@ -222,7 +222,8 @@ export function createOperatorQueueService(deps: {
    */
   const deliver = (projectId: number, engine: string, localId: string, item: QueueItem): boolean => {
     try {
-      manager.send(localId, item.text, { echo: true })
+      // `queued`: o goal não pausa pelo item da fila (lugar 3 vem antes do 6).
+      manager.send(localId, item.text, { echo: true, queued: true })
     } catch (err) {
       try {
         store.putFirst(projectId, engine, item)

@@ -111,7 +111,7 @@ describe('manager no reinício do serviço', () => {
 
     mgr.send(localId, 'oi de novo')
     expect(onOperatorMessage).toHaveBeenCalledTimes(1)
-    expect(onOperatorMessage).toHaveBeenCalledWith(project.id, 'claude')
+    expect(onOperatorMessage).toHaveBeenCalledWith(project.id, 'claude', { queued: false })
   })
 
   it('send com echo repassa echoToClients à sessão e conta como mensagem do operador', async () => {
@@ -127,7 +127,7 @@ describe('manager no reinício do serviço', () => {
     const spy = vi.spyOn(session!, 'send')
     echoMgr.send(localId, 'da fila', { echo: true })
     expect(spy).toHaveBeenLastCalledWith('da fila', { echoToClients: true })
-    expect(onOperatorMessage).toHaveBeenCalledWith(project.id, 'claude')
+    expect(onOperatorMessage).toHaveBeenCalledWith(project.id, 'claude', { queued: false })
     await waitUntil(() => echoMgr.get(localId)?.status !== 'working')
     // Sem a opção, a chamada à sessão continua a de sempre.
     echoMgr.send(localId, 'normal')

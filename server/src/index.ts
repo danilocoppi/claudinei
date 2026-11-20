@@ -228,10 +228,10 @@ if (process.argv.includes('--hermes')) {
     // Só a morte de verdade: o manager não chama no encerramento do serviço.
     onSessionDied: (projectId, engine) => both('sessão morreu',
       () => queue?.onSessionDied(projectId, engine)),
-    onOperatorMessage: (projectId, engine) => both('mensagem do operador',
+    onOperatorMessage: (projectId, engine, info) => both('mensagem do operador',
       () => restart?.onOperatorMessage(projectId, engine),
       () => limit?.onOperatorMessage(projectId, engine),
-      () => goal?.onOperatorMessage(projectId, engine)),
+      () => goal?.onOperatorMessage(projectId, engine, info)),
     // O `/goal` digitado (ou vindo da fila) é do goal; antes de ele existir, segue como mensagem comum.
     interceptCommand: (ctx, text) => goal?.command(ctx, text) ?? false,
     // Também pelo both: só para a falha sair no log (o manager engole o erro).

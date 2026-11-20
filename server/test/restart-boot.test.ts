@@ -38,6 +38,8 @@ const row = (over: Partial<TerminalStateRow> = {}): TerminalStateRow => ({
   autostart: false, autoResume: false,
   interruptedAt: null, interruptedLocalId: null,
   lostQuestion: null, resumeCount: 0, holdReason: null,
+  autoResumeLimit: false,
+  limitHitAt: null, limitResetsAt: null, limitAction: 'none', limitOrigin: null, limitTries: 0,
   ...over,
 })
 const interrupted = (over: Partial<TerminalStateRow> = {}) =>
@@ -598,7 +600,10 @@ describe('createRestartService: mensagens e interruptores', () => {
     const p = newProject('P')
     const { svc } = makeService()
     const dto = svc.setPrefs(p.id, 'claude', { autostart: true })
-    expect(dto).toEqual({ projectId: p.id, engine: 'claude', autostart: true, autoResume: false, interruption: null })
+    expect(dto).toEqual({
+      projectId: p.id, engine: 'claude', autostart: true, autoResume: false, interruption: null,
+      autoResumeLimit: false, usageLimit: null,
+    })
     expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: dto })
     expect(svc.list()).toEqual([dto])
   })

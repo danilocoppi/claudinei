@@ -5,7 +5,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { parseFromTail } from '../../tail.js'
+import { parseFromTail, readPositionedTail, type PositionedLine } from '../../tail.js'
+import type { HistoryPage, HistoryPageOptions, PositionedEvent } from '../../history-page.js'
 import type { AgentEvent } from '../types.js'
 import type { ApiMessage, ContentBlock } from '../../claude/events.js'
 import { kimiHomeFor } from './kimi-home.js'
@@ -63,50 +64,59 @@ export function parseWire(file: string): Promise<AgentEvent[]> {
 
 export function parseWireText(text: string): AgentEvent[] {
   const events: AgentEvent[] = []
-  for (const line of text.split('\n')) {
-    const s = line.trim(); if (!s) continue
-    let o: any; try { o = JSON.parse(s) } catch { continue }
-
-    // O texto do usuário vem do turn.prompt. O `context.append_message` que o
-    // segue repete o mesmo conteúdo E carrega os system-reminders injetados
-    // (plugins/skills) — usá-lo duplicaria a mensagem e poluiria o chat.
-    if (o.type === 'turn.prompt' && o.origin?.kind === 'user') {
-      const text = (Array.isArray(o.input) ? o.input : [])
-        .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
-        .map((p: any) => p.text).join('')
-      if (text) events.push(user([{ type: 'text', text }], o))
-      continue
-    }
-
-    if (o.type !== 'context.append_loop_event') continue
-    const evt = o.event
-    switch (evt?.type) {
-      case 'content.part': {
-        const part = evt.part
-        if (part?.type === 'text' && part.text) events.push(assistant([{ type: 'text', text: part.text }], o))
-        else if (part?.type === 'think' && part.think) events.push(assistant([{ type: 'thinking', thinking: part.think }], o))
-        break
-      }
-      case 'tool.call':
-        events.push(assistant([{
-          type: 'tool_use',
-          id: evt.toolCallId ?? evt.uuid ?? '',
-          name: evt.name ?? 'tool',
-          input: evt.args ?? {},
-        }], o))
-        break
-      case 'tool.result':
-        events.push(user([{
-          type: 'tool_result',
-          tool_use_id: evt.toolCallId ?? evt.parentUuid ?? '',
-          content: typeof evt.result?.output === 'string' ? evt.result.output : JSON.stringify(evt.result?.output ?? ''),
-          is_error: !!evt.result?.isError,
-        }], o))
-        break
-      // step.begin/step.end/usage.record: sem efeito no chat
-    }
-  }
+  for (const line of text.split('\n')) parseWireLine(line, (e) => events.push(e))
   return events
+}
+
+/** O mesmo parser, linha a linha, com o byte de cada linha no evento. */
+export function parseWireLines(lines: PositionedLine[]): PositionedEvent[] {
+  const events: PositionedEvent[] = []
+  for (const { text, pos } of lines) parseWireLine(text, (e) => events.push({ ...e, pos }))
+  return events
+}
+
+function parseWireLine(line: string, emit: (e: AgentEvent) => void): void {
+  const s = line.trim(); if (!s) return
+  let o: any; try { o = JSON.parse(s) } catch { return }
+
+  // O texto do usuário vem do turn.prompt. O `context.append_message` que o
+  // segue repete o mesmo conteúdo E carrega os system-reminders injetados
+  // (plugins/skills) — usá-lo duplicaria a mensagem e poluiria o chat.
+  if (o.type === 'turn.prompt' && o.origin?.kind === 'user') {
+    const text = (Array.isArray(o.input) ? o.input : [])
+      .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
+      .map((p: any) => p.text).join('')
+    if (text) emit(user([{ type: 'text', text }], o))
+    return
+  }
+
+  if (o.type !== 'context.append_loop_event') return
+  const evt = o.event
+  switch (evt?.type) {
+    case 'content.part': {
+      const part = evt.part
+      if (part?.type === 'text' && part.text) emit(assistant([{ type: 'text', text: part.text }], o))
+      else if (part?.type === 'think' && part.think) emit(assistant([{ type: 'thinking', thinking: part.think }], o))
+      break
+    }
+    case 'tool.call':
+      emit(assistant([{
+        type: 'tool_use',
+        id: evt.toolCallId ?? evt.uuid ?? '',
+        name: evt.name ?? 'tool',
+        input: evt.args ?? {},
+      }], o))
+      break
+    case 'tool.result':
+      emit(user([{
+        type: 'tool_result',
+        tool_use_id: evt.toolCallId ?? evt.parentUuid ?? '',
+        content: typeof evt.result?.output === 'string' ? evt.result.output : JSON.stringify(evt.result?.output ?? ''),
+        is_error: !!evt.result?.isError,
+      }], o))
+      break
+    // step.begin/step.end/usage.record: sem efeito no chat
+  }
 }
 
 export interface TurnTokens { input: number; cachedInput: number; output: number; reasoning: number; total: number }
@@ -146,4 +156,12 @@ export function readHistory(projectPath: string, sessionId: string): Promise<Age
   const dir = sessionDirOf(projectPath, sessionId)
   if (!dir) return Promise.resolve([])
   return parseWire(join(dir, 'agents', 'main', 'wire.jsonl'))
+}
+
+/** Uma página do wire.jsonl: os eventos antes de `opts.before`, de trás para a frente. */
+export async function readHistoryPage(projectPath: string, sessionId: string, opts: HistoryPageOptions): Promise<HistoryPage> {
+  const dir = sessionDirOf(projectPath, sessionId)
+  if (!dir) return { events: [], start: 0, atStart: true }
+  const r = await readPositionedTail(join(dir, 'agents', 'main', 'wire.jsonl'), parseWireLines, opts)
+  return { events: r.items, start: r.start, atStart: r.atStart }
 }

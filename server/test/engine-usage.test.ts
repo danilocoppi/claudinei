@@ -104,6 +104,16 @@ describe('createEngineUsageService', () => {
       expect(svc.recentEngines()).toEqual(['codex'])
     })
 
+    it('record sem tokens no mesmo dia UTC não renova a hora do último uso', () => {
+      let clock = new Date('2026-07-10T00:30:00Z')
+      const svc = createEngineUsageService(db, () => clock)
+      svc.record('kimi', tk(10))
+      clock = new Date('2026-07-10T23:30:00Z') // mesma linha do dia: cai no ELSE do CASE
+      svc.record('kimi', tk(0))
+      clock = new Date('2026-07-11T01:00:00Z') // 24,5 h depois do último uso com tokens
+      expect(svc.recentEngines()).toEqual([])
+    })
+
     it('record com zero tokens não conta como uso', () => {
       let clock = new Date('2026-07-01T12:00:00Z')
       const svc = createEngineUsageService(db, () => clock)

@@ -71,6 +71,17 @@ describe('UsageCard — só motores usados nas últimas 24 h', () => {
     expect(screen.getByRole('button', { name: 'Ver detalhes' })).toBeTruthy()
   })
 
+  it('modo simples (Avançado desligado) também esconde os motores fora de `active`', async () => {
+    localStorage.setItem('claudinei.usageAdvanced', '0')
+    render(<UsageCard />)
+    await waitFor(() => expect(screen.getByText('Codex')).toBeTruthy())
+    expect(blocos()).toEqual(['Codex'])
+    expect(screen.queryByText('Kimi Code')).toBeNull()
+    // só a barra da sessão do Claude; o Kimi (plano em 0%) não ganha barra
+    expect(document.querySelectorAll('.usage-bar')).toHaveLength(1)
+    expect(screen.getByText('Sessão atual')).toBeTruthy()
+  })
+
   it('servidor sem `active` (versão antiga) → mostra todos, como antes', async () => {
     vi.mocked(fetchUsage).mockResolvedValueOnce({ limits: LIMITS, tokens: TOKENS } as never)
     render(<UsageCard />)

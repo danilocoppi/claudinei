@@ -139,8 +139,6 @@ export function UsageCard() {
       </div>
     )
   }
-  // Cabeçalho só diz "Claude" quando a lista é só dele; misturada, vira neutro.
-  const mixed = limits.some((l) => (l.provider ?? 'claude') !== 'claude')
   const claudeUpdated = Math.max(...claudeBars.map((l) => (l.updatedAt ? Date.parse(l.updatedAt) : NaN)).filter(Number.isFinite))
   const staleSince = Number.isFinite(claudeUpdated) && now - claudeUpdated > STALE_MS
     ? new Date(claudeUpdated).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : null

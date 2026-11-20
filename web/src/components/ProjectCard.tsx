@@ -7,6 +7,7 @@ import { StartSessionModal } from './StartSessionModal'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { EnginePickerMenu } from './EnginePickerMenu'
 import { Icon } from './Icon'
+import { listedOf, pickableEngines } from '../terminalEngines'
 
 export function ProjectCard({ project, session, unread }: {
   project: Project
@@ -65,7 +66,7 @@ export function ProjectCard({ project, session, unread }: {
       {showStart && <StartSessionModal project={project} onClose={() => setShowStart(false)} />}
       {reviveMenu && session && (
         <EnginePickerMenu
-          engines={engines}
+          engines={pickableEngines(engines, listedOf(project))}
           x={reviveMenu.x}
           y={reviveMenu.y}
           onClose={() => setReviveMenu(null)}

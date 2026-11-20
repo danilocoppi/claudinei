@@ -30,6 +30,8 @@ beforeEach(() => {
     view: 'dashboard', activeLocalId: undefined,
     engines: [CLAUDE, CODEX],
     groups: [],
+    // Um teste que liga a régua e falha antes de desligá-la não contamina os seguintes.
+    railMode: false,
   })
   localStorage.removeItem('claudinei:collapsedGroups')
   localStorage.removeItem('claudinei:collapsedCards')

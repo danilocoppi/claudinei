@@ -261,7 +261,7 @@ export const en = {
     engineNotInstalled: 'not installed',
     engineNotInstalledHint: 'CLI not found on the server PATH. Install it',
     addEngine: 'Add engine',
-    addEngineHint: 'The engine gets a tab in this terminal. To remove it, edit the terminal.',
+    addEngineHint: 'The engine gets a tab in this terminal. To remove it, or to include one that is not installed, edit the terminal.',
   },
   question: {
     titleOne: 'The agent has a question for you',

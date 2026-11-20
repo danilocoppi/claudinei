@@ -58,6 +58,34 @@ describe('EngineTabs — abas seguem a lista do terminal', () => {
     expect(codex.textContent).not.toContain('não instalada')
   })
 
+  it('no +, o motor não instalado fica desabilitado e o clique não grava nada', () => {
+    setup(['claude'], [CLAUDE, CODEX, { ...KIMI, available: false }, OPENCODE])
+    const spy = vi.spyOn(api, 'setProjectEngines').mockResolvedValue(project(['claude', 'kimi']))
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    const menu = openMenu()
+    const kimi = Array.from(menu.querySelectorAll('.sess-pop__item')).find((el) => el.textContent?.includes('Kimi Code'))!
+    expect(kimi.className).toContain('sess-pop__item--disabled')
+    fireEvent.click(kimi)
+    expect(spy).not.toHaveBeenCalled()
+    const codex = Array.from(menu.querySelectorAll('.sess-pop__item')).find((el) => el.textContent?.includes('Codex'))!
+    expect(codex.className).not.toContain('sess-pop__item--disabled')
+  })
+
+  it('com todos os escondidos não instalados, o + aparece e os lista desabilitados', () => {
+    setup(['claude'], [CLAUDE, { ...CODEX, available: false }, { ...KIMI, available: false }])
+    const spy = vi.spyOn(api, 'setProjectEngines').mockResolvedValue(project(['claude', 'codex']))
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    expect(addButton()).not.toBeNull()
+    const menu = openMenu()
+    const items = Array.from(menu.querySelectorAll('.sess-pop__item'))
+    expect(items.map((el) => el.querySelector('.engine-add__label')?.textContent)).toEqual(['Codex', 'Kimi Code'])
+    for (const el of items) {
+      expect(el.className).toContain('sess-pop__item--disabled')
+      fireEvent.click(el)
+    }
+    expect(spy).not.toHaveBeenCalled()
+  })
+
   it('escolher no + chama setProjectEngines com a lista mais o motor e a aba aparece', async () => {
     // "futuro" é um id que esta tela não conhece: precisa voltar ao servidor intacto.
     setup(['claude', 'futuro'])

@@ -264,7 +264,7 @@ export const ptBR: typeof en = {
     engineNotInstalled: 'não instalada',
     engineNotInstalledHint: 'CLI não encontrada no PATH do servidor. Instale',
     addEngine: 'Acrescentar engine',
-    addEngineHint: 'A engine ganha uma aba neste terminal. Para retirar, edite o terminal.',
+    addEngineHint: 'A engine ganha uma aba neste terminal. Para retirar, ou para incluir uma não instalada, edite o terminal.',
   },
   question: {
     titleOne: 'O agente tem uma pergunta para você',

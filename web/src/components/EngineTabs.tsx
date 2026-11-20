@@ -190,10 +190,13 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
               return (
                 <div
                   key={e.id}
-                  className={`sess-pop__item${adding ? ' sess-pop__item--disabled' : ''}`}
-                  // Não instalada também entra na lista: a aba aparece quando a CLI for instalada.
+                  className={`sess-pop__item${adding || missing ? ' sess-pop__item--disabled' : ''}`}
+                  // Não instalada aparece, mas desabilitada como no EnginePickerMenu:
+                  // acrescentá-la daqui não daria aba nenhuma, e o clique pareceria
+                  // não fazer nada. Quem quiser deixá-la na lista usa a edição do terminal.
                   title={missing ? `${t('chat.engineNotInstalledHint')}${e.installHint ? ` — ${e.installHint}` : ''}` : undefined}
-                  onClick={() => { void addEngine(e.id) }}
+                  aria-disabled={missing || undefined}
+                  onClick={missing ? undefined : () => { void addEngine(e.id) }}
                 >
                   <EngineIcon icon={e.icon} /><span className="engine-add__label">{e.label}</span>
                   {missing && <span className="engine-picker__missing">{t('chat.engineNotInstalled')}</span>}

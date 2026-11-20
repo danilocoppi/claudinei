@@ -263,7 +263,7 @@ export const es: typeof en = {
     engineNotInstalled: 'no instalada',
     engineNotInstalledHint: 'CLI no encontrada en el PATH del servidor. Instálala',
     addEngine: 'Añadir motor',
-    addEngineHint: 'El motor gana una pestaña en este terminal. Para quitarlo, edita el terminal.',
+    addEngineHint: 'El motor gana una pestaña en este terminal. Para quitarlo, o para incluir uno no instalado, edita el terminal.',
   },
   question: {
     titleOne: 'El agente tiene una pregunta para ti',

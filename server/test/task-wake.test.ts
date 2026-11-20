@@ -29,8 +29,10 @@ import '../src/engine/index.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = join(__dirname, 'fake-claude.mjs')
+/** Com `tardio`, o CLI falso só manda o init junto da 1ª mensagem: a sessão fica em `starting`, como a revivida na subida. */
+let tardio = false
 const fakeFactory = (opts: SessionOptions) =>
-  new ClaudeSession({ ...opts, claudeBin: process.execPath, extraArgsOverride: [FAKE] })
+  new ClaudeSession({ ...opts, claudeBin: process.execPath, extraArgsOverride: tardio ? [FAKE, '--init-tardio'] : [FAKE] })
 
 const waitUntil = async (cond: () => boolean, ms = 5000) => {
   const start = Date.now()
@@ -78,11 +80,19 @@ beforeEach(async () => {
   mgrEvents = []
   clock = Date.now()
   timers = []
+  tardio = false
   const projects = createProjectsService(db)
   origem = projects.create({ name: 'Origem', path: mkdtempSync(join(tmpdir(), 'tw-o-')) })
   destino = projects.create({ name: 'Destino', path: mkdtempSync(join(tmpdir(), 'tw-d-')) })
   store = createTerminalStateStore(db)
+  build()
+})
 
+/**
+ * Monta o serviço sobre o banco atual: manager, orchestrator, árbitro, reinício,
+ * limite e o aviso de tarefa. Chamar de novo simula o Claudinei subindo outra vez.
+ */
+function build(): void {
   let arbiter: NextSend | undefined
   mgr = createSessionManager({
     db, sessionFactory: fakeFactory, broadcast: (m) => mgrEvents.push(m),
@@ -153,7 +163,14 @@ beforeEach(async () => {
   })
   wake = createTaskWake({ db, manager: mgr, store, restart, nextSend: () => nextSend, holds, log: (m) => logs.push(m) })
   nextSend.register(wake.provider)
-})
+}
+
+/** Derruba o serviço montado (o encerramento antes de uma nova subida). */
+async function teardown(): Promise<void> {
+  limit.dispose()
+  await mgr.stopAll()
+  await app.close()
+}
 
 /** A reabertura do limite: avança o relógio até o timer pendente e o dispara. */
 async function reopen(): Promise<void> {
@@ -165,9 +182,7 @@ async function reopen(): Promise<void> {
 }
 
 afterEach(async () => {
-  limit.dispose()
-  await mgr.stopAll()
-  await app.close()
+  await teardown()
 })
 
 /** Sobe uma sessão do terminal e espera ficar livre. */
@@ -565,6 +580,55 @@ describe('aviso de resultado ao terminal que delegou', () => {
     expect(tasks().get(c)!.notify).toBe('pending')
     expect(lastState(quarto.id)?.taskResults).toEqual([{ id: c, toProjectName: 'Destino', status: 'completed' }])
     expect(mgr.list().some((s) => s.projectId === quarto.id && ACTIVE.has(s.status))).toBe(false)
+  })
+
+  /**
+   * O Claudinei sobe de novo com um resultado pendente e um limite adiado que
+   * venceu enquanto ele estava fora: a subida do limite (antes da do aviso, como
+   * no startAfterListen) limpa o limite e publica. Nada pode sair sozinho.
+   */
+  async function restartWithOverdueSnooze(): Promise<number> {
+    const o = await up(origem)
+    await teardown()
+    expect(ACTIVE.has(mgr.get(o)?.status ?? 'stopped')).toBe(false)
+    store.setPrefs(origem.id, 'claude', { autoResume: true })
+    store.recordUsageLimit(origem.id, 'claude', { resetsAt: Math.floor(Date.now() / 1000) - 3600, origin: 'operator' })
+    store.setLimitAction(origem.id, 'claude', 'snoozed')
+    const { id } = tasks().create(origem.id, destino.id, 'antes do reinício', 'queued', 'claude')
+    tasks().setResult(id, 'completed', 'feito')
+    tasks().setNotify([id], 'pending')
+    build()
+    return id
+  }
+
+  it('subida: limite adiado vencido fora do ar não faz o aviso sair sozinho (origem parada, retomar ligado)', async () => {
+    const id = await restartWithOverdueSnooze()
+    await limit.boot()   // processDue: o adiado vencido sai e publica
+    expect(store.get(origem.id, 'claude').limitHitAt).toBeNull()
+    await wake.boot()
+    await pause()
+    expect(notices()).toEqual([])
+    expect(tasks().get(id)!.notify).toBe('pending')
+    expect(mgr.list().some((s) => s.projectId === origem.id && ACTIVE.has(s.status))).toBe(false)
+    expect(lastState(origem.id)?.taskResults).toEqual([{ id, toProjectName: 'Destino', status: 'completed' }])
+  })
+
+  it('subida: limite adiado vencido fora do ar não faz o aviso sair sozinho (origem já de pé); o turno do operador entrega', async () => {
+    const id = await restartWithOverdueSnooze()
+    // A origem já subiu pela subida do reinício ("iniciar com o Claudinei") e
+    // segue em `starting`: livre para o árbitro, sem fim de turno que a ofereça antes.
+    tardio = true
+    const { localId: o } = mgr.start(origem, { engine: 'claude' })
+    await pause()
+    expect(mgr.get(o)?.status).toBe('starting')
+    await limit.boot()
+    await wake.boot()
+    await pause()
+    expect(notices()).toEqual([])
+    mgr.send(o, 'oi')
+    await waitUntil(() => notices().length === 1)
+    expect(notices()[0].localId).toBe(o)
+    expect(tasks().get(id)!.notify).toBe('delivered')
   })
 
   it('o provedor é o lugar 4 e cede ao 3 (fila do operador) na mesma folga', async () => {

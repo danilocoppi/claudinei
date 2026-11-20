@@ -62,6 +62,15 @@ export function createTaskWake(deps: {
 
   /** Terminais (chave `projeto:motor`) segurados pelo limite de uso até voltarem a trabalhar. */
   const limitHeld = new Set<string>()
+  /** Refaz a marca pelo estado gravado: todo terminal com limite registrado. */
+  const markLimitedRows = (): void => {
+    for (const r of store.list()) if (r.limitHitAt != null) limitHeld.add(keyOf(r))
+  }
+  // Na construção (o buildApp, antes do startAfterListen): a subida do limite
+  // roda antes da deste serviço e limpa o adiado que venceu com o Claudinei
+  // fora do ar, publicando (e cutucando o árbitro). Se a marca só nascesse no
+  // `boot`, o limite já teria saído e o aviso iria sem ninguém trabalhar.
+  markLimitedRows()
   /** Marca o terminal se ele está no limite agora; devolve se está segurado. */
   const heldByLimit = (t: Terminal): boolean => {
     if (store.get(t.projectId, t.engine).limitHitAt != null) limitHeld.add(keyOf(t))
@@ -239,8 +248,9 @@ export function createTaskWake(deps: {
      * projeto de origem foi apagado) vira `none`.
      */
     async boot(): Promise<void> {
-      // A marca do limite é só da memória: refeita pelo estado gravado.
-      for (const r of store.list()) if (r.limitHitAt != null) limitHeld.add(keyOf(r))
+      // A marca do limite é só da memória: refeita pelo estado gravado (de novo
+      // aqui, para um limite gravado entre a construção e a subida).
+      markLimitedRows()
       const targets = new Map<string, Terminal>()
       for (const t of tasks.allPendingNotify()) {
         // Desvio deliberado da regra "só a sessão viva": um aviso sem motor de

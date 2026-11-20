@@ -236,7 +236,8 @@ describe('marca no cartão da lateral', () => {
   })
 
   it.each([
-    ['none com hora', { action: 'none' as const }, 'limite até 15:00'],
+    // Em none, sem hora sempre: a marca não se atualiza quando a janela reabre (R11).
+    ['none com hora', { action: 'none' as const }, 'limite de uso'],
     ['none sem hora', { action: 'none' as const, resetsAt: null }, 'limite de uso'],
     ['armado', { action: 'armed' as const }, 'retoma às 15:01'],
   ])('%s: %s', (_nome, o, texto) => {
@@ -251,11 +252,13 @@ describe('marca no cartão da lateral', () => {
     expect(screen.queryByTestId('limit-marker')).toBeNull()
 
     act(() => useStore.getState().setTerminalState(limitado()))
-    expect(within(cartao('Alpha')).getByTestId('limit-marker').textContent).toBe('limite até 15:00')
+    expect(within(cartao('Alpha')).getByTestId('limit-marker').textContent).toBe('limite de uso')
 
     const antes = commits
-    // Interruptor, origem e hora do bate mudados; outro terminal mudado: a marca continua a mesma.
+    // Interruptor, origem, hora do bate e (em none) a reabertura mudados; outro
+    // terminal mudado: a marca continua a mesma.
     act(() => useStore.getState().setTerminalState(limitado({ origin: 'schedule', hitAt: '2026-11-20 15:51:00' }, { autoResumeLimit: true })))
+    act(() => useStore.getState().setTerminalState(limitado({ origin: 'schedule', resetsAt: REABRE + 3600 }, { autoResumeLimit: true })))
     act(() => useStore.getState().setTerminalState(estado({ projectId: 2, autostart: true })))
     expect(commits).toBe(antes)
 

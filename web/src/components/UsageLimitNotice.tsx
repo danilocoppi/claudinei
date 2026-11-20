@@ -142,21 +142,25 @@ export function UsageLimitNotice({ projectId, engine }: { projectId: number; eng
 
 /**
  * O que a marca do cartão mostra, compacto: `<ação>:<resetsAt>` do primeiro
- * terminal do projeto com limite ativo, ou `null`. Só uma string: a lateral não
- * se redesenha quando muda o que a marca não mostra (interruptores, origem,
- * hora do bate, outros terminais).
+ * terminal do projeto com limite ativo, ou `null` (em `none`, sem a hora: a
+ * marca não a mostra). Só uma string: a lateral não se redesenha quando muda o
+ * que a marca não mostra (interruptores, origem, hora do bate, outros terminais).
  */
 const limitMarkerKey = (states: Record<string, TerminalState>, projectId: number): string | null => {
   for (const st of Object.values(states)) {
-    if (st.projectId === projectId && st.usageLimit) return `${st.usageLimit.action}:${st.usageLimit.resetsAt ?? ''}`
+    if (st.projectId !== projectId || !st.usageLimit) continue
+    const { action, resetsAt } = st.usageLimit
+    return action === 'none' ? 'none:' : `${action}:${resetsAt ?? ''}`
   }
   return null
 }
 
 /**
  * Marca do cartão da lateral: o terminal está no limite de uso, em qualquer ação.
- * Com o aviso adiado, é o único sinal que fica. "limite até 15:00" (sem a hora,
- * "limite de uso"); armado, "retoma às 15:01". Estática (sem GPU).
+ * Com o aviso adiado, é o único sinal que fica. Em `none`, sempre "limite de
+ * uso", sem a hora: a marca não se atualiza quando a janela reabre, e o aviso
+ * já mostra a hora. Adiado, "limite até 15:00"; armado, "retoma às 15:01".
+ * Estática (sem GPU).
  */
 export const UsageLimitCardMarker = memo(function UsageLimitCardMarker({ projectId }: { projectId: number }) {
   const { t, i18n } = useTranslation()
@@ -164,7 +168,7 @@ export const UsageLimitCardMarker = memo(function UsageLimitCardMarker({ project
   if (!marker) return null
   const [action, raw] = marker.split(':')
   const resetsAt = raw ? Number(raw) : null
-  const text = resetsAt == null ? t('limit.cardMarkerUnknown')
+  const text = action === 'none' || resetsAt == null ? t('limit.cardMarkerUnknown')
     : action === 'armed' ? t('limit.cardMarkerArmed', { time: formatLimitTime(resetsAt + RESUME_GRACE_S, i18n.language) })
     : t('limit.cardMarker', { time: formatLimitTime(resetsAt, i18n.language) })
   return <span data-testid="limit-marker" className="term-card__limit" title={text}>{text}</span>

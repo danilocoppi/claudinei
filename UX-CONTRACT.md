@@ -183,6 +183,6 @@ O lint de `DESIGN.md` terminou sem erros/avisos. A auditoria estática global em
 - **Continuar quando reabrir** arma a retomada: o aviso passa ao tom de destaque e diz "Retomada armada para 15:01", com **Cancelar** (volta ao aviso) e **Continuar agora**.
 - **Adiar até reabrir** esconde o aviso até a reabertura, sem mandar nada.
 - O × tira o aviso sem retomar. **Continuar agora** revive a sessão, se preciso, e manda a mensagem de retomada; se a chamada falha (por exemplo, a sessão está trabalhando), o erro aparece no próprio aviso, que fica. Mandar qualquer mensagem pelo campo também tira o aviso, e um turno que termina sem erro também.
-- O cartão da lateral mostra uma marca estática enquanto o terminal está no limite, em qualquer ação: "limite até 15:00" ("limite de uso" sem a hora) e, armado, "retoma às 15:01". Com o aviso adiado, é o único sinal que fica.
+- O cartão da lateral mostra uma marca estática enquanto o terminal está no limite, em qualquer ação: com o aviso à vista (`none`), sempre "limite de uso", sem a hora (a marca não se atualiza quando a janela reabre, e o aviso já mostra a hora); adiado, "limite até 15:00"; armado, "retoma às 15:01". Com o aviso adiado, é o único sinal que fica.
 - A mensagem de retomada vai ao agente em inglês e aparece no chat como cartão com o selo "Claudinei", no idioma da tela ("A janela do limite de uso reabriu…"), e não como mensagem do operador.
 - O aviso e a marca são estáticos, sem animação: a interface precisa andar sem GPU.

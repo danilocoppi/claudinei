@@ -1,4 +1,4 @@
-import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
+import type { EngineMeta, HistoryPage, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -178,8 +178,17 @@ export const openTerminal = (localId: string) =>
   req<{ token: string; wsUrl: string }>(`/api/sessions/${localId}/terminal`, { method: 'POST' })
 export const closeTerminal = (localId: string) =>
   req<void>(`/api/sessions/${localId}/terminal`, { method: 'DELETE' })
-export const fetchHistory = (localId: string) =>
-  req<ClaudeEvent[]>(`/api/sessions/${localId}/history`)
+/**
+ * Uma página do histórico: sem `before`, o fim da conversa; com ele, os eventos
+ * anteriores àquela posição (o `before` da página mais antiga já carregada).
+ */
+export const fetchHistory = (localId: string, before?: number, limit?: number) => {
+  const params = new URLSearchParams()
+  if (before !== undefined) params.set('before', String(before))
+  if (limit !== undefined) params.set('limit', String(limit))
+  const query = params.toString()
+  return req<HistoryPage>(`/api/sessions/${localId}/history${query ? `?${query}` : ''}`)
+}
 
 export interface DirEntry { name: string; path: string; isDir: boolean }
 export interface DirListing { path: string; parent: string | null; entries: DirEntry[] }

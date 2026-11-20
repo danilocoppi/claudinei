@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import { CODEX_FALLBACK_CATALOG } from '../../shared/codex-models'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
-import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
+import type { ChatItem, EngineMeta, HistoryPage, Project, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import { resolvedKey, type FileKind, type ScopeResult } from './files'
-import { applyEvent } from './chat/applyEvent'
+import { applyEvent, liveKey } from './chat/applyEvent'
+import { mergeOlder, mergeTail, type OrphanResults } from './chat/reconcile'
 import { notifyQuestion, notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
@@ -105,6 +106,10 @@ interface State {
   /** Preview efêmero de streaming token-a-token, por localId. Nunca entra em chat[]; some quando o evento assistant/result real chega. */
   streaming: Record<string, string>
   historyLoadedFor: Record<string, string>
+  /** Até onde as páginas do histórico já foram carregadas, por localId: `before` da mais antiga e se ela chegou ao começo. */
+  historyCursor: Record<string, { before: number; atStart: boolean }>
+  /** Resultados de ferramenta à espera da chamada, que está numa página antiga ainda não carregada, por localId. */
+  orphanResults: Record<string, OrphanResults>
   activeLocalId?: string
   /** Pedido de edição em curso: reenche o ChatInput da sessão-alvo com o texto original. `seq` distingue pedidos repetidos com o mesmo texto. */
   editRequest?: { localId: string; text: string; seq: number }
@@ -154,9 +159,13 @@ interface State {
   openSchedules(): void
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
-  setHistory(localId: string, events: ClaudeEvent[]): void
-  /** Substitui os itens do chat já reduzidos (usado pelo retag de sessões longas). */
-  setChatItems(localId: string, items: ChatItem[]): void
+  /**
+   * O fim do histórico (1ª carga ou refetch): reconcilia por chave com o que está
+   * na tela, sem perder as páginas antigas já carregadas. Ver `mergeTail`.
+   */
+  setHistoryTail(localId: string, page: HistoryPage): void
+  /** Página mais antiga, acrescentada no topo. Ver `mergeOlder`. */
+  prependHistory(localId: string, page: HistoryPage): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
   /** Reconexão do WS: eventos podem ter se perdido na queda. Invalida os históricos
    *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
@@ -261,7 +270,7 @@ export const useStore = create<State>((set, get) => ({
     // saved windows also prevents an old ActionRun from launching again later.
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
-      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
+      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {},
       actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
@@ -271,6 +280,8 @@ export const useStore = create<State>((set, get) => ({
   unread: {},
   streaming: {},
   historyLoadedFor: {},
+  historyCursor: {},
+  orphanResults: {},
   activeLocalId: undefined,
   editRequest: undefined,
   slashCommands: BUILTIN_FALLBACK,
@@ -315,11 +326,30 @@ export const useStore = create<State>((set, get) => ({
 
   setEngines: (engines) => set({ engines }),
 
-  setHistory: (localId, events) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: events.reduce(applyEvent, [] as ChatItem[]) } })),
+  setHistoryTail: (localId, page) =>
+    set((s) => {
+      const r = mergeTail(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {})
+      // `r.renamed` (chave ao vivo → confirmada) é o gancho das dobras abertas:
+      // quem guardar estado por chave aplica a troca aqui (Task 4).
+      const cursor = r.reset || !s.historyCursor[localId]
+        ? { before: page.before, atStart: page.atStart }
+        : s.historyCursor[localId]
+      return {
+        chat: { ...s.chat, [localId]: r.items },
+        historyCursor: { ...s.historyCursor, [localId]: cursor },
+        orphanResults: { ...s.orphanResults, [localId]: r.orphans },
+      }
+    }),
 
-  setChatItems: (localId, items) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: items } })),
+  prependHistory: (localId, page) =>
+    set((s) => {
+      const r = mergeOlder(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {})
+      return {
+        chat: { ...s.chat, [localId]: r.items },
+        historyCursor: { ...s.historyCursor, [localId]: { before: page.before, atStart: page.atStart } },
+        orphanResults: { ...s.orphanResults, [localId]: r.orphans },
+      }
+    }),
 
   markHistoryLoaded: (localId, engineSessionId) =>
     set((s) => ({ historyLoadedFor: { ...s.historyLoadedFor, [localId]: engineSessionId } })),
@@ -407,7 +437,7 @@ export const useStore = create<State>((set, get) => ({
     }),
 
   addLocalUserText: (localId, text) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text }] } })),
+    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text, key: liveKey() }] } })),
 
   /**
    * Item que nasce AQUI, sem passar pela engine — hoje só o `!comando`.
@@ -417,7 +447,7 @@ export const useStore = create<State>((set, get) => ({
    * atalho existe justamente para não custar isso.
    */
   addLocalItem: (localId, item) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), item] } })),
+    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { ...item, key: item.key ?? liveKey() }] } })),
 
   requestEdit: (localId, text) =>
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
@@ -465,6 +495,8 @@ export const useStore = create<State>((set, get) => ({
         chat: pruneOrphans(s.chat, sessions),
         unread: pruneOrphans(s.unread, sessions),
         historyLoadedFor: pruneOrphans(s.historyLoadedFor, sessions),
+        historyCursor: pruneOrphans(s.historyCursor, sessions),
+        orphanResults: pruneOrphans(s.orphanResults, sessions),
         streaming: pruneOrphans(s.streaming, sessions),
         headsUps: pruneOrphans(s.headsUps, sessions),
         dismissedHeadsUps: pruneOrphans(s.dismissedHeadsUps, sessions),
@@ -617,7 +649,7 @@ export const useStore = create<State>((set, get) => ({
       set((s) => ({
         chat: {
           ...s.chat,
-          [localId]: [...(s.chat[localId] ?? []), { kind: 'command_output', text: output, ...(isError ? { isError: true } : {}) }],
+          [localId]: [...(s.chat[localId] ?? []), { kind: 'command_output', text: output, ...(isError ? { isError: true } : {}), key: liveKey() }],
         },
       }))
     } else if (msg.type === 'board_post') {

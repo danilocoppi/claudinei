@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
+import { applyEvent } from '../chat/applyEvent'
 import { isEditableUserText, lastUserTexts } from '../chat/history'
 import { MessageBlock } from '../components/MessageBlock'
 import { useStore } from '../store'
@@ -69,8 +69,12 @@ describe('instruções de skills do Codex no chat', () => {
   })
 
   it('corrige a autoria de uma mensagem já carregada em sessão longa', () => {
-    const previous: ChatItem[] = [{ kind: 'user_text', text: skill }]
-    const updated = mergeEngineFlags(previous, applyEvent([], event()))!
+    // Na tela, como chegou ao vivo (sem a marca); o refetch traz a mensagem confirmada.
+    const previous: ChatItem[] = [{ kind: 'user_text', text: skill, key: 'l1' }]
+    useStore.setState({ chat: { codex: previous } })
+    useStore.getState().setHistoryTail('codex', { events: [{ ...event(), pos: 0 } as ClaudeEvent], before: 0, atStart: true })
+    const updated = useStore.getState().chat.codex
+    expect(updated).toHaveLength(1)
     show(updated[0])
     expect(screen.getByText('by Codex')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Skills' })).toBeTruthy()

@@ -78,23 +78,42 @@ export interface PendingQuestion { toolUseId: string; questions: Question[] }
 
 export interface ApiMessage { role: string; content: ContentBlock[] | string }
 
+/**
+ * `pos`: byte de início da linha do evento no arquivo da engine (OpenCode: índice
+ * sintético). Só vem do histórico; o ao vivo não tem. É o que dá chave estável aos
+ * itens do chat (ver applyEvent.ts).
+ */
 export type ClaudeEvent =
   | { kind: 'init'; sessionId: string; model: string; slashCommands?: string[]; raw: unknown }
-  | { kind: 'assistant'; message: ApiMessage; raw: unknown; contextTokens?: number }
-  | { kind: 'user'; message: ApiMessage; fromEngine?: boolean; raw: unknown }
-  | { kind: 'system'; subtype: string; raw: unknown }
+  | { kind: 'assistant'; message: ApiMessage; raw: unknown; contextTokens?: number; pos?: number }
+  | { kind: 'user'; message: ApiMessage; fromEngine?: boolean; raw: unknown; pos?: number }
+  | { kind: 'system'; subtype: string; raw: unknown; pos?: number }
   | { kind: 'result'; subtype: string; isError: boolean; resultText: string; costUsd: number; raw: unknown }
   | { kind: 'raw'; raw: unknown }
   | { kind: 'parse_error'; line: string }
   | { kind: 'stream'; text: string; raw: unknown }
   | { kind: 'context'; contextTokens?: number; contextWindow?: number; raw: unknown }
 
+/** Página do histórico, como a rota `GET /api/sessions/:localId/history` devolve. */
+export interface HistoryPage {
+  events: ClaudeEvent[]
+  /** `pos` do 1º evento devolvido: passado de volta, traz a página anterior. */
+  before: number
+  /** Chegou ao começo da conversa (byte 0): não há página anterior. */
+  atStart: boolean
+}
+
 /**
  * `parentId`: id do tool_use do Agent que produziu este item — presente só no que
  * veio de um subagente. `fromSubagent` diz QUE veio de um; o parentId diz DE QUAL,
  * que é o que permite acompanhar vários subagentes em paralelo separadamente.
+ *
+ * `key`: chave estável — `p<pos>[.n]` para o que veio do histórico, `l<n>` para
+ * o que chegou ao vivo (provisória até o refetch confirmar). Ver applyEvent.ts.
  */
-export type ChatItem =
+export type ChatItem = ChatItemBody & { key?: string }
+
+type ChatItemBody =
   // fromEngine: conteúdo que aparece do lado do usuário mas foi injetado pela
   // engine/harness (isMeta, resumo de compact) — não foi digitado pelo operador.
   // compactSummary: o resumo que o CLI injeta após compactar o contexto — vira

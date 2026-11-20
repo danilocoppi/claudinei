@@ -9,7 +9,6 @@ import { ConfirmDialog } from './ConfirmDialog'
 import type { ChatItem, SessionStatus } from '../types'
 import { WsContext } from '../wsContext'
 import { isEditableUserText } from '../chat/history'
-import { applyEvent, mergeEngineFlags } from '../chat/applyEvent'
 import { RunningSubagents } from './RunningSubagents'
 import { BackgroundProcesses } from './BackgroundProcesses'
 import { CompactingIndicator } from './CompactingIndicator'
@@ -58,7 +57,7 @@ export function ChatView() {
   const items = useStore((s) => (activeLocalId ? s.chat[activeLocalId] : undefined) ?? EMPTY_ITEMS)
   const hasStreaming = useStore((s) => !!(activeLocalId && s.streaming[activeLocalId]))
   const loadedEngineSessionId = useStore((s) => activeLocalId ? s.historyLoadedFor[activeLocalId] : undefined)
-  const setHistory = useStore((s) => s.setHistory)
+  const setHistoryTail = useStore((s) => s.setHistoryTail)
   const markHistoryLoaded = useStore((s) => s.markHistoryLoaded)
   const openTerminal = useStore((s) => s.openTerminal)
   const progressOpen = useStore((s) => s.progressOpen)
@@ -89,26 +88,14 @@ export function ChatView() {
     const key = session.engineSessionId
       ?? (['starting', 'in_terminal', 'stopped'].includes(session.status) ? '(preview)' : null)
     if (!key || loadedEngineSessionId === key) return
-    fetchHistory(activeLocalId).then((events) => {
-      if (events.length > 0 || key !== '(preview)') {
-        // Não deixa uma re-busca ENCOLHER a conversa: quando o init chega (a 1ª
-        // mensagem gera o engineSessionId), o transcript da engine pode ainda não
-        // ter registrado a mensagem recém-enviada — o histórico volta curto/vazio e
-        // apagaria a mensagem otimista (addLocalUserText). Só substitui se o
-        // histórico carregado não perde itens do que já está na tela.
-        const reduced = events.reduce(applyEvent, [] as ChatItem[])
-        const current = useStore.getState().chat[activeLocalId] ?? []
-        if (reduced.length >= current.length) {
-          setHistory(activeLocalId, events)
-        } else {
-          // Sessão LONGA: o histórico vem limitado (últimos N eventos) e reduz a
-          // menos itens do que a tela acumulou — substituir encolheria a conversa.
-          // Ainda assim aproveita a rebusca para RETAGUEAR o que o stream ao vivo
-          // não sabia (fromEngine/isApiError), casando por texto.
-          const retagged = mergeEngineFlags(current, reduced)
-          if (retagged) useStore.getState().setChatItems(activeLocalId, retagged)
-        }
-      }
+    fetchHistory(activeLocalId).then((page) => {
+      // Preview vazio não apaga nada. No resto, a reconciliação por chave não
+      // deixa a releitura ENCOLHER a conversa: as páginas antigas já carregadas
+      // ficam, o que não mudou mantém o objeto (o bloco não re-renderiza), o ao
+      // vivo é trocado pelo confirmado — com as flags que só o transcript tem
+      // (fromEngine, isApiError) — e a mensagem otimista que o transcript ainda
+      // não gravou (o init chega antes) continua no fim. Ver chat/reconcile.ts.
+      if (page.events.length > 0 || key !== '(preview)') setHistoryTail(activeLocalId, page)
       markHistoryLoaded(activeLocalId, key)
     }).catch((err) => {
       // NÃO marca como carregado: o próximo disparo do efeito (troca de sessão,

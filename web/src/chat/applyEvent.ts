@@ -82,7 +82,39 @@ function classifyUserText(text: string): ChatItem[] {
   return items
 }
 
-export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
+/**
+ * Chave estável do item, para o React e para casar o refetch com o que já está
+ * na tela. Com `pos` (byte da linha no arquivo da engine, que só cresce no fim):
+ * o 1º item daquela posição é `p<pos>` e os seguintes `p<pos>.1`, `p<pos>.2`…
+ * A contagem é POR POSIÇÃO, não por evento: uma linha que vira mais de um evento
+ * (Codex) continua a contagem em vez de repetir `p<pos>`. Itens da mesma posição
+ * são sempre consecutivos, então basta olhar o último da lista.
+ */
+function posKey(list: ChatItem[], pos: number): string {
+  const base = `p${pos}`
+  const last = list[list.length - 1]?.key
+  if (last === base) return `${base}.1`
+  if (last?.startsWith(`${base}.`)) return `${base}.${Number(last.slice(base.length + 1)) + 1}`
+  return base
+}
+
+let liveSeq = 0
+/** Chave provisória de item ao vivo (sem posição): `l<n>`, única nesta página. O refetch a troca pela `p…` confirmada. */
+export function liveKey(): string {
+  return `l${++liveSeq}`
+}
+
+/** Resultado de ferramenta cuja chamada não está na lista (ficou numa página mais antiga). */
+export type OnOrphan = (toolUseId: string, result: string, isError: boolean) => void
+
+/**
+ * Núcleo MUTÁVEL: aplica o evento direto em `list` e diz se mexeu. O reduce de
+ * uma página inteira usa uma lista só (linear); `applyEvent` copia antes, para o
+ * caminho ao vivo continuar imutável.
+ */
+export function applyEventInto(list: ChatItem[], evt: ClaudeEvent, onOrphan?: OnOrphan): boolean {
+  const pos = 'pos' in evt && typeof evt.pos === 'number' ? evt.pos : undefined
+  const keyed = (it: ChatItem): ChatItem => ({ ...it, key: pos === undefined ? liveKey() : posKey(list, pos) })
   switch (evt.kind) {
     case 'assistant': {
       const parentId = (evt.raw as any)?.parent_tool_use_id
@@ -95,16 +127,18 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       // (o stream ao vivo não carrega a flag; o texto é gerado pelo próprio CLI).
       const flaggedApiError = !!(evt.raw as any)?.isApiErrorMessage
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
-      const added: ChatItem[] = []
+      let changed = false
       for (const b of blocks) {
+        let it: ChatItem | null = null
         if (b.type === 'text' && b.text) {
           const isApiError = flaggedApiError || /^API Error:/i.test(b.text)
-          added.push({ kind: 'assistant_text', text: b.text, ...sub, ...(isApiError ? { isApiError } : {}) })
+          it = { kind: 'assistant_text', text: b.text, ...sub, ...(isApiError ? { isApiError } : {}) }
         }
-        else if (b.type === 'thinking' && b.thinking) added.push({ kind: 'thinking', text: b.thinking, ...sub })
-        else if (b.type === 'tool_use' && b.id && b.name) added.push({ kind: 'tool_call', id: b.id, name: b.name, input: b.input, ...sub })
+        else if (b.type === 'thinking' && b.thinking) it = { kind: 'thinking', text: b.thinking, ...sub }
+        else if (b.type === 'tool_use' && b.id && b.name) it = { kind: 'tool_call', id: b.id, name: b.name, input: b.input, ...sub }
+        if (it) { list.push(keyed(it)); changed = true }
       }
-      return added.length ? [...items, ...added] : items
+      return changed
     }
     case 'user': {
       const raw = evt.raw as any
@@ -117,8 +151,8 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       // não manda isMeta — marca o injetado como isSynthetic; só o transcript usa
       // isMeta. Medido no CLI 2.1.223 com o texto idêntico de uma skill: ao vivo
       // {isSynthetic:true}, no histórico {isMeta:true}. Sem os dois, toda skill
-      // aparecia como bolha do usuário até o histórico recarregar (o retag de
-      // mergeEngineFlags só alcança o caminho de sessão longa).
+      // aparecia como bolha do usuário até o histórico recarregar (o refetch do
+      // fim do turno troca o item ao vivo pelo confirmado, com as flags dele).
       // Codex identifica developer/system no adaptador; as flags raw são do Claude.
       const fromEngine = !!(evt.fromEngine || raw?.isMeta || raw?.isCompactSummary || raw?.isSynthetic)
       const marks = { ...(fromSubagent ? { fromSubagent: true as const, parentId: parentId as string } : {}), ...(fromEngine ? { fromEngine } : {}) }
@@ -129,25 +163,29 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
           ? { ...it, fromEngine: true, compactSummary: true }
           : it
       const blocks = Array.isArray(evt.message.content) ? evt.message.content : []
-      let next = items
+      let changed = false
       // O resumo absorve a fronteira imediatamente anterior (e o preTokens dela):
       // a fronteira sozinha não tem o que mostrar, e o resumo sem ela não sabe o tamanho.
       const push = (it: ChatItem) => {
-        const stamped = stamp(it)
-        const prev = next[next.length - 1]
+        const stamped = keyed(stamp(it))
+        const prev = list[list.length - 1]
         if (stamped.kind === 'user_text' && stamped.compactSummary && prev?.kind === 'compact_boundary') {
-          next = [...next.slice(0, -1), prev.preTokens !== undefined ? { ...stamped, preTokens: prev.preTokens } : stamped]
+          list[list.length - 1] = prev.preTokens !== undefined ? { ...stamped, preTokens: prev.preTokens } : stamped
         } else {
-          next = [...next, stamped]
+          list.push(stamped)
         }
+        changed = true
       }
       for (const b of blocks) {
         if (b.type === 'tool_result' && b.tool_use_id) {
-          next = next.map((it) =>
-            it.kind === 'tool_call' && it.id === b.tool_use_id
-              ? { ...it, result: blockToText(b.content), isError: b.is_error === true, ...(fromSubagent ? { fromSubagent } : {}) }
-              : it,
-          )
+          // De trás para a frente: a chamada costuma estar logo antes do resultado.
+          // Copia só aquele item — o reduce de milhares de eventos não pode ser quadrático.
+          const result = blockToText(b.content)
+          const isError = b.is_error === true
+          const i = findLastCall(list, b.tool_use_id)
+          if (i < 0) { onOrphan?.(b.tool_use_id, result, isError); continue }
+          list[i] = { ...list[i], result, isError, ...(fromSubagent ? { fromSubagent } : {}) } as ChatItem
+          changed = true
         } else if (b.type === 'text' && b.text) {
           for (const it of classifyUserText(b.text)) push({ ...it, ...marks })
         }
@@ -155,50 +193,40 @@ export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
       if (typeof evt.message.content === 'string' && evt.message.content) {
         for (const it of classifyUserText(evt.message.content)) push({ ...it, ...marks })
       }
-      return next
+      return changed
     }
     case 'system': {
       if (evt.subtype === 'message_error' && typeof (evt.raw as any)?.message === 'string') {
-        return [...items, { kind: 'command_output', text: (evt.raw as any).message, isError: true }]
+        list.push(keyed({ kind: 'command_output', text: (evt.raw as any).message, isError: true }))
+        return true
       }
-      if (evt.subtype !== 'compact_boundary') return items
+      if (evt.subtype !== 'compact_boundary') return false
       // Ao vivo o stream-json manda compact_metadata.pre_tokens; o transcript
       // grava compactMetadata.preTokens (CLI 2.1.261). Os dois caminhos passam aqui.
       const raw = evt.raw as { compact_metadata?: { pre_tokens?: unknown }; compactMetadata?: { preTokens?: unknown } } | undefined
       const pre = raw?.compact_metadata?.pre_tokens ?? raw?.compactMetadata?.preTokens
-      return [...items, typeof pre === 'number' ? { kind: 'compact_boundary', preTokens: pre } : { kind: 'compact_boundary' }]
+      list.push(keyed(typeof pre === 'number' ? { kind: 'compact_boundary', preTokens: pre } : { kind: 'compact_boundary' }))
+      return true
     }
     default:
-      return items
+      return false
   }
 }
 
-/**
- * Retag para sessões LONGAS: o endpoint de histórico devolve só os últimos N
- * eventos — quando a tela acumulou mais itens que isso, substituir o chat
- * encolheria a conversa (o guard do ChatView rejeita). Este merge copia apenas
- * as FLAGS que o transcript conhece e o stream ao vivo não (fromEngine,
- * isApiError) para os itens já exibidos, casando por texto. Null = nada mudou.
- */
-export function mergeEngineFlags(current: ChatItem[], reduced: ChatItem[]): ChatItem[] | null {
-  const engineTexts = new Set<string>()
-  const apiErrTexts = new Set<string>()
-  for (const it of reduced) {
-    if (it.kind === 'user_text' && it.fromEngine) engineTexts.add(it.text)
-    if (it.kind === 'assistant_text' && it.isApiError) apiErrTexts.add(it.text)
+/** `findLastIndex` (ES2023) à mão: o alvo do projeto é ES2022. */
+function findLastCall(list: ChatItem[], id: string): number {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const it = list[i]
+    if (it.kind === 'tool_call' && it.id === id) return i
   }
-  if (engineTexts.size === 0 && apiErrTexts.size === 0) return null
-  let changed = false
-  const next = current.map((it) => {
-    if (it.kind === 'user_text' && !it.fromEngine && engineTexts.has(it.text)) {
-      changed = true
-      return { ...it, fromEngine: true }
-    }
-    if (it.kind === 'assistant_text' && !it.isApiError && apiErrTexts.has(it.text)) {
-      changed = true
-      return { ...it, isApiError: true }
-    }
-    return it
-  })
-  return changed ? next : null
+  return -1
+}
+
+/** Versão imutável, do caminho ao vivo: devolve a MESMA lista quando o evento não muda nada. */
+export function applyEvent(items: ChatItem[], evt: ClaudeEvent): ChatItem[] {
+  // Evento que não vira item não paga a cópia.
+  if (evt.kind !== 'assistant' && evt.kind !== 'user' && evt.kind !== 'system') return items
+  if (evt.kind === 'system' && evt.subtype !== 'message_error' && evt.subtype !== 'compact_boundary') return items
+  const next = items.slice()
+  return applyEventInto(next, evt) ? next : items
 }

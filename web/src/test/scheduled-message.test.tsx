@@ -24,6 +24,7 @@ describe('mensagem de agendamento no transcript', () => {
       name: 'Preços do produto X',
       run: 14,
       text: 'Busque o produto e liste as 3 lojas',
+      key: expect.stringMatching(/^l\d+$/), // ao vivo: chave provisória
     })
   })
 

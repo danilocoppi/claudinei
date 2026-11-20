@@ -10,8 +10,9 @@ import { dismissTriageError, undoTriage } from '../triageActions'
  * o prazo mora em `triageActions.ts`). No celular, sem teclado, o botão é a porta.
  *
  * O atalho é de quem tem o foco: num campo (o chat, a busca, a textarea do
- * terminal, um modal) o `Ctrl+Z` desfaz o texto, não a triagem. Um listener só,
- * montado com o App, que sem desfazer pendente sai na primeira linha.
+ * terminal) o `Ctrl+Z` desfaz o texto, não a triagem; dentro de um modal, mesmo
+ * num botão, também não: a triagem está atrás dele, fora da vista. Um listener
+ * só, montado com o App, que sem desfazer pendente sai na primeira linha.
  *
  * O mesmo canto mostra o aviso de falha de uma ação de triagem, venha ela da
  * lateral larga, do trilho ou do menu do título do chat: é o único lugar sempre na
@@ -19,6 +20,10 @@ import { dismissTriageError, undoTriage } from '../triageActions'
  *
  * Estático, sem animação nem transição: a interface precisa andar sem GPU.
  */
+/** O foco está dentro de um modal (o `.modal-overlay` dos modais do app, ou um `role="dialog"`)? */
+const inModal = (target: EventTarget | null): boolean =>
+  target instanceof Element && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"]')
+
 export function UndoToast() {
   const { t } = useTranslation()
   const undo = useStore((s) => s.undo)
@@ -28,7 +33,7 @@ export function UndoToast() {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return
       const u = useStore.getState().undo
-      if (!u || Date.now() >= u.expiresAt || e.defaultPrevented || isForeignField(e.target, null)) return
+      if (!u || Date.now() >= u.expiresAt || e.defaultPrevented || isForeignField(e.target, null) || inModal(e.target)) return
       e.preventDefault()
       void undoTriage()
     }

@@ -101,7 +101,10 @@ async function commit(projectId: number, patch: TriagePatch, errorKey: ErrorKey)
   try {
     const saved = await setTriage(projectId, patch)
     if (current(projectId) === optimistic) setTriageItem(saved)
-    return { before, after: current(projectId) ?? saved }
+    // `after` é o que a rota gravou, nunca o que está no store: um despertar que
+    // chegou antes da resposta deixaria o desfazer achar que nada mudou e
+    // esconder de novo quem acordou. O eco da própria ação tem o mesmo valor.
+    return { before, after: saved }
   } catch {
     if (current(projectId) === optimistic) setTriageItem(before)
     setError(errorKey)

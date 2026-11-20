@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 vi.mock('../speech/recorder', () => ({ micSupported: () => false, startMicCapture: vi.fn() }))
 
 import { Sidebar } from '../components/Sidebar'
 import { UndoToast } from '../components/UndoToast'
 import { ChatInput } from '../components/ChatInput'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import { applyTriage } from '../triageActions'
@@ -281,6 +285,28 @@ describe('triagem pelo menu do cartão', () => {
     expect(useStore.getState().triage[1]).toEqual(item(1))
   })
 
+  it('Ctrl+Z com foco num botão de modal não desfaz a triagem atrás dele', async () => {
+    renderApp(
+      <>
+        <ConfirmDialog title="Apagar?" message="Certeza?" confirmLabel="Apagar" onConfirm={() => {}} onClose={() => {}} />
+        <div role="dialog" aria-modal="true"><button type="button">Salvar</button></div>
+      </>,
+    )
+    fireEvent.click(openMenu('Alpha').getByText('Assentar'))
+    await settle()
+    for (const btn of [screen.getByRole('button', { name: 'Apagar' }), screen.getByRole('button', { name: 'Salvar' })]) {
+      btn.focus()
+      expect(ctrlZ(btn), btn.textContent ?? '').toBe(true)
+      await settle()
+    }
+    expect(patches).toHaveLength(1)
+    expect(useStore.getState().triage[1]).toEqual(item(1, { settled: true }))
+    // Fora do modal, o mesmo atalho desfaz.
+    ctrlZ(document.body)
+    await settle()
+    expect(useStore.getState().triage[1]).toEqual(item(1))
+  })
+
   it('falha da rota volta o estado e mostra o aviso', async () => {
     useStore.setState({ triage: { 1: item(1, { pinned: true }) } })
     failTriage = true
@@ -339,6 +365,27 @@ describe('triagem pelo menu do cartão', () => {
     expect(useStore.getState().undo).toBeNull()
   })
 
+  it('Desfazer não esconde de novo um terminal que acordou antes da resposta da rota', async () => {
+    const until = new Date(NOW + 3_600_000).toISOString()
+    useStore.setState({ triage: { 1: item(1, { snoozedUntil: until }) } })
+    server = { 1: item(1, { snoozedUntil: until }) }
+    const hold = holdRoute(1)
+    renderApp()
+    let done: Promise<void> = Promise.resolve()
+    act(() => { done = applyTriage(1, { settled: true }, 'Alpha assentado', null) })
+    // O despertar chega pelo WebSocket antes da resposta HTTP da própria ação.
+    wsTriage(item(1))
+    hold.release()
+    await act(() => done)
+    expect(useStore.getState().triage[1]).toEqual(item(1))
+    fireEvent.click(within(toast() as HTMLElement).getByRole('button', { name: 'Desfazer' }))
+    await settle()
+    // Nada vai à rota: o desfazer não re-adia quem o servidor acordou.
+    expect(patches).toHaveLength(1)
+    expect(useStore.getState().triage[1]).toEqual(item(1))
+    expect(useStore.getState().undo).toBeNull()
+  })
+
   it('falha da rota não apaga um despertar que chegou com o pedido a caminho', async () => {
     const until = new Date(NOW + 3_600_000).toISOString()
     useStore.setState({ triage: { 1: item(1, { snoozedUntil: until }) } })
@@ -370,5 +417,21 @@ describe('triagem pelo menu do cartão', () => {
     expect(patches.filter((p) => p.projectId === 1)).toHaveLength(1)
     hold.release()
     await act(() => first)
+  })
+})
+
+/**
+ * No celular a lateral é gaveta e o chat ocupa a tela: o canto de baixo à
+ * esquerda é a ponta da caixa de mensagem. O aviso sobe a altura medida do
+ * rodapé do chat (a mesma variável da pílula das ações), sem animação.
+ */
+describe('o aviso de desfazer não cobre a caixa do chat no celular', () => {
+  const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles.css'), 'utf8')
+
+  it('no celular, a posição sai da altura medida do rodapé, com padrão sem chat', () => {
+    const mobile = [...css.matchAll(/@media \(max-width: 768px\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join('\n')
+    const regra = mobile.match(/\.undo-toast\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(regra).toMatch(/bottom:\s*calc\(var\(--chat-foot-h,/)
+    expect(regra).not.toMatch(/transition|animation/)
   })
 })

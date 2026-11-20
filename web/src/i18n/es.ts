@@ -415,9 +415,9 @@ export const es: typeof en = {
   triage: {
     pin: 'Fijar', unpin: 'Dejar de fijar', settle: 'Asentar', unsettle: 'Quitar de asentados',
     snooze: 'Posponer', snooze1h: '1 h', snoozeTomorrow: 'Hasta mañana a las 9:00', snoozeMonday: 'Hasta el lunes a las 9:00',
-    unsnooze: 'Cancelar el aplazamiento',
+    unsnooze: 'Cancelar la posposición',
     didPin: '{{name}} fijado', didUnpin: '{{name}} dejó de estar fijado', didSettle: '{{name}} asentado',
-    didUnsettle: '{{name}} salió de asentados', didSnooze: '{{name}} pospuesto', didUnsnooze: 'Aplazamiento de {{name}} cancelado',
+    didUnsettle: '{{name}} salió de asentados', didSnooze: '{{name}} pospuesto', didUnsnooze: 'Posposición de {{name}} cancelada',
     undo: 'Deshacer', closeError: 'Cerrar aviso',
   },
   restart: {

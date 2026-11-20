@@ -16,6 +16,7 @@ import { CompactingIndicator } from './CompactingIndicator'
 import { ReauthBanner } from './ReauthBanner'
 import { InterruptedNotice } from './InterruptedNotice'
 import { UsageLimitNotice } from './UsageLimitNotice'
+import { TaskResultNotice } from './TaskResultNotice'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
@@ -338,6 +339,8 @@ export function ChatView() {
       <InterruptedNotice projectId={session.projectId} engine={engine} />
       {/* Limite de uso que o terminal desta aba bateu. */}
       <UsageLimitNotice projectId={session.projectId} engine={engine} />
+      {/* Tarefas que este terminal delegou terminaram, com ele parado: Continuar/×. */}
+      <TaskResultNotice projectId={session.projectId} engine={engine} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

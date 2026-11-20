@@ -138,6 +138,16 @@ export const usageLimitAction = (projectId: number, engine: string, action: 'arm
 /** O × do aviso: tira a marca de interrompido sem retomar. */
 export const dismissInterruption = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/interruption`, { method: 'DELETE' })
+/**
+ * Continuar do aviso de resultado de tarefa: revive o terminal, se preciso, e
+ * entrega os resultados pendentes quando ele estiver livre. 409
+ * `nothing_to_continue` quando não há mais nada pendente.
+ */
+export const continueTaskResults = (projectId: number, engine: string) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/task-results/continue`, { method: 'POST' })
+/** O × do aviso de resultado: dispensa os pendentes (o agente ainda os lê em list_tasks). */
+export const dismissTaskResults = (projectId: number, engine: string) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/task-results`, { method: 'DELETE' })
 export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
   req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
 /** Grava a lista de motores do terminal. O servidor ordena e devolve o terminal atualizado; não avisa os outros clientes. */

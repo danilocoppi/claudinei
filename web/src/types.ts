@@ -142,6 +142,32 @@ export type ChatItem =
    * mensagem digitada. `text` é o corpo em inglês, guardado só para referência.
    */
   | { kind: 'claudinei_message'; reason: 'restart' | 'limit'; text: string; fromSubagent?: boolean; parentId?: string }
+  /**
+   * Aviso de resultado de tarefa delegada (`[Claudinei: task result]`): o
+   * Claudinei acorda o terminal que delegou com o resultado. Várias tarefas
+   * saem numa mensagem só, um bloco por tarefa; `tasks` é a lista já separada.
+   */
+  | { kind: 'claudinei_message'; reason: 'task_result'; text: string; tasks: ClaudineiTaskResult[]; fromSubagent?: boolean; parentId?: string }
+  /**
+   * "Continue" do goal (`[Claudinei: goal]`), com o critério e o turno. `turn`
+   * e `max` ficam ausentes se o texto não casar com o formato conhecido.
+   */
+  | { kind: 'claudinei_message'; reason: 'goal'; text: string; criterion: string; turn?: number; max?: number; fromSubagent?: boolean; parentId?: string }
+  /** Partida do goal (`[Claudinei: goal start]`), com o critério. */
+  | { kind: 'claudinei_message'; reason: 'goal_start'; text: string; criterion: string; fromSubagent?: boolean; parentId?: string }
+
+/**
+ * Uma tarefa dentro do aviso de resultado: o número, o projeto que a recebeu, o
+ * estado e o resultado (markdown). `truncated`: o servidor cortou o resultado e
+ * o texto inteiro está em `list_tasks #<id>`.
+ */
+export interface ClaudineiTaskResult {
+  id: number
+  project: string
+  status: 'completed' | 'failed'
+  body: string
+  truncated?: boolean
+}
 
 /**
  * Um nó do cartão que o plugin "You should know" do Claude desenha (o mesmo que o
@@ -188,6 +214,26 @@ export interface TerminalState {
   /** "Continuar sozinho quando o limite reabrir" (só o Claude). */
   autoResumeLimit: boolean
   usageLimit: null | UsageLimit
+  /** Resultados de tarefas delegadas por este terminal ainda não entregues (só os pendentes). */
+  taskResults: { id: number; toProjectName: string; status: 'completed' | 'failed' }[]
+  /** O goal (`/goal`) do terminal; null = sem goal. */
+  goal: null | TerminalGoal
+}
+
+/**
+ * Goal do terminal. `active`: o laço gira; `waiting`: esperando tarefas
+ * delegadas; `paused`: parado (motivo em `pause`); `cap`: chegou ao teto de
+ * turnos; `done`: o agente declarou cumprido, com `evidence`.
+ */
+export type GoalStatus = 'active' | 'waiting' | 'paused' | 'cap' | 'done'
+export type GoalPause = 'operator' | 'error' | 'limit' | 'interrupt'
+export interface TerminalGoal {
+  criterion: string
+  status: GoalStatus
+  pause: GoalPause | null
+  turns: number
+  max: number
+  evidence: string | null
 }
 
 /**

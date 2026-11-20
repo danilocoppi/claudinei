@@ -72,9 +72,10 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
     engines, listed, projectId, sessions, activeLocalId,
     // O aviso de limite de uso conta como o de interrompido: o limite absorve a
     // marca do reinício, e a aba do motor escondido não pode sumir com o aviso aberto.
+    // Resultado de tarefa pendente também: o aviso vai ao motor que delegou, mesmo fora da lista.
     interrupted: (engine) => {
       const s = terminalStates[progressKey(projectId, engine)]
-      return s?.interruption != null || s?.usageLimit != null
+      return s?.interruption != null || s?.usageLimit != null || (s?.taskResults?.length ?? 0) > 0
     },
   })
   // Sem o terminal no store (ainda não carregou), a lista lida seria o padrão,

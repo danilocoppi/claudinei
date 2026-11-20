@@ -54,8 +54,17 @@ export const OLDER_PAGE_LIMIT = 200
 
 /** Sessões com um pedido de página anterior no ar: um por vez, por sessão. */
 const olderInFlight = new Set<string>()
-/** Sessões cujo último pedido de página anterior falhou: voltar ao topo tenta de novo. */
-const olderFailed = new Set<string>()
+/**
+ * Sessões que esperam o operador voltar ao topo para pedir a página anterior:
+ * o último pedido falhou, ou a sequência automática bateu no teto.
+ */
+const olderWaitTop = new Set<string>()
+/**
+ * Teto de páginas seguidas que só engordam o grupo do topo. Um turno longo de
+ * ações pode ter milhares delas, e sem GPU cada página custa render na thread
+ * principal: passou disso, espera o operador voltar ao topo.
+ */
+export const OLDER_CHAIN_LIMIT = 5
 
 /** O que o topo e o rodapé da lista recebem do ChatView (via `context` da lista virtual). */
 interface ListContext {
@@ -250,7 +259,7 @@ export function ChatView() {
   const loadOlder = useCallback(() => {
     if (!activeLocalId) return
     const id = activeLocalId
-    const pedir = () => {
+    const pedir = (seguidas = 0) => {
       const cursor = useStore.getState().historyCursor[id]
       if (!cursor || cursor.atStart || olderInFlight.has(id)) return
       const before = cursor.before
@@ -259,7 +268,7 @@ export function ChatView() {
       let deNovo = false
       fetchHistory(id, before, OLDER_PAGE_LIMIT)
         .then((page) => {
-          olderFailed.delete(id)
+          olderWaitTop.delete(id)
           const st0 = useStore.getState()
           const working = st0.sessions[id]?.status === 'working'
           const antes = groupActions(st0.chat[id] ?? [], working)
@@ -273,22 +282,28 @@ export function ChatView() {
             && prependedNodes(antes, groupActions(st.chat[id] ?? [], working)) === 0
         })
         .catch((err) => {
-          olderFailed.add(id)
+          olderWaitTop.add(id)
           console.error('[chat] falha ao carregar mensagens anteriores', err)
         })
         .finally(() => {
           olderInFlight.delete(id)
           setOlderLoading((cur) => (cur === id ? null : cur))
-          if (deNovo) pedir()
+          if (!deNovo) return
+          // O operador foi para outro terminal: a sequência para aqui (a
+          // página que já veio entrou na conversa dela).
+          if (useStore.getState().activeLocalId !== id) return
+          if (seguidas + 1 >= OLDER_CHAIN_LIMIT) { olderWaitTop.add(id); return }
+          pedir(seguidas + 1)
         })
     }
     pedir()
   }, [activeLocalId])
-  // Depois de uma falha, voltar ao topo tenta de novo: o `startReached` não
-  // repete o mesmo índice. Só depois de falha — ao abrir a conversa a lista
-  // passa pelo topo antes de descer ao fim, e isso não é pedido do operador.
+  // Depois de uma falha ou do teto da sequência, voltar ao topo pede de novo:
+  // o `startReached` não repete o mesmo índice. Só nesses casos — ao abrir a
+  // conversa a lista passa pelo topo antes de descer ao fim, e isso não é
+  // pedido do operador.
   const onAtTop = useCallback((atTop: boolean) => {
-    if (atTop && activeLocalId && olderFailed.has(activeLocalId)) loadOlder()
+    if (atTop && activeLocalId && olderWaitTop.has(activeLocalId)) loadOlder()
   }, [activeLocalId, loadOlder])
 
   // Terminal novo é conversa nova: chega-se no fim dela, não preso onde se estava.

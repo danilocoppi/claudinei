@@ -79,8 +79,10 @@ for (const nome of ['scrollBy', 'scrollTo'] as const) {
       const opts = typeof a === 'object' ? a : { left: a, top: b }
       if (typeof opts.top !== 'number') return
       this.scrollTop = nome === 'scrollBy' ? this.scrollTop + opts.top : opts.top
-      // Como no navegador: quem rola por método também avisa com `scroll`.
-      this.dispatchEvent(new Event('scroll'))
+      // Como no navegador: quem rola por método também avisa com `scroll`, e
+      // depois — não no meio de quem chamou (a lista chama de dentro de um
+      // efeito de layout, e o aviso síncrono cairia num flushSync ali dentro).
+      setTimeout(() => this.dispatchEvent(new Event('scroll')), 0)
     } as Element['scrollBy']
   }
 }

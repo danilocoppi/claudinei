@@ -180,6 +180,50 @@ describe('a conversa numa lista virtual', () => {
     expect(useStore.getState().historyCursor.s1.atStart).toBe(true)
   })
 
+  /** Páginas só de ações, sempre engordando o grupo do topo; o começo fica 10 páginas acima. */
+  const sóAções = async (url: unknown) => {
+    if (!String(url).includes('/history')) return json([])
+    const before = Number(new URL(String(url), 'http://x').searchParams.get('before'))
+    return json({ events: [evAcao(before - 20), evAcao(before - 10)], before: before - 20, atStart: before - 20 <= TOPO - 200 })
+  }
+
+  it('a sequência de páginas que só engordam o grupo para em 5 e espera voltar ao topo', async () => {
+    preparar([acao(TOPO), acao(TOPO + 10), acao(TOPO + 20), ...conversa(100, TOPO + 30)])
+    vi.mocked(globalThis.fetch).mockImplementation(sóAções)
+    await montar()
+    await rolar(0)
+    await esperar(600)
+    expect(historyCalls()).toHaveLength(5)
+    // Saiu do topo e voltou: segue de onde parou.
+    await rolar(ALTURA_ITEM * 40)
+    await rolar(0)
+    await esperar(600)
+    expect(historyCalls()).toHaveLength(10)
+    expect(historyCalls()[5]).toBe(`/api/sessions/s1/history?before=${TOPO - 100}&limit=200`)
+    expect(useStore.getState().historyCursor.s1.atStart).toBe(true)
+  })
+
+  it('a sequência para quando o operador troca de terminal', async () => {
+    preparar([acao(TOPO), acao(TOPO + 10), acao(TOPO + 20), ...conversa(100, TOPO + 30)])
+    let responder = () => {}
+    vi.mocked(globalThis.fetch).mockImplementation((url) => new Promise((r) => { responder = () => r(sóAções(url)) }))
+    await montar()
+    await rolar(0)
+    expect(historyCalls()).toHaveLength(1)
+    act(() => {
+      useStore.setState((s) => ({
+        sessions: { ...s.sessions, s2: { ...sess, localId: 's2' } },
+        chat: { ...s.chat, s2: conversa(10) }, historyLoadedFor: { ...s.historyLoadedFor, s2: 'c' },
+        historyCursor: { ...s.historyCursor, s2: { before: TOPO, atStart: true, conv: 'c' } },
+        activeLocalId: 's2',
+      }))
+    })
+    await act(async () => { responder(); await new Promise((r) => setTimeout(r, 600)) })
+    expect(historyCalls()).toHaveLength(1)
+    // A página que já estava a caminho entrou na conversa dela.
+    expect(useStore.getState().historyCursor.s1.before).toBe(TOPO - 20)
+  })
+
   it('no começo mostra "início da conversa" e não pede mais', async () => {
     preparar(conversa(100), { before: TOPO, atStart: true, conv: 'c' })
     await montar()

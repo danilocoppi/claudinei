@@ -914,6 +914,16 @@ button.term-card__favorite:disabled { cursor: wait; }
   font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
   color: var(--task-amber); font-weight: 700; margin-bottom: 6px;
 }
+/* Mensagem de retomada que o próprio Claudinei mandou depois de um reinício: a cor
+   de destaque da casa. Âmbar, teal e violeta já são task, agendamento e subagente. */
+.msg-bubble--claudinei {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.msg-claudinei__from {
+  font-size: 10px; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--accent); font-weight: 700; margin-bottom: 6px;
+}
 /* Mensagem despachada por um AGENDAMENTO: teal. Âmbar já é "task de outro
    terminal" e violeta é "subagente" — três origens de injeção, três hues. */
 .msg-bubble--scheduled {
@@ -1772,6 +1782,26 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .reauth__row { display: flex; gap: 8px; }
 .reauth__row input { flex: 1; min-width: 0; font-size: 12.5px; }
 .reauth__error { color: var(--err); font-size: 12px; }
+
+/* Trabalho interrompido pelo reinício do Claudinei, logo acima do campo. Âmbar
+   como o .reauth quando espera o operador (Continuar ou ×); no tom de destaque
+   enquanto está na fila para retomar sozinho, que é só informação. Sem animação:
+   a interface precisa andar sem GPU. */
+.restart-notice {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 8px 20px 0; padding: 10px 14px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  font-size: 13px; line-height: 1.45;
+}
+.restart-notice--queued {
+  background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.restart-notice__head { display: flex; align-items: center; gap: 8px; }
+.restart-notice__text { flex: 1; min-width: 0; }
+.restart-notice__close { padding: 2px 8px; font-size: 16px; line-height: 1; }
+.restart-notice__lost { color: var(--text-dim); font-size: 12.5px; }
+.restart-notice__lost ul { margin: 4px 0 0; padding-left: 18px; color: var(--text); }
+.restart-notice__error { color: var(--err); font-size: 12px; }
 
 /* Pergunta do agente (AskUserQuestion), acima da caixa de mensagem. É um PEDIDO,
    não um alerta: o tom é o de destaque, não o âmbar de aviso do .reauth. */

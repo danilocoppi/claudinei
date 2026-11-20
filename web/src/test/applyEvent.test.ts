@@ -271,6 +271,27 @@ describe('task despachada de outro terminal ([Task from …])', () => {
   })
 })
 
+describe('mensagem de retomada do Claudinei ([Claudinei: resume after restart])', () => {
+  const evt = (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } })
+  const BODY = 'The Claudinei service restarted in the middle of your turn. Continue where you left off; check the current state of the files before redoing anything.'
+
+  it('prefixo do Claudinei vira claudinei_message', () => {
+    const items = applyEvent([], evt(`[Claudinei: resume after restart]: ${BODY}`) as never)
+    expect(items).toEqual([{ kind: 'claudinei_message', text: BODY }])
+  })
+
+  it('ignora system-reminder anexado pelo harness', () => {
+    const items = applyEvent([], evt(`[Claudinei: resume after restart]: ${BODY}<system-reminder>ruído</system-reminder>`) as never)
+    expect(items).toEqual([{ kind: 'claudinei_message', text: BODY }])
+  })
+
+  it('o mesmo texto no meio da frase segue user_text', () => {
+    const text = 'olha isto: [Claudinei: resume after restart]: no meio da frase'
+    const items = applyEvent([], evt(text) as never)
+    expect(items).toEqual([{ kind: 'user_text', text }])
+  })
+})
+
 describe('parentId — de QUAL subagente o item veio', () => {
   it('assistant de subagente carrega o parentId junto do fromSubagent', () => {
     const out = applyEvent([], assistantEvt([{ type: 'text', text: 'oi' }], { parent_tool_use_id: 'toolu_A' }))

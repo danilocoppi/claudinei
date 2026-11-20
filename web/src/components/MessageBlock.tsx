@@ -342,6 +342,28 @@ function TaskMessageBubble({
   )
 }
 
+/**
+ * Mensagem que o próprio Claudinei mandou ao agente para retomar o turno que um
+ * reinício do serviço cortou. Vai em inglês ao agente; aqui aparece traduzida,
+ * com selo próprio — não foi o operador que escreveu, nem outro terminal. Sem
+ * lápis nem encaminhar: o texto é fixo e não é de ninguém para reaproveitar.
+ */
+function ClaudineiMessageBubble() {
+  const { t } = useTranslation()
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '8px 0' }}>
+      <div style={{ maxWidth: '70%' }}>
+        <div className="msg-bubble msg-bubble--claudinei">
+          <div className="msg-claudinei__from">
+            <span aria-hidden="true">↻</span> Claudinei
+          </div>
+          <div style={{ lineHeight: 1.6 }}>{t('chat.claudineiResume')}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SubagentWrapper({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   return (
@@ -429,6 +451,8 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
       return <TaskMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'scheduled_message':
       return <ScheduledMessageBubble item={item} currentLocalId={currentLocalId} />
+    case 'claudinei_message':
+      return <ClaudineiMessageBubble />
     case 'tool_call':
       return <ToolCallCard item={item} />
   }

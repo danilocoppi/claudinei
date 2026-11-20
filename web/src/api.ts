@@ -1,4 +1,4 @@
-import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo } from './types'
+import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -117,6 +117,17 @@ export const fetchProgress = (projectId: number, engine: string) =>
   req<{ progress: Progress | null; path: string }>(`/api/projects/${projectId}/progress?engine=${encodeURIComponent(engine)}`)
 export const clearProgress = (projectId: number, engine: string) =>
   req<void>(`/api/projects/${projectId}/progress?engine=${encodeURIComponent(engine)}`, { method: 'DELETE' })
+/** Reinício sem prejuízo: estado de todos os terminais com algo gravado (os demais estão no padrão: tudo desligado). */
+export const fetchTerminalStates = () => req<TerminalState[]>('/api/terminals/state')
+/** Liga/desliga "Iniciar com o Claudinei" e "Retomar trabalho interrompido" no terminal (projeto + motor). */
+export const setTerminalRestart = (projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean }) =>
+  req<TerminalState>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/restart`, { method: 'PATCH', body: JSON.stringify(p) })
+/** Continuar do aviso: revive a sessão, se preciso, e manda a mensagem de retomada. */
+export const continueTerminal = (projectId: number, engine: string) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/continue`, { method: 'POST' })
+/** O × do aviso: tira a marca de interrompido sem retomar. */
+export const dismissInterruption = (projectId: number, engine: string) =>
+  req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/interruption`, { method: 'DELETE' })
 export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
   req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
 export const setProjectFavorite = (id: number, favorite: boolean) =>

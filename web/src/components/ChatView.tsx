@@ -14,6 +14,7 @@ import { RunningSubagents } from './RunningSubagents'
 import { BackgroundProcesses } from './BackgroundProcesses'
 import { CompactingIndicator } from './CompactingIndicator'
 import { ReauthBanner } from './ReauthBanner'
+import { InterruptedNotice } from './InterruptedNotice'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
@@ -330,6 +331,8 @@ export function ChatView() {
       <InlineFileView localId={session.localId} />
       {/* Avisos do plugin "You should know" do Claude: logo acima do campo, como no terminal. */}
       <HeadsUpBand localId={session.localId} />
+      {/* Trabalho interrompido pelo reinício do Claudinei, do terminal desta aba. */}
+      <InterruptedNotice projectId={session.projectId} engine={engine} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

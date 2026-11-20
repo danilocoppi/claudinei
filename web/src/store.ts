@@ -11,7 +11,7 @@ import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
-import type { HeadsUpNode, Progress } from './types'
+import type { HeadsUpNode, Progress, TerminalState } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
@@ -187,6 +187,14 @@ interface State {
   toggleProgress(): void
   /** Sobe a cada reconexão: quem mostra o acompanhamento relê do servidor (o que chegou fora se perdeu). */
   progressEpoch: number
+  /**
+   * Reinício sem prejuízo, por terminal (`progressKey`: projeto + motor): os dois
+   * interruptores e a marca de interrompido. Terminal fora do mapa está no padrão
+   * (tudo desligado, nada interrompido). Lido por `useTerminalStatesSync` e mantido
+   * pela mensagem `terminal_state` do WebSocket.
+   */
+  terminalStates: Record<string, TerminalState>
+  setTerminalState(state: TerminalState): void
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
@@ -225,7 +233,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {},
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {},
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -350,6 +358,9 @@ export const useStore = create<State>((set, get) => ({
 
   progress: {},
   progressEpoch: 0,
+  terminalStates: {},
+  setTerminalState: (state) =>
+    set((s) => ({ terminalStates: { ...s.terminalStates, [progressKey(state.projectId, state.engine)]: state } })),
   setProgress: (projectId, engine, progress) =>
     set((s) => ({ progress: { ...s.progress, [progressKey(projectId, engine)]: progress } })),
   progressOpen: (() => {
@@ -403,6 +414,8 @@ export const useStore = create<State>((set, get) => ({
       set({ actionRuns: restantes })
     } else if (msg.type === 'progress' && typeof msg.projectId === 'number' && typeof msg.engine === 'string') {
       get().setProgress(msg.projectId, msg.engine, (msg.progress ?? null) as Progress | null)
+    } else if (msg.type === 'terminal_state' && msg.state && typeof msg.state.projectId === 'number' && typeof msg.state.engine === 'string') {
+      get().setTerminalState(msg.state as TerminalState)
     } else if (msg.type === 'heads_up' && typeof msg.localId === 'string') {
       applyHeadsUp(msg.localId, (msg.tree ?? null) as HeadsUpNode | null)
     } else if (msg.type === 'sessions_snapshot') {

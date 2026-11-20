@@ -156,3 +156,10 @@ animação.
 - O visual da fila e do ícone dos rascunhos guardados (variáveis de tema).
 - Textos nas três línguas.
 - Detalhe do arrastar para reordenar (pode ser setas ↑/↓ no celular).
+
+## Decisões depois da revisão do desenho (de quem escreveu)
+
+- **Reinício e limite x fila.** A parada do encerramento do serviço não conta como "sessão parou": a fila não pausa por causa de um reinício. Enquanto o terminal tiver um aviso aberto esperando o operador (trabalho interrompido sem retomada automática, ou limite de uso), a fila **segura** — não entrega nada, para não descartar o turno interrompido nem zerar o limite em silêncio. Quando o aviso sai (Continuar, retomada automática, ×, ou o limite reabre e a retomada do Claudinei roda), a mensagem do Claudinei vai primeiro e a fila segue depois do turno dela. "Pausar" fica só para: erro do turno, sessão que morreu de verdade, interrupção pelo operador e o botão de pausar.
+- **Quem pega a sessão livre primeiro: a fila do operador.** Um único árbitro decide no "sessão livre": primeiro o próximo item da fila daquela sessão, depois as tarefas de outros agentes (que já vão para a primeira sessão livre do projeto, como hoje). Fila pausada ou segurando não bloqueia as tarefas de outros agentes.
+- **Anexos de rascunho e fila não podem sumir.** A limpeza de uploads deixa de ser "só os 100 mais novos" e passa a ser por idade (apaga o que tem mais de 30 dias, com um teto alto de segurança). Ao trazer de volta um rascunho cujo anexo já foi apagado, o token aparece marcado "anexo não disponível", sem quebrar o envio.
+- **Kimi e OpenCode com a fila pausada:** Enter no meio do turno entra na fila pausada e o campo mostra "fila pausada — Retomar fila".

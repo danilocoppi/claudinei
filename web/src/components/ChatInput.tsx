@@ -2,7 +2,7 @@ import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } fro
 import { useTranslation } from 'react-i18next'
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands, type FileMenuAction } from '../store'
-import { checkUploads, uploadFile } from '../api'
+import { addToQueue, checkUploads, uploadFile } from '../api'
 import { SessionControls } from './SessionControls'
 import { filterCommands } from '../slash'
 import { readDraft, saveDraft } from '../drafts'
@@ -86,6 +86,8 @@ export function ChatInput({
   useEffect(() => { setStash(termKey ? readStash(termKey) : []) }, [termKey])
   const [stashOpen, setStashOpen] = useState(false)
   const [stashError, setStashError] = useState<string | null>(null)
+  // A fila recusou o texto (cheia, grande demais): o texto volta ao campo e o motivo aparece.
+  const [queueError, setQueueError] = useState<string | null>(null)
   const stashBtnRef = useRef<HTMLButtonElement>(null)
   // checagem dos anexos de um guardado em andamento: outro Ctrl+S espera
   const restoring = useRef(false)
@@ -136,6 +138,14 @@ export function ChatInput({
   // (ex.: Codex) ou nenhuma — ver useSessionSlashCommands (store.ts).
   const slashCommands = useSessionSlashCommands(session)
   const engine = useEngineFor(session)
+  /**
+   * Fila do operador deste terminal. Kimi e OpenCode recusam mensagem no meio
+   * do turno: trabalhando, o Enter deles vai para a fila. No Claude e no Codex o
+   * Enter continua entrando no turno atual — mensagem nova é ACRÉSCIMO, nunca
+   * cancelamento — e quem quer a fila usa Alt+Enter.
+   */
+  const termQueue = useStore((s) => (termKey ? s.queues[termKey] : undefined))
+  const enterQueues = session?.status === 'working' && !engine?.midTurnInput
   const [activeIndex, setActiveIndex] = useState(0)
   /** Aberta pelo `@@`: com quem este terminal vai falar. */
   const [mencaoAberta, setMencaoAberta] = useState(false)
@@ -167,7 +177,34 @@ export function ChatInput({
    */
   useEffect(() => { saveDraft(localId, text) }, [localId, text])
 
-  const send = () => {
+  /**
+   * Põe na fila do terminal o texto já pronto (tokens trocados pelos caminhos).
+   * O campo limpa na hora; se a fila recusar, o texto e os anexos voltam.
+   */
+  const enqueue = (out: string) => {
+    if (!session) return
+    const { projectId, engine: motor } = session
+    const antes = { text, anexos: [...attachments.current] }
+    setText('')
+    histIdxRef.current = null
+    setUploadError(null); setQueueError(null)
+    attachments.current.clear()
+    addToQueue(projectId, motor, out)
+      .then((q) => useStore.getState().setQueue({ ...q, projectId, engine: motor }))
+      .catch((err) => {
+        // Campo desmontado no meio: o texto volta como rascunho, para não se perder.
+        if (!vivo.current) {
+          if (!readDraft(localId).trim()) saveDraft(localId, antes.text)
+          return
+        }
+        for (const [tok, path] of antes.anexos) attachments.current.set(tok, path)
+        setText((atual) => (atual.trim() ? `${antes.text}\n${atual}` : antes.text))
+        setQueueError((err as Error).message)
+      })
+  }
+
+  /** `viaQueue`: o Alt+Enter, que manda para a fila em qualquer motor. */
+  const send = (viaQueue = false) => {
     let out = text
     for (const [tok, path] of attachments.current) out = out.split(tok).join(path)
     const trimmed = out.trim()
@@ -189,6 +226,7 @@ export function ChatInput({
     }
 
     if (disabled) return
+    if (viaQueue || enterQueues) { enqueue(trimmed); return }
     ws?.send({ type: 'send_message', localId, text: trimmed })
     addLocalUserText(localId, trimmed)
     setText('')
@@ -207,16 +245,18 @@ export function ChatInput({
    */
   const micRef = useRef<MicButtonHandle>(null)
   const [micBusy, setMicBusy] = useState(false)
-  const [enviarAposDitado, setEnviarAposDitado] = useState(false)
-  const submit = () => {
-    if (!micBusy) { send(); return }
-    setEnviarAposDitado(true)
+  // O envio que espera o ditado terminar: 'queue' é o Alt+Enter.
+  const [enviarAposDitado, setEnviarAposDitado] = useState<false | 'send' | 'queue'>(false)
+  const submit = (viaQueue = false) => {
+    if (!micBusy) { send(viaQueue); return }
+    setEnviarAposDitado(viaQueue ? 'queue' : 'send')
     micRef.current?.finish()
   }
   useEffect(() => {
     if (!enviarAposDitado || micBusy) return
+    const viaQueue = enviarAposDitado === 'queue'
     setEnviarAposDitado(false)
-    send()
+    send(viaQueue)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `send` é recriado a cada render; o que importa é o render com o texto final
   }, [enviarAposDitado, micBusy])
 
@@ -490,6 +530,8 @@ export function ChatInput({
             // Pergunta pendente ANTES de "working": o turno ainda está aberto
             // enquanto ela espera, mas o lugar certo pra responder é o painel acima.
             : session?.pendingQuestion ? t('chat.placeholderQuestion')
+            : enterQueues && termQueue?.paused ? t('queue.placeholderPaused')
+            : enterQueues ? t('queue.placeholderQueue')
             : session?.status === 'working' ? t('chat.placeholderWorking')
             : t(telaEstreita ? 'chat.placeholderShort' : 'chat.placeholder', { engine: engine?.label ?? 'Claude Code' })
           }
@@ -498,7 +540,7 @@ export function ChatInput({
           onChange={(e) => {
             setText(e.target.value)
             setSlashDismissed(false); setActiveIndex(0); histIdxRef.current = null
-            setStashError(null)
+            setStashError(null); setQueueError(null)
             // `@@` abre terminais; `@!` abre arquivos. A conferência é pela
             // POSIÇÃO DO CURSOR, não pelo texto inteiro: um gatilho mais atrás
             // na frase já foi resolvido ou foi descartado, e reabrir a lista por
@@ -537,6 +579,9 @@ export function ChatInput({
               }
             }
             if (e.key === 'Escape' && session?.status === 'working') { e.preventDefault(); stopTurn(); return }
+            // Alt+Enter: para a fila, em qualquer motor. Com upload em andamento o
+            // send ignora (o texto ainda teria token sem caminho), como o Enter.
+            if (e.key === 'Enter' && e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); submit(true); return }
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
           }}
           onPaste={(e) => {
@@ -597,11 +642,11 @@ export function ChatInput({
           deps={micDeps}
         />
         {session && <SessionControls session={session} />}
-        <button className="chat-send" onClick={submit} disabled={disabled || uploading > 0}
+        <button className="chat-send" onClick={() => submit()} disabled={disabled || uploading > 0}
                 title={t('chat.sendHint')}>{t('common.send')}</button>
       </div>
-      {(uploadError || micError || stashError) && (
-        <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError ?? stashError}</div>
+      {(uploadError || micError || stashError || queueError) && (
+        <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError ?? stashError ?? queueError}</div>
       )}
     </div>
   )

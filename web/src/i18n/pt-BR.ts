@@ -202,7 +202,7 @@ export const ptBR: typeof en = {
     noEngineInstalled: 'Nenhum motor desta lista está instalado', noEngineEdit: 'editar',
   },
   chat: {
-    sendHint: 'Enter no campo · Ctrl+Enter de qualquer ponto da tela',
+    sendHint: 'Enter no campo · Ctrl+Enter de qualquer ponto da tela · Alt+Enter põe na fila',
     select: 'Selecione uma sessão.', openInTerminal: 'Abrir no terminal', backToTerminal: 'Voltar ao terminal',
     sharedPath: 'pasta compartilhada',
     sharedPathTitle: 'Outro terminal aponta para esta mesma pasta. As conversas são separadas; os arquivos, não.',
@@ -467,6 +467,21 @@ export const ptBR: typeof en = {
     missing: 'não disponível',
     saveFailed: 'Não deu para guardar: o armazenamento do navegador está cheio ou bloqueado. O texto continua no campo.',
   },
+  queue: {
+    region: 'Fila de mensagens',
+    count: '{{count}} mensagem na fila', count_other: '{{count}} mensagens na fila',
+    paused: 'fila pausada — {{reason}}',
+    reason: {
+      error: 'erro no turno', limit: 'limite de uso', interrupted: 'turno interrompido',
+      dead: 'a sessão morreu', manual: 'pausada por você',
+    },
+    resume: 'Retomar fila', pause: 'Pausar fila',
+    held: 'esperando o aviso acima',
+    edit: 'Editar', editLabel: 'Editar mensagem da fila', save: 'Salvar', cancel: 'Cancelar',
+    up: 'Subir', down: 'Descer', remove: 'Remover da fila', sendNow: 'Enviar agora',
+    placeholderQueue: 'processando… o que você enviar agora vai para a fila',
+    placeholderPaused: 'fila pausada — o que você enviar espera na fila (Retomar fila, acima)',
+  },
   zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. Alt+Z liga e desliga.' },
   fileViewer: {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',
@@ -493,6 +508,11 @@ export const ptBR: typeof en = {
     discard: 'Descartar',
   },
   serverErrors: {
+    queue_full: 'A fila já tem {{max}} mensagens.',
+    queue_item_too_large: 'Mensagem grande demais para a fila (máximo de {{max}} bytes).',
+    queue_item_empty: 'Mensagem vazia não entra na fila.',
+    queue_item_not_found: 'Esta mensagem não está mais na fila.',
+    queue_order_mismatch: 'A fila mudou enquanto você reordenava; tente de novo.',
     session_already_active: 'O terminal {{project}} já tem uma sessão ativa.',
     session_in_terminal: 'O terminal {{project}} tem uma sessão aberta no terminal.',
     session_not_active: 'Esta sessão não está ativa.',

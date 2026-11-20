@@ -11,7 +11,7 @@ import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
-import type { HeadsUpNode, Progress, TerminalState, TriageItem } from './types'
+import type { HeadsUpNode, OperatorQueue, Progress, TerminalState, TriageItem } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
@@ -39,6 +39,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
     permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'],
     slashSource: 'protocol',
     slashCommands: [],
+    midTurnInput: true,
   },
   {
     id: 'codex',
@@ -49,6 +50,7 @@ const BUILTIN_ENGINES: EngineMeta[] = [
     permissions: [],
     slashSource: 'curated',
     slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
+    midTurnInput: true,
   },
 ]
 
@@ -214,6 +216,13 @@ interface State {
   terminalStates: Record<string, TerminalState>
   setTerminalState(state: TerminalState): void
   /**
+   * Fila do operador por terminal (`progressKey`). Terminal fora do mapa ainda
+   * não foi lido (o painel trata como vazia). Lida por `useQueueSync` e mantida
+   * pela mensagem `operator_queue` do WebSocket e pelas respostas da API.
+   */
+  queues: Record<string, OperatorQueue>
+  setQueue(queue: OperatorQueue): void
+  /**
    * Triagem da lista do usuário logado, por projeto: fixado, assentado e adiado.
    * Projeto fora do mapa está no normal. Lida por `useTriageSync` e mantida pela
    * mensagem `triage` do WebSocket, que o servidor manda só ao dono.
@@ -267,7 +276,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {}, undo: null, triageError: null,
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, queues: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -406,6 +415,12 @@ export const useStore = create<State>((set, get) => ({
   terminalStates: {},
   setTerminalState: (state) =>
     set((s) => ({ terminalStates: { ...s.terminalStates, [progressKey(state.projectId, state.engine)]: state } })),
+  queues: {},
+  setQueue: (queue) => {
+    // Resposta sem a forma de uma fila (servidor antigo, proxy) não entra no store.
+    if (!queue || !Array.isArray(queue.items)) return
+    set((s) => ({ queues: { ...s.queues, [progressKey(queue.projectId, queue.engine)]: queue } }))
+  },
   triage: {},
   undo: null,
   triageError: null,
@@ -465,6 +480,9 @@ export const useStore = create<State>((set, get) => ({
       get().setProgress(msg.projectId, msg.engine, (msg.progress ?? null) as Progress | null)
     } else if (msg.type === 'terminal_state' && msg.state && typeof msg.state.projectId === 'number' && typeof msg.state.engine === 'string') {
       get().setTerminalState(msg.state as TerminalState)
+    } else if (msg.type === 'operator_queue' && msg.queue && typeof msg.projectId === 'number' && typeof msg.engine === 'string' && Array.isArray(msg.queue.items)) {
+      // A chave vem do envelope: é ele que diz de que terminal é a fila.
+      get().setQueue({ ...(msg.queue as OperatorQueue), projectId: msg.projectId, engine: msg.engine })
     } else if (msg.type === 'triage' && msg.item && typeof msg.item.projectId === 'number') {
       // Chega só ao dono (ação dele em outra aba, ou o despertar): `userId` não precisa de conferência.
       get().setTriageItem(msg.item as TriageItem)

@@ -16,6 +16,7 @@ import { CompactingIndicator } from './CompactingIndicator'
 import { ReauthBanner } from './ReauthBanner'
 import { InterruptedNotice } from './InterruptedNotice'
 import { UsageLimitNotice } from './UsageLimitNotice'
+import { QueuePanel } from './QueuePanel'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
@@ -338,6 +339,8 @@ export function ChatView() {
       <InterruptedNotice projectId={session.projectId} engine={engine} />
       {/* Limite de uso que o terminal desta aba bateu. */}
       <UsageLimitNotice projectId={session.projectId} engine={engine} />
+      {/* Fila do operador do terminal: logo acima do campo, à vista também no Zen. */}
+      <QueuePanel projectId={session.projectId} engine={engine} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

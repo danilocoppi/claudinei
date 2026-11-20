@@ -200,7 +200,7 @@ export const en = {
     noEngineInstalled: 'None of the engines in this list is installed', noEngineEdit: 'edit',
   },
   chat: {
-    sendHint: 'Enter in the field · Ctrl+Enter from anywhere on the screen',
+    sendHint: 'Enter in the field · Ctrl+Enter from anywhere on the screen · Alt+Enter queues it',
     select: 'Select a session.', openInTerminal: 'Open in terminal', backToTerminal: 'Back to the terminal',
     sharedPath: 'shared folder',
     sharedPathTitle: 'Another terminal points at this same folder. The conversations are separate; the files are not.',
@@ -464,6 +464,21 @@ export const en = {
     missing: 'no longer available',
     saveFailed: 'Could not save: the browser storage is full or blocked. The text is still in the input.',
   },
+  queue: {
+    region: 'Message queue',
+    count: '{{count}} message queued', count_other: '{{count}} messages queued',
+    paused: 'queue paused — {{reason}}',
+    reason: {
+      error: 'turn error', limit: 'usage limit', interrupted: 'turn interrupted',
+      dead: 'the session died', manual: 'paused by you',
+    },
+    resume: 'Resume queue', pause: 'Pause queue',
+    held: 'waiting for the notice above',
+    edit: 'Edit', editLabel: 'Edit queued message', save: 'Save', cancel: 'Cancel',
+    up: 'Move up', down: 'Move down', remove: 'Remove from queue', sendNow: 'Send now',
+    placeholderQueue: 'working… what you send now goes to the queue',
+    placeholderPaused: 'queue paused — what you send waits in the queue (Resume queue, above)',
+  },
   zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
@@ -490,6 +505,11 @@ export const en = {
     discard: 'Discard',
   },
   serverErrors: {
+    queue_full: 'The queue already has {{max}} messages.',
+    queue_item_too_large: 'Message too large for the queue (at most {{max}} bytes).',
+    queue_item_empty: 'An empty message cannot be queued.',
+    queue_item_not_found: 'This message is no longer in the queue.',
+    queue_order_mismatch: 'The queue changed while you were reordering; try again.',
     session_already_active: 'Terminal {{project}} already has an active session.',
     session_in_terminal: 'Terminal {{project}} has a session open in the terminal.',
     session_not_active: 'This session is not active.',

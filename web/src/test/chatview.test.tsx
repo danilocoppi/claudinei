@@ -15,11 +15,13 @@ const CLAUDE: EngineMeta = {
   id: 'claude', label: 'Claude Code', icon: 'claude',
   models: ['', 'fable', 'opus', 'sonnet', 'haiku'], efforts: ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
   permissions: ['bypassPermissions', 'default', 'auto', 'acceptEdits', 'plan'], slashSource: 'protocol', slashCommands: [],
+  midTurnInput: true,
 }
 const CODEX: EngineMeta = {
   id: 'codex', label: 'Codex', icon: '◆',
   models: ['', 'gpt-5.6-sol'], efforts: ['low', 'medium', 'high', 'xhigh'], permissions: [],
   slashSource: 'curated', slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
+  midTurnInput: true,
 }
 
 beforeEach(() => {

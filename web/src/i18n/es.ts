@@ -202,7 +202,7 @@ export const es: typeof en = {
     noEngineInstalled: 'Ningún motor de esta lista está instalado', noEngineEdit: 'editar',
   },
   chat: {
-    sendHint: 'Enter en el campo · Ctrl+Enter desde cualquier punto de la pantalla',
+    sendHint: 'Enter en el campo · Ctrl+Enter desde cualquier punto de la pantalla · Alt+Enter lo pone en la cola',
     select: 'Selecciona una sesión.', openInTerminal: 'Abrir en la terminal', backToTerminal: 'Volver a la terminal',
     sharedPath: 'carpeta compartida',
     sharedPathTitle: 'Otro terminal apunta a esta misma carpeta. Las conversaciones son separadas; los archivos, no.',
@@ -466,6 +466,21 @@ export const es: typeof en = {
     missing: 'ya no disponible',
     saveFailed: 'No se pudo guardar: el almacenamiento del navegador está lleno o bloqueado. El texto sigue en el campo.',
   },
+  queue: {
+    region: 'Cola de mensajes',
+    count: '{{count}} mensaje en la cola', count_other: '{{count}} mensajes en la cola',
+    paused: 'cola en pausa — {{reason}}',
+    reason: {
+      error: 'error en el turno', limit: 'límite de uso', interrupted: 'turno interrumpido',
+      dead: 'la sesión murió', manual: 'pausada por ti',
+    },
+    resume: 'Reanudar cola', pause: 'Pausar cola',
+    held: 'esperando el aviso de arriba',
+    edit: 'Editar', editLabel: 'Editar mensaje de la cola', save: 'Guardar', cancel: 'Cancelar',
+    up: 'Subir', down: 'Bajar', remove: 'Quitar de la cola', sendNow: 'Enviar ahora',
+    placeholderQueue: 'procesando… lo que envíes ahora va a la cola',
+    placeholderPaused: 'cola en pausa — lo que envíes espera en la cola (Reanudar cola, arriba)',
+  },
   zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',
@@ -492,6 +507,11 @@ export const es: typeof en = {
     discard: 'Descartar',
   },
   serverErrors: {
+    queue_full: 'La cola ya tiene {{max}} mensajes.',
+    queue_item_too_large: 'Mensaje demasiado grande para la cola (máximo {{max}} bytes).',
+    queue_item_empty: 'Un mensaje vacío no entra en la cola.',
+    queue_item_not_found: 'Este mensaje ya no está en la cola.',
+    queue_order_mismatch: 'La cola cambió mientras reordenabas; inténtalo de nuevo.',
     session_already_active: 'El terminal {{project}} ya tiene una sesión activa.',
     session_in_terminal: 'El terminal {{project}} tiene una sesión abierta en la terminal.',
     session_not_active: 'Esta sesión no está activa.',

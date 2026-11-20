@@ -10,6 +10,7 @@ import { contextWindowFor, windowFromModelUsage, DEFAULT_CONTEXT_WINDOW } from '
 import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '../project-threads.js'
 import { UserError } from '../user-error.js'
 import { createHeadsUp, type HeadsUpNode, type HeadsUpPress, type HeadsUpSurface } from './heads-up.js'
+import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
 
 /** A sessão sabe ser uma superfície remota (só a do Claude). */
 const isHeadsUpSurface = (s: unknown): s is HeadsUpSurface =>
@@ -94,44 +95,97 @@ interface Deps {
    * da engine. A compactação interna do agente continua independente deste limiar.
    */
   autoCompactPct?: () => number
+  /** Chamado a cada evento result de qualquer sessão: o turno terminou de verdade. */
+  onTurnResult?: (projectId: number, engine: EngineId) => void
+  /**
+   * Chamado quando o OPERADOR manda uma mensagem (manager.send, o que ele digita).
+   * O que o próprio Claudinei manda (sendAsClaudinei, tarefas, agendamentos) não conta.
+   */
+  onOperatorMessage?: (projectId: number, engine: EngineId) => void
 }
 
 const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_attention'])
 
 /**
- * Espera o `result` do turno em curso da sessão. É a primitiva por trás de tudo que
- * "manda e espera a resposta" (askAgent, dispatchTask, agendamentos): a resposta de
- * um turno só existe como evento, e quem espera precisa desistir por três motivos —
- * a resposta chegou, a sessão morreu/parou, ou o tempo acabou.
+ * Como terminou o turno que alguém estava esperando: com a resposta, com a sessão
+ * fora do ar (morreu ou parou), por tempo, ou derrubado pelo encerramento do
+ * próprio Claudinei.
  */
-function waitForResult(session: EngineSession, timeoutMs: number): Promise<string> {
+type TurnEnd =
+  | { kind: 'result'; text: string }
+  | { kind: 'dead' | 'stopped' | 'timeout' | 'shutdown' }
+
+/**
+ * Ouve o turno em curso da sessão até ele terminar e avisa UMA vez como terminou.
+ * É o ouvinte comum de quem "manda e espera" (waitForResult, dispatchTask,
+ * watchTurn). Devolve o cancelamento, para quem desiste antes (envio que falhou).
+ *
+ * `isShuttingDown`: com o serviço encerrando, a sessão que para não terminou o
+ * turno por conta própria — foi o reinício que a derrubou. Quem espera precisa
+ * saber disso para não registrar a interrupção como falha do agente.
+ */
+function watchTurnEnd(
+  session: EngineSession, timeoutMs: number, isShuttingDown: () => boolean, onEnd: (end: TurnEnd) => void,
+): () => void {
+  let settled = false
+  const finish = (end: TurnEnd) => {
+    if (settled) return
+    settled = true; cleanup(); onEnd(end)
+  }
+  const cleanup = () => {
+    session.removeListener('event', onEvent)
+    session.removeListener('status', onStatus)
+    clearTimeout(timer)
+  }
+  const onEvent = (evt: ClaudeEvent) => {
+    if (evt.kind === 'result') finish({ kind: 'result', text: evt.resultText })
+  }
+  const onStatus = (status: SessionStatus) => {
+    // 'stopped' cobre também openInTerminal (que passa por session.stop()):
+    // sem isso o ouvinte ficaria pendurado até o prazo com o agente já fora.
+    if (status !== 'dead' && status !== 'stopped') return
+    finish({ kind: isShuttingDown() ? 'shutdown' : status })
+  }
+  const timer = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs)
+  session.on('event', onEvent)
+  session.on('status', onStatus)
+  return () => { if (!settled) { settled = true; cleanup() } }
+}
+
+/**
+ * Espera o `result` do turno em curso da sessão. É a primitiva por trás de tudo que
+ * "manda e espera a resposta" (askAgent, agendamentos): a resposta de um turno só
+ * existe como evento, e quem espera precisa desistir por três motivos — a resposta
+ * chegou, a sessão morreu/parou, ou o tempo acabou. No encerramento do serviço, a
+ * recusa leva o RESTART_FAIL_TEXT: quem esperava fica sabendo que foi o reinício.
+ */
+function waitForResult(session: EngineSession, timeoutMs: number, isShuttingDown: () => boolean): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    let settled = false
-    const cleanup = () => {
-      session.removeListener('event', onEvent)
-      session.removeListener('status', onStatus)
-      clearTimeout(timer)
-    }
-    const onEvent = (evt: ClaudeEvent) => {
-      if (settled || evt.kind !== 'result') return
-      settled = true; cleanup(); resolve(evt.resultText)
-    }
-    const onStatus = (status: SessionStatus) => {
-      // 'stopped' cobre também openInTerminal (que passa por session.stop()):
-      // sem isso o waiter ficaria pendurado até o timeout com o agente já fora.
-      if (settled || (status !== 'dead' && status !== 'stopped')) return
-      settled = true; cleanup()
-      reject(new Error(status === 'dead'
-        ? 'target agent exited unexpectedly before responding'
-        : 'target agent was stopped before responding'))
-    }
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true; cleanup()
-      reject(new Error('timed out waiting for the agent response'))
-    }, timeoutMs)
-    session.on('event', onEvent)
-    session.on('status', onStatus)
+    watchTurnEnd(session, timeoutMs, isShuttingDown, (end) => {
+      if (end.kind === 'result') resolve(end.text)
+      else reject(new Error(
+        end.kind === 'shutdown' ? RESTART_FAIL_TEXT
+          : end.kind === 'dead' ? 'target agent exited unexpectedly before responding'
+            : end.kind === 'stopped' ? 'target agent was stopped before responding'
+              : 'timed out waiting for the agent response'))
+    })
+  })
+}
+
+/**
+ * Ouvinte de tarefa (dispatchTask, watchTurn): fecha a tarefa com o result ou como
+ * falha. No encerramento do serviço NÃO fecha: só solta os ouvintes, e a tarefa
+ * continua in_progress no banco para ser reanexada depois do boot.
+ */
+function watchTask(
+  session: EngineSession, timeoutMs: number, isShuttingDown: () => boolean,
+  onComplete: (status: 'completed' | 'failed', result: string) => void,
+): () => void {
+  return watchTurnEnd(session, timeoutMs, isShuttingDown, (end) => {
+    if (end.kind === 'shutdown') return
+    if (end.kind === 'result') onComplete('completed', end.text)
+    else onComplete('failed', end.kind === 'dead' ? 'target agent exited'
+      : end.kind === 'stopped' ? 'target agent was stopped' : 'timed out')
   })
 }
 
@@ -144,6 +198,15 @@ export function createSessionManager(deps: Deps) {
   // Resolve a sessão pela engine (registry) — ou, em teste, pelo override sessionFactory.
   const makeSession = (engineId: EngineId, opts: EngineSessionOptions): EngineSession =>
     deps.sessionFactory ? deps.sessionFactory(opts) : getEngine(engineId).createSession(opts)
+
+  /**
+   * Ligado por beginShutdown, quando o serviço vai parar. A partir daí, sessão que
+   * para foi derrubada pelo reinício: tarefa encaminhada não fecha como falha,
+   * quem espera o turno recebe o RESTART_FAIL_TEXT e a pergunta gravada fica no
+   * banco (é ela que o boot seguinte mostra ao operador).
+   */
+  let shuttingDown = false
+  const isShuttingDown = () => shuttingDown
 
   /**
    * O id de conversa a retomar, DEPOIS de conferir que ele ainda existe.
@@ -262,6 +325,15 @@ export function createSessionManager(deps: Deps) {
     }
     session.on('status', (status: SessionStatus) => {
       persist(localId, status, session.sessionId ?? null)
+      // A pergunta aberta vai ao banco porque o processo não sobrevive ao reinício:
+      // é dela que o boot seguinte sabe que a interrupção esperava uma decisão.
+      // No encerramento a coluna fica como está — o processo saindo zera a
+      // pendência na memória, e gravar isso apagaria justamente o que importa.
+      if (!shuttingDown) {
+        const q = session.pendingQuestion
+        deps.db.prepare('UPDATE sessions SET pending_question=? WHERE local_id=?')
+          .run(q ? JSON.stringify(q.questions) : null, localId)
+      }
       const detail = status === 'dead'
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
@@ -306,6 +378,8 @@ export function createSessionManager(deps: Deps) {
         // stdout da engine — um erro do SQLite aqui viraria uncaughtException.
         try { deps.onEngineUsage?.(engine, event.tokens) } catch {}
       }
+      // Mesmo cuidado: o gancho grava no banco e roda dentro do stdout da engine.
+      if (event.kind === 'result') { try { deps.onTurnResult?.(projectId, engine) } catch {} }
       if (engine === 'claude' && event.kind === 'raw') {
         const raw = event.raw as { type?: unknown; rate_limit_info?: unknown } | null
         // Mesmo cuidado da métrica acima: nada aqui pode derrubar o stdout.
@@ -512,6 +586,37 @@ export function createSessionManager(deps: Deps) {
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
         entry.session.compact()
       } else entry.session.send(text)
+      // Só depois do envio aceito: mensagem recusada não conta como o operador agindo.
+      try { deps.onOperatorMessage?.(entry.projectId, entry.engine) } catch {}
+    },
+
+    /**
+     * Mensagem do próprio Claudinei (ex.: a retomada depois do reinício): aparece
+     * no chat como a do operador, mas não dispara onOperatorMessage.
+     */
+    sendAsClaudinei(localId: string, text: string): void {
+      const entry = live.get(localId)
+      if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
+      entry.session.send(text, { echoToClients: true })
+    },
+
+    /** O serviço vai parar: daqui em diante, sessão que para foi derrubada pelo reinício. */
+    beginShutdown(): void {
+      shuttingDown = true
+    },
+
+    isShuttingDown,
+
+    /**
+     * Acompanha o turno da sessão e fecha com o result dele, como o dispatchTask.
+     * Serve para reanexar uma tarefa encaminhada depois do boot. Devolve false se
+     * a sessão não está viva (nada a acompanhar).
+     */
+    watchTurn(localId: string, onComplete: (status: 'completed' | 'failed', result: string) => void, timeoutMs = 600_000): boolean {
+      const entry = live.get(localId)
+      if (!entry) return false
+      watchTask(entry.session, timeoutMs, isShuttingDown, onComplete)
+      return true
     },
 
     markRead(localId: string): void {
@@ -863,7 +968,7 @@ export function createSessionManager(deps: Deps) {
       }
       const session = target.session
 
-      const waited = waitForResult(session, timeoutMs)
+      const waited = waitForResult(session, timeoutMs, isShuttingDown)
       try {
         session.send(`[Question from agent of ${fromLabel}]: ${question}`)
       } catch (err) {
@@ -881,7 +986,7 @@ export function createSessionManager(deps: Deps) {
     sendAndWait(localId: string, text: string, opts?: { timeoutMs?: number; wait?: boolean }): Promise<string | null> {
       const entry = live.get(localId)
       if (!entry) return Promise.reject(new Error(`sessão ${localId} não está ativa`))
-      const waited = opts?.wait === false ? null : waitForResult(entry.session, opts?.timeoutMs ?? 1_800_000)
+      const waited = opts?.wait === false ? null : waitForResult(entry.session, opts?.timeoutMs ?? 1_800_000, isShuttingDown)
       try {
         entry.session.send(text, { echoToClients: true })
       } catch (err) {
@@ -910,34 +1015,7 @@ export function createSessionManager(deps: Deps) {
         return null
       }
       const session = target.session
-
-      let settled = false
-      const cleanup = () => {
-        session.removeListener('event', onEvent)
-        session.removeListener('status', onStatus)
-        clearTimeout(timer)
-      }
-      const onEvent = (evt: ClaudeEvent) => {
-        if (settled || evt.kind !== 'result') return
-        settled = true
-        cleanup()
-        onComplete('completed', evt.resultText)
-      }
-      const onStatus = (status: SessionStatus) => {
-        if (settled || (status !== 'dead' && status !== 'stopped')) return
-        settled = true
-        cleanup()
-        onComplete('failed', status === 'dead' ? 'target agent exited' : 'target agent was stopped')
-      }
-      const timer = setTimeout(() => {
-        if (settled) return
-        settled = true
-        cleanup()
-        onComplete('failed', 'timed out')
-      }, timeoutMs)
-
-      session.on('event', onEvent)
-      session.on('status', onStatus)
+      const cancel = watchTask(session, timeoutMs, isShuttingDown, onComplete)
 
       try {
         // echoToClients: a UI não tem como saber desta mensagem sozinha (o CLI não
@@ -945,8 +1023,7 @@ export function createSessionManager(deps: Deps) {
         // chat do terminal-alvo depois de um refresh.
         session.send(`[Task from ${fromLabel}]: ${description}`, { echoToClients: true })
       } catch (err) {
-        settled = true
-        cleanup()
+        cancel()
         onComplete('failed', (err as Error).message)
         return null
       }

@@ -16,8 +16,9 @@ export interface QuestionOption { label: string; description: string }
 export interface Question { question: string; header: string; options: QuestionOption[]; multiSelect: boolean }
 /**
  * Pergunta que a CLI fez e está esperando resposta. Estado do PROCESSO vivo (a
- * CLI bloqueia o turno até o control_response): nunca vai ao banco — se o
- * servidor reinicia, a CLI morre junto e não há o que restaurar.
+ * CLI bloqueia o turno até o control_response). Se o servidor reinicia, a CLI
+ * morre junto e não há como responder; o manager guarda só as perguntas em
+ * `sessions.pending_question`, para o boot seguinte avisar o operador.
  */
 export interface PendingQuestion { toolUseId: string; questions: Question[] }
 /** Estado interno da pendência: o request_id fica aqui (nunca sai da sessão) e o input volta inteiro no updatedInput. */

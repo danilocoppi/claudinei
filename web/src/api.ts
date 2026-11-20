@@ -180,8 +180,11 @@ export const resumeQueue = (projectId: number, engine: string) =>
 /** Triagem da lista do usuário: só os projetos com algo aplicado (os demais estão no normal). */
 export const fetchTriage = () => req<TriageItem[]>('/api/triage')
 /** Fixa, assenta ou adia o projeto para o usuário; `snoozedUntil` é horário absoluto (ISO). */
-export const setTriage = (projectId: number, p: { pinned?: boolean; settled?: boolean; snoozedUntil?: string | null }) =>
+export const setTriage = (projectId: number, p: { pinned?: boolean; settled?: boolean; snoozedUntil?: string | null; pinOrder?: number | null }) =>
   req<TriageItem>(`/api/projects/${projectId}/triage`, { method: 'PATCH', body: JSON.stringify(p) })
+/** Grava a ordem dos Fixados do usuário. Devolve a triagem inteira dele, como `fetchTriage`. */
+export const putPinOrder = (projectIds: number[]) =>
+  req<TriageItem[]>('/api/triage/pin-order', { method: 'PUT', body: JSON.stringify({ projectIds }) })
 export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number; sectorId?: number | null }
 /** Setor: um nível acima do grupo, com a mesma anatomia (aceita grupos E terminais). */
 export type Sector = Group

@@ -24,7 +24,11 @@ export function triageStateOf(item: TriageItem | undefined, now: number): Triage
 }
 
 export interface Sections {
-  /** Na ordem visual da lateral (setor → grupo → terminal, pelo `sortOrder`). */
+  /**
+   * Na ordem do usuário (`pinOrder`, que ele arrasta). Os sem posição (pins de
+   * antes da ordem) vêm antes, na ordem visual da lateral (setor → grupo →
+   * terminal, pelo `sortOrder`); fixar de novo vai para o fim.
+   */
   pinned: Project[]
   /** A árvore sem fixados, assentados e adiados. */
   tree: Entry[]
@@ -38,8 +42,9 @@ type Child = Extract<Entry, { kind: 'group' | 'project' }>
 
 /**
  * Divide a árvore nas quatro seções numa passagem só (a lateral roda isto a cada
- * mudança, com dezenas de terminais). Fixados e Assentados saem na ordem em que a
- * árvore os visita, que é a ordem global da lateral.
+ * mudança, com dezenas de terminais). Assentados saem na ordem em que a árvore os
+ * visita, que é a ordem global da lateral; Fixados, na ordem do usuário, com a
+ * global desempatando os sem posição.
  *
  * Contêiner que ESVAZIOU porque seus terminais foram para outra seção some (o
  * setor também, se só tinha o que esvaziou). Contêiner que já chegou vazio fica:
@@ -89,7 +94,25 @@ export function splitSections(entries: Entry[], triage: Record<number, TriageIte
     if (kept) tree.push(kept)
   }
   snoozed.sort((a, b) => a.at - b.at)
+  // `sort` é estável: os sem posição (-1) ficam na ordem em que a árvore os visitou.
+  const rank = (p: Project) => triage[p.id]?.pinOrder ?? -1
+  pinned.sort((a, b) => rank(a) - rank(b))
   return { pinned, tree, snoozed: snoozed.map((s) => s.p), settled }
+}
+
+/**
+ * Arrastar dentro dos Fixados: `dragId` solto sobre `targetId`. Como na árvore
+ * (`moveEntry`), quem vem de cima entra depois do alvo e quem vem de baixo, antes
+ * — assim qualquer posição, inclusive a última, é alcançável. Sem mudança (sobre
+ * si mesmo, ou id fora da lista), devolve a mesma lista.
+ */
+export function movePinned(ids: number[], dragId: number, targetId: number): number[] {
+  const from = ids.indexOf(dragId)
+  const to = ids.indexOf(targetId)
+  if (from === -1 || to === -1 || from === to) return ids
+  const rest = ids.filter((id) => id !== dragId)
+  const at = rest.indexOf(targetId) + (from < to ? 1 : 0)
+  return [...rest.slice(0, at), dragId, ...rest.slice(at)]
 }
 
 /**

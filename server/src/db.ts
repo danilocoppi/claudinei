@@ -364,6 +364,9 @@ export function openDb(path: string): Db {
     user_id INTEGER NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     pinned_at TEXT, settled_at TEXT, snoozed_until TEXT,
     PRIMARY KEY (user_id, project_id))`)
+  // Posição do terminal nos Fixados, por usuário (arrastar na lateral). Nula no
+  // pin de antes desta coluna: esses vêm primeiro, na ordem global da lateral.
+  try { db.exec(`ALTER TABLE user_triage ADD COLUMN pin_order INTEGER`) } catch { /* já existe */ }
   // A ⭐ global vira pin de cada usuário com acesso, uma vez na vida da instalação.
   migrateFavoritesToPins(db)
 

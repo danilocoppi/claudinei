@@ -5,6 +5,7 @@ import { Sidebar } from '../components/Sidebar'
 import { UndoToast } from '../components/UndoToast'
 import { WorkingStrip } from '../components/WorkingStrip'
 import { useStore } from '../store'
+import { applyTriage, reorderPins, undoTriage } from '../triageActions'
 import { DEFAULT_APPEARANCE } from '../appearance'
 import type { EngineMeta, Project, SessionInfo, TriageItem } from '../types'
 
@@ -275,6 +276,169 @@ describe('Sidebar — desempenho da triagem (AGENTS.md)', () => {
     act(() => { useStore.setState({ sessions: { ...useStore.getState().sessions, s1: session(1, 'working', { compactingSince: 1 }) } }) })
     expect(commits.mock.calls.length).toBeGreaterThan(0)
     expect(screen.getByTestId('working-row').textContent).toContain('compactando')
+  })
+})
+
+describe('Sidebar — ordem dos Fixados', () => {
+  /** Delta, Gama e Alpha fixados, nesta ordem do usuário. */
+  const seedPins = () => {
+    useStore.setState({
+      triage: {
+        ...useStore.getState().triage,
+        4: item(4, { pinned: true, pinOrder: 0 }),
+        3: item(3, { pinned: true, pinOrder: 1 }),
+        1: item(1, { pinned: true, pinOrder: 2 }),
+      },
+    })
+  }
+  const pinnedNames = () => within(section('pinned')).getAllByTestId('term-card')
+    .map((c) => c.querySelector('.term-card__name')?.textContent)
+  /** A rota devolve a triagem com as posições do corpo, como o servidor. */
+  const okOrder = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (String(url) === '/api/triage/pin-order' && init?.method === 'PUT') {
+      const ids: number[] = JSON.parse(String(init.body)).projectIds
+      return new Response(JSON.stringify(ids.map((id, i) => item(id, { pinned: true, pinOrder: i }))), { status: 200 })
+    }
+    return new Response('[]', { status: 200 })
+  })
+  const putCalls = (fetcher: ReturnType<typeof okOrder>) =>
+    fetcher.mock.calls.filter(([url, init]: any[]) => String(url) === '/api/triage/pin-order' && init?.method === 'PUT')
+
+  beforeEach(() => { seedPins() })
+
+  it('arrastar um fixado sobre outro reordena na hora, grava e não remonta o cartão', async () => {
+    const fetcher = okOrder()
+    render(<Sidebar />)
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    const delta = cardOf('Delta')
+    const face = delta.querySelector('[data-face]')
+    expect(delta.draggable).toBe(true)
+
+    fireEvent.dragStart(delta)
+    // Soltar entre os Fixados é permitido (o navegador só aceita o drop com preventDefault).
+    expect(fireEvent.dragOver(cardOf('Gama'))).toBe(false)
+    fireEvent.drop(cardOf('Gama'))
+    // Vindo de cima, entra depois do alvo — já na tela, antes da resposta.
+    expect(pinnedNames()).toEqual(['Gama', 'Delta', 'Alpha'])
+    await settle()
+    expect(putCalls(fetcher).map(([, init]: any[]) => JSON.parse(String(init.body)))).toEqual([{ projectIds: [3, 4, 1] }])
+    expect(useStore.getState().triage[4]?.pinOrder).toBe(1)
+    expect(useStore.getState().triage[3]?.pinOrder).toBe(0)
+    expect(pinnedNames()).toEqual(['Gama', 'Delta', 'Alpha'])
+    // O mesmo nó, com o mesmo rosto: mudou de lugar, não nasceu de novo.
+    expect(cardOf('Delta')).toBe(delta)
+    expect(delta.querySelector('[data-face]')).toBe(face)
+  })
+
+  it('falha ao gravar devolve a ordem de antes e avisa', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({ error: 'falha' }), { status: 500 }))
+    render(<><Sidebar /><UndoToast /></>)
+    fireEvent.dragStart(cardOf('Alpha'))
+    fireEvent.dragOver(cardOf('Delta'))
+    fireEvent.drop(cardOf('Delta'))
+    expect(pinnedNames()).toEqual(['Alpha', 'Delta', 'Gama'])
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    expect(useStore.getState().triage[1]?.pinOrder).toBe(2)
+    expect(screen.getByRole('alert').textContent).toMatch(/ordem dos fixados/)
+  })
+
+  it('soltar entre Fixados e a árvore não faz nada, nos dois sentidos', async () => {
+    const fetcher = okOrder()
+    render(<Sidebar />)
+    // Fixado sobre um cartão da árvore, sobre o grupo e no cabeçalho: nenhum aceita.
+    fireEvent.dragStart(cardOf('Delta'))
+    expect(fireEvent.dragOver(cardOf('Beta'))).toBe(true)
+    fireEvent.drop(cardOf('Beta'))
+    fireEvent.dragStart(cardOf('Delta'))
+    expect(fireEvent.dragOver(screen.getByTestId('term-group'))).toBe(true)
+    fireEvent.drop(screen.getByTestId('term-group'))
+    fireEvent.dragEnd(cardOf('Delta'))
+    // Cartão da árvore sobre um fixado: também não.
+    fireEvent.dragStart(cardOf('Beta'))
+    expect(fireEvent.dragOver(cardOf('Gama'))).toBe(true)
+    fireEvent.drop(cardOf('Gama'))
+    await settle()
+    expect(fetcher.mock.calls.filter(([, init]: any[]) => init?.method === 'PUT')).toEqual([])
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    expect(within(tree()).getByText('Beta')).toBeTruthy()
+  })
+
+  it('quem não é admin também ordena os próprios Fixados (a árvore segue só do admin)', () => {
+    useStore.setState({ me: { setupRequired: false, id: 2, username: 'ana', isAdmin: false } })
+    render(<Sidebar />)
+    expect(cardOf('Delta').draggable).toBe(true)
+    expect(cardOf('Beta').draggable).toBe(false)
+  })
+
+  /** PATCH que responde como o servidor: fixar de novo usa o pinOrder do pedido, senão o fim. */
+  const echoPatch = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    const id = Number(String(url).match(/projects\/(\d+)\/triage/)?.[1])
+    const body = JSON.parse(String(init?.body ?? '{}'))
+    const cur = useStore.getState().triage[id] ?? item(id, {})
+    const pinned = body.pinned ?? (body.settled ? false : cur.pinned)
+    return new Response(JSON.stringify(item(id, {
+      pinned, settled: body.settled ?? false,
+      pinOrder: pinned ? (cur.pinned ? cur.pinOrder : body.pinOrder === undefined ? 9 : body.pinOrder) : null,
+    })), { status: 200 })
+  })
+  const patchBodies = (fetcher: ReturnType<typeof echoPatch>) =>
+    fetcher.mock.calls.filter(([, init]: any[]) => init?.method === 'PATCH').map(([, init]: any[]) => JSON.parse(String(init.body)))
+
+  it('desfazer o desafixar devolve o cartão à posição de antes', async () => {
+    const fetcher = echoPatch()
+    render(<><Sidebar /><UndoToast /></>)
+    fireEvent.click(screen.getByRole('button', { name: 'Desafixar Gama' }))
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Alpha'])
+    fireEvent.click(within(screen.getByTestId('undo-toast')).getByRole('button', { name: 'Desfazer' }))
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+    expect(patchBodies(fetcher).at(-1)).toMatchObject({ pinned: true, pinOrder: 1 })
+  })
+
+  it('desfazer o assentar devolve o cartão à posição de antes', async () => {
+    echoPatch()
+    render(<Sidebar />)
+    await act(() => applyTriage(3, { settled: true }, 'Gama assentado', null))
+    expect(pinnedNames()).toEqual(['Delta', 'Alpha'])
+    await act(() => undoTriage())
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha'])
+  })
+
+  it('"só fixados" ligado ainda deixa ordenar (a lista dos Fixados está inteira)', () => {
+    localStorage.setItem('claudinei:favoritesOnly', '1')
+    render(<Sidebar />)
+    expect((screen.getByLabelText('Somente fixados') as HTMLInputElement).checked).toBe(true)
+    expect(cardOf('Delta').draggable).toBe(true)
+  })
+
+  it('a resposta da ordem não passa por cima do que o WebSocket mudou no meio do caminho', async () => {
+    let answer: (r: Response) => void = () => {}
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { answer = r }))
+    let done: Promise<void> = Promise.resolve()
+    act(() => { done = reorderPins([3, 4, 1]) })
+    expect(useStore.getState().triage[3]?.pinOrder).toBe(0)
+    // Outro aparelho desafixou Gama enquanto a ordem ia e voltava.
+    const woke = item(3, {})
+    act(() => { useStore.getState().setTriageItem(woke) })
+    answer(new Response(JSON.stringify([3, 4, 1].map((id, i) => item(id, { pinned: true, pinOrder: i }))), { status: 200 }))
+    await act(() => done)
+    expect(useStore.getState().triage[3]).toBe(woke)
+    expect(useStore.getState().triage[4]?.pinOrder).toBe(1)
+  })
+
+  it('fixar põe o terminal no fim dos Fixados', async () => {
+    let answer: (r: Response) => void = () => {}
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { answer = r }))
+    render(<Sidebar />)
+    fireEvent.click(screen.getByRole('button', { name: 'Fixar Beta' }))
+    // Antes da resposta, já no fim.
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha', 'Beta'])
+    answer(new Response(JSON.stringify(item(2, { pinned: true, pinOrder: 3 })), { status: 200 }))
+    await settle()
+    expect(pinnedNames()).toEqual(['Delta', 'Gama', 'Alpha', 'Beta'])
   })
 })
 

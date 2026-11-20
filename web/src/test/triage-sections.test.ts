@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { buildEntries, filterEntries, flatKeys, projectsOf, type Entry } from '../sidebarEntries'
-import { isWorking, nextExpiry, snoozeUntil, splitSections, triageStateOf } from '../triageSections'
+import { isWorking, movePinned, nextExpiry, snoozeUntil, splitSections, triageStateOf } from '../triageSections'
 import { useStore } from '../store'
 import { useTriageSync } from '../useTriageSync'
 import type { Project, SessionInfo, SessionStatus, TriageItem } from '../types'
@@ -135,6 +135,19 @@ describe('splitSections', () => {
     expect(out.tree).toEqual([])
   })
 
+  it('Fixados seguem a ordem do usuário; os sem posição vêm antes, na ordem global', () => {
+    // Na árvore: P1, P2, P3, P4, P5, P6. P2 e P5 são pins de antes da ordem
+    // (sem posição); P6, P1 e P4 foram arrastados para 0, 1 e 2.
+    const out = splitSections(tree(), byProject(
+      item(1, { pinned: true, pinOrder: 1 }),
+      item(2, { pinned: true }),
+      item(4, { pinned: true, pinOrder: 2 }),
+      item(5, { pinned: true, pinOrder: null }),
+      item(6, { pinned: true, pinOrder: 0 }),
+    ), NOW)
+    expect(ids(out.pinned)).toEqual([2, 5, 6, 1, 4])
+  })
+
   it('Adiados: volta mais cedo primeiro', () => {
     const out = splitSections(tree(), byProject(
       item(1, { snoozedUntil: iso(NOW + 3 * HOUR) }),
@@ -150,6 +163,22 @@ describe('splitSections', () => {
     const out = splitSections(tree(), byProject(item(5, { settled: true })), NOW)
     expect(ids(out.settled)).toEqual([5])
     expect(out.tree.flatMap(projectsOf).map((p) => p.id)).not.toContain(5)
+  })
+})
+
+describe('movePinned', () => {
+  it('vindo de cima, entra depois do alvo; vindo de baixo, antes', () => {
+    expect(movePinned([1, 2, 3, 4], 1, 2)).toEqual([2, 1, 3, 4])
+    expect(movePinned([1, 2, 3, 4], 1, 4)).toEqual([2, 3, 4, 1])
+    expect(movePinned([1, 2, 3, 4], 4, 1)).toEqual([4, 1, 2, 3])
+    expect(movePinned([1, 2, 3, 4], 3, 2)).toEqual([1, 3, 2, 4])
+  })
+
+  it('soltar sobre si mesmo ou fora da lista devolve a mesma lista', () => {
+    const list = [1, 2, 3]
+    expect(movePinned(list, 2, 2)).toBe(list)
+    expect(movePinned(list, 9, 2)).toBe(list)
+    expect(movePinned(list, 2, 9)).toBe(list)
   })
 })
 

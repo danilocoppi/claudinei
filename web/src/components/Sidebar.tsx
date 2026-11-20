@@ -7,8 +7,8 @@ import { createScratchProject, deleteGroup, deleteSector, fetchGroups, fetchProj
 import { useStore } from '../store'
 import { displayStatusKey, dotClassOf, isWaitingForYou, liveSessionsOf, primarySessionOf, startOrReviveEngine, unreadOf } from '../engineSession'
 import { buildEntries, entryKey, filterEntries, moveEntry, moveInto, projectsOf, railRows, type Entry, type RailGuide } from '../sidebarEntries'
-import { nextExpiry, splitSections, triageStateOf } from '../triageSections'
-import { applyTriage } from '../triageActions'
+import { movePinned, nextExpiry, splitSections, triageStateOf } from '../triageSections'
+import { applyTriage, reorderPins } from '../triageActions'
 import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { EngineIcon } from './EngineIcon'
@@ -120,10 +120,12 @@ const loadCollapsedTriage = (): TriageSection[] => {
 const MAX_TIMER_MS = 2 ** 31 - 1
 
 
-// O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor).
-type Drag = { kind: 'project' | 'group' | 'sector'; id: number }
+// O que está sendo arrastado (card de terminal, cabeçalho de grupo ou de setor)
+// na árvore, ou um cartão dos Fixados (`pinned`), que só se solta nos Fixados.
+type TreeDrag = { kind: 'project' | 'group' | 'sector'; id: number }
+type Drag = TreeDrag | { kind: 'pinned'; id: number }
 const DRAG_PREFIX = { project: 'p', group: 'g', sector: 's' } as const
-const dragKeyOf = (d: Drag) => `${DRAG_PREFIX[d.kind]}-${d.id}`
+const dragKeyOf = (d: TreeDrag) => `${DRAG_PREFIX[d.kind]}-${d.id}`
 
 export function Sidebar() {
   const { t, i18n } = useTranslation()
@@ -278,6 +280,10 @@ export function Sidebar() {
   const searching = !railMode && query.trim() !== ''
   const filtering = activeOnly || favoritesOnly || searching
   const canDrag = isAdmin && !filtering
+  // A ordem dos Fixados é de cada usuário (não mexe na árvore de ninguém), então
+  // qualquer um ordena os seus. Com "só ativos" ou a busca, não: os Fixados vistos
+  // não seriam todos. "Só fixados" mostra os Fixados inteiros, então deixa.
+  const canReorderPins = !(activeOnly || searching)
   // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
   const visibleEntries = filtering ? filterEntries(entries, sessions, activeOnly, favoritesOnly, searching ? query : '', (id) => !!triage[id]?.pinned) : entries
   // As seções dependem só da triagem e da hora, nunca do status das sessões: um
@@ -333,6 +339,8 @@ export function Sidebar() {
   }
 
   const clearDrag = () => { setDrag(null); setOverKey(null); setDragOverBox(null) }
+  // Só o arraste da árvore vale na árvore: um cartão dos Fixados não é solto nela.
+  const treeDrag: TreeDrag | null = drag !== null && drag.kind !== 'pinned' ? drag : null
 
   // Persiste a nova ordem/estrutura completa e sincroniza o store com a resposta.
   // A estrutura enviada É o pertencimento: o backend deriva setor/grupo dela.
@@ -359,7 +367,7 @@ export function Sidebar() {
   // Solta na POSIÇÃO do alvo (null = fim da lista). A árvore inteira é recalculada
   // em sidebarEntries — aqui só resta persistir o resultado.
   const dropAt = async (targetKey: string | null) => {
-    const d = drag
+    const d = treeDrag
     clearDrag()
     if (!d) return
     const next = moveEntry(entries, dragKeyOf(d), targetKey)
@@ -368,7 +376,7 @@ export function Sidebar() {
 
   // Solta DENTRO de um contêiner (grupo ou setor): entra no fim dele.
   const dropInto = async (container: string) => {
-    const d = drag
+    const d = treeDrag
     clearDrag()
     if (!d) return
     const next = moveInto(entries, dragKeyOf(d), container)
@@ -378,6 +386,16 @@ export function Sidebar() {
   // Soltar no cabeçalho "Terminais": tira de grupo/setor e manda para o topo da raiz.
   const dropOnRoot = async () => {
     await dropAt(entries.length ? entryKey(entries[0]) : null)
+  }
+
+  // Solta um fixado sobre outro: a nova ordem dos Fixados, gravada para este usuário.
+  const dropPinned = (targetId: number) => {
+    const d = drag
+    clearDrag()
+    if (d?.kind !== 'pinned') return
+    const ids = sections.pinned.map((p) => p.id)
+    const next = movePinned(ids, d.id, targetId)
+    if (next !== ids) void reorderPins(next)
   }
 
   /**
@@ -406,12 +424,14 @@ export function Sidebar() {
   }
 
   /**
-   * O cartão de terminal, o MESMO nas seções e na árvore (`key={p.id}`). Fora da
-   * árvore (`where = 'section'`) ele não arrasta nem recebe arraste: a ordem dos
-   * Fixados é a global, e soltar num deles mexeria numa posição que não se vê.
+   * O cartão de terminal, o MESMO nas seções e na árvore (`key={p.id}`). Na árvore
+   * arrasta pela ordem global; nos Fixados, pela ordem do usuário, e só entre os
+   * Fixados (nenhum dos dois lados aceita o arraste do outro). Em Adiados e
+   * Assentados não arrasta.
    */
-  const renderCard = (p: Project, where: 'tree' | 'section' = 'tree') => {
+  const renderCard = (p: Project, where: 'tree' | TriageSection = 'tree') => {
     const inTree = where === 'tree'
+    const inPinned = where === 'pinned'
     const s = sessionOf(p)
     const live = liveSessionsOf(p.id, sessions)
     const active = !!s && s.localId === activeLocalId && (view === 'chat' || view === 'terminal')
@@ -455,15 +475,20 @@ export function Sidebar() {
           isCollapsed ? 'collapsed' : '',
           waiting ? 'waiting' : '',
           active ? 'active' : '',
-          drag?.kind === 'project' && drag.id === p.id ? 'dragging' : '',
-          overKey === key && drag !== null && !(drag.kind === 'project' && drag.id === p.id) ? 'drop-target' : '',
+          (drag?.kind === 'project' || drag?.kind === 'pinned') && drag.id === p.id ? 'dragging' : '',
+          overKey === key && drag !== null && !((drag.kind === 'project' || drag.kind === 'pinned') && drag.id === p.id) ? 'drop-target' : '',
         ].filter(Boolean).join(' ')}
         style={{ ['--term-color' as string]: p.color }}
-        draggable={canDrag && inTree}
-        onDragStart={inTree ? () => setDrag({ kind: 'project', id: p.id }) : undefined}
-        onDragOver={inTree ? (e) => { e.preventDefault(); e.stopPropagation(); setOverKey(key) } : undefined}
-        onDragEnd={inTree ? clearDrag : undefined}
-        onDrop={inTree ? (e) => { e.preventDefault(); e.stopPropagation(); void dropAt(key) } : undefined}
+        draggable={inTree ? canDrag : inPinned && canReorderPins}
+        onDragStart={inTree ? () => setDrag({ kind: 'project', id: p.id })
+          : inPinned ? () => setDrag({ kind: 'pinned', id: p.id }) : undefined}
+        // Sem preventDefault o navegador recusa o drop: é assim que cada lado
+        // ignora o arraste do outro.
+        onDragOver={inTree ? (e) => { if (!treeDrag) return; e.preventDefault(); e.stopPropagation(); setOverKey(key) }
+          : inPinned ? (e) => { if (drag?.kind !== 'pinned') return; e.preventDefault(); e.stopPropagation(); setOverKey(key) } : undefined}
+        onDragEnd={inTree || inPinned ? clearDrag : undefined}
+        onDrop={inTree ? (e) => { e.preventDefault(); e.stopPropagation(); void dropAt(key) }
+          : inPinned ? (e) => { e.preventDefault(); e.stopPropagation(); dropPinned(p.id) } : undefined}
         onClick={() => {
           if (!s || !canOpen) return
           if (s.status === 'in_terminal') openTerminal(s.localId)
@@ -600,9 +625,9 @@ export function Sidebar() {
         className={[
           'term-group',
           drag?.kind === 'group' && drag.id === g.id ? 'dragging' : '',
-          (dragOverBox === key || overKey === key) && drag !== null && !(drag.kind === 'group' && drag.id === g.id) ? 'drop-target' : '',
+          (dragOverBox === key || overKey === key) && treeDrag !== null && !(treeDrag.kind === 'group' && treeDrag.id === g.id) ? 'drop-target' : '',
         ].filter(Boolean).join(' ')}
-        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); e.stopPropagation(); setDragOverBox(key) } }}
+        onDragOver={(e) => { if (treeDrag !== null) { e.preventDefault(); e.stopPropagation(); setDragOverBox(key) } }}
         onDragLeave={() => setDragOverBox((cur) => (cur === key ? null : cur))}
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropInto(key) }}
       >
@@ -682,9 +707,9 @@ export function Sidebar() {
         className={[
           'term-sector',
           drag?.kind === 'sector' && drag.id === sec.id ? 'dragging' : '',
-          (dragOverBox === key || overKey === key) && drag !== null && !(drag.kind === 'sector' && drag.id === sec.id) ? 'drop-target' : '',
+          (dragOverBox === key || overKey === key) && treeDrag !== null && !(treeDrag.kind === 'sector' && treeDrag.id === sec.id) ? 'drop-target' : '',
         ].filter(Boolean).join(' ')}
-        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); setDragOverBox(key) } }}
+        onDragOver={(e) => { if (treeDrag !== null) { e.preventDefault(); setDragOverBox(key) } }}
         onDragLeave={() => setDragOverBox((cur) => (cur === key ? null : cur))}
         onDrop={(e) => { e.preventDefault(); void dropInto(key) }}
       >
@@ -759,7 +784,7 @@ export function Sidebar() {
           <span className="triage-section__count">{list.length}</span>
         </button>
         {!isCollapsed && (
-          <div className="triage-section__body">{list.map((p) => renderCard(p, 'section'))}</div>
+          <div className="triage-section__body">{list.map((p) => renderCard(p, id))}</div>
         )}
       </section>
     )
@@ -858,8 +883,8 @@ export function Sidebar() {
       {/* O cabeçalho "Terminais" é a zona de drop do TOPO: terminal sai do grupo,
           grupo vai pra primeira posição. */}
       <div
-        className={`term-header ${dragOverBox === 'root' && drag !== null ? 'drop-target' : ''}`}
-        onDragOver={(e) => { if (drag !== null) { e.preventDefault(); setDragOverBox('root') } }}
+        className={`term-header ${dragOverBox === 'root' && treeDrag !== null ? 'drop-target' : ''}`}
+        onDragOver={(e) => { if (treeDrag !== null) { e.preventDefault(); setDragOverBox('root') } }}
         onDragLeave={() => setDragOverBox((cur) => (cur === 'root' ? null : cur))}
         onDrop={(e) => { e.preventDefault(); void dropOnRoot() }}
       >
@@ -944,8 +969,8 @@ export function Sidebar() {
             ? t(activeOnly || favoritesOnly ? 'sidebar.searchEmptyFiltered' : 'sidebar.searchEmpty', { query: query.trim() })
             : t(activeOnly && favoritesOnly ? 'sidebar.emptyFiltered' : activeOnly ? 'sidebar.emptyActive' : 'sidebar.emptyPinned')}</div>
         )}
-        {/* zona de drop do FIM da lista (mandar pro final) */}
-        {drag !== null && (
+        {/* zona de drop do FIM da lista (mandar pro final) — só da árvore */}
+        {treeDrag !== null && (
           <div
             className={`term-list__endzone ${overKey === 'end' ? 'drop-target' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setOverKey('end') }}

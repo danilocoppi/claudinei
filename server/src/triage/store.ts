@@ -13,6 +13,11 @@ export interface TriageDto {
   settled: boolean
   /** Adiado até quando. Adiamento vencido é lido como `null`. */
   snoozedUntil: string | null
+  /**
+   * Posição nos Fixados deste usuário (menor primeiro); `null` sem pin ou no pin
+   * de antes da ordem existir, que vem antes dos ordenados, na ordem global.
+   */
+  pinOrder: number | null
 }
 
 /** Por que um terminal assentado ou adiado volta (ver o despertador). */
@@ -22,6 +27,12 @@ export interface TriagePatch {
   pinned?: boolean
   settled?: boolean
   snoozedUntil?: string | null
+  /**
+   * Posição ao fixar (o desfazer devolve a de antes); `null` é pin sem posição,
+   * como os de antes da ordem. Só vale quando o pedido fixa quem não estava
+   * fixado; ausente, o pin novo vai para o fim.
+   */
+  pinOrder?: number | null
 }
 
 interface Row {
@@ -30,6 +41,7 @@ interface Row {
   pinned_at: string | null
   settled_at: string | null
   snoozed_until: string | null
+  pin_order: number | null
 }
 
 /** Chave em `settings` que marca a migração da ⭐ global para o pin por usuário. */
@@ -44,6 +56,7 @@ const toDto = (projectId: number, row: Row | undefined): TriageDto => {
     pinned: !!row?.pinned_at,
     settled: !!row?.settled_at,
     snoozedUntil: snooze !== null && snooze > now() ? snooze : null,
+    pinOrder: row?.pinned_at ? (row.pin_order ?? null) : null,
   }
 }
 
@@ -55,6 +68,12 @@ export function createTriageStore(db: Db) {
 
   // Função solta (não `this.get`): os métodos do store podem ser passados adiante.
   const get = (userId: number, projectId: number): TriageDto => toDto(projectId, getRow(userId, projectId))
+
+  /** A posição do fim dos Fixados deste usuário: quem fixa agora entra depois de todos. */
+  const nextPinOrder = (userId: number): number => {
+    const r = db.prepare(`SELECT MAX(pin_order) AS m FROM user_triage WHERE user_id=? AND pinned_at IS NOT NULL`).get(userId) as { m: number | null }
+    return r.m === null ? 0 : r.m + 1
+  }
 
   return {
     /** Só os projetos com algo aplicado; quem não tem linha está "normal". */
@@ -77,6 +96,7 @@ export function createTriageStore(db: Db) {
       let pinnedAt = cur?.pinned_at ?? null
       let settledAt = cur?.settled_at ?? null
       let snoozedUntil = cur?.snoozed_until ?? null
+      let pinOrder = cur?.pinned_at ? (cur.pin_order ?? null) : null
       const t = now()
 
       if (p.settled !== undefined) {
@@ -91,18 +111,42 @@ export function createTriageStore(db: Db) {
         pinnedAt = p.pinned ? (pinnedAt ?? t) : null
         if (p.pinned) settledAt = null
       }
+      // Pin novo vai para o fim dos Fixados; sem pin, a posição se perde (fixar
+      // de novo é chegar de novo). Quem já estava fixado fica onde estava.
+      if (pinnedAt === null) pinOrder = null
+      else if (!cur?.pinned_at) pinOrder = p.pinOrder !== undefined ? p.pinOrder : nextPinOrder(userId)
 
       if (pinnedAt === null && settledAt === null && snoozedUntil === null) {
         // Nada aplicado: a ausência de linha já diz isso.
         db.prepare(`DELETE FROM user_triage WHERE user_id=? AND project_id=?`).run(userId, projectId)
       } else {
         db.prepare(`
-          INSERT INTO user_triage (user_id, project_id, pinned_at, settled_at, snoozed_until) VALUES (?, ?, ?, ?, ?)
+          INSERT INTO user_triage (user_id, project_id, pinned_at, settled_at, snoozed_until, pin_order) VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id, project_id) DO UPDATE SET
-            pinned_at=excluded.pinned_at, settled_at=excluded.settled_at, snoozed_until=excluded.snoozed_until
-        `).run(userId, projectId, pinnedAt, settledAt, snoozedUntil)
+            pinned_at=excluded.pinned_at, settled_at=excluded.settled_at, snoozed_until=excluded.snoozed_until,
+            pin_order=excluded.pin_order
+        `).run(userId, projectId, pinnedAt, settledAt, snoozedUntil, pinOrder)
       }
       return get(userId, projectId)
+    },
+
+    /**
+     * A ordem dos Fixados deste usuário, como ele arrastou: `projectIds` (todos
+     * fixados, sem repetição; quem chama confere) recebe as posições 0, 1, 2…
+     * Os fixados que não vieram na lista (um pin feito noutro aparelho enquanto
+     * este arrastava, ou um projeto que ele já não acessa) seguem no fim, na
+     * ordem que tinham. Os outros usuários não mudam.
+     */
+    setPinOrder(userId: number, projectIds: number[]): void {
+      db.transaction(() => {
+        const listed = new Set(projectIds)
+        const rest = (db.prepare(`
+          SELECT project_id FROM user_triage WHERE user_id=? AND pinned_at IS NOT NULL
+          ORDER BY pin_order IS NOT NULL, pin_order, project_id
+        `).all(userId) as { project_id: number }[]).map((r) => r.project_id).filter((id) => !listed.has(id))
+        const set = db.prepare(`UPDATE user_triage SET pin_order=? WHERE user_id=? AND project_id=? AND pinned_at IS NOT NULL`)
+        ;[...projectIds, ...rest].forEach((projectId, i) => set.run(i, userId, projectId))
+      })()
     },
 
     /**

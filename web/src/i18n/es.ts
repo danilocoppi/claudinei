@@ -133,6 +133,7 @@ export const es: typeof en = {
     emptyPinned: 'Aún no hay terminales fijados.', emptyFiltered: 'Ninguna terminal coincide con los filtros.',
     pinSaveError: 'No se pudo fijar o dejar de fijar la terminal. Inténtalo de nuevo.',
     triageSaveError: 'No se pudo cambiar la clasificación de la terminal. Inténtalo de nuevo.',
+    pinOrderSaveError: 'No se pudo guardar el orden de las terminales fijadas. Inténtalo de nuevo.',
     sectionWorking: 'Trabajando', sectionPinned: 'Fijados', sectionSnoozed: 'Pospuestos', sectionSettled: 'Asentados',
     snoozedBackAt: 'vuelve a las {{time}}', snoozedBackOn: 'vuelve el {{day}} {{time}}',
     search: 'Buscar terminales', searchPlaceholder: 'Buscar terminal…', searchClear: 'Limpiar búsqueda',

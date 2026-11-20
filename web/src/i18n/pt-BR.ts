@@ -133,6 +133,7 @@ export const ptBR: typeof en = {
     emptyPinned: 'Nenhum terminal fixado ainda.', emptyFiltered: 'Nenhum terminal atende aos filtros.',
     pinSaveError: 'Não foi possível fixar ou desafixar o terminal. Tente novamente.',
     triageSaveError: 'Não foi possível mudar a triagem do terminal. Tente novamente.',
+    pinOrderSaveError: 'Não foi possível salvar a ordem dos fixados. Tente novamente.',
     sectionWorking: 'Trabalhando', sectionPinned: 'Fixados', sectionSnoozed: 'Adiados', sectionSettled: 'Assentados',
     snoozedBackAt: 'volta às {{time}}', snoozedBackOn: 'volta {{day}} {{time}}',
     search: 'Buscar terminais', searchPlaceholder: 'Buscar terminal…', searchClear: 'Limpar busca',

@@ -84,9 +84,9 @@ describe('rotas da triagem (com auth)', () => {
     const ate = daqui(HORA)
     const res = await app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload: { pinned: true, snoozedUntil: ate } })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: ate })
+    expect(res.json()).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: ate, pinOrder: 0 })
     expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: ana })).json())
-      .toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: ate }])
+      .toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: ate, pinOrder: 0 }])
     // É de ana: bruno, com acesso ao mesmo projeto, não vê nada aplicado.
     expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: await login('bruno') })).json()).toEqual([])
   })
@@ -156,7 +156,7 @@ describe('rotas da triagem (com auth)', () => {
     await app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload: { settled: true } })
     const anaId = auth!.users.getByUsername('ana')!.id
     await expect(nextTriage(anaWs)).resolves.toEqual({
-      type: 'triage', userId: anaId, item: { projectId: p1, pinned: false, settled: true, snoozedUntil: null },
+      type: 'triage', userId: anaId, item: { projectId: p1, pinned: false, settled: true, snoozedUntil: null, pinOrder: null },
     })
     await expect(nextTriage(brunoWs, 300)).rejects.toThrow('timeout')
     await expect(nextTriage(rootWs, 300)).rejects.toThrow('timeout')
@@ -167,8 +167,8 @@ describe('rotas da triagem (com auth)', () => {
     // ana tinha triagem em Beta (o despertar alcança toda linha do projeto) e perdeu o acesso.
     const anaId = auth!.users.getByUsername('ana')!.id
     const anaWs = await openWs(await login('ana'))
-    hub.broadcast({ type: 'triage', userId: anaId, item: { projectId: p2, pinned: false, settled: false, snoozedUntil: null } })
-    hub.broadcast({ type: 'triage', userId: anaId, item: { projectId: p1, pinned: false, settled: false, snoozedUntil: null } })
+    hub.broadcast({ type: 'triage', userId: anaId, item: { projectId: p2, pinned: false, settled: false, snoozedUntil: null, pinOrder: null } })
+    hub.broadcast({ type: 'triage', userId: anaId, item: { projectId: p1, pinned: false, settled: false, snoozedUntil: null, pinOrder: null } })
     await expect(nextTriage(anaWs)).resolves.toMatchObject({ item: { projectId: p1 } })
     await expect(nextTriage(anaWs, 300)).rejects.toThrow('timeout')
     anaWs.close()
@@ -184,13 +184,106 @@ describe('rotas da triagem (com auth)', () => {
     // Resposta no formato antigo (Project), com a ⭐ de quem clicou.
     expect(res.json()).toMatchObject({ id: p1, name: 'Alfa', favorite: true })
     expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: ana })).json())
-      .toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: null }])
+      .toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 }])
     expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: bruno })).json()).toEqual([])
     // Os outros aparelhos de ana ficam sabendo.
     await expect(nextTriage(anaWs)).resolves.toMatchObject({ type: 'triage', userId: anaId, item: { projectId: p1, pinned: true } })
     // A coluna global não é mais escrita.
     expect(createProjectsService(db).get(p1)?.favorite).toBe(false)
     anaWs.close()
+  })
+})
+
+describe('ordem dos fixados (PUT /api/triage/pin-order)', () => {
+  let p3: number
+  beforeEach(async () => {
+    await subir(true)
+    p3 = createProjectsService(db).create({ name: 'Gama', path: mkdtempSync(join(tmpdir(), 'tri-')) }).id
+    // ana acessa Alfa e Gama; bruno, só Alfa.
+    auth!.users.update(auth!.users.getByUsername('ana')!.id, { projectIds: [p1, p3] })
+  })
+  const put = (cookies: Record<string, string>, payload: unknown) =>
+    app.inject({ method: 'PUT', url: '/api/triage/pin-order', cookies, payload: payload as object })
+  const pin = (cookies: Record<string, string>, id: number) =>
+    app.inject({ method: 'PATCH', url: `/api/projects/${id}/triage`, cookies, payload: { pinned: true } })
+
+  it('grava a ordem de quem pediu, devolve a triagem e avisa só os aparelhos dele', async () => {
+    const ana = await login('ana')
+    const bruno = await login('bruno')
+    const anaId = auth!.users.getByUsername('ana')!.id
+    await pin(ana, p1); await pin(ana, p3); await pin(bruno, p1)
+    const anaWs = await openWs(ana)
+    const brunoWs = await openWs(bruno)
+
+    const res = await put(ana, { projectIds: [p3, p1] })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([
+      { projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 1 },
+      { projectId: p3, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 },
+    ])
+    expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: ana })).json()).toEqual(res.json())
+    // Um aviso por fixado que mudou de posição, só para ana.
+    const msgs = [await nextTriage(anaWs), await nextTriage(anaWs)]
+    expect(msgs.map((m) => [m.userId, m.item.projectId, m.item.pinOrder]).sort()).toEqual([[anaId, p1, 1], [anaId, p3, 0]].sort())
+    await expect(nextTriage(brunoWs, 300)).rejects.toThrow('timeout')
+    // bruno não foi mexido.
+    expect((await app.inject({ method: 'GET', url: '/api/triage', cookies: bruno })).json())
+      .toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 }])
+    anaWs.close(); brunoWs.close()
+  })
+
+  it('400 com corpo inválido ou repetido', async () => {
+    const ana = await login('ana')
+    await pin(ana, p1)
+    for (const body of [{}, { projectIds: 'x' }, { projectIds: [p1, 'x'] }, { projectIds: [1.5] }, { projectIds: [-1] }, { projectIds: [p1, p1] }]) {
+      expect((await put(ana, body)).statusCode).toBe(400)
+    }
+    expect(createTriageStore(db).get(auth!.users.getByUsername('ana')!.id, p1).pinOrder).toBe(0)
+  })
+
+  it('terminal que deixou de estar fixado (desafixado noutro aparelho) é ignorado, sem derrubar a ordem', async () => {
+    const ana = await login('ana')
+    const anaId = auth!.users.getByUsername('ana')!.id
+    await pin(ana, p1)
+    // Gama não está fixado para ana: fica de fora, e Alfa ganha a posição dele.
+    const res = await put(ana, { projectIds: [p3, p1] })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 }])
+    expect(createTriageStore(db).get(anaId, p3)).toMatchObject({ pinned: false, pinOrder: null })
+  })
+
+  it('fixado e adiado também entra na ordem', async () => {
+    const ana = await login('ana')
+    const anaId = auth!.users.getByUsername('ana')!.id
+    await pin(ana, p1); await pin(ana, p3)
+    await app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload: { snoozedUntil: daqui(HORA) } })
+    expect((await put(ana, { projectIds: [p3, p1] })).statusCode).toBe(200)
+    expect(createTriageStore(db).get(anaId, p1)).toMatchObject({ pinned: true, pinOrder: 1 })
+    expect(createTriageStore(db).get(anaId, p3).pinOrder).toBe(0)
+  })
+
+  it('PATCH aceita pinOrder ao fixar de novo (o desfazer) e recusa valor inválido', async () => {
+    const ana = await login('ana')
+    await pin(ana, p1); await pin(ana, p3)
+    await app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload: { pinned: false } })
+    const patch = (payload: object) => app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, cookies: ana, payload })
+    for (const pinOrder of [-1, 1.5, 'x', true]) expect((await patch({ pinned: true, pinOrder })).statusCode).toBe(400)
+    // Só pinOrder, sem campo de triagem, não é pedido.
+    expect((await patch({ pinOrder: 0 })).statusCode).toBe(400)
+    const res = await patch({ pinned: true, pinOrder: 0 })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().pinOrder).toBe(0)
+  })
+
+  it('403 com projeto sem acesso e para o token de serviço', async () => {
+    const ana = await login('ana')
+    const anaId = auth!.users.getByUsername('ana')!.id
+    await pin(ana, p1)
+    // Fixado de quando tinha acesso a Beta: ainda assim não pode ordená-lo.
+    createTriageStore(db).update(anaId, p2, { pinned: true })
+    expect((await put(ana, { projectIds: [p2, p1] })).statusCode).toBe(403)
+    const h = { authorization: `Bearer ${auth!.tokens.signService()}` }
+    expect((await app.inject({ method: 'PUT', url: '/api/triage/pin-order', headers: h, payload: { projectIds: [p1] } })).statusCode).toBe(403)
   })
 })
 
@@ -203,8 +296,17 @@ describe('rotas da triagem (sem auth)', () => {
     expect(res.statusCode).toBe(200)
     expect(createTriageStore(db).get(0, p1).pinned).toBe(true)
     await expect(nextTriage(ws)).resolves.toMatchObject({ type: 'triage', userId: 0, item: { projectId: p1, pinned: true } })
-    hub.broadcast({ type: 'triage', userId: 7, item: { projectId: p1, pinned: false, settled: true, snoozedUntil: null } })
+    hub.broadcast({ type: 'triage', userId: 7, item: { projectId: p1, pinned: false, settled: true, snoozedUntil: null, pinOrder: null } })
     await expect(nextTriage(ws, 300)).rejects.toThrow('timeout')
     ws.close()
+  })
+
+  it('a ordem dos fixados também vale para o usuário 0', async () => {
+    await app.inject({ method: 'PATCH', url: `/api/projects/${p1}/triage`, payload: { pinned: true } })
+    await app.inject({ method: 'PATCH', url: `/api/projects/${p2}/triage`, payload: { pinned: true } })
+    const res = await app.inject({ method: 'PUT', url: '/api/triage/pin-order', payload: { projectIds: [p2, p1] } })
+    expect(res.statusCode).toBe(200)
+    expect(createTriageStore(db).get(0, p2).pinOrder).toBe(0)
+    expect(createTriageStore(db).get(0, p1).pinOrder).toBe(1)
   })
 })

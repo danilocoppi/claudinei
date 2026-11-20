@@ -44,7 +44,26 @@ function parsePatch(body: unknown): TriagePatch | string {
     p.snoozedUntil = s as string | null
   }
   if (Object.keys(p).length === 0) return 'nenhum campo de triagem'
+  // Não é campo de triagem sozinho: só diz onde entra quem o pedido fixa.
+  if (b.pinOrder !== undefined) {
+    const o = b.pinOrder
+    if (o !== null && !(Number.isSafeInteger(o) && (o as number) >= 0)) return 'pinOrder deve ser um inteiro não negativo'
+    p.pinOrder = o as number | null
+  }
   return p
+}
+
+/** Maior lista aceita no PUT da ordem dos fixados (folga larga para uma lateral). */
+const MAX_PIN_ORDER = 10_000
+
+/** Valida o corpo do PUT da ordem dos fixados. Devolve os ids ou a mensagem do 400. */
+function parsePinOrder(body: unknown): number[] | string {
+  const ids = (body && typeof body === 'object' ? (body as Record<string, unknown>).projectIds : undefined)
+  if (!Array.isArray(ids)) return 'projectIds deve ser uma lista'
+  if (ids.length > MAX_PIN_ORDER) return 'projectIds grande demais'
+  if (!ids.every((id) => Number.isSafeInteger(id) && (id as number) > 0)) return 'projectIds deve ter ids inteiros positivos'
+  if (new Set(ids).size !== ids.length) return 'projectIds com id repetido'
+  return ids as number[]
 }
 
 export function registerTriageRoutes(app: FastifyInstance, deps: {
@@ -61,6 +80,30 @@ export function registerTriageRoutes(app: FastifyInstance, deps: {
     // Filtra pelo acesso de HOJE: quem perdeu o acesso a um projeto não vê mais
     // a triagem dele, mesmo que a linha continue no banco.
     return deps.store.list(id).filter((t) => canAccessProject(req.authUser, t.projectId))
+  })
+
+  /**
+   * A ordem dos Fixados de quem pede (cada usuário tem a sua). Só aceita
+   * terminais que ele acessa; os que já não estão fixados para ele (desafixados
+   * noutro aparelho enquanto este arrastava) ficam de fora sem derrubar o resto
+   * da ordem. Fixado e adiado entra (adiar mantém o pin). Responde a triagem
+   * inteira, como o GET, e avisa os outros aparelhos dele de cada posição que
+   * mudou, pela mesma mensagem `triage` do PATCH.
+   */
+  app.put('/api/triage/pin-order', async (req, reply) => {
+    const id = triageUserId(req)
+    if (id === null) return reply.code(403).send({ error: SERVICE_TRIAGE_ERROR })
+    const ids = parsePinOrder(req.body)
+    if (typeof ids === 'string') return reply.code(400).send({ error: ids })
+    if (!ids.every((projectId) => canAccessProject(req.authUser, projectId))) return reply.code(403).send({ error: 'forbidden_project' })
+    const pinned = ids.filter((projectId) => deps.store.get(id, projectId).pinned)
+    const before = new Map(deps.store.list(id).map((t) => [t.projectId, t.pinOrder]))
+    deps.store.setPinOrder(id, pinned)
+    const after = deps.store.list(id).filter((t) => canAccessProject(req.authUser, t.projectId))
+    for (const item of after) {
+      if (before.get(item.projectId) !== item.pinOrder) deps.broadcast?.(triageMessage(id, item))
+    }
+    return after
   })
 
   app.patch('/api/projects/:id/triage', async (req, reply) => {

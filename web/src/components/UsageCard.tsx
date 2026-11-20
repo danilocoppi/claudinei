@@ -64,6 +64,9 @@ export function UsageCard() {
   const { t, i18n } = useTranslation()
   const [limits, setLimits] = useState<UsageLimit[]>([])
   const [tokens, setTokens] = useState<Record<string, EngineUsage>>({})
+  // Motores usados nas últimas 24 h ou com plano acima de 0% (o servidor decide).
+  // null = servidor sem o campo: mostra todos, como antes.
+  const [active, setActive] = useState<string[] | null>(null)
   const engines = useStore((s) => s.engines)
   const openUsage = useStore((s) => s.openUsage)
   // avançado = todas as barras; desligado = só a sessão atual. Persistido.
@@ -84,6 +87,7 @@ export function UsageCard() {
           if (!alive) return
           setLimits(Array.isArray(r?.limits) ? r.limits : [])
           setTokens(r?.tokens && typeof r.tokens === 'object' ? r.tokens : {})
+          setActive(Array.isArray(r?.active) ? r.active : null)
         })
         .catch(() => {})
     }
@@ -114,7 +118,7 @@ export function UsageCard() {
   // deixá-las na lista de planos separava a mesma engine em dois lugares — a
   // barra aqui em cima e os tokens lá embaixo.
   const providerOf = (l: UsageLimit) => l.provider ?? 'claude'
-  const claudeBars = visible.filter((l) => providerOf(l) === 'claude')
+  const visibleClaudeBars = visible.filter((l) => providerOf(l) === 'claude')
   const barsByEngine = new Map<string, UsageLimit[]>()
   for (const l of visible) {
     const p = providerOf(l)
@@ -123,9 +127,18 @@ export function UsageCard() {
   }
   // Uma engine entra na lista se tem tokens OU barras: sem isso, o Kimi que
   // ainda não reportou token nenhum perderia as barras que acabou de ganhar.
-  const engineIds = [...new Set([...tokenEntries.map(([id]) => id), ...barsByEngine.keys()])]
-  // Cabeçalho só diz "Claude" quando a lista é só dele; misturada, vira neutro.
-  const mixed = limits.some((l) => (l.provider ?? 'claude') !== 'claude')
+  // O cartão só mostra o que está em uso; a página de uso (Ctrl+U) segue com todos.
+  const shown = (id: string) => active === null || active.includes(id)
+  const engineIds = [...new Set([...tokenEntries.map(([id]) => id), ...barsByEngine.keys()])].filter(shown)
+  const claudeBars = shown('claude') ? visibleClaudeBars : []
+  if (claudeBars.length === 0 && engineIds.length === 0) {
+    return (
+      <div className="usage-card usage-card--empty glass">
+        <div className="usage-card__idle">{t('usage.idle')}</div>
+        <button type="button" className="usage-card__details" onClick={openUsage}>{t('usagePage.viewDetails')}</button>
+      </div>
+    )
+  }
   const claudeUpdated = Math.max(...claudeBars.map((l) => (l.updatedAt ? Date.parse(l.updatedAt) : NaN)).filter(Number.isFinite))
   const staleSince = Number.isFinite(claudeUpdated) && now - claudeUpdated > STALE_MS
     ? new Date(claudeUpdated).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : null

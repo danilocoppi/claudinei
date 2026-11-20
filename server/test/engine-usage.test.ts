@@ -71,6 +71,58 @@ describe('createEngineUsageService', () => {
     expect(all.codex.total).toEqual({ input: 10, cachedInput: 0, output: 0, reasoning: 0, total: 10 })
     expect(all.codex.today).toEqual({ input: 0, cachedInput: 0, output: 0, reasoning: 0, total: 0 })
   })
+
+  // O cartão da lateral só mostra o motor usado nas últimas 24 h: a hora do
+  // último record com tokens fica em updated_at (relógio injetável).
+  describe('recentEngines (últimas 24 h)', () => {
+    const tk = (total: number) => ({ input: total, cachedInput: 0, output: 0, reasoning: 0, total })
+
+    it('motor usado há menos de 24 h entra, mesmo que o uso tenha sido ontem (UTC)', () => {
+      let clock = new Date('2026-07-10T22:00:00Z')
+      const svc = createEngineUsageService(db, () => clock)
+      svc.record('codex', tk(10))
+      clock = new Date('2026-07-11T09:00:00Z') // 11 h depois, já no outro dia UTC
+      expect(svc.recentEngines()).toEqual(['codex'])
+    })
+
+    it('motor sem uso há mais de 24 h fica de fora, embora o total acumulado continue em all()', () => {
+      let clock = new Date('2026-07-10T08:00:00Z')
+      const svc = createEngineUsageService(db, () => clock)
+      svc.record('kimi', tk(10))
+      clock = new Date('2026-07-11T09:00:00Z') // 25 h depois
+      expect(svc.recentEngines()).toEqual([])
+      expect(svc.all().kimi.total.total).toBe(10)
+    })
+
+    it('separa os motores: só os que tiveram tokens dentro da janela', () => {
+      let clock = new Date('2026-06-01T12:00:00Z')
+      const svc = createEngineUsageService(db, () => clock)
+      svc.record('opencode', tk(5))
+      clock = new Date('2026-07-11T08:00:00Z')
+      svc.record('codex', tk(7))
+      clock = new Date('2026-07-11T09:00:00Z')
+      expect(svc.recentEngines()).toEqual(['codex'])
+    })
+
+    it('record sem tokens no mesmo dia UTC não renova a hora do último uso', () => {
+      let clock = new Date('2026-07-10T00:30:00Z')
+      const svc = createEngineUsageService(db, () => clock)
+      svc.record('kimi', tk(10))
+      clock = new Date('2026-07-10T23:30:00Z') // mesma linha do dia: cai no ELSE do CASE
+      svc.record('kimi', tk(0))
+      clock = new Date('2026-07-11T01:00:00Z') // 24,5 h depois do último uso com tokens
+      expect(svc.recentEngines()).toEqual([])
+    })
+
+    it('record com zero tokens não conta como uso', () => {
+      let clock = new Date('2026-07-01T12:00:00Z')
+      const svc = createEngineUsageService(db, () => clock)
+      svc.record('kimi', tk(10))
+      clock = new Date('2026-07-11T08:00:00Z')
+      svc.record('kimi', tk(0))
+      expect(svc.recentEngines()).toEqual([])
+    })
+  })
 })
 
 /** Sessão fake mínima: no start(), emite um 'event' de result com tokens — exercita o wire() do manager de ponta a ponta. */

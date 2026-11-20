@@ -117,7 +117,7 @@ describe('GET /api/usage', () => {
     const app = Fastify()
     await registerUsageRoutes(app, { usage: { getLimits: async () => [] } })
     const res = await app.inject({ method: 'GET', url: '/api/usage' })
-    expect(res.json()).toEqual({ limits: [], tokens: {} })
+    expect(res.json()).toEqual({ limits: [], tokens: {}, active: [] })
     await app.close()
   })
 
@@ -128,7 +128,43 @@ describe('GET /api/usage', () => {
     await registerUsageRoutes(app, { usage: { getLimits: async () => [] }, engineUsage: { all: () => tokens } })
     const res = await app.inject({ method: 'GET', url: '/api/usage' })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ limits: [], tokens })
+    expect(res.json()).toEqual({ limits: [], tokens, active: [] })
+    await app.close()
+  })
+})
+
+describe('GET /api/usage — active (motores para o cartão da lateral)', () => {
+  const lim = (percent: number, provider?: string) => ({
+    kind: provider ? `${provider}_x` : 'session', group: 'session', label: null, percent, severity: 'normal', resetsAt: 'x',
+    ...(provider ? { provider } : {}),
+  })
+  const zero = { input: 0, cachedInput: 0, output: 0, reasoning: 0, total: 0 }
+  const big = { ...zero, input: 100, total: 100 }
+
+  it('entra o motor com tokens nas últimas 24 h e o com plano acima de 0%; sai o parado com plano em 0%', async () => {
+    const app = Fastify()
+    await registerUsageRoutes(app, {
+      usage: { getLimits: async () => [lim(12)] }, // Claude, sem bloco de tokens: fica pelo plano
+      extraUsage: [{ getLimits: async () => [lim(0, 'kimi'), lim(3, 'codex')] }],
+      engineUsage: {
+        all: () => ({ codex: { total: big, today: zero }, kimi: { total: big, today: zero }, opencode: { total: big, today: zero } }),
+        recentEngines: () => ['opencode'],
+      },
+    })
+    const body = (await app.inject({ method: 'GET', url: '/api/usage' })).json()
+    expect(body.active).toEqual(['claude', 'codex', 'opencode'])
+    // O cartão esconde, mas os dados continuam todos na resposta.
+    expect(Object.keys(body.tokens).sort()).toEqual(['codex', 'kimi', 'opencode'])
+    await app.close()
+  })
+
+  it('Claude com todas as janelas em 0% e nenhum motor recente → active vazio', async () => {
+    const app = Fastify()
+    await registerUsageRoutes(app, {
+      usage: { getLimits: async () => [lim(0)] },
+      engineUsage: { all: () => ({ kimi: { total: big, today: zero } }), recentEngines: () => [] },
+    })
+    expect((await app.inject({ method: 'GET', url: '/api/usage' })).json().active).toEqual([])
     await app.close()
   })
 })

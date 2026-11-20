@@ -17,7 +17,14 @@ export interface EngineUsageEntry {
 export interface EngineUsageService {
   record(engine: string, tokens: EngineTokens): void
   all(): Record<string, EngineUsageEntry>
+  /**
+   * Engines com tokens nas últimas `windowMs` (padrão 24 h), pela hora do último
+   * record com tokens (updated_at da linha do dia). Ordem alfabética.
+   */
+  recentEngines(windowMs?: number): string[]
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 const ZERO_TOKENS: EngineTokens = { input: 0, cachedInput: 0, output: 0, reasoning: 0, total: 0 }
 
@@ -66,17 +73,27 @@ export function createEngineUsageService(db: Db, now: () => Date = () => new Dat
   db.exec(SCHEMA)
 
   const today = (): string => now().toISOString().slice(0, 10)
+  // Mesmo formato do datetime('now') do SQLite ('YYYY-MM-DD HH:MM:SS', UTC), que
+  // as linhas antigas já têm: assim a comparação por texto vale para as duas.
+  const sqlTime = (d: Date): string => d.toISOString().slice(0, 19).replace('T', ' ')
 
   const upsert = db.prepare(`
     INSERT INTO engine_usage_daily (engine, day, input, cached_input, output, reasoning, total, updated_at)
-    VALUES (@engine, @day, @input, @cachedInput, @output, @reasoning, @total, datetime('now'))
+    VALUES (@engine, @day, @input, @cachedInput, @output, @reasoning, @total, @updatedAt)
     ON CONFLICT(engine, day) DO UPDATE SET
       input = input + @input,
       cached_input = cached_input + @cachedInput,
       output = output + @output,
       reasoning = reasoning + @reasoning,
       total = total + @total,
-      updated_at = datetime('now')
+      updated_at = CASE WHEN @total > 0 THEN @updatedAt ELSE updated_at END
+  `)
+
+  // "Últimas 24 h" de verdade, não hoje + ontem: updated_at é a hora do último
+  // record com tokens daquele dia, então basta ele cair dentro da janela.
+  const selectRecent = db.prepare(`
+    SELECT DISTINCT engine FROM engine_usage_daily
+    WHERE total > 0 AND updated_at >= ? ORDER BY engine
   `)
 
   const selectTotals = db.prepare(`
@@ -101,7 +118,15 @@ export function createEngineUsageService(db: Db, now: () => Date = () => new Dat
         output: tokens.output,
         reasoning: tokens.reasoning,
         total: tokens.total,
+        // Record sem tokens não é uso: na linha nova fica sem hora, e na existente
+        // o CASE do upsert preserva a hora anterior.
+        updatedAt: tokens.total > 0 ? sqlTime(now()) : null,
       })
+    },
+
+    recentEngines(windowMs = DAY_MS) {
+      const cutoff = sqlTime(new Date(now().getTime() - windowMs))
+      return (selectRecent.all(cutoff) as Array<{ engine: string }>).map((r) => r.engine)
     },
 
     all() {

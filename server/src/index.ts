@@ -175,7 +175,12 @@ if (process.argv.includes('--hermes')) {
   // manager (criado agora, antes) precisa poder chamá-lo assim que uma sessão
   // libera. Guarda numa referência mutável que buildApp preenche via
   // onOrchestratorReady, e o hook do manager sempre lê o valor atual dela.
-  let drain: ((projectId: number) => void) | undefined
+  let drain: ((projectId: number) => boolean) | undefined
+  // O árbitro do próximo envio e a fila do operador nascem no buildApp, depois do
+  // orchestrator: o "livre" do manager vai ao árbitro (com a sessão), e o fim de
+  // turno e a morte da sessão vão à fila (que pausa).
+  let nextSend: import('./queue/next-send.js').NextSend | undefined
+  let queue: import('./queue/operator-queue.js').OperatorQueueService | undefined
   // Mesmo padrão para o serviço do reinício, que nasce no buildApp: os ganchos
   // do manager (fim de turno, mensagem do operador) leem a referência atual.
   let restart: import('./restart/boot.js').RestartService | undefined
@@ -184,7 +189,7 @@ if (process.argv.includes('--hermes')) {
   // E para o do limite de uso, que nasce junto dele: o limite que bateu, o fim
   // de turno e a mensagem do operador chegam pela referência atual.
   let limit: import('./limit/usage-limit.js').UsageLimitService | undefined
-  /** Um gancho que falha não pode impedir o outro: cada serviço cuida do seu estado. */
+  /** Um gancho que falha não pode impedir os outros (aceita N): cada serviço cuida do seu estado. */
   const both = (label: string, ...calls: Array<() => void>): void => {
     for (const call of calls) {
       try { call() } catch (err) { console.error(`[${label}] gancho falhou`, err) }
@@ -203,12 +208,20 @@ if (process.argv.includes('--hermes')) {
     keepSessionsPerProject: config.keepSessionsPerProject,
     onSlashCommands: (cmds) => settings.setSlashCommands(cmds),
     autoCompactPct: () => Number(settings.get('autoCompactPct') || 0),
-    onSessionAvailable: (projectId) => drain?.(projectId),
+    // Sem a sessão (ou antes de o árbitro existir), direto às tarefas, como sempre.
+    onSessionAvailable: (projectId, ctx) => both('sessão livre', () => {
+      if (ctx && nextSend) nextSend.onSessionAvailable({ projectId, engine: ctx.engine, localId: ctx.localId })
+      else drain?.(projectId)
+    }),
     onEngineUsage: (engine, tokens) => engineUsage.record(engine, tokens),
     onRateLimit: (info) => usage.observe(info),
     onTurnResult: (projectId, engine, info) => both('fim de turno',
       () => restart?.onTurnResult(projectId, engine),
-      () => limit?.onTurnResult(projectId, engine, info)),
+      () => limit?.onTurnResult(projectId, engine, info),
+      () => queue?.onTurnResult(projectId, engine, info)),
+    // Só a morte de verdade: o manager não chama no encerramento do serviço.
+    onSessionDied: (projectId, engine) => both('sessão morreu',
+      () => queue?.onSessionDied(projectId, engine)),
     onOperatorMessage: (projectId, engine) => both('mensagem do operador',
       () => restart?.onOperatorMessage(projectId, engine),
       () => limit?.onOperatorMessage(projectId, engine)),
@@ -263,6 +276,8 @@ if (process.argv.includes('--hermes')) {
     https: https ?? undefined,
     webDist: existsSync(webDist) ? webDist : undefined,
     onOrchestratorReady: (o) => { drain = o.drain },
+    onNextSendReady: (n) => { nextSend = n },
+    onQueueReady: (q) => { queue = q },
     onSchedulerReady: (s) => { scheduler = s },
     onRestartReady: (r) => { restart = r },
     onTriageWakerReady: (w) => { triageWaker = w },

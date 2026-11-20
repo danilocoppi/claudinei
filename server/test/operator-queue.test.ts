@@ -133,6 +133,7 @@ describe('serviço da fila do operador', () => {
   let broadcasts: any[]
   let holding: boolean
   let warnings: unknown[][]
+  let shuttingDown: boolean
   const LOCAL = 'sess-1'
 
   beforeEach(() => {
@@ -140,6 +141,7 @@ describe('serviço da fila do operador', () => {
     broadcasts = []
     holding = false
     warnings = []
+    shuttingDown = false
     svc = createOperatorQueueService({
       warn: (...args) => warnings.push(args),
       store,
@@ -148,6 +150,7 @@ describe('serviço da fila do operador', () => {
       holds: () => holding,
       acceptsMidTurn: (engine) => engine === 'claude' || engine === 'codex',
       liveLocalId: (projectId) => (projectId === project.id && mgr.status.has(LOCAL) ? LOCAL : null),
+      isShuttingDown: () => shuttingDown,
     })
   })
 
@@ -395,6 +398,18 @@ describe('serviço da fila do operador', () => {
     queued('claude', 'a')
     svc.onSessionDied(project.id, 'claude')
     expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'dead', items: [{ text: 'a' }] })
+  })
+
+  it('no encerramento do serviço, nem o erro, nem a interrupção, nem a morte pausam', () => {
+    queued('claude', 'a')
+    shuttingDown = true
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: false })
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: true, limited: false })
+    svc.onSessionDied(project.id, 'claude')
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: false, pauseReason: null, items: [{ text: 'a' }] })
+    // O limite é de verdade mesmo no encerramento: pausa.
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: true })
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'limit' })
   })
 
   it('resume tira a pausa e entrega se livre', () => {

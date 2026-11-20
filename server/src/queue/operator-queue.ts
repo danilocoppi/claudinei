@@ -168,6 +168,11 @@ export function createOperatorQueueService(deps: {
   liveLocalId: (projectId: number, engine: string) => string | null
   /** Avisos do serviço (envio que falhou); por padrão, o console. */
   warn?: (...args: unknown[]) => void
+  /**
+   * O serviço está encerrando: o turno que cai com erro, a interrupção e a
+   * morte são da parada do reinício, que não pausa a fila. O limite pausa.
+   */
+  isShuttingDown?: () => boolean
 }) {
   const { store, manager } = deps
   const warn = deps.warn ?? ((...args: unknown[]) => console.warn(...args))
@@ -368,6 +373,7 @@ export function createOperatorQueueService(deps: {
       // A marca vale para o result logo depois do "enviar agora", seja qual for.
       const ownInterrupt = interruptToSend.delete(k)
       if (info.limited) pauseFor(projectId, engine, 'limit')
+      else if (deps.isShuttingDown?.()) return
       else if (info.interrupted) { if (!ownInterrupt) pauseFor(projectId, engine, 'interrupted') }
       else if (info.isError) pauseFor(projectId, engine, 'error')
     },
@@ -377,6 +383,7 @@ export function createOperatorQueueService(deps: {
       const k = key(projectId, engine)
       interruptToSend.delete(k)
       sendNowPending.delete(k)
+      if (deps.isShuttingDown?.()) return
       pauseFor(projectId, engine, 'dead')
     },
   }

@@ -140,7 +140,7 @@ describe('detecção do limite na sessão do Claude', () => {
     const session = sessions[0]
     mgr.send(localId, 'limite-so-assistant')
     await waitUntil(() => onTurnResult.mock.calls.length === 1)
-    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: true })
+    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: true, interrupted: false, limited: true })
     expect(onUsageLimit).toHaveBeenCalledTimes(1)
     expect(onUsageLimit.mock.calls[0][2]).toEqual({ localId, resetsAt: null, origin: 'operator' })
     expect(session.usageLimit).toEqual({ resetsAt: null })
@@ -166,7 +166,7 @@ describe('detecção do limite na sessão do Claude', () => {
     // Erro comum (result error_during_execution) sem evento rejeitado também não liga.
     mgr.send(localId, 'pergunta-abandonada')
     await waitUntil(() => onTurnResult.mock.calls.length === 2)
-    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: true })
+    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: true, interrupted: false, limited: false })
     expect(session.usageLimit).toBeUndefined()
 
     await turnDone(localId)
@@ -186,11 +186,11 @@ describe('detecção do limite na sessão do Claude', () => {
     const localId = await startIdle()
     mgr.send(localId, 'oi')
     await waitUntil(() => onTurnResult.mock.calls.length === 1)
-    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: false })
+    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: false, interrupted: false, limited: false })
     await turnDone(localId)
     mgr.send(localId, 'limite')
     await waitUntil(() => onTurnResult.mock.calls.length === 2)
-    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: true })
+    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: true, interrupted: false, limited: true })
     // O limite é avisado antes do fim do turno: o serviço registra e só depois o result decide.
     expect(onUsageLimit.mock.invocationCallOrder[0]).toBeLessThan(onTurnResult.mock.invocationCallOrder[1])
   })

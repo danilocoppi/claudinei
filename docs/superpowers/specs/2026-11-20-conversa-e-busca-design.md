@@ -152,3 +152,12 @@ dobra não re-renderizar as outras.
 - O formato exato de destaque da ocorrência e as chaves de i18n (pt-BR, en, es).
 - Como numerar eventos ao vivo antes de o histórico confirmar (desde que casem
   depois sem reconstruir a lista).
+
+## Decisões depois da revisão do desenho (de quem escreveu)
+
+- **Posição = byte da linha no arquivo, não ordem desde o começo.** Os leitores lêem o arquivo de trás para a frente (Codex chega a 5,5 GB); reler do início a cada página travaria o servidor. A página pede "eventos antes do byte X" e o leitor continua lendo para trás a partir dali, com o mesmo teto de tempo/bytes por pedido de hoje. Não há `total`: a tela mostra "início da conversa" quando o leitor chega ao byte 0.
+- **A busca roda ao apertar Enter, em fatias e sem índice.** O servidor lê para trás em fatias com orçamento de tempo, devolve os achados conforme encontra ("12 encontrados até agora… continuar") e pode ser cancelada; nunca bloqueia o laço de eventos (fatias com `setImmediate`/leitura assíncrona). Em arquivos enormes, a busca para no teto de bytes de uma rodada e oferece "buscar mais para trás".
+- **Ctrl+F no campo de mensagem abre a busca do Claudinei** — o campo faz parte do chat (exceção explícita à regra de `isForeignField`); nos demais campos de texto e no terminal interativo, segue o do navegador.
+- **O que a busca padrão cobre:** só o que aparece na tela sem abrir ferramentas — mensagens do operador, respostas do agente, cartões de tarefa/agendamento/Claudinei e o resumo da compactação. Com "incluir ferramentas": entradas e saídas de ferramentas e o raciocínio do agente (que mora dentro dos grupos de ações). Texto que o motor injeta e que a tela não mostra nunca conta — todo achado tem de levar a algo visível.
+- **A rota de histórico muda de formato** (`{ events, before, atStart }`): o único consumidor é `web/src/api.ts`; não há compatibilidade a manter.
+- **OpenCode na primeira versão:** página só do trecho que o leitor dele já devolve hoje (ele monta o histórico do banco próprio e pode desfazer mensagens); a busca dele cobre esse trecho. Claude, Codex e Kimi têm histórico e busca completos.

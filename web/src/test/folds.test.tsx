@@ -174,6 +174,39 @@ describe('dobras no store', () => {
     expect(screen.getByText('saida t2')).toBeTruthy()
   })
 
+  it('grupo aberto continua aberto quando a página antiga junta ações no topo dele; fechar limpa todas', () => {
+    // O grupo é chaveado pelo 1º item: a página antiga traz ações que entram
+    // ANTES dele no mesmo grupo, e a chave do 1º item muda (g:p300 → g:p100).
+    const Lista = () => {
+      const items = useStore((s) => s.chat.s1) ?? []
+      return <>{groupActions(items, false).map((node) => node.kind === 'group'
+        ? <ActionGroup key={`g-${node.items[0].item.key}`} items={node.items} currentLocalId="s1" />
+        : <MessageBlock key={node.item.key} item={node.item} currentLocalId="s1" />)}</>
+    }
+    act(() => st().setHistoryTail('s1', {
+      events: [chamada('t3', 300), resultado('t3', 310), chamada('t4', 320), resultado('t4', 330),
+        chamada('t5', 340), resultado('t5', 350), texto('pronto', 360)],
+      before: 300, atStart: false,
+    }, 'c'))
+    render(<Lista />)
+    fireEvent.click(screen.getByText('3 ações'))
+    expect(st().folds.s1).toEqual({ 'p300:group': true })
+
+    act(() => st().prependHistory('s1', {
+      events: [pedido('faz', 0), chamada('t1', 100), resultado('t1', 110), chamada('t2', 200), resultado('t2', 210)],
+      before: 0, atStart: true,
+    }, 300))
+    expect(st().chat.s1[1].key).toBe('p100')
+    // Os cinco cartões à vista: o grupo continua aberto.
+    expect(screen.getByText('5 ações')).toBeTruthy()
+    expect(screen.getAllByText('Bash')).toHaveLength(5)
+
+    // Fechar fecha de verdade: nenhuma chave do grupo segura a dobra.
+    fireEvent.click(screen.getByText('5 ações'))
+    expect(st().folds.s1).toEqual({})
+    expect(screen.queryAllByText('Bash')).toHaveLength(0)
+  })
+
   it('resumo da compactação, mostrar tudo, cartão de ferramenta e raciocínio usam a mesma dobra do store', () => {
     const resumo: ChatItem = { kind: 'user_text', text: 'Summary:\n\n**Primary Request**', compactSummary: true, fromEngine: true, key: 'p1' }
     const operador: ChatItem = { kind: 'user_text', text: longo(20), key: 'p2' }

@@ -5,7 +5,7 @@ import { ChatView } from '../components/ChatView'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import { DEFAULT_APPEARANCE } from '../appearance'
-import { chatListRef } from '../chat/listHandle'
+import { chatFollow, chatListRef } from '../chat/listHandle'
 import { foldsToOpen, locateHit, locateLiveHit, matchRanges } from '../chat/find'
 import { paintFindMatches } from '../chat/findHighlight'
 import { groupActions } from '../chat/grouping'
@@ -421,6 +421,34 @@ describe('revisão: turno ao vivo, visita tardia, fatia parada, Esc, cancelament
     await buscar('reinicio')
     expect(urls('/history'), 'não carrega páginas para o que está depois do cursor').toEqual([])
     expect(find()!.currentKey).toBe('l4')
+    expect(document.querySelector('.chat-hit')?.textContent).toContain('Reinício')
+  })
+
+  it('a releitura do fim do turno que confirma o item no meio da ida não deixa a marca na chave velha', async () => {
+    const TEXTO = 'primeira linha\n\ntexto novo com o Reinício   do serviço'
+    preparar([...conversa(30), aoVivo(TEXTO, 'l4'), aoVivo('outra coisa', 'l5')])
+    useStore.setState((s) => ({ sessions: { ...s.sessions, s1: { ...sess, status: 'working' } } }))
+    servidor([{ hits: [comTexto(TOPO + 5000, 'texto novo com o reinício do serviço')], before: 0, atStart: true }])
+    await montar()
+    // O fim do turno chega entre abrir as dobras e marcar o item: l4 vira p<pos>.
+    const fala = (pos: number, text: string): ClaudeEvent =>
+      ({ kind: 'assistant', pos, message: { role: 'assistant', content: [{ type: 'text', text }] }, raw: {} })
+    let soltar = chatFollow.release
+    Object.defineProperty(chatFollow, 'release', {
+      configurable: true,
+      get: () => () => {
+        soltar()
+        useStore.getState().setHistoryTail('s1', {
+          events: [fala(TOPO + 290, `fala ${TOPO + 290}`), fala(TOPO + 5000, TEXTO), fala(TOPO + 5010, 'outra coisa')],
+          before: TOPO + 290, atStart: false,
+        }, 'c')
+      },
+      set: (v: () => void) => { soltar = v },
+    })
+    onTestFinished(() => { Object.defineProperty(chatFollow, 'release', { value: soltar, writable: true, configurable: true }) })
+    await buscar('reinicio')
+    expect(useStore.getState().chat.s1.at(-2)?.key).toBe(`p${TOPO + 5000}`)
+    expect(find()!.currentKey).toBe(`p${TOPO + 5000}`)
     expect(document.querySelector('.chat-hit')?.textContent).toContain('Reinício')
   })
 

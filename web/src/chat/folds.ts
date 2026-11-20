@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useStore } from '../store'
 
 /**
@@ -37,4 +37,33 @@ export function useFold(localId: string | undefined, itemKey: string | undefined
     else setLocal(open)
   }, [id, localId, setFold])
   return [id ? stored : local, set]
+}
+
+/**
+ * A dobra de um grupo de ações. O grupo é aberto pela chave do 1º item, mas
+ * esse item muda: a página antiga junta ações no topo do grupo, ou o histórico
+ * confirmado começa o grupo com um item que o ao vivo não tinha. Então o grupo
+ * está aberto se QUALQUER membro guarda a dobra dele, e fechar limpa todas —
+ * senão ele fecharia (e remontaria) bem onde o operador está lendo.
+ *
+ * O seletor devolve só o booleano: abrir outro grupo não re-renderiza este.
+ * Sem sessão ou com o 1º item sem chave (legado), cai no estado local.
+ */
+export function useGroupFold(localId: string | undefined, itemKeys: (string | undefined)[]): [boolean, (open: boolean) => void] {
+  const usaStore = !!localId && itemKeys[0] !== undefined
+  // Assinatura estável das chaves: o array de itens é novo a cada render.
+  const assinatura = usaStore ? itemKeys.filter((k) => k !== undefined).join('\n') : ''
+  const ids = useMemo(() => (assinatura ? assinatura.split('\n').map((k) => foldId(k, 'group')) : []), [assinatura])
+  const [local, setLocal] = useState(false)
+  const stored = useStore(useCallback((s: { folds: Record<string, Record<string, true> | undefined> }) => {
+    const f = localId ? s.folds[localId] : undefined
+    return !!f && ids.some((id) => f[id])
+  }, [localId, ids]))
+  const setFold = useStore((s) => s.setFold)
+  const set = useCallback((open: boolean) => {
+    if (!usaStore) { setLocal(open); return }
+    if (open) setFold(localId!, ids[0], true)
+    else for (const id of ids) setFold(localId!, id, false)
+  }, [usaStore, localId, ids, setFold])
+  return [usaStore ? stored : local, set]
 }

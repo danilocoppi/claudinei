@@ -193,7 +193,16 @@ export async function gotoHit(index: number): Promise<void> {
   await proximoQuadro()
   if (!vale()) return
   const st2 = get()
-  const nodes = groupActions(st2.chat[localId] ?? [], st2.sessions[localId]?.status === 'working')
+  const itens = st2.chat[localId] ?? []
+  // A releitura do fim do turno pode ter chegado no meio: a chave ao vivo
+  // (`l<n>`) virou a confirmada e não está mais na lista. Acha de novo — as
+  // dobras abertas já foram levadas para a chave nova pelo `setHistoryTail`.
+  if (!itens.some((it) => it.key === key)) {
+    const nova = locateHit(itens, hit) ?? locateLiveHit(itens, hit)
+    if (nova === null) { get().patchFind(localId, q, { currentKey: null }); return }
+    key = nova
+  }
+  const nodes = groupActions(itens, st2.sessions[localId]?.status === 'working')
   const at = nodeIndexOfItem(nodes, key)
   if (at >= 0) chatListRef.current?.scrollToIndex({ index: at, align: 'center' })
   get().patchFind(localId, q, { currentKey: key })

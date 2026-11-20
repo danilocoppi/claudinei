@@ -247,6 +247,36 @@ describe('edição de um item que saiu da fila no meio', () => {
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('primeiro, editado')
   })
 
+  it('o editor órfão é do terminal dele: trocar de terminal não o leva junto, e voltar o traz', async () => {
+    const C = { id: 21, text: 'do codex: revise o diff', createdAt: '2026-11-20 12:02:00' }
+    useStore.setState({ queues: { '1:claude': fila({ items: [A, B] }), '1:codex': fila({ engine: 'codex', items: [C] }) } })
+    // O ChatView não remonta o painel ao trocar de aba: o mesmo componente recebe outro terminal.
+    const { rerender } = render(<QueuePanel projectId={1} engine="claude" />)
+    fireEvent.click(within(linha(/^primeiro/)).getByRole('button', { name: 'Editar' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Editar mensagem da fila' }), { target: { value: 'primeiro, editado' } })
+    ws(fila({ items: [B] }))
+    expect(screen.getByText(/saiu antes de você salvar/)).toBeTruthy()
+
+    rerender(<QueuePanel projectId={1} engine="codex" />)
+    // No Codex: nada do editor do Claude, e o ✎ do Codex funciona.
+    expect(screen.queryByText(/saiu antes de você salvar/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pôr na fila de novo' })).toBeNull()
+    expect((within(linha(/^do codex/)).getByRole('button', { name: 'Editar' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(api.addToQueue).not.toHaveBeenCalled()
+
+    // Outro projeto, mesmo motor: também não.
+    useStore.setState({ queues: { ...useStore.getState().queues, '2:claude': fila({ projectId: 2, items: [C] }) } })
+    rerender(<QueuePanel projectId={2} engine="claude" />)
+    expect(screen.queryByText(/saiu antes de você salvar/)).toBeNull()
+
+    // De volta ao Claude do projeto 1: o texto editado continua lá, e vai para o terminal certo.
+    rerender(<QueuePanel projectId={1} engine="claude" />)
+    expect((screen.getByRole('textbox', { name: 'Edição da mensagem que saiu da fila' }) as HTMLTextAreaElement).value).toBe('primeiro, editado')
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr na fila de novo' }))
+    expect(api.addToQueue).toHaveBeenCalledWith(1, 'claude', 'primeiro, editado')
+    await waitFor(() => expect(screen.queryByText(/saiu antes de você salvar/)).toBeNull())
+  })
+
   it('Descartar fecha o editor órfão sem chamar a API, e o painel vazio some', () => {
     editarESumir(fila())
     fireEvent.click(screen.getByRole('button', { name: 'Descartar' }))

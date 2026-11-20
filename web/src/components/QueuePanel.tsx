@@ -8,6 +8,9 @@ import { useQueueSync } from '../useQueueSync'
 import { queueHeld } from '../queueHold'
 import type { OperatorQueue, QueueItem } from '../types'
 
+/** O item em edição e o texto que o operador está escrevendo. */
+interface Edit { id: number; text: string }
+
 /** A linha do item: a primeira linha com texto (o resto aparece no title e no editor). */
 const firstLine = (text: string) => text.trim().split('\n')[0]
 /** O title de um item enorme não precisa do texto inteiro (até 120 000 bytes). */
@@ -34,7 +37,22 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
   const queue = useStore((s) => s.queues[key])
   // Boolean: o seletor não re-renderiza o painel a cada mudança do estado do terminal.
   const held = useStore((s) => queueHeld(s.terminalStates[key]))
-  const [editing, setEditing] = useState<{ id: number; text: string } | null>(null)
+  /**
+   * Edição em andamento, por terminal. O ChatView não remonta o painel ao trocar
+   * de aba: com um estado só, a edição (e o editor órfão) de um terminal
+   * apareceria no outro, e o "Pôr na fila de novo" mandaria o texto ao agente
+   * errado. Cada terminal vê só a dele, e ela continua lá na volta.
+   */
+  const [edits, setEdits] = useState<Record<string, Edit>>({})
+  const editing: Edit | null = edits[key] ?? null
+  // `key` é o do render em que a ação começou: a resposta que chega depois de
+  // trocar de aba fecha a edição do terminal certo.
+  const setEditing = (next: Edit | null | ((e: Edit | null) => Edit | null)) =>
+    setEdits((all) => {
+      const value = typeof next === 'function' ? next(all[key] ?? null) : next
+      const { [key]: _old, ...rest } = all
+      return value ? { ...rest, [key]: value } : rest
+    })
   const [error, setError] = useState<string | null>(null)
 
   // O item em edição saiu da fila: o editor vira órfão, com o texto editado.

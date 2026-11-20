@@ -138,7 +138,8 @@ export interface AppDeps {
   /**
    * Recebe a fila do operador: os ganchos `onTurnResult` e `onSessionDied` do
    * manager leem a referência que index.ts preenche aqui (a fila pausa no erro,
-   * no limite, na interrupção pelo operador e na morte da sessão).
+   * na interrupção pelo operador e na morte da sessão; o limite de uso não
+   * pausa, quem segura a fila é o aviso do limite).
    */
   onQueueReady?: (queue: OperatorQueueService) => void
 }

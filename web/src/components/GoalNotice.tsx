@@ -19,7 +19,9 @@ const ACCEPTS_SEND = new Set<SessionStatus>(['starting', 'idle', 'working', 'nee
  * caminho do campo do chat (`send_message` no WebSocket); o servidor os
  * intercepta antes do agente, e nada vai à conversa. Por isso também não entram
  * como mensagem otimista no chat: sumiriam ao recarregar o histórico. O aviso
- * some quando o servidor publica o goal ativo (resume) ou sem goal (stop).
+ * some quando o servidor publica o goal ativo (resume) ou sem goal (stop). Se o
+ * envio for recusado ou se perder (erro do WebSocket para este chat), ou se a
+ * sessão mudar de estado, os botões voltam: o goal não mudou.
  *
  * Com a sessão parada, morta ou no terminal interativo, o envio seria recusado:
  * o aviso fica, com o motivo, e diz para iniciar o terminal — sem botões.
@@ -41,12 +43,14 @@ export function GoalNotice({ projectId, engine, localId, sessionStatus }: {
   const pause = useStore((s) => s.terminalStates[key]?.goal?.pause ?? null)
   const turns = useStore((s) => s.terminalStates[key]?.goal?.turns ?? 0)
   const max = useStore((s) => s.terminalStates[key]?.goal?.max ?? 0)
+  // Só o número de erros deste chat (seletor estreito: um inteiro).
+  const errors = useStore((s) => s.sendErrors[localId] ?? 0)
   // O clique vale para o estado em que foi dado: até o servidor mudar o goal, os
   // botões ficam desligados (sem `/goal resume` repetido a cada clique).
   const [sentFor, setSentFor] = useState<string | null>(null)
 
   if (status !== 'paused' && status !== 'cap') return null
-  const stateKey = `${status}:${pause ?? ''}:${turns}`
+  const stateKey = `${status}:${pause ?? ''}:${turns}:${sessionStatus ?? ''}:${errors}`
   const canSend = sessionStatus != null && ACCEPTS_SEND.has(sessionStatus)
   const busy = sentFor === stateKey
 

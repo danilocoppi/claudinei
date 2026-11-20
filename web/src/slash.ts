@@ -43,6 +43,12 @@ export const BUILTIN_FALLBACK: string[] = ['compact', 'cost', 'context', 'usage'
  */
 export const CLAUDINEI_COMMANDS: string[] = ['goal']
 
+/**
+ * `/goal` sozinho ou seguido de espaço (não `/goalx`): o mesmo teste do servidor,
+ * que intercepta o comando antes do agente.
+ */
+export const GOAL_COMMAND = /^\/goal(\s|$)/
+
 /** Comandos só-TUI que não fazem nada útil no chat headless. */
 export const HIDDEN = new Set(['exit', 'help'])
 

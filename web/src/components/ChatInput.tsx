@@ -4,7 +4,7 @@ import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands, type FileMenuAction } from '../store'
 import { checkUploads, uploadFile } from '../api'
 import { SessionControls } from './SessionControls'
-import { filterCommands } from '../slash'
+import { GOAL_COMMAND, filterCommands } from '../slash'
 import { readDraft, saveDraft } from '../drafts'
 import { readStash, pushStash, takeStash, stashKey, type StashEntry } from '../stash'
 import { StashMenu } from './StashMenu'
@@ -190,7 +190,9 @@ export function ChatInput({
 
     if (disabled) return
     ws?.send({ type: 'send_message', localId, text: trimmed })
-    addLocalUserText(localId, trimmed)
+    // O `/goal` é do Claudinei: o servidor o intercepta antes do agente, e nada
+    // vai à conversa. Um balão otimista aqui seria falso (e sumiria no reload).
+    if (!GOAL_COMMAND.test(trimmed)) addLocalUserText(localId, trimmed)
     setText('')
     histIdxRef.current = null
     setUploadError(null)

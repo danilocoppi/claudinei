@@ -138,6 +138,12 @@ interface State {
   headsUps: Record<string, HeadsUpCard[]>
   /** Avisos fechados no X, por chat: o mesmo cartão chegando de novo (snapshot) não volta. */
   dismissedHeadsUps: Record<string, string[]>
+  /**
+   * Erros do WebSocket por chat (envio recusado pelo servidor ou expirado com a
+   * conexão caída), só contados: quem trava um botão até a resposta (o aviso do
+   * goal) o solta quando o número muda.
+   */
+  sendErrors: Record<string, number>
   /** Arquivo aberto INLINE (painel dockado acima do input do chat), por sessão. */
   inlineFile: { localId: string; path: string; kind: FileKind; projectId?: number } | null
   /** Link externo aguardando confirmação de segurança (popup) antes de abrir. */
@@ -294,6 +300,7 @@ export const useStore = create<State>((set, get) => ({
   fileMenu: null,
   headsUps: {},
   dismissedHeadsUps: {},
+  sendErrors: {},
   inlineFile: null,
   fileResolved: {},
   externalLink: null,
@@ -450,6 +457,8 @@ export const useStore = create<State>((set, get) => ({
     })
     if (msg.type === 'error' && typeof msg.localId === 'string' && typeof msg.message === 'string') {
       get().addLocalItem(msg.localId, { kind: 'command_output', text: localizeServerError(msg), isError: true })
+      const errLocalId = msg.localId
+      set((s) => ({ sendErrors: { ...s.sendErrors, [errLocalId]: (s.sendErrors[errLocalId] ?? 0) + 1 } }))
     } else if (msg.type === 'action_exit') {
       const runs = get().actionRuns
       if (!runs.some((r) => r.actionId === msg.actionId)) return

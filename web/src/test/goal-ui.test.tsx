@@ -170,6 +170,34 @@ describe('aviso do goal pausado ou no teto', () => {
     expect(send).toHaveBeenCalledTimes(2)
   })
 
+  it('envio recusado ou perdido (erro do WebSocket para este chat) solta os botões', () => {
+    poe(comGoal({ status: 'paused', pause: 'operator' }))
+    const send = abre()
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar' }))
+    expect((screen.getByRole('button', { name: 'Retomar' }) as HTMLButtonElement).disabled).toBe(true)
+    // Erro de outro chat não solta.
+    act(() => useStore.getState().applyWsMessage({ type: 'error', localId: 's2', message: 'x' }))
+    expect((screen.getByRole('button', { name: 'Retomar' }) as HTMLButtonElement).disabled).toBe(true)
+    // O servidor recusou (ou o envio expirou na conexão caída): o goal não mudou, e o operador pode tentar de novo.
+    act(() => useStore.getState().applyWsMessage({ type: 'error', localId: 's1', message: 'session_not_active' }))
+    expect((screen.getByRole('button', { name: 'Retomar' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar' }))
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+
+  it('a sessão mudou de estado depois do clique: os botões voltam', () => {
+    poe(comGoal({ status: 'paused', pause: 'operator' }))
+    const send = vi.fn()
+    const ui = (status: SessionStatus) => <WsContext.Provider value={{ send }}>
+      <GoalNotice projectId={1} engine="claude" localId="s1" sessionStatus={status} />
+    </WsContext.Provider>
+    const { rerender } = render(ui('working'))
+    fireEvent.click(screen.getByRole('button', { name: 'Encerrar' }))
+    expect((screen.getByRole('button', { name: 'Encerrar' }) as HTMLButtonElement).disabled).toBe(true)
+    rerender(ui('idle'))
+    expect((screen.getByRole('button', { name: 'Encerrar' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('montado no ChatView, acima do campo', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })))
@@ -208,8 +236,11 @@ describe('selo no cartão da lateral', () => {
     expect(selo.textContent).toBe('🎯 7/20')
     expect(selo.getAttribute('title')).toBe('Objetivo: turno 7/20 · ativo')
     expect(selo.className).not.toMatch(/pulse|sonar|anim|blink|spin/i)
-    // Fica na linha do nome, junto das marcas de interrupção e de limite.
-    expect(selo.parentElement).toBe(cartao('Alpha').querySelector('.term-card__title'))
+    // Cartão expandido: na linha de status, como a marca do limite — não na do
+    // nome, que ele espremia até sumir (D1). Um selo só no cartão.
+    expect(selo.parentElement).toBe(cartao('Alpha').querySelector('.term-card__status'))
+    expect(selo.className).toMatch(/term-card__goal--in-status/)
+    expect(within(cartao('Alpha')).getAllByTestId('goal-marker')).toHaveLength(1)
     expect(within(cartao('Beta')).queryByTestId('goal-marker')).toBeNull()
 
     act(() => useStore.getState().setTerminalState(comGoal({ status: 'waiting', turns: 8 })))
@@ -223,6 +254,18 @@ describe('selo no cartão da lateral', () => {
     const regras = [...css.matchAll(/([^{}]*\.term-card__goal[^{}]*)\{([^{}]*)\}/g)]
     expect(regras.length).toBeGreaterThan(0)
     for (const [, , corpo] of regras) expect(corpo).not.toMatch(/animation|transition/)
+    // O selo encolhe antes do nome (com reticências) e nunca é rígido: `flex: none`
+    // com nowrap espremia o nome do projeto a 0-2 px.
+    // O seletor capturado leva o comentário que o precede: vale a última linha.
+    const seletor = (sel: string) => sel.trim().split('\n').pop()!.trim()
+    const base = regras.find(([, sel]) => seletor(sel) === '.term-card__goal')![2]
+    expect(base).not.toMatch(/flex:\s*none/)
+    expect(base).toMatch(/flex:\s*0 4 auto/)
+    expect(base).toMatch(/min-width:\s*0/)
+    expect(base).toMatch(/overflow:\s*hidden/)
+    expect(base).toMatch(/text-overflow:\s*ellipsis/)
+    const naLinhaDeStatus = regras.find(([, sel]) => seletor(sel) === '.term-card__goal--in-status')
+    expect(naLinhaDeStatus?.[2]).toMatch(/flex:\s*0 1 auto/)
   })
 
   it('colapsado: o selo segue na linha do nome', () => {
@@ -231,6 +274,7 @@ describe('selo no cartão da lateral', () => {
     render(<Sidebar />)
     const card = cartao('Alpha')
     expect(within(card).getByTestId('goal-marker').parentElement).toBe(card.querySelector('.term-card__title'))
+    expect(within(card).getByTestId('goal-marker').className).not.toMatch(/in-status/)
     expect(within(card).getAllByTestId('goal-marker')).toHaveLength(1)
   })
 
@@ -270,6 +314,26 @@ describe('/goal no autocomplete', () => {
   }
   const meta = (id: string, slashSource: EngineMeta['slashSource'], slashCommands: string[] = []): EngineMeta =>
     ({ id, label: id, icon: id, models: [''], efforts: [], permissions: [], slashSource, slashCommands })
+
+  it('/goal digitado não vira balão do operador no chat (o servidor o intercepta)', () => {
+    useStore.setState({
+      engines: [CLAUDE], slashCommands: [],
+      sessions: { s1: sess('s1', 'idle') }, chat: { s1: [] }, unread: {}, streaming: {}, historyLoadedFor: {},
+    })
+    const send = vi.fn()
+    render(<WsContext.Provider value={{ send }}><ChatInput localId="s1" disabled={false} /></WsContext.Provider>)
+    const box = screen.getByRole('textbox')
+    for (const text of ['/goal testes verdes', '/goal stop']) {
+      fireEvent.change(box, { target: { value: text } })
+      fireEvent.click(screen.getByRole('button', { name: /enviar|send/i }))
+      expect(send).toHaveBeenLastCalledWith({ type: 'send_message', localId: 's1', text })
+    }
+    expect(useStore.getState().chat.s1).toEqual([])
+    // Outro texto que só começa parecido segue virando balão.
+    fireEvent.change(box, { target: { value: '/goalx algo' } })
+    fireEvent.click(screen.getByRole('button', { name: /enviar|send/i }))
+    expect(useStore.getState().chat.s1).toEqual([{ kind: 'user_text', text: '/goalx algo' }])
+  })
 
   it('/goal aparece no autocomplete', () => {
     expect(BUILTIN_FALLBACK).toContain('goal')

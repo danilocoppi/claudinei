@@ -866,6 +866,8 @@ button.usage-card__details {
 button.usage-card__details:hover { filter: none; text-decoration: underline; }
 /* Cartão sem limites nem tokens: só o "Ver detalhes", sem ocupar espaço à toa. */
 .usage-card--empty { padding: 6px 12px; }
+/* Nenhum motor em uso nas últimas 24 h: só esta linha e o Ver detalhes. */
+.usage-card__idle { font-size: 11px; color: var(--text-dim); }
 
 /* Página de uso. Sem GPU (AGENTS.md): blocos sem backdrop-filter, barras em div
    com largura em %, nada de transition nem animation. */

@@ -299,7 +299,12 @@ export interface EngineTokens { input: number; cachedInput: number; output: numb
 /** Acumulado (`total`) desde o 1º uso + `today` (bucket do dia UTC, zera à meia-noite). */
 export interface EngineUsage { total: EngineTokens; today: EngineTokens }
 /** Barras do /usage (limites do Claude via proxy OAuth) + tokens por engine (total + hoje). */
-export const fetchUsage = () => req<{ limits: UsageLimit[]; tokens?: Record<string, EngineUsage> }>('/api/usage')
+/**
+ * `active`: motores que o cartão da lateral mostra (tokens nas últimas 24 h ou
+ * plano acima de 0%). Ausente = servidor antigo, o cartão mostra todos.
+ */
+export const fetchUsage = () =>
+  req<{ limits: UsageLimit[]; tokens?: Record<string, EngineUsage>; active?: string[] }>('/api/usage')
 
 /** Espelho de `server/src/usage-index/report.ts` e `indexer.ts` (relatório de uso por período). */
 export type UsagePeriod = '24h' | '7d' | '30d' | '90d'

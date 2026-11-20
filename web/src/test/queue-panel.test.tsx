@@ -7,6 +7,7 @@ import { render, cleanup, screen, fireEvent, waitFor, within, act } from '@testi
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api')>()),
   fetchQueue: vi.fn(),
+  addToQueue: vi.fn(),
   editQueueItem: vi.fn(),
   reorderQueue: vi.fn(),
   removeQueueItem: vi.fn(),
@@ -34,7 +35,7 @@ const estado = (o: Partial<TerminalState> = {}): TerminalState => ({
   autoResumeLimit: false, usageLimit: null, ...o,
 })
 
-const mocks = [api.fetchQueue, api.editQueueItem, api.reorderQueue, api.removeQueueItem, api.sendQueueItemNow, api.pauseQueue, api.resumeQueue]
+const mocks = [api.fetchQueue, api.addToQueue, api.editQueueItem, api.reorderQueue, api.removeQueueItem, api.sendQueueItemNow, api.pauseQueue, api.resumeQueue]
 
 beforeEach(() => {
   for (const m of mocks) { vi.mocked(m).mockReset(); vi.mocked(m).mockResolvedValue(fila({ items: [A, B] })) }
@@ -112,9 +113,9 @@ describe('painel da fila', () => {
   })
 
   it('pausada mostra o motivo e Retomar fila', () => {
-    poe(fila({ items: [A], paused: true, pauseReason: 'limit' }))
+    poe(fila({ items: [A], paused: true, pauseReason: 'error' }))
     abrir()
-    expect(screen.getByText(/fila pausada — limite de uso/)).toBeTruthy()
+    expect(screen.getByText(/fila pausada — erro no turno/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar fila' }))
     expect(api.resumeQueue).toHaveBeenCalledWith(1, 'claude')
   })
@@ -162,17 +163,19 @@ const ws = (q: OperatorQueue) =>
 
 describe('resposta HTTP atrasada não sobrescreve a fila mais nova do WebSocket', () => {
   it('enviar agora no Kimi: a resposta que chega depois da entrega não ressuscita o item', async () => {
+    const kimi = (o: Partial<OperatorQueue> = {}) => fila({ engine: 'kimi', ...o })
     const resposta = adiada<OperatorQueue>()
     vi.mocked(api.sendQueueItemNow).mockReturnValue(resposta.promise)
-    poe(fila({ items: [B] }))
-    abrir()
+    useStore.setState({ queues: { '1:kimi': kimi({ items: [B] }) } })
+    render(<QueuePanel projectId={1} engine="kimi" />)
     fireEvent.click(within(linha(/^segundo/)).getByRole('button', { name: 'Enviar agora' }))
+    expect(api.sendQueueItemNow).toHaveBeenCalledWith(1, 'kimi', 12)
     // A ordem vista no app real: o emit do sendNow, a entrega (emit do offer) e só então o 200.
-    ws(fila({ items: [B] }))
-    ws(fila())
-    await act(async () => { resposta.resolve(fila({ items: [B] })); await resposta.promise })
+    ws(kimi({ items: [B] }))
+    ws(kimi())
+    await act(async () => { resposta.resolve(kimi({ items: [B] })); await resposta.promise })
     expect(screen.queryByTestId('queue-panel')).toBeNull()
-    expect(useStore.getState().queues['1:claude'].items).toEqual([])
+    expect(useStore.getState().queues['1:kimi'].items).toEqual([])
   })
 
   it('sem WebSocket no meio, a resposta da API vale', async () => {
@@ -189,6 +192,66 @@ describe('resposta HTTP atrasada não sobrescreve a fila mais nova do WebSocket'
     abrir()
     ws(fila())
     await act(async () => { leitura.resolve(fila({ items: [A] })); await leitura.promise })
+    expect(screen.queryByTestId('queue-panel')).toBeNull()
+  })
+})
+
+describe('edição de um item que saiu da fila no meio', () => {
+  /** Abre o editor de A, muda o texto e faz A sair da fila (entregue) pelo WebSocket. */
+  const editarESumir = (restante: OperatorQueue) => {
+    poe(fila({ items: [A, B] }))
+    abrir()
+    fireEvent.click(within(linha(/^primeiro/)).getByRole('button', { name: 'Editar' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Editar mensagem da fila' }), { target: { value: 'primeiro, editado' } })
+    ws(restante)
+  }
+
+  it('o texto editado fica num editor órfão com o aviso, mesmo com a fila vazia', () => {
+    editarESumir(fila())
+    // A fila esvaziou, mas o painel continua à vista por causa da edição.
+    expect(screen.getByTestId('queue-panel')).toBeTruthy()
+    expect(screen.getByText('Esta mensagem saiu antes de você salvar a edição.')).toBeTruthy()
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('primeiro, editado')
+    expect(screen.queryByRole('button', { name: 'Salvar' })).toBeNull()
+  })
+
+  it('Pôr na fila de novo acrescenta o texto editado e fecha o editor', async () => {
+    vi.mocked(api.addToQueue).mockResolvedValue(fila({ items: [B, { ...A, id: 13, text: 'primeiro, editado' }] }))
+    editarESumir(fila({ items: [B] }))
+    // Editar outro item agora jogaria fora o texto órfão: fica bloqueado até decidir.
+    expect((within(linha(/^segundo/)).getByRole('button', { name: 'Editar' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr na fila de novo' }))
+    expect(api.addToQueue).toHaveBeenCalledWith(1, 'claude', 'primeiro, editado')
+    await waitFor(() => expect(screen.queryByText(/saiu antes de você salvar/)).toBeNull())
+    expect(screen.getByText('primeiro, editado')).toBeTruthy()
+    expect(api.editQueueItem).not.toHaveBeenCalled()
+  })
+
+  it('Pôr na fila de novo usa a mesma proteção contra resposta atrasada', async () => {
+    const resposta = adiada<OperatorQueue>()
+    vi.mocked(api.addToQueue).mockReturnValue(resposta.promise)
+    editarESumir(fila())
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr na fila de novo' }))
+    // O WebSocket já trouxe a fila de depois (o item novo entregue na hora): a resposta velha fica de fora.
+    ws(fila())
+    await act(async () => { resposta.resolve(fila({ items: [{ ...A, id: 13 }] })); await resposta.promise })
+    expect(useStore.getState().queues['1:claude'].items).toEqual([])
+    expect(screen.queryByTestId('queue-panel')).toBeNull()
+  })
+
+  it('Pôr na fila de novo que falha mantém o texto e mostra o erro', async () => {
+    vi.mocked(api.addToQueue).mockRejectedValue(new Error('A fila já tem 20 mensagens.'))
+    editarESumir(fila())
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr na fila de novo' }))
+    expect(await screen.findByText(/A fila já tem 20 mensagens/)).toBeTruthy()
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('primeiro, editado')
+  })
+
+  it('Descartar fecha o editor órfão sem chamar a API, e o painel vazio some', () => {
+    editarESumir(fila())
+    fireEvent.click(screen.getByRole('button', { name: 'Descartar' }))
+    expect(api.addToQueue).not.toHaveBeenCalled()
+    expect(api.editQueueItem).not.toHaveBeenCalled()
     expect(screen.queryByTestId('queue-panel')).toBeNull()
   })
 })
@@ -237,7 +300,8 @@ describe('fila: Zen e erros do servidor', () => {
       for (const code of ['queue_full', 'queue_item_too_large', 'queue_item_empty', 'queue_item_not_found', 'queue_order_mismatch']) {
         expect(i18n.exists(`serverErrors.${code}`), `${code} em ${lng}`).toBe(true)
       }
-      for (const k of ['queue.resume', 'queue.held', 'queue.placeholderPaused', 'queue.reason.dead'] as const) {
+      for (const k of ['queue.resume', 'queue.held', 'queue.placeholderPaused', 'queue.reason.dead',
+        'queue.orphan', 'queue.orphanLabel', 'queue.requeue', 'queue.discard'] as const) {
         expect(i18n.t(k), `${k} em ${lng}`).not.toBe(k)
       }
     }

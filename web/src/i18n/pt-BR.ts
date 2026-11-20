@@ -472,7 +472,7 @@ export const ptBR: typeof en = {
     count: '{{count}} mensagem na fila', count_other: '{{count}} mensagens na fila',
     paused: 'fila pausada — {{reason}}',
     reason: {
-      error: 'erro no turno', limit: 'limite de uso', interrupted: 'turno interrompido',
+      error: 'erro no turno', interrupted: 'turno interrompido',
       dead: 'a sessão morreu', manual: 'pausada por você',
     },
     resume: 'Retomar fila', pause: 'Pausar fila',
@@ -481,6 +481,9 @@ export const ptBR: typeof en = {
     up: 'Subir', down: 'Descer', remove: 'Remover da fila', sendNow: 'Enviar agora',
     placeholderQueue: 'processando… o que você enviar agora vai para a fila',
     placeholderPaused: 'fila pausada — o que você enviar espera na fila (Retomar fila, acima)',
+    orphan: 'Esta mensagem saiu antes de você salvar a edição.',
+    orphanLabel: 'Edição da mensagem que saiu da fila',
+    requeue: 'Pôr na fila de novo', discard: 'Descartar',
   },
   zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. Alt+Z liga e desliga.' },
   fileViewer: {
@@ -513,6 +516,7 @@ export const ptBR: typeof en = {
     queue_item_empty: 'Mensagem vazia não entra na fila.',
     queue_item_not_found: 'Esta mensagem não está mais na fila.',
     queue_order_mismatch: 'A fila mudou enquanto você reordenava; tente de novo.',
+    unknown_engine: 'Motor desconhecido: {{engine}}.',
     session_already_active: 'O terminal {{project}} já tem uma sessão ativa.',
     session_in_terminal: 'O terminal {{project}} tem uma sessão aberta no terminal.',
     session_not_active: 'Esta sessão não está ativa.',

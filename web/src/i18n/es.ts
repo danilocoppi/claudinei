@@ -471,7 +471,7 @@ export const es: typeof en = {
     count: '{{count}} mensaje en la cola', count_other: '{{count}} mensajes en la cola',
     paused: 'cola en pausa — {{reason}}',
     reason: {
-      error: 'error en el turno', limit: 'límite de uso', interrupted: 'turno interrumpido',
+      error: 'error en el turno', interrupted: 'turno interrumpido',
       dead: 'la sesión murió', manual: 'pausada por ti',
     },
     resume: 'Reanudar cola', pause: 'Pausar cola',
@@ -480,6 +480,9 @@ export const es: typeof en = {
     up: 'Subir', down: 'Bajar', remove: 'Quitar de la cola', sendNow: 'Enviar ahora',
     placeholderQueue: 'procesando… lo que envíes ahora va a la cola',
     placeholderPaused: 'cola en pausa — lo que envíes espera en la cola (Reanudar cola, arriba)',
+    orphan: 'Este mensaje salió de la cola antes de que guardaras la edición.',
+    orphanLabel: 'Edición del mensaje que salió de la cola',
+    requeue: 'Volver a ponerlo en la cola', discard: 'Descartar',
   },
   zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
   fileViewer: {
@@ -512,6 +515,7 @@ export const es: typeof en = {
     queue_item_empty: 'Un mensaje vacío no entra en la cola.',
     queue_item_not_found: 'Este mensaje ya no está en la cola.',
     queue_order_mismatch: 'La cola cambió mientras reordenabas; inténtalo de nuevo.',
+    unknown_engine: 'Motor desconocido: {{engine}}.',
     session_already_active: 'El terminal {{project}} ya tiene una sesión activa.',
     session_in_terminal: 'El terminal {{project}} tiene una sesión abierta en la terminal.',
     session_not_active: 'Esta sesión no está activa.',

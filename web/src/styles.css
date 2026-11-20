@@ -2024,6 +2024,7 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .queue-panel__send { padding: 2px 8px; font-size: 12px; }
 .queue-panel__editor { width: 100%; resize: vertical; font-size: 14px; line-height: 1.4; }
 .queue-panel__error { color: var(--err); font-size: 12px; }
+.queue-panel__orphan { display: flex; flex-direction: column; gap: 4px; padding: 3px 0; }
 @media (max-width: 768px) {
   .queue-panel { margin: 6px 12px 0; }
   /* Dedo, não mouse: alvos maiores; o texto ocupa a linha de cima e os botões a de baixo. */

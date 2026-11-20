@@ -161,6 +161,17 @@ describe('modo Zen', () => {
     }
   })
 
+  it('Alt+Z segurado (auto-repetição) não fica ligando e desligando', () => {
+    render(<App />)
+    altZ()
+    expect(useStore.getState().zen).toBe(true)
+    // As repetições da tecla segurada não contam, mas também não escrevem nada.
+    expect(fireEvent.keyDown(window, { key: 'z', code: 'KeyZ', altKey: true, repeat: true })).toBe(false)
+    expect(useStore.getState().zen).toBe(true)
+    fireEvent.keyDown(window, { key: 'z', code: 'KeyZ', altKey: true, repeat: true })
+    expect(useStore.getState().zen).toBe(true)
+  })
+
   it('Alt+Z com Ctrl, Meta ou Shift juntos não é o atalho', () => {
     render(<App />)
     fireEvent.keyDown(window, { key: 'z', code: 'KeyZ', altKey: true, ctrlKey: true })

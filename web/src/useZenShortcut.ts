@@ -28,6 +28,8 @@ export function useZenShortcut(): void {
       if (!isZenShortcut(e) || e.isComposing) return
       if (isTerminalTarget(e.target)) return
       e.preventDefault()
+      // Tecla segurada: só o primeiro aperto conta, senão o modo pisca.
+      if (e.repeat) return
       useStore.getState().toggleZen()
     }
     window.addEventListener('keydown', onKeyDown)

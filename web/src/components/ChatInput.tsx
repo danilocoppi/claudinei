@@ -47,6 +47,20 @@ const tokenName = (tok: string) => /^\[📎 (.*)\]$/u.exec(tok)?.[1] ?? tok
 /** Teto do POST /api/uploads/check; um guardado tem bem menos anexos que isso. */
 const CHECK_MAX = 200
 
+const LATIN_LETTER = /^\p{Script=Latin}$/u
+const LETTER = /^\p{L}$/u
+/**
+ * Ctrl+S (ou Cmd+S), sem Alt nem Shift. Vale a letra da tecla; a posição
+ * (`code` 'KeyS') só entra quando a tecla dá uma letra de outro alfabeto (no
+ * cirílico a mesma tecla dá 'ы'). Se a posição do S der outra letra latina
+ * (Dvorak: 'o'), o atalho é o daquela letra, não este. Mesmo critério do Alt+Z.
+ */
+function isStashShortcut(e: { key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): boolean {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return false
+  if (e.key === 's' || e.key === 'S') return true
+  return e.code === 'KeyS' && LETTER.test(e.key) && !LATIN_LETTER.test(e.key)
+}
+
 export function ChatInput({
   localId,
   disabled,
@@ -99,6 +113,7 @@ export function ChatInput({
     if (!editRequest || editRequest.localId !== localId) return
     setText(editRequest.text)
     histIdxRef.current = null
+    setStashError(null)
     requestAnimationFrame(() => {
       const el = areaRef.current
       el?.focus()
@@ -187,7 +202,7 @@ export function ChatInput({
     const antes = { text, anexos: [...attachments.current] }
     setText('')
     histIdxRef.current = null
-    setUploadError(null); setQueueError(null)
+    setUploadError(null); setQueueError(null); setStashError(null)
     attachments.current.clear()
     // Um `operator_queue` que chegue antes da resposta é mais novo que ela: a resposta fica de fora.
     const seq = queueSeqOf(projectId, motor)
@@ -223,6 +238,7 @@ export function ChatInput({
       addLocalItem(localId, { kind: 'local_command', command: comando })
       setText('')
       histIdxRef.current = null
+      setStashError(null)
       attachments.current.clear()
       return
     }
@@ -233,7 +249,7 @@ export function ChatInput({
     addLocalUserText(localId, trimmed)
     setText('')
     histIdxRef.current = null
-    setUploadError(null)
+    setUploadError(null); setStashError(null)
     attachments.current.clear()
   }
 
@@ -451,6 +467,7 @@ export function ChatInput({
   const slashOpen = !disabled && !slashDismissed && histIdxRef.current === null && slashMatches.length > 0
   const pickSlash = (cmd: string) => {
     setText(`/${cmd} `)
+    setStashError(null)
     setSlashDismissed(true)
     areaRef.current?.focus()
   }
@@ -556,7 +573,7 @@ export function ChatInput({
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing || e.keyCode === 229) return
             // Ctrl+S: sempre barra o "salvar página", mesmo quando ignorado.
-            if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+            if (isStashShortcut(e)) {
               e.preventDefault(); guardarOuTrazer(); return
             }
             // Ctrl+Shift+V: só marca; o navegador cola (sem preventDefault).
@@ -577,6 +594,7 @@ export function ChatInput({
                 const step = historyStep(list, histIdxRef.current, e.key === 'ArrowUp' ? 'up' : 'down')
                 histIdxRef.current = step.index
                 setText(step.text)
+                setStashError(null)
                 return
               }
             }

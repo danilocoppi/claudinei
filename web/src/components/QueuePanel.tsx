@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  editQueueItem, pauseQueue, removeQueueItem, reorderQueue, resumeQueue, sendQueueItemNow,
+  addToQueue, editQueueItem, pauseQueue, removeQueueItem, reorderQueue, resumeQueue, sendQueueItemNow,
 } from '../api'
 import { progressKey, queueSeqOf, useStore } from '../store'
 import { useQueueSync } from '../useQueueSync'
@@ -19,7 +19,11 @@ const TITLE_MAX = 600
  * descer, remover e "enviar agora". O cabeçalho diz se a fila está pausada (e
  * por quê, com o Retomar) ou segurando por um aviso aberto acima.
  *
- * Fila vazia e sem pausa não desenha nada. Fica fora da moldura que o Zen
+ * Se o item em edição sai da fila no meio (foi entregue, ou removido noutra
+ * aba), o texto editado não se perde: fica num editor órfão, com o aviso e as
+ * opções de pôr na fila de novo ou descartar.
+ *
+ * Fila vazia, sem pausa e sem editor órfão não desenha nada. Fica fora da moldura que o Zen
  * esconde, para continuar à vista no modo. Estático de propósito: a interface
  * precisa andar sem GPU (AGENTS.md).
  */
@@ -33,7 +37,10 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  if (!queue || (queue.items.length === 0 && !queue.paused)) return null
+  // O item em edição saiu da fila: o editor vira órfão, com o texto editado.
+  const orphan = !!editing && !!queue && !queue.items.some((i) => i.id === editing.id)
+
+  if (!queue || (queue.items.length === 0 && !queue.paused && !orphan)) return null
 
   /**
    * Chama a API e aplica a fila devolvida na hora, sem esperar o WebSocket —
@@ -69,6 +76,15 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
     }
   }
 
+  /** Devolve à fila (no fim) o texto do editor órfão. */
+  const requeue = async () => {
+    if (!editing) return
+    const { id, text } = editing
+    if (await call(() => addToQueue(projectId, engine, text))) {
+      setEditing((e) => (e?.id === id ? null : e))
+    }
+  }
+
   const reason = queue.pauseReason ?? 'manual'
   const row = (item: QueueItem, index: number) => {
     if (editing?.id === item.id) {
@@ -98,8 +114,9 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
       <li key={item.id} className="queue-panel__item">
         <span className="queue-panel__text" title={item.text.slice(0, TITLE_MAX)}>{firstLine(item.text)}</span>
         <div className="queue-panel__actions">
+          {/* Com o editor órfão aberto, editar outro item jogaria fora o texto dele. */}
           <button type="button" className="ghost queue-panel__icon" aria-label={t('queue.edit')} title={t('queue.edit')}
-                  onClick={() => setEditing({ id: item.id, text: item.text })}>✎</button>
+                  disabled={orphan} onClick={() => setEditing({ id: item.id, text: item.text })}>✎</button>
           <button type="button" className="ghost queue-panel__icon" aria-label={t('queue.up')} title={t('queue.up')}
                   disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
           <button type="button" className="ghost queue-panel__icon" aria-label={t('queue.down')} title={t('queue.down')}
@@ -124,6 +141,22 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
           ? <button type="button" onClick={() => void call(() => resumeQueue(projectId, engine))}>{t('queue.resume')}</button>
           : <button type="button" className="ghost" onClick={() => void call(() => pauseQueue(projectId, engine))}>{t('queue.pause')}</button>}
       </div>
+      {orphan && editing && (
+        <div className="queue-panel__orphan">
+          <div className="queue-panel__status" role="status">{t('queue.orphan')}</div>
+          <textarea
+            className="queue-panel__editor"
+            aria-label={t('queue.orphanLabel')}
+            rows={3}
+            value={editing.text}
+            onChange={(e) => setEditing({ id: editing.id, text: e.target.value })}
+          />
+          <div className="queue-panel__actions">
+            <button type="button" disabled={!editing.text.trim()} onClick={() => void requeue()}>{t('queue.requeue')}</button>
+            <button type="button" className="ghost" onClick={() => setEditing(null)}>{t('queue.discard')}</button>
+          </div>
+        </div>
+      )}
       {queue.items.length > 0 && <ol className="queue-panel__list">{queue.items.map(row)}</ol>}
       {error && <div className="queue-panel__error">⚠ {error}</div>}
     </section>

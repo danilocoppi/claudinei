@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within, act } from '@testing-library/react'
 
 // Só a checagem dos anexos é falsa: o upload segue pelo fetch (espionado abaixo).
 vi.mock('../api', async (importOriginal) => ({
@@ -210,5 +210,82 @@ describe('Ctrl+S guarda o prompt para depois', () => {
     expect(botao()!.textContent).toContain('1')
     ctrlS()
     expect(campo().value).toBe('guardado no terminal Alpha/claude')
+  })
+})
+
+describe('Ctrl+S: teclado de outro alfabeto e o aviso de falha', () => {
+  it('Ctrl+S num teclado cirílico (a tecla do S dá "ы") também guarda', () => {
+    abrir('s1')
+    digitar('rascunho em outro teclado')
+    expect(fireEvent.keyDown(campo(), { key: 'ы', code: 'KeyS', ctrlKey: true })).toBe(false)
+    expect(campo().value).toBe('')
+    expect(readStash(K1).map((e) => e.text)).toEqual(['rascunho em outro teclado'])
+  })
+
+  it('a posição do S que dá outra letra latina (Dvorak: Ctrl+O) não é o atalho', () => {
+    abrir('s1')
+    digitar('fica no campo')
+    expect(fireEvent.keyDown(campo(), { key: 'o', code: 'KeyS', ctrlKey: true })).toBe(true)
+    expect(campo().value).toBe('fica no campo')
+    expect(readStash(K1)).toEqual([])
+  })
+
+  /** Faz o Ctrl+S falhar (armazenamento dos guardados bloqueado) e confere o aviso. */
+  const falharGuardar = () => {
+    const real = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, k: string, v: string) {
+      if (k === 'claudinei:stash') throw new DOMException('quota', 'QuotaExceededError')
+      real.call(this, k, v)
+    })
+    ctrlS()
+    expect(screen.getByText(/Não deu para guardar/)).toBeTruthy()
+  }
+  const semAviso = () => expect(screen.queryByText(/Não deu para guardar/)).toBeNull()
+
+  it('o aviso sai quando o envio limpa o campo', () => {
+    abrir('s1')
+    digitar('mensagem')
+    falharGuardar()
+    fireEvent.keyDown(campo(), { key: 'Enter' })
+    expect(campo().value).toBe('')
+    semAviso()
+  })
+
+  it('o aviso sai quando um !comando limpa o campo', () => {
+    abrir('s1')
+    digitar('!ls')
+    falharGuardar()
+    fireEvent.keyDown(campo(), { key: 'Enter' })
+    expect(enviadas).toEqual([{ type: 'shell', localId: 's1', command: 'ls' }])
+    semAviso()
+  })
+
+  it('o aviso sai quando o histórico troca o texto', () => {
+    useStore.setState({ chat: { s1: [{ kind: 'user_text', text: 'mensagem antiga' }] } })
+    abrir('s1')
+    fireEvent.keyDown(campo(), { key: 'ArrowUp' })
+    expect(campo().value).toBe('mensagem antiga')
+    falharGuardar()
+    fireEvent.keyDown(campo(), { key: 'ArrowDown' })
+    semAviso()
+  })
+
+  it('o aviso sai quando o menu de / troca o texto', () => {
+    useStore.setState({ slashCommands: ['compact'] })
+    abrir('s1')
+    digitar('/co')
+    falharGuardar()
+    fireEvent.keyDown(campo(), { key: 'Tab' })
+    expect(campo().value).toBe('/compact ')
+    semAviso()
+  })
+
+  it('o aviso sai quando "editar mensagem" põe outro texto no campo', () => {
+    abrir('s1')
+    digitar('mensagem')
+    falharGuardar()
+    act(() => useStore.getState().requestEdit('s1', 'texto para editar'))
+    expect(campo().value).toBe('texto para editar')
+    semAviso()
   })
 })

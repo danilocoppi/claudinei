@@ -221,10 +221,11 @@ export interface Progress {
 /**
  * Fila do operador de um terminal (projeto + motor): mensagens que esperam o
  * próximo turno. Espelha `QueueDto` de server/src/queue/operator-queue.ts.
- * `pauseReason`: erro do turno, limite de uso, interrupção pelo operador, morte
- * da sessão ou pausa à mão. Só "Retomar fila" tira a pausa.
+ * `pauseReason`: erro do turno, interrupção pelo operador, morte da sessão ou
+ * pausa à mão. Só "Retomar fila" tira a pausa. O limite de uso não pausa: o
+ * aviso do limite segura a fila enquanto está aberto.
  */
-export type QueuePauseReason = 'error' | 'limit' | 'interrupted' | 'dead' | 'manual'
+export type QueuePauseReason = 'error' | 'interrupted' | 'dead' | 'manual'
 export interface QueueItem { id: number; text: string; createdAt: string }
 export interface OperatorQueue {
   projectId: number

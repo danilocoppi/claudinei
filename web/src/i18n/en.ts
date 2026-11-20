@@ -469,7 +469,7 @@ export const en = {
     count: '{{count}} message queued', count_other: '{{count}} messages queued',
     paused: 'queue paused — {{reason}}',
     reason: {
-      error: 'turn error', limit: 'usage limit', interrupted: 'turn interrupted',
+      error: 'turn error', interrupted: 'turn interrupted',
       dead: 'the session died', manual: 'paused by you',
     },
     resume: 'Resume queue', pause: 'Pause queue',
@@ -478,6 +478,9 @@ export const en = {
     up: 'Move up', down: 'Move down', remove: 'Remove from queue', sendNow: 'Send now',
     placeholderQueue: 'working… what you send now goes to the queue',
     placeholderPaused: 'queue paused — what you send waits in the queue (Resume queue, above)',
+    orphan: 'This message left the queue before you saved your edit.',
+    orphanLabel: 'Edit of the message that left the queue',
+    requeue: 'Queue it again', discard: 'Discard',
   },
   zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
   fileViewer: {
@@ -510,6 +513,7 @@ export const en = {
     queue_item_empty: 'An empty message cannot be queued.',
     queue_item_not_found: 'This message is no longer in the queue.',
     queue_order_mismatch: 'The queue changed while you were reordering; try again.',
+    unknown_engine: 'Unknown engine: {{engine}}.',
     session_already_active: 'Terminal {{project}} already has an active session.',
     session_in_terminal: 'Terminal {{project}} has a session open in the terminal.',
     session_not_active: 'This session is not active.',

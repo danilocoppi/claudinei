@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync, openSync, readSync, clo
 import { join } from 'node:path'
 import type { Db } from '../db.js'
 import { nextRun, validateCadence, type Cadence } from './cadence.js'
+import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
 
 /** Teto do conteúdo guardado por execução. */
 export const MAX_CONTENT = 128 * 1024
@@ -250,6 +251,19 @@ export function createSchedulesStore(db: Db, opts: { dir: string }) {
       const keep = (db.prepare(`SELECT keep_results FROM schedules WHERE id=?`).get(run.schedule_id) as any)?.keep_results ?? 10
       prune(run.schedule_id, keep)
       return rowToRun(db.prepare(`SELECT * FROM schedule_runs WHERE id=?`).get(runId))
+    },
+
+    /**
+     * Subida do serviço: nenhuma execução está rodando de verdade, então as que
+     * ficaram `running` foram mortas pelo reinício. Fecha como erro, senão o
+     * `hasRunning` seguraria o agendamento para sempre. Não conta como falha
+     * consecutiva: não foi a tarefa que falhou. O título repete o erro, como o
+     * `finishRun` faz com execução sem conteúdo. Devolve quantas fechou.
+     */
+    closeInterruptedRuns(): number {
+      return db.prepare(`
+        UPDATE schedule_runs SET status='error', error=?, finished_at=?, title=COALESCE(title, ?)
+        WHERE status='running'`).run(RESTART_FAIL_TEXT, new Date().toISOString(), RESTART_FAIL_TEXT).changes
     },
 
     hasRunning(scheduleId: number): boolean {

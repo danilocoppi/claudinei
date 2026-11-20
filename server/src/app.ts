@@ -17,7 +17,7 @@ import { registerEngineRoutes } from './routes/engines.js'
 import { registerHermesRoutes } from './routes/hermes.js'
 import { registerProgressRoutes } from './routes/progress.js'
 import { createProgressStore } from './progress.js'
-import { registerOrchestratorRoutes } from './routes/orchestrator.js'
+import { registerOrchestratorRoutes, type OrchestratorHooks } from './routes/orchestrator.js'
 import { registerFsRoutes } from './routes/fs.js'
 import { registerGroupRoutes } from './routes/groups.js'
 import { registerFileRoutes } from './routes/files.js'
@@ -55,14 +55,15 @@ export interface AppDeps {
   /** Caminho absoluto de web/dist (SPA buildado). Se ausente, o static não é registrado. */
   webDist?: string
   /**
-   * Callback setter: chamado com o `drain(projectId)` do orchestrator assim
-   * que a rota é registrada. O manager é construído em index.ts ANTES do
-   * buildApp (precisa existir para as demais rotas), então não há como
+   * Callback setter: chamado com os ganchos do orchestrator (`drain`,
+   * `reattach`, `failInterrupted`) assim que a rota é registrada. O manager é
+   * construído em index.ts ANTES do buildApp (precisa existir para as demais
+   * rotas), então não há como
    * passar `drain` a ele por deps na criação — em vez disso index.ts guarda
    * uma referência mutável e a preenche aqui, conectando
    * manager.onSessionAvailable → drain sem inverter a ordem de construção.
    */
-  onOrchestratorReady?: (drain: (projectId: number) => void) => void
+  onOrchestratorReady?: (orchestrator: OrchestratorHooks) => void
   /** Auth multi-usuário. Ausente (testes legados) = sem auth: comportamento aberto de sempre. */
   auth?: AuthService
   /** --insecure da CLI: pré-setup, libera também IPs não-loopback (rede confiável, por conta e risco). */
@@ -117,8 +118,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
   registerProgressRoutes(app, { db: deps.db, store: createProgressStore({ dir: deps.config.progressDir }), broadcast: deps.wsHub?.broadcast })
-  const { drain } = registerOrchestratorRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
-  deps.onOrchestratorReady?.(drain)
+  const orchestrator = registerOrchestratorRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
+  deps.onOrchestratorReady?.(orchestrator)
   registerFsRoutes(app)
   registerGroupRoutes(app, { db: deps.db })
   registerPrefsRoutes(app, { prefs: createPrefsService(deps.db) })

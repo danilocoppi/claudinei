@@ -217,7 +217,7 @@ if (process.argv.includes('--hermes')) {
     behindProxy,
     https: https ?? undefined,
     webDist: existsSync(webDist) ? webDist : undefined,
-    onOrchestratorReady: (d) => { drain = d },
+    onOrchestratorReady: (o) => { drain = o.drain },
     onSchedulerReady: (s) => { scheduler = s },
     onRevokeAll: () => {
       wsHub.closeAll()

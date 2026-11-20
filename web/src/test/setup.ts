@@ -69,3 +69,20 @@ if (!globalThis.ResizeObserver) {
   }
   ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = Stub
 }
+
+// O jsdom não implementa a rolagem por método nos elementos. A lista virtual da
+// conversa (react-virtuoso) chama `scrollBy` para manter a tela no lugar quando
+// entram páginas antigas no topo, e `scrollTo` para ir a um item.
+for (const nome of ['scrollBy', 'scrollTo'] as const) {
+  if (!Element.prototype[nome]) {
+    Element.prototype[nome] = function (this: Element, a?: ScrollToOptions | number, b?: number) {
+      const opts = typeof a === 'object' ? a : { left: a, top: b }
+      if (typeof opts.top !== 'number') return
+      this.scrollTop = nome === 'scrollBy' ? this.scrollTop + opts.top : opts.top
+      // Como no navegador: quem rola por método também avisa com `scroll`, e
+      // depois — não no meio de quem chamou (a lista chama de dentro de um
+      // efeito de layout, e o aviso síncrono cairia num flushSync ali dentro).
+      setTimeout(() => this.dispatchEvent(new Event('scroll')), 0)
+    } as Element['scrollBy']
+  }
+}

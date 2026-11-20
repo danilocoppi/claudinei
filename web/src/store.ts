@@ -2,10 +2,11 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { CODEX_FALLBACK_CATALOG } from '../../shared/codex-models'
 import { readRuns, saveRuns, type SavedRun } from './actionRun'
-import type { ChatItem, ClaudeEvent, EngineMeta, Project, SessionInfo } from './types'
+import type { ChatItem, EngineMeta, HistoryPage, Project, SearchHit, SessionInfo } from './types'
 import type { BoardPost, Group, Schedule, Sector, Task } from './api'
 import { resolvedKey, type FileKind, type ScopeResult } from './files'
-import { applyEvent } from './chat/applyEvent'
+import { applyEvent, liveKey } from './chat/applyEvent'
+import { mergeOlder, mergeTail, type OrphanResults } from './chat/reconcile'
 import { notifyQuestion, notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK, CLAUDINEI_COMMANDS } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
@@ -62,6 +63,53 @@ const BUILTIN_ENGINES: EngineMeta[] = [
 /** Teto do feed do board em memória: broadcasts só fazem prepend — sem poda, cresce sem limite. */
 const BOARD_MAX = 200
 
+export interface HistoryCursor { before: number; atStart: boolean; conv?: string }
+
+/**
+ * Busca na conversa aberta (Ctrl+F; ver chat/findRun.ts). `hits` da mais nova
+ * para a mais antiga; `index` 0 é a mais recente. `before` é onde a próxima
+ * fatia começa (null: ainda nenhuma, a primeira vai do fim); `scannedBytes`
+ * conta a rodada atual (64 MB, depois "buscar mais para trás"). `currentKey` é
+ * a chave do item da ocorrência atual, na tela (`chat-hit`).
+ */
+export interface FindState {
+  localId: string
+  q: string
+  tools: boolean
+  hits: SearchHit[]
+  index: number
+  scanning: boolean
+  before: number | null
+  atStart: boolean
+  scannedBytes: number
+  capped: boolean
+  currentKey: string | null
+  /** A última fatia falhou (mensagem já no idioma da tela); a busca parou ali. */
+  error: string | null
+}
+
+/**
+ * Dobras de uma sessão com as chaves trocadas por `renamed` (velha → nova).
+ * `keepOthers` falso descarta as que a troca não levou. Devolve o próprio
+ * `folds` quando nada muda, para o store não trocar o objeto à toa.
+ */
+function moveFolds<F extends Record<string, true> | undefined>(folds: F, renamed: Record<string, string>, keepOthers: boolean): F {
+  if (!folds) return folds
+  // Refetch sem troca de chave (o caso comum): nada a percorrer.
+  if (keepOthers && Object.keys(renamed).length === 0) return folds
+  let changed = false
+  const out: Record<string, true> = {}
+  for (const id in folds) {
+    // foldId = `${chave}:${nome}`; a chave não tem ':' (p<pos>, p<pos>.n, l<n>).
+    const sep = id.lastIndexOf(':')
+    const to = renamed[id.slice(0, sep)]
+    if (to !== undefined) { out[`${to}${id.slice(sep)}`] = true; changed = true }
+    else if (keepOthers) out[id] = true
+    else changed = true
+  }
+  return changed ? out as F : folds
+}
+
 /** Mantém em `map` só as chaves presentes em `keep`; devolve o próprio `map` se nada mudou. */
 function pruneOrphans<T>(map: Record<string, T>, keep: Record<string, unknown>): Record<string, T> {
   const kept = Object.keys(map).filter((k) => k in keep)
@@ -114,6 +162,30 @@ interface State {
   /** Preview efêmero de streaming token-a-token, por localId. Nunca entra em chat[]; some quando o evento assistant/result real chega. */
   streaming: Record<string, string>
   historyLoadedFor: Record<string, string>
+  /**
+   * Até onde as páginas do histórico já foram carregadas, por localId: `before`
+   * da mais antiga, se ela chegou ao começo, e de qual conversa (`conv`: o
+   * engineSessionId, ou '(preview)') são as chaves que estão na tela.
+   */
+  historyCursor: Record<string, HistoryCursor>
+  /** Resultados de ferramenta à espera da chamada, que está numa página antiga ainda não carregada, por localId. */
+  orphanResults: Record<string, OrphanResults>
+  /**
+   * Dobras abertas do chat, por localId: `foldId` (chave do item + nome da
+   * dobra: grupo, ferramenta, "mostrar tudo", resumo da compactação ou
+   * raciocínio; ver chat/folds.ts) → aberta. Fechada não fica no mapa. Mora aqui, e
+   * não no bloco, porque a lista virtual desmonta o que sai da tela.
+   */
+  folds: Record<string, Record<string, true>>
+  /** Busca na conversa (Ctrl+F) aberta, ou null. É de UMA sessão: trocar de terminal fecha. */
+  find: FindState | null
+  /** Abre a barra na sessão (mantém a busca se já é dela). */
+  openFind(localId: string): void
+  /** Troca a busca inteira (nova busca). Quem cancela os pedidos é chat/findRun.ts. */
+  setFind(find: FindState): void
+  /** Atualiza a busca aberta, só se ela ainda for de `localId` e da mesma consulta (`q`). */
+  patchFind(localId: string, q: string, patch: Partial<FindState>): void
+  closeFind(): void
   activeLocalId?: string
   /** Pedido de edição em curso: reenche o ChatInput da sessão-alvo com o texto original. `seq` distingue pedidos repetidos com o mesmo texto. */
   editRequest?: { localId: string; text: string; seq: number }
@@ -174,9 +246,27 @@ interface State {
   openSchedules(): void
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
-  setHistory(localId: string, events: ClaudeEvent[]): void
-  /** Substitui os itens do chat já reduzidos (usado pelo retag de sessões longas). */
-  setChatItems(localId: string, items: ChatItem[]): void
+  /**
+   * O fim do histórico (1ª carga ou refetch): reconcilia por chave com o que está
+   * na tela, sem perder as páginas antigas já carregadas. Ver `mergeTail`.
+   */
+  setHistoryTail(localId: string, page: HistoryPage, conv?: string): void
+  /**
+   * Página mais antiga, acrescentada no topo. Ver `mergeOlder`. `requestedBefore`
+   * é o `before` pedido: se o cursor andou enquanto a página vinha (refetch que
+   * substituiu a lista, troca de conversa), ela é velha e é descartada.
+   */
+  prependHistory(localId: string, page: HistoryPage, requestedBefore: number): void
+  setFold(localId: string, id: string, open: boolean): void
+  /**
+   * Leva as dobras das chaves ao vivo para as confirmadas (`renamed` de `reconcileByKey`).
+   * Faz parte da interface das dobras no store (plano da Task 4), para quem
+   * trocar chaves FORA do `setHistoryTail`. Hoje nenhum caminho da tela faz
+   * isso: o `setHistoryTail` troca as dobras por dentro (`moveFolds`), no mesmo
+   * `set` dos itens, para não haver um quadro com a chave nova e a dobra velha.
+   * Coberta em folds.test.tsx.
+   */
+  renameFolds(localId: string, renamed: Record<string, string>): void
   markHistoryLoaded(localId: string, engineSessionId: string): void
   /** Reconexão do WS: eventos podem ter se perdido na queda. Invalida os históricos
    *  carregados (o ChatView rebusca sob demanda) e descarta previews de streaming
@@ -304,7 +394,7 @@ export const useStore = create<State>((set, get) => ({
     // saved windows also prevents an old ActionRun from launching again later.
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
-      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
+      projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {}, folds: {}, find: null,
       actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, queues: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
@@ -314,6 +404,10 @@ export const useStore = create<State>((set, get) => ({
   unread: {},
   streaming: {},
   historyLoadedFor: {},
+  historyCursor: {},
+  orphanResults: {},
+  folds: {},
+  find: null,
   activeLocalId: undefined,
   editRequest: undefined,
   slashCommands: BUILTIN_FALLBACK,
@@ -360,11 +454,75 @@ export const useStore = create<State>((set, get) => ({
 
   setEngines: (engines) => set({ engines, enginesLoaded: true }),
 
-  setHistory: (localId, events) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: events.reduce(applyEvent, [] as ChatItem[]) } })),
+  setHistoryTail: (localId, page, conv) =>
+    set((s) => {
+      const prev = s.historyCursor[localId]
+      const changed = conv !== undefined && prev?.conv !== undefined && prev.conv !== conv
+      const r = mergeTail(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {}, changed)
+      if (r.unchanged) return s
+      // As dobras acompanham a troca de chave (ao vivo → confirmada) no mesmo
+      // `set` que troca os itens: nenhum quadro com a chave nova e a dobra velha.
+      // Conversa trocada: as posições são de outro arquivo, e uma dobra antiga
+      // abriria o item que caiu na mesma posição; só ficam as que a troca levou.
+      const folds = moveFolds(s.folds[localId], r.renamed, !changed)
+      const cursor: HistoryCursor = r.reset || !prev
+        ? { before: page.before, atStart: page.atStart, conv: conv ?? prev?.conv }
+        : { ...prev, conv: conv ?? prev.conv }
+      // A busca aberta nesta sessão: conversa trocada, as posições dela são de
+      // outro arquivo e levariam a itens errados — fecha (a varredura em curso
+      // vê que a busca sumiu e para). Senão, a ocorrência atual, se estava num
+      // item ao vivo, acompanha a chave.
+      const findHere = s.find?.localId === localId ? s.find : null
+      const hitKey = findHere?.currentKey && !changed ? r.renamed[findHere.currentKey] : undefined
+      return {
+        chat: { ...s.chat, [localId]: r.items },
+        historyCursor: { ...s.historyCursor, [localId]: cursor },
+        orphanResults: { ...s.orphanResults, [localId]: r.orphans },
+        ...(folds !== s.folds[localId] ? { folds: { ...s.folds, [localId]: folds } } : {}),
+        ...(findHere && changed ? { find: null } : hitKey ? { find: { ...findHere!, currentKey: hitKey } } : {}),
+      }
+    }),
 
-  setChatItems: (localId, items) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: items } })),
+  prependHistory: (localId, page, requestedBefore) =>
+    set((s) => {
+      const cursor = s.historyCursor[localId]
+      if (!cursor || cursor.before !== requestedBefore) return s
+      const r = mergeOlder(s.chat[localId] ?? [], page, s.orphanResults[localId] ?? {})
+      return {
+        chat: { ...s.chat, [localId]: r.items },
+        historyCursor: { ...s.historyCursor, [localId]: { ...cursor, before: page.before, atStart: page.atStart } },
+        orphanResults: { ...s.orphanResults, [localId]: r.orphans },
+      }
+    }),
+
+  openFind: (localId) => set((s) => (s.find?.localId === localId ? s : {
+    find: {
+      localId, q: '', tools: false, hits: [], index: 0, scanning: false, before: null, atStart: false,
+      scannedBytes: 0, capped: false, currentKey: null, error: null,
+    },
+  })),
+
+  setFind: (find) => set({ find }),
+
+  patchFind: (localId, q, patch) => set((s) => (s.find && s.find.localId === localId && s.find.q === q
+    ? { find: { ...s.find, ...patch } } : s)),
+
+  closeFind: () => set((s) => (s.find ? { find: null } : s)),
+
+  setFold: (localId, id, open) =>
+    set((s) => {
+      const cur = s.folds[localId]
+      if (!!cur?.[id] === open) return s
+      if (open) return { folds: { ...s.folds, [localId]: { ...cur, [id]: true } } }
+      const { [id]: _closed, ...rest } = cur!
+      return { folds: { ...s.folds, [localId]: rest } }
+    }),
+
+  renameFolds: (localId, renamed) =>
+    set((s) => {
+      const folds = moveFolds(s.folds[localId], renamed, true)
+      return folds === s.folds[localId] ? s : { folds: { ...s.folds, [localId]: folds } }
+    }),
 
   markHistoryLoaded: (localId, engineSessionId) =>
     set((s) => ({ historyLoadedFor: { ...s.historyLoadedFor, [localId]: engineSessionId } })),
@@ -475,7 +633,7 @@ export const useStore = create<State>((set, get) => ({
     }),
 
   addLocalUserText: (localId, text) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text }] } })),
+    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { kind: 'user_text', text, key: liveKey() }] } })),
 
   /**
    * Item que nasce AQUI, sem passar pela engine — hoje só o `!comando`.
@@ -485,7 +643,7 @@ export const useStore = create<State>((set, get) => ({
    * atalho existe justamente para não custar isso.
    */
   addLocalItem: (localId, item) =>
-    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), item] } })),
+    set((s) => ({ chat: { ...s.chat, [localId]: [...(s.chat[localId] ?? []), { ...item, key: item.key ?? liveKey() }] } })),
 
   requestEdit: (localId, text) =>
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
@@ -544,6 +702,9 @@ export const useStore = create<State>((set, get) => ({
         chat: pruneOrphans(s.chat, sessions),
         unread: pruneOrphans(s.unread, sessions),
         historyLoadedFor: pruneOrphans(s.historyLoadedFor, sessions),
+        historyCursor: pruneOrphans(s.historyCursor, sessions),
+        orphanResults: pruneOrphans(s.orphanResults, sessions),
+        folds: pruneOrphans(s.folds, sessions),
         streaming: pruneOrphans(s.streaming, sessions),
         headsUps: pruneOrphans(s.headsUps, sessions),
         dismissedHeadsUps: pruneOrphans(s.dismissedHeadsUps, sessions),
@@ -696,7 +857,7 @@ export const useStore = create<State>((set, get) => ({
       set((s) => ({
         chat: {
           ...s.chat,
-          [localId]: [...(s.chat[localId] ?? []), { kind: 'command_output', text: output, ...(isError ? { isError: true } : {}) }],
+          [localId]: [...(s.chat[localId] ?? []), { kind: 'command_output', text: output, ...(isError ? { isError: true } : {}), key: liveKey() }],
         },
       }))
     } else if (msg.type === 'board_post') {

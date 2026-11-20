@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Profiler } from 'react'
+import { Profiler, memo } from 'react'
 import { render, cleanup, screen, fireEvent, act } from '@testing-library/react'
 import { ChatInput } from '../components/ChatInput'
 import { MessageBlock } from '../components/MessageBlock'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import { DEFAULT_APPEARANCE } from '../appearance'
-import type { EngineMeta, SessionInfo } from '../types'
+import type { ChatItem, ClaudeEvent, EngineMeta, SessionInfo } from '../types'
 
 /**
  * Duas causas medidas com CPU profile na base real do operador (27 projetos):
@@ -159,5 +159,49 @@ describe('mensagens antigas não re-renderizam com o que muda no store', () => {
     expect(screen.queryByRole('link', { name: 'src/arquivo-3.ts' })).toBeNull()
     act(() => useStore.getState().setFilesResolved([{ path: 'src/arquivo-3.ts', exists: true, inScope: true, kind: 'text' } as never], 1))
     expect(screen.getByText('src/arquivo-3.ts').closest('a')).not.toBeNull()
+  })
+})
+
+/**
+ * O refetch do fim do turno (working → idle) relia o histórico e SUBSTITUÍA a
+ * lista inteira: objetos novos para tudo, e cada `MessageBlock` refazia o
+ * markdown. Agora a reconciliação por chave devolve o MESMO objeto para o que
+ * não mudou, e só o que mudou (ou o que era ao vivo) é trocado.
+ */
+describe('o refetch do fim de turno não re-renderiza blocos que não mudaram', () => {
+  const fala = (i: number): ClaudeEvent[] => [
+    { kind: 'user', pos: i * 100, message: { role: 'user', content: [{ type: 'text', text: `pedido ${i}` }] }, raw: {} },
+    { kind: 'assistant', pos: i * 100 + 50, message: { role: 'assistant', content: [{ type: 'text', text: `resposta **${i}**` }] }, raw: {} },
+  ]
+  const commits: Record<string, number> = {}
+  // A linha memoizada é o que a lista virtual fará: chave estável + mesmo objeto = nada a fazer.
+  const Linha = memo(({ item }: { item: ChatItem }) => (
+    <Profiler id={item.key!} onRender={(id) => { commits[id] = (commits[id] ?? 0) + 1 }}>
+      <MessageBlock item={item} currentLocalId="s1" />
+    </Profiler>
+  ))
+  const Lista = () => {
+    const items = useStore((s) => s.chat.s1) ?? []
+    return <>{items.map((item) => <Linha key={item.key} item={item} />)}</>
+  }
+
+  it('o refetch do fim de turno não re-renderiza blocos que não mudaram', () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const historico = Array.from({ length: 10 }, (_, i) => fala(i)).flat()
+    act(() => useStore.getState().setHistoryTail('s1', { events: historico, before: 0, atStart: true }))
+    render(<WsContext.Provider value={ws}><Lista /></WsContext.Provider>)
+    const antigos = useStore.getState().chat.s1.map((it) => it.key!)
+    for (const k of Object.keys(commits)) delete commits[k]
+
+    // turno ao vivo, depois o refetch do fim com o turno já gravado
+    act(() => useStore.getState().addLocalUserText('s1', 'pedido 10'))
+    act(() => useStore.getState().applyWsMessage({ type: 'session_event', localId: 's1', event:
+      { kind: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'resposta **10**' }] }, raw: {} } }))
+    act(() => useStore.getState().setHistoryTail('s1', { events: [...historico.slice(10), ...fala(10)], before: 500, atStart: false }))
+
+    expect(useStore.getState().chat.s1).toHaveLength(22)
+    const refeitos = antigos.filter((k) => commits[k])
+    expect(refeitos, 'blocos antigos re-renderizados pelo refetch').toEqual([])
+    expect(screen.getAllByText(/pedido 10/)).toHaveLength(1)
   })
 })

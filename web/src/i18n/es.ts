@@ -239,6 +239,7 @@ export const es: typeof en = {
     noAgents: 'Ningún otro agente activo', subagent: 'subagente', unknownProject: 'proyecto',
     stop: 'Detener el turno',
     toFoot: 'Ir al final',
+    startOfConversation: 'inicio de la conversación', loadOlder: 'cargar mensajes anteriores', loadingOlder: 'cargando mensajes anteriores…',
     interrupted: 'Interrumpido por el usuario',
     actionsGroup: '{{count}} acciones',
     compactSummary: 'Contexto compactado', compactSummaryHint: 'resumen de la conversación anterior · {{n}} líneas', compactSummaryFrom: 'de {{tokens}} tokens',
@@ -275,6 +276,18 @@ export const es: typeof en = {
     engineNotInstalledHint: 'CLI no encontrada en el PATH del servidor. Instálala',
     addEngine: 'Añadir motor',
     addEngineHint: 'El motor gana una pestaña en este terminal. Para quitarlo, o para incluir uno no instalado, edita el terminal.',
+  },
+  find: {
+    placeholder: 'Buscar en la conversación',
+    count: '{{i}} de {{n}}',
+    scanning: '{{n}} encontrados hasta ahora…',
+    more: 'buscar más atrás',
+    capped: '500+ — afina la búsqueda',
+    tools: 'incluir herramientas',
+    none: 'nada encontrado',
+    older: 'Coincidencia más antigua (Enter)',
+    newer: 'Coincidencia más reciente (Shift+Enter)',
+    stalled: 'la búsqueda se detuvo: el servidor no avanzó en la conversación',
   },
   question: {
     titleOne: 'El agente tiene una pregunta para ti',
@@ -597,6 +610,10 @@ export const es: typeof en = {
     admin_only: 'Solo los administradores pueden hacer esto.',
     not_found: 'No encontrado.',
     file_too_large: 'Archivo demasiado grande.',
+    history_read_failed: 'No se pudo leer el historial de la conversación.',
+    invalid_query: 'La búsqueda debe tener de {{min}} a {{max}} caracteres.',
+    invalid_before: 'Posición no válida en el historial (before).',
+    invalid_limit: 'limit debe ser un número entero de 1 a {{max}}.',
   },
 }
 export default es

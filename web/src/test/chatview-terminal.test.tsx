@@ -17,8 +17,9 @@ beforeEach(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
   // Response FRESCO por chamada: um único Response compartilhado tem o body lido
   // só uma vez — múltiplos fetch (histórico + engines) davam "Body is unusable".
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-    new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) =>
+    new Response(JSON.stringify(String(url).includes('/history') ? { events: [], before: 0, atStart: true } : []),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }),
   )
 })
 afterEach(() => {

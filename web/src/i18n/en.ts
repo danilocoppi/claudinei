@@ -237,6 +237,7 @@ export const en = {
     noAgents: 'No other active agents', subagent: 'subagent', unknownProject: 'project',
     stop: 'Stop the turn',
     toFoot: 'Jump to latest',
+    startOfConversation: 'start of the conversation', loadOlder: 'load earlier messages', loadingOlder: 'loading earlier messages…',
     interrupted: 'Interrupted by the user',
     actionsGroup: '{{count}} actions',
     compactSummary: 'Context compacted', compactSummaryHint: 'summary of the earlier conversation · {{n}} lines', compactSummaryFrom: 'from {{tokens}} tokens',
@@ -273,6 +274,18 @@ export const en = {
     engineNotInstalledHint: 'CLI not found on the server PATH. Install it',
     addEngine: 'Add engine',
     addEngineHint: 'The engine gets a tab in this terminal. To remove it, or to include one that is not installed, edit the terminal.',
+  },
+  find: {
+    placeholder: 'Search the conversation',
+    count: '{{i}} of {{n}}',
+    scanning: '{{n}} found so far…',
+    more: 'search further back',
+    capped: '500+ — refine the search',
+    tools: 'include tools',
+    none: 'nothing found',
+    older: 'Older match (Enter)',
+    newer: 'Newer match (Shift+Enter)',
+    stalled: 'the search stopped: the server did not move back in the conversation',
   },
   question: {
     titleOne: 'The agent has a question for you',
@@ -595,6 +608,10 @@ export const en = {
     admin_only: 'Only administrators can do this.',
     not_found: 'Not found.',
     file_too_large: 'File too large.',
+    history_read_failed: "Couldn't read the conversation history.",
+    invalid_query: 'The search must be {{min}} to {{max}} characters long.',
+    invalid_before: 'Invalid position in the history (before).',
+    invalid_limit: 'limit must be a whole number from 1 to {{max}}.',
   },
 }
 export default en

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/react'
+import { cleanup, screen, fireEvent, waitFor } from '@testing-library/react'
+// A conversa é uma lista virtual: sem medidas fixas, o jsdom não montaria nada.
+import { renderComJanela as render } from './viewport'
 import { ChatView } from '../components/ChatView'
 import { ChatInput } from '../components/ChatInput'
 import { WsContext } from '../wsContext'
@@ -16,27 +18,25 @@ function setup(status: 'working' | 'idle', items: ChatItem[]) {
     activeLocalId: 's1', view: 'chat', editRequest: undefined,
   })
 }
-// jsdom não implementa scrollIntoView; o ChatView chama no efeito de rolar até o fim.
 beforeEach(() => {
   // O campo agora começa no rascunho gravado (drafts.ts): sem limpar, o texto
   // de um caso pré-preenche o seguinte.
   localStorage.clear()
-  window.HTMLElement.prototype.scrollIntoView = vi.fn()
 })
 afterEach(() => cleanup())
 
 describe('editar mensagem', () => {
-  it('lápis aparece só nas últimas 5 mensagens do usuário', () => {
+  it('lápis aparece só nas últimas 5 mensagens do usuário', async () => {
     setup('idle', [u('m1'), u('m2'), u('m3'), u('m4'), u('m5'), u('m6')])
     render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
-    expect(screen.getAllByLabelText('Editar esta mensagem')).toHaveLength(5) // m2..m6
+    expect(await screen.findAllByLabelText('Editar esta mensagem')).toHaveLength(5) // m2..m6
   })
 
-  it('lápis durante working pede CONFIRMAÇÃO; confirmar envia interrupt e registra o editRequest', () => {
+  it('lápis durante working pede CONFIRMAÇÃO; confirmar envia interrupt e registra o editRequest', async () => {
     const send = vi.fn()
     setup('working', [u('instrução errada')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
-    fireEvent.click(screen.getByLabelText('Editar esta mensagem'))
+    fireEvent.click(await screen.findByLabelText('Editar esta mensagem'))
     // ainda NÃO interrompeu: abriu o diálogo
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(screen.getByText('Editar e interromper?')).toBeTruthy()
@@ -45,21 +45,21 @@ describe('editar mensagem', () => {
     expect(useStore.getState().editRequest).toMatchObject({ localId: 's1', text: 'instrução errada' })
   })
 
-  it('cancelar o diálogo NÃO interrompe nem registra edição (mensagem na fila fica intacta)', () => {
+  it('cancelar o diálogo NÃO interrompe nem registra edição (mensagem na fila fica intacta)', async () => {
     const send = vi.fn()
     setup('working', [u('mensagem na fila')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
-    fireEvent.click(screen.getByLabelText('Editar esta mensagem'))
+    fireEvent.click(await screen.findByLabelText('Editar esta mensagem'))
     fireEvent.click(screen.getByText('Cancelar'))
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(useStore.getState().editRequest).toBeUndefined()
   })
 
-  it('clicar no lápis fora de working NÃO envia interrupt', () => {
+  it('clicar no lápis fora de working NÃO envia interrupt', async () => {
     const send = vi.fn()
     setup('idle', [u('só recuperar')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
-    fireEvent.click(screen.getByLabelText('Editar esta mensagem'))
+    fireEvent.click(await screen.findByLabelText('Editar esta mensagem'))
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(useStore.getState().editRequest).toMatchObject({ text: 'só recuperar' })
   })

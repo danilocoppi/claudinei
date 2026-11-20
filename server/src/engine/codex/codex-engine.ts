@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, AgentEvent } from '../types.js'
 import { CodexSession } from './codex-session.js'
-import { sessionsRoot, findRollout, parseRollout, latestThreadForCwd } from './rollout.js'
+import { sessionsRoot, findRollout, findRolloutCached, parseRollout, readRolloutPage, latestThreadForCwd } from './rollout.js'
+import type { HistoryPage, HistoryPageOptions } from '../../history-page.js'
 import { codexMetadata } from './codex-metadata.js'
 
 const CAPABILITIES: EngineCapabilities = {
@@ -46,6 +47,11 @@ export const codexEngine: Engine = {
   async readHistory(_projectPath: string, threadId: string): Promise<AgentEvent[]> {
     const file = findRollout(sessionsRoot(), threadId)
     return file ? parseRollout(file) : []
+  },
+  async readHistoryPage(_projectPath: string, threadId: string, opts: HistoryPageOptions): Promise<HistoryPage> {
+    // Com memória do caminho: cada página e cada fatia da busca passam por aqui.
+    const file = await findRolloutCached(sessionsRoot(), threadId)
+    return file ? readRolloutPage(file, opts) : { events: [], start: 0, atStart: true }
   },
   latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {
     return latestThreadForCwd(sessionsRoot(), projectPath, exclude)

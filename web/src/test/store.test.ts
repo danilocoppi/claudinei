@@ -11,8 +11,8 @@ describe('store', () => {
     useStore.getState().addLocalUserText('a', 'pedido')
     useStore.getState().applyWsMessage({ type: 'error', localId: 'a', message: 'envio recusado' })
     expect(useStore.getState().chat.a).toEqual([
-      { kind: 'user_text', text: 'pedido' },
-      { kind: 'command_output', text: 'envio recusado', isError: true },
+      { kind: 'user_text', text: 'pedido', key: expect.stringMatching(/^l\d+$/) },
+      { kind: 'command_output', text: 'envio recusado', isError: true, key: expect.stringMatching(/^l\d+$/) },
     ])
   })
 
@@ -20,7 +20,7 @@ describe('store', () => {
     useStore.getState().applyWsMessage({ type: 'session_event', localId: 'a', event: {
       kind: 'system', subtype: 'message_error', raw: { message: 'Mensagem pendente: pedido\nProcesso encerrado.' },
     } })
-    expect(useStore.getState().chat.a).toEqual([{ kind: 'command_output', text: 'Mensagem pendente: pedido\nProcesso encerrado.', isError: true }])
+    expect(useStore.getState().chat.a).toEqual([{ kind: 'command_output', text: 'Mensagem pendente: pedido\nProcesso encerrado.', isError: true, key: expect.stringMatching(/^l\d+$/) }])
   })
 
   it('compact_boundary limpa contextTokens: a barra não fica presa no valor pré-compactação', () => {

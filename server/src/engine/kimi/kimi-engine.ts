@@ -4,7 +4,8 @@ import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, A
 import { KimiSession } from './kimi-session.js'
 import { buildTerminalArgs } from './kimi-args.js'
 import { ensureKimiHome, userKimiHome } from './kimi-home.js'
-import { latestSessionId, readHistory } from './kimi-history.js'
+import { latestSessionId, readHistory, readHistoryPage } from './kimi-history.js'
+import type { HistoryPage, HistoryPageOptions } from '../../history-page.js'
 
 function bin(): string { return process.env.CLAUDINEI_KIMI_BIN ?? 'kimi' }
 
@@ -34,6 +35,10 @@ export const kimiEngine: Engine = {
 
   readHistory(projectPath: string, sessionId: string): Promise<AgentEvent[]> {
     return readHistory(projectPath, sessionId)
+  },
+
+  readHistoryPage(projectPath: string, sessionId: string, opts: HistoryPageOptions): Promise<HistoryPage> {
+    return readHistoryPage(projectPath, sessionId, opts)
   },
 
   latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {

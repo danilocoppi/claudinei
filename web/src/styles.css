@@ -1651,7 +1651,43 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
    num clique. Some sozinho quando a rolagem volta: um botão que fica na tela
    depois de cumprido vira ruído. */
 .chat-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 24px; }
+/* A caixa de rolagem é a da lista virtual (react-virtuoso), que já traz o
+   overflow. Nada de padding vertical nela: a conta de "rolar até o fim" da lista
+   não o enxerga e deixaria o fim do rodapé de fora. O recuo lateral vai na
+   janela interna da lista; o de cima e o de baixo, no topo e no rodapé dela. */
+.chat-scroll { flex: 1; min-height: 0; }
+.chat-scroll > [data-viewport-type] { padding-inline: 24px; box-sizing: border-box; }
+.chat-scroll__head { padding-top: 16px; }
+.chat-scroll__foot { padding-bottom: 16px; }
+/* ===== BUSCA NA CONVERSA (Ctrl+F) ==========================================
+   Uma faixa fixa no topo da coluna do chat, entre o cabeçalho e a conversa:
+   sem animação, sem filtro de fundo — a interface precisa andar sem GPU. */
+.find-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 20px; border-bottom: 1px solid var(--glass-border);
+  background: var(--surface); font-size: 12.5px;
+}
+.find-bar__input { flex: 1 1 200px; min-width: 120px; max-width: 420px; padding: 5px 10px; font-size: 13px; }
+.find-bar__status { color: var(--text-dim); white-space: nowrap; display: inline-flex; gap: 8px; }
+.find-bar__capped { color: var(--warn); }
+.find-bar__step, .find-bar__close { padding: 3px 9px; line-height: 1; }
+.find-bar__more { padding: 3px 10px; }
+.find-bar__tools { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); cursor: pointer; user-select: none; }
+/* O item da ocorrência atual: contorno (não muda o tamanho nem as margens do
+   bloco, então a lista não remede nada) e nenhuma transição. */
+.chat-hit { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-sm); }
+.action-group--hit > .action-group__header { border-color: var(--accent); }
+/* O termo nas mensagens montadas (CSS Custom Highlight API, chat/findHighlight.ts). */
+::highlight(chat-find) { background-color: color-mix(in srgb, var(--warn) 45%, transparent); color: inherit; }
+
+/* Começo da conversa / página anterior chegando: uma linha discreta no topo. */
+.chat-edge { text-align: center; color: var(--text-dim); font-size: 12px; padding: 6px 0 10px; }
+/* Convite a carregar a página anterior (falhou, ou a sequência parou no teto): texto clicável, sem animação. */
+.chat-edge__more {
+  background: none; border: 0; padding: 2px 6px; font: inherit; color: var(--accent);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.chat-edge__more:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-xs); }
 .chat-tofoot {
   position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
   display: inline-flex; align-items: center; gap: 6px;
@@ -1880,7 +1916,9 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
 
   /* 24px de recuo lateral em cada lado tiravam 48px dos 390px da tela só de
      margem em volta do texto da conversa. */
-  .chat-scroll { padding: 12px 12px; }
+  .chat-scroll > [data-viewport-type] { padding-inline: 12px; }
+  .chat-scroll__head { padding-top: 12px; }
+  .chat-scroll__foot { padding-bottom: 12px; }
 
   /* Rodapé de digitação: o campo ocupa a LINHA INTEIRA e os botões descem para a
      segunda. Medido no aparelho (390px de largura): mic + engrenagem + Enviar
@@ -2457,8 +2495,13 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
    a coluna sem mexer no fundo, então o gradiente continua atravessando a tela. */
 .chat-scroll__inner {
   max-width: var(--chat-max); margin: 0 auto; width: 100%;
-  padding-block: calc(4px * var(--density));
+  /* A margem do primeiro/último bloco fica dentro: a lista mede a altura certa. */
+  display: flow-root;
 }
+/* A coluna é feita de três partes da lista virtual — topo, linhas e rodapé —, e
+   o respiro de cima e de baixo fica só nas pontas. */
+.chat-scroll__inner--top { padding-top: calc(4px * var(--density)); }
+.chat-scroll__inner--bottom { padding-bottom: calc(4px * var(--density)); }
 
 /* Sem vidro, TODOS os desfoques saem — inclusive o cabeçalho de ações, que
    não usa .glass. As superfícies ganham corpo sobre o gradiente. */
@@ -2616,11 +2659,30 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
    uma superfície própria — que é o que a largura menor está tentando comprar. */
 [data-chat-width]:not([data-chat-width="full"]) .chat-scroll__inner {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 10px 40px var(--shadow);
-  padding: calc(18px * var(--density)) calc(22px * var(--density));
-  margin-block: 2px 10px;
+  border-inline: 1px solid var(--border);
+  padding-inline: calc(22px * var(--density));
+  /* A folha é feita de três partes (topo, linhas, rodapé da lista virtual). A
+     sombra de cada uma sai só para os lados: o deslocamento lateral igual ao
+     espalhamento negativo e ao desfoque faz a sombra terminar exatamente na
+     altura da parte, sem cair sobre a vizinha — e sem `clip-path`, que cortava
+     o que transborda da parte (o menu "Encaminhar" da última mensagem abre
+     abaixo das linhas). */
+  box-shadow: -28px 0 28px -28px var(--shadow), 28px 0 28px -28px var(--shadow);
+}
+[data-chat-width]:not([data-chat-width="full"]) .chat-scroll__inner--top {
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding-top: calc(18px * var(--density));
+  margin-top: 2px;
+}
+[data-chat-width]:not([data-chat-width="full"]) .chat-scroll__inner--bottom {
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding-bottom: calc(18px * var(--density));
+  margin-bottom: 10px;
+  /* Os lados, como as outras partes, e a sombra de baixo da folha: começa
+     dentro da própria parte (escondida atrás dela) e só aparece embaixo. */
+  box-shadow: -28px 0 28px -28px var(--shadow), 28px 0 28px -28px var(--shadow), 0 28px 28px -20px var(--shadow);
 }
 
 /* ---- Barra de ferramentas do cabeçalho da lista ----
@@ -3214,15 +3276,12 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 .delete-sessions__ack input { margin: 3px 0 0; padding: 0; flex: none; accent-color: var(--accent); }
 .acted__foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
 
-/* O histórico permanece pesquisável, mas o navegador só calcula/pinta o conteúdo
-   próximo à área visível. Streaming não deve refazer layout de toda a conversa.
-   Nada de trocar a propriedade pelo foco (`:focus-within { visible }`): o `auto`
-   já mantém desenhado o que tem foco ou seleção, e a troca no meio de um clique
-   derrubava a aba do Chrome (ver chat-entry-visibility.test.ts). */
-.chat-entry {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
-}
+/* Uma linha da lista virtual. Sem `content-visibility`: o que está longe da
+   tela nem fica montado, e a altura estimada (`contain-intrinsic-size`) brigava
+   com a medição da lista. `flow-root` segura a margem dos blocos dentro da
+   linha, para a altura medida ser a que ocupa. Nada de regra por foco/hover/
+   clique mexendo em `content-visibility` (ver chat-entry-visibility.test.ts). */
+.chat-entry { display: flow-root; }
 
 .background-processes { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-dim); font-size: 13px; }
 .background-processes summary { cursor: pointer; }

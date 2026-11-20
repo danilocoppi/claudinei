@@ -183,12 +183,12 @@ describe('rotas de sessões', () => {
     expect(res.statusCode).toBe(404)
   })
 
-  it('history sem transcript retorna []', async () => {
+  it('history sem transcript retorna página vazia no começo', async () => {
     const r1 = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions` })
     const { localId } = r1.json()
     const res = await app.inject({ method: 'GET', url: `/api/sessions/${localId}/history` })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual([])
+    expect(res.json()).toEqual({ events: [], before: 0, atStart: true })
     await app.inject({ method: 'POST', url: `/api/sessions/${localId}/stop` })
   })
 
@@ -321,7 +321,7 @@ describe('model por engine (a validação é das capabilities da engine, não s�
 })
 
 describe('preview de conversa anterior (sessão nova com --continue, antes do init)', () => {
-  it('continue_latest=1 → devolve o transcript mais recente da pasta; =0 → []', async () => {
+  it('continue_latest=1 → devolve o transcript mais recente da pasta; =0 → página vazia', async () => {
     const { mkdirSync, writeFileSync } = await import('node:fs')
     const cfgDir = mkdtempSync(join(tmpdir(), 'cfg-'))
     const projPath = mkdtempSync(join(tmpdir(), 'tm-'))
@@ -352,7 +352,7 @@ describe('preview de conversa anterior (sessão nova com --continue, antes do in
       `INSERT INTO sessions (local_id, project_id, status, continue_latest) VALUES ('prev-0', ?, 'starting', 0)`,
     ).run(pid)
     const h0 = await app2.inject({ method: 'GET', url: '/api/sessions/prev-0/history' })
-    expect(h0.json()).toEqual([])
+    expect(h0.json()).toEqual({ events: [], before: 0, atStart: true })
 
     await app2.close()
   })
@@ -400,7 +400,7 @@ describe('preview em pasta compartilhada (dois terminais, uma pasta)', () => {
       `INSERT INTO sessions (local_id, project_id, engine, status, continue_latest) VALUES ('compart-2', ?, 'claude', 'starting', 1)`,
     ).run(terceiro)
     const h2 = await app2.inject({ method: 'GET', url: '/api/sessions/compart-2/history' })
-    expect(h2.json()).toEqual([])
+    expect(h2.json()).toEqual({ events: [], before: 0, atStart: true })
 
     await app2.close()
   })
@@ -428,8 +428,11 @@ describe('limite de eventos do histórico (transcripts gigantes não travam o na
     ).run(proj.json().id)
 
     const res = await app2.inject({ method: 'GET', url: '/api/sessions/cap-1/history' })
-    const events = res.json()
+    const { events, before, atStart } = res.json()
     expect(events).toHaveLength(HISTORY_EVENT_LIMIT)
+    // Há mais antes: a página anterior começa no byte do primeiro devolvido.
+    expect(atStart).toBe(false)
+    expect(before).toBe(events[0].pos)
     // são os MAIS RECENTES: o primeiro devolvido é o 50º do arquivo
     expect(JSON.stringify(events[0])).toContain('msg-50')
     expect(JSON.stringify(events[events.length - 1])).toContain(`msg-${HISTORY_EVENT_LIMIT + 49}`)

@@ -10,6 +10,7 @@ import 'highlight.js/styles/github-dark.css'
 import type { ChatItem, ClaudineiTaskResult } from '../types'
 import { ToolCallCard } from './ToolCallCard'
 import { useStore } from '../store'
+import { COLLAPSE_LINES, useFold } from '../chat/folds'
 import { WsContext } from '../wsContext'
 import { extractCandidatePaths, kindOfPath, resolveFiles, resolvedKey, splitCandidatePaths, type ScopeResult } from '../files'
 import { isInterruptMarker, isToolUseInterrupt } from '../chat/history'
@@ -37,15 +38,21 @@ export const MessageBlock = memo(function MessageBlock({ item, currentLocalId, e
   onEdit?: (text: string) => void
 }) {
   const edit = editable && onEdit && item.kind === 'user_text' ? () => onEdit(item.text) : undefined
+  // Ocorrência atual da busca (Ctrl+F): seletor estreito, só este booleano —
+  // ir a outra ocorrência re-renderiza o bloco que perde e o que ganha a marca.
+  const hit = useStore((s) => !!item.key && s.find?.currentKey === item.key)
+  // Fronteira de compactação solta: não desenha nada (nem o invólucro).
+  if (item.kind === 'compact_boundary') return null
   const content = <MessageContent item={item} currentLocalId={currentLocalId} onEdit={edit} />
-  if (item.fromSubagent) {
-    return <SubagentWrapper>{content}</SubagentWrapper>
-  }
-  return content
+  // O invólucro existe sempre (sem padding nem borda: as margens do bloco
+  // passam por ele como antes), para a marca não remontar o conteúdo.
+  return (
+    <div className={hit ? 'chat-hit' : undefined}>
+      {item.fromSubagent ? <SubagentWrapper>{content}</SubagentWrapper> : content}
+    </div>
+  )
 })
 
-/** Mensagens acima disso colapsam: mostra as primeiras linhas + botão de expandir. */
-const COLLAPSE_LINES = 13
 
 /** Chaves com resolve em voo: um histórico com 50 menções ao mesmo caminho dispara 1 POST, não 50. */
 const resolveInFlight = new Set<string>()
@@ -155,7 +162,7 @@ function CompactSummaryBlock({ item, currentLocalId }: {
   currentLocalId?: string
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFold(currentLocalId, item.key, 'summary')
   const lines = item.text.split('\n').length
   return (
     <div className={`action-group compact-summary${open ? ' action-group--open' : ''}`} role="note">
@@ -190,7 +197,7 @@ function UserTextBubble({ item, currentLocalId, onEdit }: {
   onEdit?: () => void
 }) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useFold(currentLocalId, item.key, 'more')
   const engines = useStore((s) => s.engines)
   // Só o que a bolha usa da sessão: o mapa inteiro muda a cada evento de
   // qualquer terminal e re-renderizava todas as bolhas da conversa.
@@ -277,7 +284,7 @@ function ScheduledMessageBubble({
   currentLocalId?: string
 }) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useFold(currentLocalId, item.key, 'more')
 
   const lines = item.text.split('\n')
   const overflow = lines.length - COLLAPSE_LINES
@@ -313,7 +320,7 @@ function TaskMessageBubble({
   currentLocalId?: string
 }) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useFold(currentLocalId, item.key, 'more')
 
   const lines = item.text.split('\n')
   const overflow = lines.length - COLLAPSE_LINES
@@ -493,7 +500,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
         </div>
       )
     case 'thinking':
-      return <Thinking text={item.text} />
+      return <Thinking text={item.text} itemKey={item.key} currentLocalId={currentLocalId} />
     case 'local_command':
       return (
         <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '6px 0' }}>
@@ -529,7 +536,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
     case 'claudinei_message':
       return <ClaudineiMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'tool_call':
-      return <ToolCallCard item={item} />
+      return <ToolCallCard item={item} currentLocalId={currentLocalId} />
   }
 }
 
@@ -699,9 +706,9 @@ function ForwardTargets({ currentLocalId, onPick }: { currentLocalId: string; on
   )
 }
 
-function Thinking({ text }: { text: string }) {
+function Thinking({ text, itemKey, currentLocalId }: { text: string; itemKey?: string; currentLocalId?: string }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useFold(currentLocalId, itemKey, 'thinking')
   return (
     <div style={{ margin: '8px 0' }}>
       <span onClick={() => setOpen(!open)}

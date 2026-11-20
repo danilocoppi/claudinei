@@ -3,6 +3,7 @@ import type { EventEmitter } from 'node:events'
 import type { ClaudeEvent } from '../claude/events.js'
 import type { SessionStatus, HermesOptions, PendingQuestion } from '../claude/session.js'
 import type { ModelCatalog } from '../../../shared/engine-options.js'
+import type { HistoryPage, HistoryPageOptions } from '../history-page.js'
 
 /** Id de engine — aberto; a validade é "está registrado no registry?", nunca um union fechado. */
 export type EngineId = string
@@ -98,6 +99,12 @@ export interface Engine {
   createSession(opts: EngineSessionOptions): EngineSession
   /** Pode ser assíncrono: históricos grandes (transcript de 30 MB, `opencode export`) não podem bloquear o event loop. */
   readHistory(projectPath: string, engineSessionId: string): AgentEvent[] | Promise<AgentEvent[]>
+  /**
+   * Uma página do histórico, lida de trás para a frente a partir de um byte do
+   * arquivo da engine, com a posição de cada evento. Opcional: sem ela, quem
+   * pagina (history-page.ts) usa o `readHistory` numerado pelo índice.
+   */
+  readHistoryPage?(projectPath: string, engineSessionId: string, opts: HistoryPageOptions): Promise<HistoryPage>
   /**
    * O id da conversa mais recente desta pasta, no storage da engine.
    *

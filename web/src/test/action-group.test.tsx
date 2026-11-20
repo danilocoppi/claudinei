@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { cleanup, screen, fireEvent } from '@testing-library/react'
+// A conversa é uma lista virtual: sem medidas fixas, o jsdom não montaria nada.
+import { renderComJanela as render } from './viewport'
 import { ActionGroup } from '../components/ActionGroup'
 import { ChatView } from '../components/ChatView'
 import { useStore } from '../store'
@@ -53,19 +55,19 @@ describe('ChatView agrupa ações consecutivas', () => {
   })
   afterEach(() => vi.restoreAllMocks())
 
-  it('sequência de 4 tools entre mensagens vira "4 ações"', () => {
+  it('sequência de 4 tools entre mensagens vira "4 ações"', async () => {
     render(<ChatView />)
-    expect(screen.getByText('4 ações')).toBeTruthy()
+    expect(await screen.findByText('4 ações')).toBeTruthy()
     expect(screen.queryByText('ls')).toBeNull()
   })
 
-  it('trabalhando com cauda de ações: última fica visível fora do grupo', () => {
+  it('trabalhando com cauda de ações: última fica visível fora do grupo', async () => {
     useStore.setState({
       sessions: { a: sess('working') },
       chat: { a: [{ kind: 'user_text', text: 'faz' }, tool(), tool(), tool(), tool('Grep')] },
     })
     render(<ChatView />)
-    expect(screen.getByText('3 ações')).toBeTruthy()
+    expect(await screen.findByText('3 ações')).toBeTruthy()
     // a última ação (Grep) continua como card individual visível
     expect(screen.getByText('Grep')).toBeTruthy()
   })

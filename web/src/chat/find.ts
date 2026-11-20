@@ -43,6 +43,41 @@ export function locateHit(items: ChatItem[], hit: SearchHit): string | null {
   return first
 }
 
+/** O texto de um item que a busca olha para o campo (null: o item não é desse campo). */
+function textForField(item: ChatItem, field: SearchField): string | null {
+  if (field === 'thinking') return item.kind === 'thinking' ? item.text : null
+  if (field !== 'text') return null
+  switch (item.kind) {
+    case 'user_text':
+    case 'assistant_text':
+    case 'task_message':
+    case 'scheduled_message':
+    case 'claudinei_message': return item.text
+    default: return null
+  }
+}
+
+/**
+ * Ocorrência do turno em andamento: o item ainda tem chave ao vivo (`l<n>`),
+ * sem posição. Acha pelo trecho que o servidor devolveu (sem caixa, acento nem
+ * diferença de espaços) entre os itens ao vivo do tipo do campo, do mais novo
+ * para o mais antigo.
+ * Entrada e saída de ferramenta já acham pelo id (`locateHit`).
+ */
+export function locateLiveHit(items: ChatItem[], hit: SearchHit): string | null {
+  // O trecho vem com os espaços juntados (`snippetAround` no servidor).
+  const comparavel = (s: string) => foldForSearch(s).replace(/\s+/g, ' ')
+  const trecho = comparavel(hit.snippet).trim()
+  if (!trecho) return null
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (!it.key?.startsWith('l')) continue
+    const text = textForField(it, hit.field)
+    if (text !== null && comparavel(text).includes(trecho)) return it.key
+  }
+  return null
+}
+
 /** O texto que a bolha conta para recolher (o mesmo de MessageBlock). */
 function collapsibleText(item: ChatItem): string | null {
   switch (item.kind) {

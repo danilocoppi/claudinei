@@ -278,6 +278,7 @@ export const en = {
     none: 'nothing found',
     older: 'Older match (Enter)',
     newer: 'Newer match (Shift+Enter)',
+    stalled: 'the search stopped: the server did not move back in the conversation',
   },
   question: {
     titleOne: 'The agent has a question for you',

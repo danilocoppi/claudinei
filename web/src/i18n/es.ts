@@ -280,6 +280,7 @@ export const es: typeof en = {
     none: 'nada encontrado',
     older: 'Coincidencia más antigua (Enter)',
     newer: 'Coincidencia más reciente (Shift+Enter)',
+    stalled: 'la búsqueda se detuvo: el servidor no avanzó en la conversación',
   },
   question: {
     titleOne: 'El agente tiene una pregunta para ti',

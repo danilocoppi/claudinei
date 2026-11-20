@@ -18,3 +18,11 @@ export const chatListRef: MutableRefObject<VirtuosoHandle | null> = { current: n
  * e evento novo que chegar depois não pode arrancá-lo de lá.
  */
 export const chatFollow: { release: () => void } = { release: () => {} }
+
+/**
+ * Gestos de rolagem do operador na conversa aberta (roda, toque, teclas de
+ * rolar, clique na caixa), contados pelo ChatView. A busca compara com o valor
+ * no Enter: se mudou, o operador voltou a ler e a primeira ocorrência que
+ * chegar depois não o arranca de lá.
+ */
+export const chatUserScroll = { n: 0 }

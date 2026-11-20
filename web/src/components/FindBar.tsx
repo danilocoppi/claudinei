@@ -30,14 +30,19 @@ export function FindBar({ localId }: { localId: string }) {
     inputRef.current?.select()
   }, [])
 
-  // Esc fecha também com o foco no chat (fora de campos e de modais): quem
-  // clicou numa mensagem depois de ir à ocorrência não precisa voltar à barra.
+  // Esc fecha também com o foco na coluna do chat (fora de campos e de
+  // modais): quem clicou numa mensagem depois de ir à ocorrência não precisa
+  // voltar à barra. Fora da coluna — ou com o foco em nada — o Esc é de quem
+  // está aberto lá (menu do usuário, controles da sessão, idioma, visualizador
+  // de arquivo, que escutam a janela).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
-      const dentro = e.target instanceof Node && !!barRef.current?.contains(e.target)
-      if (!dentro && (isForeignField(e.target, null)
-        || (e.target instanceof Element && e.target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"], .xterm, [data-terminal]')))) return
+      const alvo = e.target instanceof Element ? e.target : null
+      const naBarra = !!alvo && !!barRef.current?.contains(alvo)
+      const noChat = !!alvo?.closest('.chat-main') && !isForeignField(alvo, null)
+        && !alvo.closest('.modal-overlay, [role="dialog"], [aria-modal="true"], [role="menu"], .xterm, [data-terminal]')
+      if (!naBarra && !noChat) return
       e.preventDefault()
       closeFind()
     }

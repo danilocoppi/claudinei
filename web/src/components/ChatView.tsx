@@ -20,7 +20,7 @@ import { UsageLimitNotice } from './UsageLimitNotice'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions, type ChatNode } from '../chat/grouping'
 import { nodeKey, useFirstItemIndex } from '../chat/nodes'
-import { chatFollow, chatListRef } from '../chat/listHandle'
+import { chatFollow, chatListRef, chatUserScroll } from '../chat/listHandle'
 import { loadOlderPage, isLoadingOlder, useLoadingOlder } from '../chat/olderPages'
 import { closeFind } from '../chat/findRun'
 import { useFindHighlight } from '../chat/findHighlight'
@@ -36,6 +36,8 @@ import { TerminalMenu } from './TerminalMenu'
 import { ProgressButton, ProgressColumn } from './ProgressColumn'
 
 const EMPTY_ITEMS: ChatItem[] = []
+/** Teclas que rolam a conversa com o foco nela. */
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 
 /** Só este trecho acompanha cada delta; o histórico e os controles não mudaram. */
 function StreamingPreview({ localId }: { localId: string }) {
@@ -256,8 +258,27 @@ export function ChatView() {
     if (el.scrollHeight - el.scrollTop - el.clientHeight - grew > SLACK) return
     el.scrollTop = el.scrollHeight
   }, [])
+  // Gestos de rolagem do operador (não as rolagens da própria lista): a busca
+  // usa para não levar a tela a uma ocorrência que chegou depois de ele voltar a ler.
+  const soltarGestos = useRef<(() => void) | null>(null)
   const setScroller = useCallback((el: HTMLElement | Window | null) => {
     scrollerRef.current = el instanceof HTMLElement ? el : null
+    soltarGestos.current?.()
+    soltarGestos.current = null
+    if (!(el instanceof HTMLElement)) return
+    const gesto = () => { chatUserScroll.n++ }
+    const tecla = (e: KeyboardEvent) => { if (SCROLL_KEYS.has(e.key)) gesto() }
+    const opts = { passive: true } as const
+    el.addEventListener('wheel', gesto, opts)
+    el.addEventListener('touchmove', gesto, opts)
+    el.addEventListener('mousedown', gesto, opts)
+    el.addEventListener('keydown', tecla)
+    soltarGestos.current = () => {
+      el.removeEventListener('wheel', gesto)
+      el.removeEventListener('touchmove', gesto)
+      el.removeEventListener('mousedown', gesto)
+      el.removeEventListener('keydown', tecla)
+    }
   }, [])
 
   /**
@@ -324,11 +345,12 @@ export function ChatView() {
     return () => window.removeEventListener('keydown', onKey)
   }, [activeLocalId])
 
-  // Destaque do termo nas entradas montadas: quando a busca, a ocorrência
-  // atual (dobras que abriram) ou a conversa mudam, e quando a faixa montada
-  // da lista muda (rangeChanged).
+  // Destaque do termo nas entradas montadas: quando a busca ou a ocorrência
+  // atual (dobras que abriram) mudam, e quando a faixa montada da lista muda
+  // (rangeChanged). Evento novo da conversa não repinta: a conversa ativa é a
+  // parte cara da página, e o item novo só é pintado quando a faixa andar.
   const paintFind = useFindHighlight(scrollerRef, findQ)
-  useEffect(() => { if (findQ) paintFind() }, [findQ, findKey, items, paintFind])
+  useEffect(() => { if (findQ) paintFind() }, [findQ, findKey, paintFind])
 
   useEffect(() => {
     if (session?.status === 'needs_attention' && activeLocalId) {

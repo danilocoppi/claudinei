@@ -6,7 +6,8 @@ import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import { DEFAULT_APPEARANCE } from '../appearance'
 import { chatListRef } from '../chat/listHandle'
-import { foldsToOpen, locateHit, matchRanges } from '../chat/find'
+import { foldsToOpen, locateHit, locateLiveHit, matchRanges } from '../chat/find'
+import { paintFindMatches } from '../chat/findHighlight'
 import { groupActions } from '../chat/grouping'
 import type { ChatItem, ClaudeEvent, EngineMeta, SearchHit, SessionInfo } from '../types'
 
@@ -407,6 +408,191 @@ describe('ir a uma ocorrência', () => {
   })
 })
 
+describe('revisão: turno ao vivo, visita tardia, fatia parada, Esc, cancelamento', () => {
+  const aoVivo = (texto: string, key = 'l5'): ChatItem => ({ kind: 'assistant_text', text: texto, key })
+  const comTexto = (pos: number, snippet: string): SearchHit => ({ pos, field: 'text', snippet })
+
+  it('ocorrência no turno em andamento acha o item ao vivo pelo trecho', async () => {
+    preparar([...conversa(30), aoVivo('primeira linha\n\ntexto novo com o Reinício   do serviço', 'l4'), aoVivo('outra coisa', 'l5')])
+    useStore.setState((s) => ({ sessions: { ...s.sessions, s1: { ...sess, status: 'working' } } }))
+    // O servidor já leu a linha nova (pos depois de tudo na tela) e junta os espaços do trecho.
+    servidor([{ hits: [comTexto(TOPO + 5000, 'texto novo com o reinício do serviço')], before: 0, atStart: true }])
+    await montar()
+    await buscar('reinicio')
+    expect(urls('/history'), 'não carrega páginas para o que está depois do cursor').toEqual([])
+    expect(find()!.currentKey).toBe('l4')
+    expect(document.querySelector('.chat-hit')?.textContent).toContain('Reinício')
+  })
+
+  it('Enter numa ocorrência que não levou a nada tenta de novo antes de seguir', async () => {
+    preparar(conversa(30))
+    servidor([{ hits: [comTexto(TOPO + 5000, 'texto novo'), hit(TOPO + 100)], before: 0, atStart: true }])
+    await montar()
+    await buscar('novo')
+    expect(find()).toMatchObject({ index: 0, currentKey: null })
+    expect(screen.getByText('1 de 2')).toBeTruthy()
+    // O item apareceu (ao vivo); Enter tenta a mesma ocorrência, não pula para a 2ª.
+    act(() => { useStore.setState((s) => ({ chat: { s1: [...s.chat.s1, aoVivo('um texto novo aqui')] } })) })
+    fireEvent.keyDown(campoBusca(), { key: 'Enter' })
+    await esperar()
+    expect(find()).toMatchObject({ index: 0, currentKey: 'l5' })
+    fireEvent.keyDown(campoBusca(), { key: 'Enter' })
+    await esperar()
+    expect(find()).toMatchObject({ index: 1, currentKey: `p${TOPO + 100}` })
+  })
+
+  it('a ocorrência que nunca aparece é tentada uma vez a mais, e o Enter seguinte segue', async () => {
+    preparar(conversa(30))
+    servidor([{ hits: [comTexto(TOPO + 5000, 'nunca'), hit(TOPO + 100)], before: 0, atStart: true }])
+    await montar()
+    await buscar('nunca')
+    fireEvent.keyDown(campoBusca(), { key: 'Enter' })
+    await esperar()
+    expect(find()).toMatchObject({ index: 0, currentKey: null })
+    fireEvent.keyDown(campoBusca(), { key: 'Enter' })
+    await esperar()
+    expect(find()).toMatchObject({ index: 1, currentKey: `p${TOPO + 100}` })
+  })
+
+  /** Primeira fatia sem nada; a segunda (com a ocorrência) espera `responder`. */
+  function segundaFatiaDepois() {
+    let responder = (_r: Response) => {}
+    let n = 0
+    vi.mocked(globalThis.fetch).mockImplementation(async (url) => {
+      const u = String(url)
+      if (u.includes('/search')) {
+        if (n++ === 0) return json({ hits: [], before: 70_000, atStart: false })
+        return new Promise<Response>((r) => { responder = r })
+      }
+      return json(u.includes('/history') ? { events: [], before: 0, atStart: true } : [])
+    })
+    return () => responder(json({ hits: [hit(TOPO + 500)], before: 0, atStart: true }))
+  }
+
+  it('ocorrência que chega depois de o operador voltar a rolar não o arranca de onde está', async () => {
+    preparar(conversa(100))
+    const chegar = segundaFatiaDepois()
+    await montar()
+    await buscar('fala')
+    fireEvent.wheel(screen.getByTestId('chat-scroll'), { deltaY: -100 })
+    chegar()
+    await esperar()
+    expect(find()).toMatchObject({ index: 0, currentKey: null, atStart: true })
+    expect(screen.getByText('1 de 1')).toBeTruthy()
+    expect(screen.queryByTestId('chat-tofoot'), 'continua grudado no fim').toBeNull()
+    // O próximo Enter leva até ela.
+    fireEvent.keyDown(campoBusca(), { key: 'Enter' })
+    await esperar()
+    expect(find()!.currentKey).toBe(`p${TOPO + 500}`)
+  })
+
+  it('ocorrência que chega com o foco já fora da barra também não é visitada sozinha', async () => {
+    preparar(conversa(100))
+    const chegar = segundaFatiaDepois()
+    await montar()
+    await buscar('fala')
+    document.querySelector<HTMLTextAreaElement>('.chat-compose__area')!.focus()
+    chegar()
+    await esperar()
+    expect(find()).toMatchObject({ index: 0, currentKey: null })
+  })
+
+  it('fatia que não anda para trás para a busca com aviso, sem pedir de novo', async () => {
+    preparar(conversa(10))
+    servidor([
+      { hits: [], before: 70_000, atStart: false },
+      { hits: [], before: 70_000, atStart: false },
+      { hits: [], before: 70_000, atStart: false },
+    ])
+    await montar()
+    await buscar('fala')
+    expect(urls('/search')).toHaveLength(2)
+    expect(find()).toMatchObject({ scanning: false })
+    expect(screen.getByText('a busca parou: o servidor não avançou na conversa')).toBeTruthy()
+  })
+
+  it('Esc fora da coluna do chat (menu da lateral, foco em nada) é de quem está lá; no chat fecha', async () => {
+    preparar(conversa(10))
+    await montar()
+    const fora = document.createElement('button')
+    document.body.appendChild(fora)
+    onTestFinished(() => fora.remove())
+    ctrlF()
+    fireEvent.keyDown(fora, { key: 'Escape' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.getByPlaceholderText('Buscar na conversa')).toBeTruthy()
+    fireEvent.keyDown(document.querySelector('.chat-entry')!, { key: 'Escape' })
+    expect(screen.queryByPlaceholderText('Buscar na conversa')).toBeNull()
+  })
+
+  it('a busca fechada pelo store (conversa trocada, conta bloqueada) cancela o pedido no ar', async () => {
+    preparar(conversa(10))
+    servidor(['pendente', 'pendente'])
+    await montar()
+    await buscar('fala')
+    const sinais = () => chamadas().filter(([u]) => String(u).includes('/search')).map(([, i]) => i!.signal!)
+    act(() => { useStore.getState().setHistoryTail('s1', { events: [evFala(10)], before: 10, atStart: true }, 'outra-conversa') })
+    expect(find()).toBeNull()
+    expect(sinais()[0].aborted).toBe(true)
+
+    await buscar('fala')
+    act(() => {
+      useStore.getState().setAuth('ready', {
+        setupRequired: false, id: 1, username: 'u', isAdmin: true, access: { allowed: false, serverNow: 0, checkAt: null },
+      })
+    })
+    expect(find()).toBeNull()
+    expect(sinais()[1].aborted).toBe(true)
+  })
+})
+
+describe('o destaque do termo (CSS Custom Highlight API)', () => {
+  let pinturas: unknown[][]
+  let apagadas: number
+  beforeEach(() => {
+    pinturas = []
+    apagadas = 0
+    vi.stubGlobal('CSS', { highlights: { set: (_n: string, h: { r: unknown[] }) => { pinturas.push(h.r) }, delete: () => { apagadas++ } } })
+    vi.stubGlobal('Highlight', class { r: unknown[]; constructor(...r: unknown[]) { this.r = r } })
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('pinta ao buscar; evento novo não repinta; barra fechada não agenda nada', async () => {
+    preparar(conversa(100))
+    // Ocorrência no meio: o item novo chega lá embaixo, fora da faixa montada.
+    servidor([{ hits: [hit(TOPO + 200)], before: 0, atStart: true }])
+    await montar()
+    await buscar('fala')
+    await esperar()
+    expect(pinturas.length).toBeGreaterThan(0)
+    expect(pinturas.at(-1)!.length).toBeGreaterThan(0)
+    const antes = pinturas.length
+    act(() => { useStore.setState((s) => ({ chat: { s1: [...s.chat.s1, aoVivoFala()] } })) })
+    await esperar()
+    expect(pinturas.length, 'evento novo não repinta').toBe(antes)
+
+    fireEvent.keyDown(campoBusca(), { key: 'Escape' })
+    await esperar()
+    expect(apagadas).toBeGreaterThan(0)
+    const depois = pinturas.length
+    const apagadasDepois = apagadas
+    // A faixa montada muda (rolagem) com a barra fechada: nada a agendar.
+    await rolarPara(ALTURA_ITEM * 60)
+    expect(chaves()).toContain(`p${TOPO + 600}`)
+    expect(pinturas.length).toBe(depois)
+    expect(apagadas, 'nada pintado, nada a apagar').toBe(apagadasDepois)
+  })
+
+  it('não dobra nó de texto enorme', () => {
+    const root = document.createElement('div')
+    root.innerHTML = '<div class="chat-entry"><p>o reinício</p><pre></pre></div>'
+    root.querySelector('pre')!.textContent = 'reinício '.repeat(5000)
+    expect(paintFindMatches(root, 'reinicio')).toBe(1)
+  })
+})
+
+const aoVivoFala = (): ChatItem => ({ kind: 'assistant_text', text: 'fala nova', key: 'l99' })
+
 describe('a busca no store', () => {
   const aberta = (currentKey: string | null) => ({
     localId: 's1', q: 'fala', tools: false, hits: [hit(10)], index: 0, scanning: false, before: 0, atStart: true,
@@ -473,6 +659,19 @@ describe('find.ts', () => {
     // Fora de grupo (ação sozinha): só o cartão.
     expect(foldsToOpen(nodes, items, 'p8', 'tool_input')).toEqual(['p8:tool'])
     expect(foldsToOpen(nodes, items, 'p9', 'text')).toEqual([])
+  })
+
+  it('locateLiveHit: só itens ao vivo, do campo, do mais novo para o mais antigo', () => {
+    const items: ChatItem[] = [
+      { kind: 'assistant_text', text: 'o Reinício\n do serviço', key: 'p10' },
+      { kind: 'assistant_text', text: 'o reinício  do serviço, de novo', key: 'l1' },
+      { kind: 'thinking', text: 'o reinício do serviço', key: 'l2' },
+      { kind: 'user_text', text: 'pedi REINICIO do servico', key: 'l3' },
+    ]
+    expect(locateLiveHit(items, { pos: 99, field: 'text', snippet: 'o reinício do serviço' })).toBe('l1')
+    expect(locateLiveHit(items, { pos: 99, field: 'thinking', snippet: 'o reinício do serviço' })).toBe('l2')
+    expect(locateLiveHit(items, { pos: 99, field: 'text', snippet: 'reinicio do servico' })).toBe('l3')
+    expect(locateLiveHit(items, { pos: 99, field: 'text', snippet: 'nada disso' })).toBeNull()
   })
 
   it('matchRanges: sem caixa nem acento, nos índices do texto original', () => {

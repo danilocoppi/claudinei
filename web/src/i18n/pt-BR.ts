@@ -281,6 +281,7 @@ export const ptBR: typeof en = {
     none: 'nada encontrado',
     older: 'Ocorrência mais antiga (Enter)',
     newer: 'Ocorrência mais recente (Shift+Enter)',
+    stalled: 'a busca parou: o servidor não avançou na conversa',
   },
   question: {
     titleOne: 'O agente tem uma pergunta para você',

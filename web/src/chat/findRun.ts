@@ -1,10 +1,11 @@
 import { useStore } from '../store'
+import i18n from '../i18n'
 import { searchHistory } from '../api'
 import type { SearchSlice } from '../types'
-import { FIND_HIT_LIMIT, FIND_ROUND_BYTES, FIND_SLICE_BYTES, foldsToOpen, locateHit } from './find'
+import { FIND_HIT_LIMIT, FIND_ROUND_BYTES, FIND_SLICE_BYTES, foldsToOpen, locateHit, locateLiveHit } from './find'
 import { groupActions } from './grouping'
 import { nodeIndexOfItem } from './nodes'
-import { chatFollow, chatListRef } from './listHandle'
+import { chatFollow, chatListRef, chatUserScroll } from './listHandle'
 import { loadOlderPage } from './olderPages'
 
 /**
@@ -19,8 +20,18 @@ import { loadOlderPage } from './olderPages'
 
 let busca: AbortController | null = null
 let idaSeq = 0
+/** Idas já tentadas à ocorrência atual: o Enter repete uma vez a que não levou a nada. */
+let tentativas = { index: -1, n: 0 }
+/** Gestos de rolagem do operador (`chatUserScroll.n`) no momento do Enter. */
+let rolagemNoEnter = 0
 
 const get = () => useStore.getState()
+
+// A busca some do store por outros caminhos (bloqueio da conta, conversa
+// trocada na sessão): o pedido no ar e a ida em curso param junto.
+useStore.subscribe((s, prev) => {
+  if (prev.find && (!s.find || s.find.localId !== prev.find.localId)) cancelFind()
+})
 
 /** Cancela o pedido de fatia no ar e a ida em curso a uma ocorrência. */
 export function cancelFind(): void {
@@ -38,6 +49,8 @@ export function closeFind(): void {
 /** Enter com uma consulta nova (ou com "incluir ferramentas" trocado): começa do fim da conversa. */
 export function startFind(localId: string, q: string, tools: boolean): void {
   cancelFind()
+  tentativas = { index: -1, n: 0 }
+  rolagemNoEnter = chatUserScroll.n
   get().setFind({
     localId, q, tools, hits: [], index: 0, scanning: true, before: null, atStart: false,
     scannedBytes: 0, capped: false, currentKey: null, error: null,
@@ -54,9 +67,19 @@ export function searchMore(): void {
 }
 
 /**
+ * A primeira ocorrência pode chegar segundos depois do Enter, numa conversa
+ * enorme. Só é visitada sozinha se o operador ainda está esperando por ela —
+ * o foco na barra e a conversa sem rolar desde o Enter. Se ele voltou a ler,
+ * a barra só mostra "1 de n"; o próximo Enter leva até ela.
+ */
+function aindaEsperando(): boolean {
+  const el = document.activeElement
+  return chatUserScroll.n === rolagemNoEnter && el instanceof Element && !!el.closest('.find-bar')
+}
+
+/**
  * Uma rodada: fatias encadeadas pelo `before` até o começo da conversa, o teto
- * de ocorrências ou 64 MB varridos. A primeira ocorrência que aparece já é
- * visitada (é para ela que o operador apertou Enter).
+ * de ocorrências ou 64 MB varridos.
  */
 async function rodada(): Promise<void> {
   const inicio = get().find
@@ -78,6 +101,12 @@ async function rodada(): Promise<void> {
     }
     if (!vale()) return
     const g = get().find!
+    // Cada fatia anda para trás. Uma que não anda (servidor com defeito) faria
+    // o laço pedir a mesma fatia para sempre: para, com aviso.
+    if (!fatia.atStart && g.before !== null && fatia.before >= g.before) {
+      get().patchFind(localId, q, { scanning: false, error: i18n.t('find.stalled') })
+      return
+    }
     const antes = g.hits.length
     let hits = antes ? g.hits.concat(fatia.hits) : fatia.hits
     const capped = hits.length > FIND_HIT_LIMIT
@@ -87,7 +116,7 @@ async function rodada(): Promise<void> {
     const fim = fatia.atStart || capped
     const pausa = !fim && scannedBytes >= FIND_ROUND_BYTES
     get().patchFind(localId, q, { hits, before: fatia.before, atStart: fatia.atStart, capped, scannedBytes, scanning: !fim && !pausa })
-    if (antes === 0 && hits.length > 0) void gotoHit(0)
+    if (antes === 0 && hits.length > 0 && aindaEsperando()) void gotoHit(0)
     if (fim || pausa) return
   }
 }
@@ -126,6 +155,7 @@ export async function gotoHit(index: number): Promise<void> {
   const hit = f?.hits[index]
   if (!f || !hit) return
   const { localId, q } = f
+  tentativas = tentativas.index === index ? { index, n: tentativas.n + 1 } : { index, n: 1 }
   get().patchFind(localId, q, { index })
   const vale = () => seq === idaSeq && get().find?.localId === localId && get().find?.q === q && get().activeLocalId === localId
 
@@ -143,6 +173,10 @@ export async function gotoHit(index: number): Promise<void> {
     if (get().historyCursor[localId]?.before === antes && ++parado >= 2) break
     key = locateHit(get().chat[localId] ?? [], hit)
   }
+  // Ocorrência do turno em andamento: o servidor já lê as linhas novas, mas
+  // na tela elas ainda têm chave ao vivo (`l<n>`) até o refetch do fim do
+  // turno. Procura entre os itens ao vivo pelo trecho.
+  if (key === null && !precisaDeMais(localId, hit.pos, hit.toolUseId)) key = locateLiveHit(get().chat[localId] ?? [], hit)
   if (key === null) {
     get().patchFind(localId, q, { currentKey: null })
     return
@@ -165,10 +199,18 @@ export async function gotoHit(index: number): Promise<void> {
   get().patchFind(localId, q, { currentKey: key })
 }
 
-/** Enter (+1, a mais antiga seguinte) e Shift+Enter (−1), dando a volta nas pontas. */
+/**
+ * Enter (+1, a mais antiga seguinte) e Shift+Enter (−1), dando a volta nas
+ * pontas. A ocorrência atual que ainda não levou a nada (não visitada, ou o
+ * item não estava na tela) é tentada antes — uma vez — de seguir adiante.
+ */
 export function stepFind(delta: number): void {
   const f = get().find
   if (!f || f.hits.length === 0) return
+  if (f.currentKey === null && (tentativas.index !== f.index || tentativas.n < 2)) {
+    void gotoHit(f.index)
+    return
+  }
   const n = f.hits.length
   void gotoHit(((f.index + delta) % n + n) % n)
 }

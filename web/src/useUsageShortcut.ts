@@ -2,9 +2,17 @@ import { useEffect } from 'react'
 import { isForeignField } from './keyboard'
 import { useStore } from './store'
 
-/** Ctrl+U, sem Alt, Meta nem Shift (pela tecla ou pela posição, para layouts que não dão 'u'). */
+const LATIN_LETTER = /^\p{Script=Latin}$/u
+
+/**
+ * Ctrl+U, sem Alt, Meta nem Shift. Vale a letra da tecla; a posição (`code` 'KeyU') só entra
+ * quando a tecla não dá letra latina (cirílico, grego…). Num layout latino como o Dvorak,
+ * a posição do U dá 'g', e Ctrl+G é do navegador (buscar o próximo), não desta página.
+ */
 export function isUsageShortcut(e: KeyboardEvent): boolean {
-  return e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && (e.key === 'u' || e.key === 'U' || e.code === 'KeyU')
+  if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false
+  if (e.key === 'u' || e.key === 'U') return true
+  return e.code === 'KeyU' && !LATIN_LETTER.test(e.key)
 }
 
 /**

@@ -114,6 +114,48 @@ describe('UsagePage', () => {
     expect(reportCalls()).toHaveLength(2)
   })
 
+  it('falha numa busca durante a indexação não congela o aviso: tenta de novo', async () => {
+    vi.useFakeTimers()
+    let falha = false
+    let done = 3
+    reportBody = () => report({ index: { running: true, filesDone: done, filesTotal: 9, lastPassAt: null } })
+    const base = fetchSpy.getMockImplementation()!
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) =>
+      falha && String(input).startsWith('/api/usage/report') ? json({ error: 'boom' }, 500) : base(input))
+    const { unmount } = render(<UsagePage />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('Indexando… 3 de 9 arquivos')).toBeTruthy()
+
+    falha = true
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(reportCalls()).toHaveLength(2)
+
+    // A busca seguinte volta a dar certo e o aviso anda; o erro some.
+    falha = false
+    done = 7
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(reportCalls()).toHaveLength(3)
+    expect(screen.getByText('Indexando… 7 de 9 arquivos')).toBeTruthy()
+    expect(document.querySelector('.usage-page__error')).toBeNull()
+
+    // Sem sobreposição: um intervalo, uma busca; e desmontar para tudo.
+    unmount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+    expect(reportCalls()).toHaveLength(3)
+  })
+
+  it('falha sem indexação em curso não refaz a busca', async () => {
+    vi.useFakeTimers()
+    const base = fetchSpy.getMockImplementation()!
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).startsWith('/api/usage/report') ? json({ error: 'boom' }, 500) : base(input))
+    render(<UsagePage />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(document.querySelector('.usage-page__error')).not.toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+    expect(reportCalls()).toHaveLength(1)
+  })
+
   it('desmontar no meio da indexação para a recarga', async () => {
     vi.useFakeTimers()
     reportBody = () => report({ index: { running: true, filesDone: 1, filesTotal: 9, lastPassAt: null } })
@@ -202,7 +244,17 @@ describe('atalho Ctrl+U', () => {
     const k = (init: KeyboardEventInit) => isUsageShortcut(new KeyboardEvent('keydown', init))
     expect(k({ key: 'u', ctrlKey: true })).toBe(true)
     expect(k({ key: 'U', ctrlKey: true })).toBe(true)
-    expect(k({ key: 'x', code: 'KeyU', ctrlKey: true })).toBe(true)
+    expect(k({ key: 'u', code: 'KeyU', ctrlKey: true })).toBe(true)
+    expect(k({ key: 'U', code: 'KeyU', ctrlKey: true })).toBe(true)
+    // Dvorak: a posição do U dá 'g'; Ctrl+G é do navegador (buscar o próximo), não da página.
+    expect(k({ key: 'g', code: 'KeyU', ctrlKey: true })).toBe(false)
+    expect(k({ key: 'é', code: 'KeyU', ctrlKey: true })).toBe(false)
+    // Layouts sem letras latinas (cirílico, grego): vale a posição da tecla.
+    expect(k({ key: 'г', code: 'KeyU', ctrlKey: true })).toBe(true)
+    expect(k({ key: 'π', code: 'KeyU', ctrlKey: true })).toBe(true)
+    // Dvorak: o 'u' fica noutra posição e continua valendo.
+    expect(k({ key: 'u', code: 'KeyF', ctrlKey: true })).toBe(true)
+    expect(k({ key: 'г', code: 'KeyP', ctrlKey: true })).toBe(false)
     expect(k({ key: 'u' })).toBe(false)
     expect(k({ key: 'u', ctrlKey: true, altKey: true })).toBe(false)
     expect(k({ key: 'u', ctrlKey: true, metaKey: true })).toBe(false)

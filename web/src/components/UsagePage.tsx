@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fetchUsageReport, type IndexStatus, type UsagePeriod, type UsageReport, type UsageTotals } from '../api'
 import { useStore } from '../store'
@@ -53,9 +53,13 @@ export function UsagePage() {
   const [report, setReport] = useState<Report | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Uma busca por vez: a próxima só é agendada quando a anterior volta, e só
-  // enquanto a passada do indexador roda. Trocar o período ou sair da página
-  // aborta a busca em voo e apaga o agendamento.
+  // Se a passada rodava no último relatório bom; uma busca que falha no meio dela
+  // não pode congelar o "Indexando…", então ela agenda outra tentativa.
+  const indexingRef = useRef(false)
+
+  // Uma busca por vez: a próxima só é agendada quando a anterior volta (com ou
+  // sem erro), e só enquanto a passada do indexador roda. Trocar o período ou
+  // sair da página aborta a busca em voo e apaga o agendamento.
   useEffect(() => {
     const ctrl = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -65,11 +69,13 @@ export function UsagePage() {
           if (ctrl.signal.aborted) return
           setReport(r)
           setError(null)
-          if (r.index?.running) timer = setTimeout(load, POLL_MS)
+          indexingRef.current = !!r.index?.running
+          if (indexingRef.current) timer = setTimeout(load, POLL_MS)
         })
         .catch((err: unknown) => {
           if (ctrl.signal.aborted) return
           setError(err instanceof Error ? err.message : String(err))
+          if (indexingRef.current) timer = setTimeout(load, POLL_MS)
         })
     }
     load()

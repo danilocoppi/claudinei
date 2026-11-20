@@ -10,6 +10,7 @@ import { EngineIcon } from './EngineIcon'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ContextMeter } from './ContextMeter'
 import { ViewportPopover } from './ViewportPopover'
+import { NewProjectModal } from './NewProjectModal'
 
 /**
  * Abas por engine de um projeto — usadas no header do ChatView E na barra do
@@ -38,6 +39,9 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // Encerrar é por ENGINE: um terminal pode ter Claude + Codex + Kimi vivos ao
   // mesmo tempo, e derrubar um não pode derrubar os outros.
   const [stopFor, setStopFor] = useState<{ session: SessionInfo; label: string } | null>(null)
+  // O "editar" do aviso de nenhum motor instalado abre o formulário do terminal
+  // aqui mesmo, o mesmo do ⋮ → Editar.
+  const [editOpen, setEditOpen] = useState(false)
 
   const confirmStop = () => {
     if (!stopFor) return
@@ -76,6 +80,10 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // Sem o terminal no store (ainda não carregou), a lista lida seria o padrão,
   // e gravar a partir dela apagaria a verdadeira: o "+" espera o terminal.
   const hidden = project ? hiddenEngines(engines, listed) : []
+  // Nada sobrou para aba: todos os motores da lista estão desinstalados e não há
+  // sessão viva (uma viva teria aba). Sem o catálogo ou o terminal no store
+  // (ainda carregando), também não sobraria nada, e o aviso piscaria à toa.
+  const noneInstalled = visible.length === 0 && !!project && engines.length > 0
 
   const addEngine = async (engineId: string) => {
     if (adding) return
@@ -105,6 +113,14 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
 
   return (
     <div className="engine-tabs" role="tablist" aria-label={t('session.engine')}>
+      {noneInstalled && (
+        <div className="engine-tabs__none">
+          {t('session.noEngineInstalled')} —{' '}
+          <button type="button" className="engine-tabs__none-edit" onClick={() => setEditOpen(true)}>
+            {t('session.noEngineEdit')}
+          </button>
+        </div>
+      )}
       {visible.map((e) => {
         const tabSession = sessionForEngine(projectId, e.id, sessions)
         const live = isLive(tabSession)
@@ -214,6 +230,7 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
         </div>,
         document.body,
       )}
+      {editOpen && project && <NewProjectModal editProject={project} onClose={() => setEditOpen(false)} />}
       {stopFor && (
         <ConfirmDialog
           title={t('chat.stopEngineTitle', { engine: stopFor.label })}

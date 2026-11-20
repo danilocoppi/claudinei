@@ -199,6 +199,7 @@ export const es: typeof en = {
     skipTitle: 'Omitir permisos', skipDesc: 'Claude ejecuta comandos sin pedir tu confirmación en cada paso.',
     permWarning: 'Con esto desactivado, las acciones que requieren permiso se deniegan automáticamente en el chat web. Para aprobar interactivamente, usa “Abrir en la terminal”.',
     start: 'Iniciar sesión',
+    noEngineInstalled: 'Ningún motor de esta lista está instalado', noEngineEdit: 'editar',
   },
   chat: {
     sendHint: 'Enter en el campo · Ctrl+Enter desde cualquier punto de la pantalla',

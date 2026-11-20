@@ -197,6 +197,7 @@ export const en = {
     skipTitle: 'Skip permissions', skipDesc: 'Claude runs commands without asking for your confirmation at each step.',
     permWarning: 'With this off, actions that need permission are auto-denied in the web chat. To approve interactively, use “Open in terminal”.',
     start: 'Start session',
+    noEngineInstalled: 'None of the engines in this list is installed', noEngineEdit: 'edit',
   },
   chat: {
     sendHint: 'Enter in the field · Ctrl+Enter from anywhere on the screen',

@@ -199,6 +199,7 @@ export const ptBR: typeof en = {
     skipTitle: 'Pular permissões', skipDesc: 'O Claude executa comandos sem pedir sua confirmação a cada passo.',
     permWarning: 'Com isto desligado, ações que exigem permissão são negadas automaticamente no chat web. Para aprovar interativamente, use o “Abrir no terminal”.',
     start: 'Iniciar sessão',
+    noEngineInstalled: 'Nenhum motor desta lista está instalado', noEngineEdit: 'editar',
   },
   chat: {
     sendHint: 'Enter no campo · Ctrl+Enter de qualquer ponto da tela',

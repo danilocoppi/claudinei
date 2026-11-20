@@ -1,6 +1,7 @@
 import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, openSync, closeSync } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { join, extname, resolve, sep } from 'node:path'
+import { randomInt } from 'node:crypto'
 
 const MAX_NAME = 80
 
@@ -16,35 +17,49 @@ export function sanitizeName(name: string): string {
   return clean
 }
 
-/** Próximo prefixo NNN- (maior existente + 1, mínimo 001), zero-padded a 3. */
-function nextPrefix(dir: string): string {
-  let max = 0
-  for (const f of readdirSync(dir)) {
-    const m = f.match(/^(\d+)-/)
-    if (m) max = Math.max(max, Number(m[1]))
-  }
-  return String(max + 1).padStart(3, '0')
+/**
+ * Sequência de 4 hex do processo: começa num ponto sorteado e anda um por
+ * upload, então dois nomes do mesmo segundo nunca têm o mesmo sufixo (só
+ * depois de 65 536 uploads naquele segundo).
+ */
+let seq = randomInt(0x10000)
+
+const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+
+/**
+ * Prefixo `AAAAMMDD-HHMMSS-hhhh-` (hora local). Não se repete nem depois que a
+ * rotação apaga tudo: o contador `NNN-` antigo voltava a 001 com a pasta vazia,
+ * e um anexo novo ganhava o nome de um apagado (um rascunho guardado com o
+ * token antigo apontaria para o arquivo errado). Os arquivos `NNN-` que já
+ * existem continuam onde estão e são achados pelo caminho, como sempre.
+ */
+function namePrefix(now: Date): string {
+  seq = (seq + 1) % 0x10000
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return `${date}-${time}-${seq.toString(16).padStart(4, '0')}`
 }
 
 export async function saveUpload(
   dir: string,
   name: string,
   stream: NodeJS.ReadableStream,
+  opts: { now?: Date } = {},
 ): Promise<{ path: string; name: string }> {
   mkdirSync(dir, { recursive: true })
-  // 'wx' é exclusivo: se dois uploads concorrentes calcularem o mesmo NNN,
-  // o segundo recebe EEXIST e recalcula — nunca sobrescreve o primeiro.
+  // 'wx' é exclusivo: se o nome já existir (sufixo que deu a volta no mesmo
+  // segundo), recebe EEXIST e tenta o próximo — nunca sobrescreve.
   // A reserva do nome (openSync) acontece ANTES de qualquer leitura da
   // stream, então o retry nunca toca uma stream já parcialmente consumida.
   for (;;) {
-    const finalName = `${nextPrefix(dir)}-${sanitizeName(name)}`
+    const finalName = `${namePrefix(opts.now ?? new Date())}-${sanitizeName(name)}`
     const path = join(dir, finalName)
     let fd: number
     try {
       fd = openSync(path, 'wx') // reserva o nome atomicamente
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
-      continue // outro upload pegou este NNN: recalcula
+      continue // o nome já existe: o próximo da sequência
     }
     closeSync(fd)
     await pipeline(stream, createWriteStream(path)) // agora o nome é nosso

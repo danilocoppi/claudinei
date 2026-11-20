@@ -45,6 +45,17 @@ describe('upload no ChatInput', () => {
     spy.mockRestore()
   })
 
+  it('nome no formato novo do servidor (data-hora e sufixo hex) segue o mesmo caminho do token', async () => {
+    const name = '20261120-090507-a3f1-log.txt'
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okUpload(name))
+    const { send, textarea } = renderInput()
+    fireEvent.paste(textarea, { clipboardData: { files: [new File(['x'], 'log.txt', { type: 'text/plain' })] } })
+    await vi.waitFor(() => expect(textarea.value).toContain(`[📎 ${name}]`))
+    fireEvent.click(screen.getByText('Enviar'))
+    expect(send).toHaveBeenCalledWith({ type: 'send_message', localId: 's1', text: `/ups/${name}` })
+    spy.mockRestore()
+  })
+
   it('token apagado pelo usuário não é substituído (anexo não vai)', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okUpload('003-a.txt'))
     const { send, textarea } = renderInput()

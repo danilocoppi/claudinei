@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { cleanup, screen, fireEvent, act, waitFor } from '@testing-library/react'
+// A conversa é uma lista virtual: sem medidas fixas, o jsdom não montaria nada.
+import { renderComJanela as render } from './viewport'
 import { ChatView } from '../components/ChatView'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'

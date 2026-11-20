@@ -238,6 +238,7 @@ export const es: typeof en = {
     noAgents: 'Ningún otro agente activo', subagent: 'subagente', unknownProject: 'proyecto',
     stop: 'Detener el turno',
     toFoot: 'Ir al final',
+    historyStart: 'Inicio de la conversación', historyLoading: 'Cargando mensajes anteriores…',
     interrupted: 'Interrumpido por el usuario',
     actionsGroup: '{{count}} acciones',
     compactSummary: 'Contexto compactado', compactSummaryHint: 'resumen de la conversación anterior · {{n}} líneas', compactSummaryFrom: 'de {{tokens}} tokens',

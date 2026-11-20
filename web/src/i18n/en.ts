@@ -236,6 +236,7 @@ export const en = {
     noAgents: 'No other active agents', subagent: 'subagent', unknownProject: 'project',
     stop: 'Stop the turn',
     toFoot: 'Jump to latest',
+    historyStart: 'Start of the conversation', historyLoading: 'Loading earlier messages…',
     interrupted: 'Interrupted by the user',
     actionsGroup: '{{count}} actions',
     compactSummary: 'Context compacted', compactSummaryHint: 'summary of the earlier conversation · {{n}} lines', compactSummaryFrom: 'from {{tokens}} tokens',

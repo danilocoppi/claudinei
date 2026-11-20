@@ -239,6 +239,7 @@ export const ptBR: typeof en = {
     noAgents: 'Nenhum outro agente ativo', subagent: 'subagente', unknownProject: 'projeto',
     stop: 'Parar o turno',
     toFoot: 'Ir para o fim',
+    historyStart: 'Início da conversa', historyLoading: 'Carregando mensagens anteriores…',
     interrupted: 'Interrompido pelo usuário',
     actionsGroup: '{{count}} ações',
     compactSummary: 'Contexto compactado', compactSummaryHint: 'resumo da conversa anterior · {{n}} linhas', compactSummaryFrom: 'de {{tokens}} tokens',

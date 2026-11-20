@@ -195,3 +195,13 @@ Tabelas novas (os nomes ficam para quem constrói):
 - **Mudança compartilhada sem caminho declarado** fica "incerta" e desmarcada; o operador inclui à mão.
 - **A nota "files reverted"** vai na próxima mensagem, sem turno próprio. Assim não gasta tokens, e o agente não edita em cima de um arquivo que mudou sem ele saber.
 - **Claude com `--fork-session`** ao voltar a conversa: o transcript antigo fica no disco, e o terminal passa ao id novo.
+- **Turno, para os arquivos, é cada mensagem** (checagem do construtor). Mensagem que entra com o agente trabalhando (Claude no mesmo turno, Codex por `turn/steer`) e turno que o motor abre sozinho (`task-notification`) ganham um marco próprio na hora em que entram. Esse marco fecha o trecho anterior e abre o seguinte. Assim, "Editar a partir daqui" numa mensagem do meio volta só o que veio depois dela. O que conta como fim continua sendo o `result` e a saída de `working`; tarefas em segundo plano depois do `result` entram em "Mudanças entre turnos".
+- **Conversa a partir de mensagem do meio:**
+  - no Claude, volta pelo uuid da mensagem (`--resume-session-at`);
+  - no Codex, `thread/revert` só corta turnos inteiros, então "voltar só a conversa" fica desligado nessas mensagens, com o motivo na tela. "Voltar a conversa e os arquivos" também fica desligado; voltar só os arquivos continua disponível pela linha do turno.
+- **Turnos que saem da conversa por "Voltar só a conversa" continuam desfazíveis.** Eles vão para um bloco "Fora da conversa atual" no painel de mudanças do terminal, com Ver mudanças e Desfazer, até a retenção normal apagá-los. No banco, o turno guarda o id da sessão em que nasceu; a troca de id não o apaga.
+- **Repositório com mais de um projeto:** as rotas de resumo, diff e desfazer filtram pelo caminho do projeto pedido.
+  - Quem não é administrador vê e desfaz só os arquivos dentro da pasta do projeto dele; o resto aparece como "N arquivos fora deste projeto", sem nome nem conteúdo.
+  - O nome de terminal sem acesso vira "outro terminal" na espera.
+  - O administrador vê tudo.
+- **Mesmo arquivo mexido por outro terminal dentro da janela do turno** (turnos sobrepostos) é tratado como conflito, com a pergunta por arquivo, e nunca volta calado.

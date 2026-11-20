@@ -47,6 +47,19 @@ function parsePatch(body: unknown): TriagePatch | string {
   return p
 }
 
+/** Maior lista aceita no PUT da ordem dos fixados (folga larga para uma lateral). */
+const MAX_PIN_ORDER = 10_000
+
+/** Valida o corpo do PUT da ordem dos fixados. Devolve os ids ou a mensagem do 400. */
+function parsePinOrder(body: unknown): number[] | string {
+  const ids = (body && typeof body === 'object' ? (body as Record<string, unknown>).projectIds : undefined)
+  if (!Array.isArray(ids)) return 'projectIds deve ser uma lista'
+  if (ids.length > MAX_PIN_ORDER) return 'projectIds grande demais'
+  if (!ids.every((id) => Number.isSafeInteger(id) && (id as number) > 0)) return 'projectIds deve ter ids inteiros positivos'
+  if (new Set(ids).size !== ids.length) return 'projectIds com id repetido'
+  return ids as number[]
+}
+
 export function registerTriageRoutes(app: FastifyInstance, deps: {
   store: TriageStore
   /** Para o 404 de projeto inexistente (a FK do banco recusaria com 500). */
@@ -61,6 +74,28 @@ export function registerTriageRoutes(app: FastifyInstance, deps: {
     // Filtra pelo acesso de HOJE: quem perdeu o acesso a um projeto não vê mais
     // a triagem dele, mesmo que a linha continue no banco.
     return deps.store.list(id).filter((t) => canAccessProject(req.authUser, t.projectId))
+  })
+
+  /**
+   * A ordem dos Fixados de quem pede (cada usuário tem a sua). Só aceita
+   * terminais que ele acessa e que estão fixados para ele. Responde a triagem
+   * inteira, como o GET, e avisa os outros aparelhos dele de cada posição que
+   * mudou, pela mesma mensagem `triage` do PATCH.
+   */
+  app.put('/api/triage/pin-order', async (req, reply) => {
+    const id = triageUserId(req)
+    if (id === null) return reply.code(403).send({ error: SERVICE_TRIAGE_ERROR })
+    const ids = parsePinOrder(req.body)
+    if (typeof ids === 'string') return reply.code(400).send({ error: ids })
+    if (!ids.every((projectId) => canAccessProject(req.authUser, projectId))) return reply.code(403).send({ error: 'forbidden_project' })
+    if (!ids.every((projectId) => deps.store.get(id, projectId).pinned)) return reply.code(400).send({ error: 'projectIds deve ter só terminais fixados' })
+    const before = new Map(deps.store.list(id).map((t) => [t.projectId, t.pinOrder]))
+    deps.store.setPinOrder(id, ids)
+    const after = deps.store.list(id).filter((t) => canAccessProject(req.authUser, t.projectId))
+    for (const item of after) {
+      if (before.get(item.projectId) !== item.pinOrder) deps.broadcast?.(triageMessage(id, item))
+    }
+    return after
   })
 
   app.patch('/api/projects/:id/triage', async (req, reply) => {

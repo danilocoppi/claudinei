@@ -26,15 +26,15 @@ afterEach(() => { db.close() })
 describe('store da triagem', () => {
   it('sem linha, nada aplicado', () => {
     const store = createTriageStore(db)
-    expect(store.get(1, p1)).toEqual({ projectId: p1, pinned: false, settled: false, snoozedUntil: null })
+    expect(store.get(1, p1)).toEqual({ projectId: p1, pinned: false, settled: false, snoozedUntil: null, pinOrder: null })
     expect(store.list(1)).toEqual([])
   })
 
   it('assentar tira o pin e o adiamento', () => {
     const store = createTriageStore(db)
     store.update(1, p1, { pinned: true, snoozedUntil: daqui(HORA) })
-    expect(store.update(1, p1, { settled: true })).toEqual({ projectId: p1, pinned: false, settled: true, snoozedUntil: null })
-    expect(store.get(1, p1)).toEqual({ projectId: p1, pinned: false, settled: true, snoozedUntil: null })
+    expect(store.update(1, p1, { settled: true })).toEqual({ projectId: p1, pinned: false, settled: true, snoozedUntil: null, pinOrder: null })
+    expect(store.get(1, p1)).toEqual({ projectId: p1, pinned: false, settled: true, snoozedUntil: null, pinOrder: null })
   })
 
   it('adiar tira o assentado e mantém o pin', () => {
@@ -42,14 +42,14 @@ describe('store da triagem', () => {
     store.update(1, p1, { pinned: true })
     store.update(1, p2, { settled: true })
     const ate = daqui(HORA)
-    expect(store.update(1, p1, { snoozedUntil: ate })).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: ate })
-    expect(store.update(1, p2, { snoozedUntil: ate })).toEqual({ projectId: p2, pinned: false, settled: false, snoozedUntil: ate })
+    expect(store.update(1, p1, { snoozedUntil: ate })).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: ate, pinOrder: 0 })
+    expect(store.update(1, p2, { snoozedUntil: ate })).toEqual({ projectId: p2, pinned: false, settled: false, snoozedUntil: ate, pinOrder: null })
   })
 
   it('fixar tira o assentado', () => {
     const store = createTriageStore(db)
     store.update(1, p1, { settled: true })
-    expect(store.update(1, p1, { pinned: true })).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: null })
+    expect(store.update(1, p1, { pinned: true })).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 })
   })
 
   it('snoozedUntil vencido é lido como null', () => {
@@ -63,7 +63,7 @@ describe('store da triagem', () => {
   it('cada usuário tem a sua triagem', () => {
     const store = createTriageStore(db)
     store.update(1, p1, { pinned: true })
-    expect(store.list(1)).toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: null }])
+    expect(store.list(1)).toEqual([{ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 }])
     expect(store.list(2)).toEqual([])
     expect(store.get(2, p1).pinned).toBe(false)
   })
@@ -77,9 +77,9 @@ describe('store da triagem', () => {
     store.update(1, p2, { settled: true })          // outro projeto: fica
 
     expect(store.wakeProject(p1).sort()).toEqual([1, 2])
-    expect(store.get(1, p1)).toEqual({ projectId: p1, pinned: false, settled: false, snoozedUntil: null })
-    expect(store.get(2, p1)).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: null })
-    expect(store.get(3, p1)).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: null })
+    expect(store.get(1, p1)).toEqual({ projectId: p1, pinned: false, settled: false, snoozedUntil: null, pinOrder: null })
+    expect(store.get(2, p1)).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 })
+    expect(store.get(3, p1)).toEqual({ projectId: p1, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 })
     expect(store.get(1, p2).settled).toBe(true)
     // Já acordado: chamar de novo não afeta ninguém.
     expect(store.wakeProject(p1)).toEqual([])
@@ -106,6 +106,71 @@ describe('store da triagem', () => {
     store.update(ana.id, p1, { pinned: true })
     auth.users.remove(ana.id)
     expect(store.list(ana.id)).toEqual([])
+  })
+})
+
+describe('ordem dos fixados', () => {
+  let p3: number
+  beforeEach(() => { p3 = createProjectsService(db).create({ name: 'Gama', path: mkdtempSync(join(tmpdir(), 'tri-')) }).id })
+
+  it('fixar põe no fim; desafixar ou assentar esquece a posição', () => {
+    const store = createTriageStore(db)
+    expect(store.update(1, p1, { pinned: true }).pinOrder).toBe(0)
+    expect(store.update(1, p2, { pinned: true }).pinOrder).toBe(1)
+    // Fixar de novo quem já está fixado não o move.
+    expect(store.update(1, p1, { pinned: true }).pinOrder).toBe(0)
+    // Adiar mantém o pin e a posição.
+    expect(store.update(1, p1, { snoozedUntil: daqui(HORA) }).pinOrder).toBe(0)
+    expect(store.update(1, p1, { pinned: false }).pinOrder).toBeNull()
+    expect(store.update(1, p1, { pinned: true }).pinOrder).toBe(2)
+    expect(store.update(1, p1, { settled: true }).pinOrder).toBeNull()
+    // Sem pin, não há posição a mostrar.
+    expect(store.get(1, p3).pinOrder).toBeNull()
+  })
+
+  it('fixado de antes da ordem (pin_order nulo) vem antes do recém-fixado', () => {
+    const store = createTriageStore(db)
+    db.prepare(`INSERT INTO user_triage (user_id, project_id, pinned_at) VALUES (1, ?, ?)`).run(p1, new Date().toISOString())
+    expect(store.get(1, p1)).toMatchObject({ pinned: true, pinOrder: null })
+    expect(store.update(1, p2, { pinned: true }).pinOrder).toBe(0)
+  })
+
+  it('setPinOrder grava a ordem só deste usuário', () => {
+    const store = createTriageStore(db)
+    for (const u of [1, 2]) for (const p of [p1, p2, p3]) store.update(u, p, { pinned: true })
+    store.setPinOrder(1, [p3, p1, p2])
+    expect([p1, p2, p3].map((p) => store.get(1, p).pinOrder)).toEqual([1, 2, 0])
+    expect([p1, p2, p3].map((p) => store.get(2, p).pinOrder)).toEqual([0, 1, 2])
+    // Fixar depois de ordenar continua indo para o fim.
+    store.update(1, p3, { pinned: false })
+    expect(store.update(1, p3, { pinned: true }).pinOrder).toBe(3)
+  })
+
+  it('setPinOrder põe no fim os fixados que não vieram na lista, na ordem que tinham', () => {
+    const store = createTriageStore(db)
+    for (const p of [p1, p2, p3]) store.update(1, p, { pinned: true })
+    store.setPinOrder(1, [p3])
+    expect([p3, p1, p2].map((p) => store.get(1, p).pinOrder)).toEqual([0, 1, 2])
+  })
+})
+
+describe('migração da coluna pin_order', () => {
+  it('banco sem a coluna ganha a coluna na abertura, com os pins mantidos', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tri-db-'))
+    const path = join(dir, 'c.db')
+    try {
+      let d = openDb(path)
+      const a = createProjectsService(d).create({ name: 'A', path: mkdtempSync(join(tmpdir(), 'tri-')) }).id
+      d.prepare(`INSERT INTO user_triage (user_id, project_id, pinned_at) VALUES (1, ?, ?)`).run(a, new Date().toISOString())
+      d.exec('ALTER TABLE user_triage DROP COLUMN pin_order')
+      d.close()
+      d = openDb(path)
+      try {
+        const cols = (d.prepare('PRAGMA table_info(user_triage)').all() as { name: string }[]).map((c) => c.name)
+        expect(cols).toContain('pin_order')
+        expect(createTriageStore(d).get(1, a)).toMatchObject({ pinned: true, pinOrder: null })
+      } finally { d.close() }
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })
 

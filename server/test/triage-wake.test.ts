@@ -82,8 +82,8 @@ const expectAsleep = () => {
 }
 
 const expectAwake = () => {
-  expect(store.get(ANA, project.id)).toEqual({ projectId: project.id, pinned: false, settled: false, snoozedUntil: null })
-  expect(store.get(BETO, project.id)).toEqual({ projectId: project.id, pinned: false, settled: false, snoozedUntil: null })
+  expect(store.get(ANA, project.id)).toEqual({ projectId: project.id, pinned: false, settled: false, snoozedUntil: null, pinOrder: null })
+  expect(store.get(BETO, project.id)).toEqual({ projectId: project.id, pinned: false, settled: false, snoozedUntil: null, pinOrder: null })
 }
 
 describe('o despertador acorda o assentado e o adiado', () => {
@@ -146,8 +146,8 @@ describe('o despertador acorda o assentado e o adiado', () => {
     store.update(ANA, project.id, { snoozedUntil: daqui(HORA) })
     mgr.send(localId, 'crash')
     await waitUntil(() => onNeedsOperator.mock.calls.length > 0)
-    expect(store.get(ANA, project.id)).toEqual({ projectId: project.id, pinned: true, settled: false, snoozedUntil: null })
-    expect(triageMsgs).toEqual([{ type: 'triage', userId: ANA, item: { projectId: project.id, pinned: true, settled: false, snoozedUntil: null } }])
+    expect(store.get(ANA, project.id)).toEqual({ projectId: project.id, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 })
+    expect(triageMsgs).toEqual([{ type: 'triage', userId: ANA, item: { projectId: project.id, pinned: true, settled: false, snoozedUntil: null, pinOrder: 0 } }])
   })
 
   it('o broadcast vai uma vez por usuário afetado', async () => {
@@ -158,7 +158,7 @@ describe('o despertador acorda o assentado e o adiado', () => {
     db.prepare(`INSERT INTO user_triage (user_id, project_id, snoozed_until) VALUES (4, ?, ?)`).run(project.id, daqui(-1000))
     mgr.send(localId, 'crash')
     await waitUntil(() => onNeedsOperator.mock.calls.length > 0)
-    const vazio = { projectId: project.id, pinned: false, settled: false, snoozedUntil: null }
+    const vazio = { projectId: project.id, pinned: false, settled: false, snoozedUntil: null, pinOrder: null }
     expect(triageMsgs).toEqual([
       { type: 'triage', userId: ANA, item: vazio },
       { type: 'triage', userId: BETO, item: vazio },

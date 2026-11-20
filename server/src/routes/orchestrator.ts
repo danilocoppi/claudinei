@@ -35,6 +35,11 @@ export function registerOrchestratorRoutes(
      * operador. Ausente = todos podem.
      */
     canTake?: (projectId: number, engine: string) => boolean
+    /**
+     * A tarefa terminou (concluída ou falha) e o resultado já está gravado: o
+     * aviso ao terminal que a encaminhou. Uma falha dele não pode desfazer o fim.
+     */
+    onTaskEnded?: (taskId: number) => void
   },
 ): OrchestratorHooks {
   const projects = createProjectsService(deps.db)
@@ -45,11 +50,16 @@ export function registerOrchestratorRoutes(
     if (task) deps.broadcast?.({ type: 'task_update', task })
   }
 
+  const taskEnded = (id: number): void => {
+    try { deps.onTaskEnded?.(id) } catch (err) { console.error('[orchestrator] aviso de fim de tarefa falhou', err) }
+  }
+
   // Fim do turno que executa a tarefa: grava o resultado e avisa. Mesmo fecho
   // para a entrega (drain) e para a tarefa religada depois de um reinício.
   const onTaskEnd = (task: Task) => (status: 'completed' | 'failed', result: string): void => {
     tasks.setResult(task.id, status, result)
     broadcastTask(task.id)
+    taskEnded(task.id)
     // Falha (timeout/dead/stopped/busy) não passa por onSessionAvailable —
     // sem este drain a próxima queued do projeto ficaria parada até o
     // próximo POST /dispatch. setImmediate quebra a reentrância do caminho
@@ -128,6 +138,7 @@ export function registerOrchestratorRoutes(
     if (tasks.get(taskId)?.status !== 'in_progress') return
     tasks.setResult(taskId, 'failed', RESTART_FAIL_TEXT)
     broadcastTask(taskId)
+    taskEnded(taskId)
   }
 
   return { drain, reattach, failInterrupted }

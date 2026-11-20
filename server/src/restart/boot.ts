@@ -126,6 +126,16 @@ export function createRestartService(deps: {
    * operador (na subida ou na retomada que falha): liga ao despertador da triagem.
    */
   onHeld?: (projectId: number) => void
+  /**
+   * Acrescenta ao estado publicado (e à lista) o que é de outros serviços, como
+   * os resultados de tarefa pendentes. Lido a cada publicação.
+   */
+  decorate?: (projectId: number, engine: string) => Partial<TerminalStateDto>
+  /**
+   * Terminais que o `decorate` tem algo a mostrar: entram na lista mesmo sem
+   * linha de estado (a linha só nasce quando algo do reinício é gravado).
+   */
+  decoratedTerminals?: () => Array<{ projectId: number; engine: string }>
 }) {
   const { db, manager, store } = deps
   const batchSize = deps.batchSize ?? 3
@@ -143,8 +153,20 @@ export function createRestartService(deps: {
   const latestLocalId = (projectId: number, engine: string): string | null =>
     (latestSql.get(projectId, engine) as { local_id: string } | undefined)?.local_id ?? null
 
+  /** O estado do terminal com o que os outros serviços acrescentam; falha deles não derruba a publicação. */
+  const stateOf = (row: TerminalStateRow): TerminalStateDto => {
+    const dto = toDto(row)
+    if (!deps.decorate) return dto
+    try {
+      return { ...dto, ...deps.decorate(row.projectId, row.engine) }
+    } catch (err) {
+      log(`[reinício] decorar ${row.projectId}/${row.engine} falhou: ${(err as Error)?.message ?? err}`)
+      return dto
+    }
+  }
+
   const publish = (projectId: number, engine: string): TerminalStateDto => {
-    const state = toDto(store.get(projectId, engine))
+    const state = stateOf(store.get(projectId, engine))
     deps.broadcast({ type: 'terminal_state', state })
     return state
   }
@@ -380,7 +402,18 @@ export function createRestartService(deps: {
     },
 
     list(): TerminalStateDto[] {
-      return store.list().map(toDto)
+      const rows = store.list()
+      const known = new Set(rows.map((r) => keyOf(r.projectId, r.engine)))
+      let extra: Array<{ projectId: number; engine: string }> = []
+      try { extra = deps.decoratedTerminals?.() ?? [] } catch (err) {
+        log(`[reinício] terminais decorados falharam: ${(err as Error)?.message ?? err}`)
+      }
+      for (const t of extra) {
+        if (known.has(keyOf(t.projectId, t.engine))) continue
+        known.add(keyOf(t.projectId, t.engine))
+        rows.push(store.get(t.projectId, t.engine))
+      }
+      return rows.map(stateOf)
     },
   }
 }

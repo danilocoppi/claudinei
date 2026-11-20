@@ -52,6 +52,12 @@ export interface TerminalStateDto {
   interruption: null | { at: string; reason: HoldReason | 'queued'; question?: Question[] }
   autoResumeLimit: boolean
   usageLimit: null | { hitAt: string; resetsAt: number | null; action: LimitAction; origin: LimitOrigin }
+  /**
+   * Resultados de tarefas delegadas por este terminal esperando a entrega (só os
+   * pendentes). Vem do serviço do aviso de tarefa, pelo `decorate` do reinício;
+   * o `toDto` sozinho dá a lista vazia.
+   */
+  taskResults: { id: number; toProjectName: string; status: 'completed' | 'failed' }[]
 }
 
 /** Erro com que fecham a tarefa encaminhada e a execução de agendamento que o reinício matou. */
@@ -294,7 +300,7 @@ export function toDto(row: TerminalStateRow): TerminalStateDto {
   }
   return {
     projectId: row.projectId, engine: row.engine, autostart: row.autostart, autoResume: row.autoResume,
-    interruption, autoResumeLimit: row.autoResumeLimit, usageLimit,
+    interruption, autoResumeLimit: row.autoResumeLimit, usageLimit, taskResults: [],
   }
 }
 

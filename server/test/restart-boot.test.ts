@@ -825,7 +825,7 @@ describe('createRestartService: mensagens e interruptores', () => {
     const dto = svc.setPrefs(p.id, 'claude', { autostart: true })
     expect(dto).toEqual({
       projectId: p.id, engine: 'claude', autostart: true, autoResume: false, interruption: null,
-      autoResumeLimit: false, usageLimit: null,
+      autoResumeLimit: false, usageLimit: null, taskResults: [],
     })
     expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: dto })
     expect(svc.list()).toEqual([dto])

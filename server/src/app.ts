@@ -30,6 +30,7 @@ import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerPrefsRoutes } from './routes/prefs.js'
 import { registerTriageRoutes } from './routes/triage.js'
 import { createTriageStore } from './triage/store.js'
+import { createTriageWaker, type TriageWaker } from './triage/wake.js'
 import { registerLocalAppRoutes, type LocalAppsRouteDeps } from './routes/local-apps.js'
 import { registerIconRoutes } from './routes/icons.js'
 import { registerActionRoutes } from './routes/actions.js'
@@ -102,6 +103,12 @@ export interface AppDeps {
    * preenche aqui. index.ts também roda a subida (`boot`) depois do listen.
    */
   onRestartReady?: (restart: RestartService) => void
+  /**
+   * Recebe o despertador da triagem assim que ele nasce. Mesmo motivo do
+   * `onRestartReady`: o gancho `onNeedsOperator` do manager lê uma referência
+   * que index.ts preenche aqui.
+   */
+  onTriageWakerReady?: (waker: TriageWaker) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -131,6 +138,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     triage, broadcast: deps.wsHub?.broadcast,
   })
   registerTriageRoutes(app, { store: triage, db: deps.db, broadcast: deps.wsHub?.broadcast })
+  const triageWaker = createTriageWaker({ store: triage, broadcast: (m) => deps.wsHub?.broadcast(m) })
+  deps.onTriageWakerReady?.(triageWaker)
   registerSessionRoutes(app, deps)
   registerEngineRoutes(app)
   registerHermesRoutes(app, { db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast })
@@ -167,6 +176,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     orchestrator: () => orchestrator,
     broadcast: (m) => deps.wsHub?.broadcast(m),
     closeInterruptedRuns: () => schedulesStore.closeInterruptedRuns(),
+    onHeld: (projectId) => triageWaker.wake(projectId, 'interrupted'),
   })
   registerTerminalStateRoutes(app, { db: deps.db, restart })
   deps.onRestartReady?.(restart)

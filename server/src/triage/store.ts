@@ -53,6 +53,9 @@ export function createTriageStore(db: Db) {
   const getRow = (userId: number, projectId: number) =>
     db.prepare(`SELECT * FROM user_triage WHERE user_id=? AND project_id=?`).get(userId, projectId) as Row | undefined
 
+  // Função solta (não `this.get`): os métodos do store podem ser passados adiante.
+  const get = (userId: number, projectId: number): TriageDto => toDto(projectId, getRow(userId, projectId))
+
   return {
     /** Só os projetos com algo aplicado; quem não tem linha está "normal". */
     list(userId: number): TriageDto[] {
@@ -60,9 +63,7 @@ export function createTriageStore(db: Db) {
       return rows.map((r) => toDto(r.project_id, r)).filter(applied)
     },
 
-    get(userId: number, projectId: number): TriageDto {
-      return toDto(projectId, getRow(userId, projectId))
-    },
+    get,
 
     /**
      * Aplica os campos nesta ordem, e o último a falar vence:
@@ -101,7 +102,7 @@ export function createTriageStore(db: Db) {
             pinned_at=excluded.pinned_at, settled_at=excluded.settled_at, snoozed_until=excluded.snoozed_until
         `).run(userId, projectId, pinnedAt, settledAt, snoozedUntil)
       }
-      return this.get(userId, projectId)
+      return get(userId, projectId)
     },
 
     /**

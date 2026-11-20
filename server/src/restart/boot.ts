@@ -82,6 +82,11 @@ export function createRestartService(deps: {
   closeInterruptedRuns: () => number
   batchSize?: number; gapMs?: number; sleep?: (ms: number) => Promise<void>
   log?: (msg: string) => void
+  /**
+   * O aviso de trabalho interrompido ficou retido esperando o operador (motivo
+   * diferente de `queued`): liga ao despertador da triagem.
+   */
+  onHeld?: (projectId: number) => void
 }) {
   const { db, manager, store } = deps
   const batchSize = deps.batchSize ?? 3
@@ -102,6 +107,10 @@ export function createRestartService(deps: {
   const publish = (projectId: number, engine: string): TerminalStateDto => {
     const state = toDto(store.get(projectId, engine))
     deps.broadcast({ type: 'terminal_state', state })
+    if (state.interruption && state.interruption.reason !== 'queued') {
+      // O despertador grava no banco; uma falha dele não pode parar a subida.
+      try { deps.onHeld?.(projectId) } catch (err) { log(`[reinício] despertar ${projectId} falhou: ${(err as Error)?.message ?? err}`) }
+    }
     return state
   }
 

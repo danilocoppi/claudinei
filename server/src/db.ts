@@ -122,8 +122,9 @@ function migrarPathNaoUnico(db: Db, dbPath: string): void {
   const cols = (db.prepare(`PRAGMA table_info(projects)`).all() as { name: string }[]).map((c) => `"${c.name}"`).join(', ')
 
   // FORA da transação: dentro, este PRAGMA é no-op silencioso — e sem ele o DROP
-  // abaixo dispararia o ON DELETE CASCADE das sete tabelas que apontam para
-  // projects, levando embora sessões, mural, tarefas, agendamentos e ações.
+  // abaixo dispararia o ON DELETE CASCADE das nove tabelas que apontam para
+  // projects, levando embora sessões, mural, tarefas, acessos, agendamentos,
+  // ações, threads, estado do terminal e triagem.
   db.pragma('foreign_keys = OFF')
   try {
     db.exec('BEGIN')

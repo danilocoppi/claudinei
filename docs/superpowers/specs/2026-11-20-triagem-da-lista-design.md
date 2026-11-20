@@ -182,3 +182,7 @@ ASSENTADOS (11)              ▸  (recolhida)
 - **Arrastar** só reordena dentro da própria seção; cartões escondidos não ocupam posição.
 - **"Amanhã às 9 h"** escolhido entre 0 h e 5 h significa o mesmo dia às 9 h.
 - **A rota antiga da ⭐** passa a fixar/desfixar para o usuário que clicou (compatível com o que o front chama hoje).
+
+## O que acorda um assentado ou adiado (decidido pelo operador)
+
+Volta só quando precisa mesmo do operador: **pergunta aberta, falha do turno, aviso de trabalho interrompido (reinício) ou de limite de uso**. Turno que só terminou e trabalho de agendamento ou de tarefa encaminhada **não** acordam — mas o terminal aparece na faixa "Trabalhando" enquanto roda. Assentar ou adiar marca o terminal como lido. Isto substitui qualquer regra anterior deste documento sobre "acordar ao trabalhar" ou "acordar ao esperar o operador".

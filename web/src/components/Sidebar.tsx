@@ -411,7 +411,8 @@ export function Sidebar() {
           )}
           {isCollapsed && playButton}
           <InterruptedCardMarker projectId={p.id} />
-          <UsageLimitCardMarker projectId={p.id} />
+          {/* Colapsado não há linha de status: a marca do limite sobe para cá. */}
+          {isCollapsed && <UsageLimitCardMarker projectId={p.id} />}
           {(() => {
             const sch = schedulesOf(p.id)
             if (!sch) return null
@@ -479,11 +480,14 @@ export function Sidebar() {
               {engineOf(s) && (
                 <EngineIcon className="engine-badge" title={engineOf(s)!.label} icon={engineOf(s)!.icon} />
               )}
-              <span>{t(`status.${displayStatusKey(s)}` as 'status.in_terminal')}</span>
+              <span className="term-card__status-text">{t(`status.${displayStatusKey(s)}` as 'status.in_terminal')}</span>
             </>
           ) : (
-            <><span className="status-dot status-none" /><span>{t('sidebar.noSession')}</span></>
+            <><span className="status-dot status-none" /><span className="term-card__status-text">{t('sidebar.noSession')}</span></>
           )}
+          {/* Limite de uso: aqui cabe o texto inteiro ("limite até 15:00"); quem
+              trunca primeiro é o texto do status. */}
+          <UsageLimitCardMarker projectId={p.id} inStatus />
           {playButton}
         </div>}
       </div>

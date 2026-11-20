@@ -246,6 +246,32 @@ describe('marca no cartão da lateral', () => {
     expect(within(cartao('Alpha')).getByTestId('limit-marker').textContent).toBe(texto)
   })
 
+  it('expandido: a marca vai na linha de status, depois do texto; a ↻ segue na linha do nome', () => {
+    useStore.setState({ terminalStates: {
+      [progressKey(1, 'claude')]: limitado(),
+      [progressKey(1, 'codex')]: { ...estado({ engine: 'codex' }), interruption: { at: '2026-11-20T10:00:00.000Z', reason: 'off' } },
+    } })
+    render(<Sidebar />)
+    const card = cartao('Alpha')
+    const marca = within(card).getByTestId('limit-marker')
+    const status = card.querySelector('.term-card__status')!
+    expect(marca.parentElement).toBe(status)
+    // Depois do texto do status ("sem sessão"), que é o que trunca primeiro.
+    const texto = status.querySelector('.term-card__status-text')!
+    expect(texto.compareDocumentPosition(marca) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(card).getByTestId('restart-marker').parentElement).toBe(card.querySelector('.term-card__title'))
+  })
+
+  it('colapsado: a marca fica na linha do nome', () => {
+    localStorage.setItem('claudinei:collapsedCards', '[1]')
+    poe(limitado())
+    render(<Sidebar />)
+    const card = cartao('Alpha')
+    expect(card.querySelector('.term-card__status')).toBeNull()
+    expect(within(card).getByTestId('limit-marker').parentElement).toBe(card.querySelector('.term-card__title'))
+    expect(within(card).getAllByTestId('limit-marker')).toHaveLength(1)
+  })
+
   it('marca não redesenha a lateral em mudanças sem relação', () => {
     let commits = 0
     render(<Profiler id="lateral" onRender={() => { commits++ }}><Sidebar /></Profiler>)

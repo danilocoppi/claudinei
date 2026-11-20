@@ -477,8 +477,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .engine-picker__icon { font-family: var(--emoji); font-size: 16px; line-height: 1; }
 
 /* Badge do ícone da engine (Sidebar term-card) — distingue múltiplas engines
-   rodando no mesmo projeto. `flex: none` neutraliza a regra
-   `.term-card__status > span:last-of-type { flex: 1 }` (o badge não deve esticar). */
+   rodando no mesmo projeto. `flex: none`: o badge não estica nem encolhe (quem
+   estica é o `.term-card__status-text`). */
 .engine-badge { font-family: var(--emoji); line-height: 1; opacity: .85; flex: none; }
 /* Ícone de engine que é um logo SVG (ex.: OpenAI no Codex): dimensiona ao 1em do
    contexto e herda a cor. Glyphs de texto seguem pelo caminho normal do EngineIcon. */
@@ -692,12 +692,12 @@ textarea.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .term-card.drop-target { box-shadow: 0 -2px 0 0 var(--accent); }
 .term-card__title { display: flex; align-items: center; gap: 6px; }
 .term-card__icon { font-size: 15px; }
-/* Base de 2.5em (e não 0): quando a marca do limite divide a linha, o nome
-   guarda um pedaço legível em vez de sumir. Sem ela, nada muda: o nome é o
+/* Base de 2.5em (e não 0): quando a marca do limite divide a linha (cartão
+   colapsado), o nome guarda um pedaço legível em vez de sumir. Sem ela, nada muda: o nome é o
    único que cresce e encolhe. min-width: 0 — nunca empurra o cartão para fora. */
 .term-card__name { flex: 1 1 2.5em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
 .term-card__status { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 11.5px; margin-top: 2px; }
-.term-card__status > span:last-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* texto do status empurra o ▶ p/ a direita */
+.term-card__status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* texto do status empurra o ▶ p/ a direita */
 /* Bolinhas das engines vivas: juntas entre si (gap menor que o do flex do pai). */
 .term-card__dots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
 
@@ -1823,13 +1823,16 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
 }
 .limit-notice__actions { display: flex; flex-wrap: wrap; gap: 6px; }
 /* Marca do cartão da lateral: "limite até 15:00" / "retoma às 15:01". ESTÁTICA,
-   como a ↻ do reinício (o visual vem da regra dela). Na lateral estreita é ela
-   que mais encolhe (4×), com reticências; o texto inteiro fica no title. Divide
-   a linha com o nome (base de 2.5em) sem empurrar o cartão para fora. */
+   como a ↻ do reinício (o visual vem da regra dela). No cartão colapsado divide
+   a linha do nome: encolhe mais que ele (4×), com reticências, sem empurrar o
+   cartão para fora; o texto inteiro fica no title. */
 .term-card__limit {
   flex: 0 4 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* No cartão expandido, na linha de status, depois do texto: o texto do status
+   (base 0) trunca primeiro, e a marca só encolhe se nem ela couber. */
+.term-card__limit--status { flex: 0 1 auto; }
 
 /* Pergunta do agente (AskUserQuestion), acima da caixa de mensagem. É um PEDIDO,
    não um alerta: o tom é o de destaque, não o âmbar de aviso do .reauth. */

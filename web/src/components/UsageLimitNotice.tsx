@@ -161,8 +161,11 @@ const limitMarkerKey = (states: Record<string, TerminalState>, projectId: number
  * uso", sem a hora: a marca não se atualiza quando a janela reabre, e o aviso
  * já mostra a hora. Adiado, "limite até 15:00"; armado, "retoma às 15:01".
  * Estática (sem GPU).
+ *
+ * No cartão expandido mora na linha de status (`inStatus`), onde cabe inteira;
+ * no colapsado, na linha do nome, onde encolhe com reticências.
  */
-export const UsageLimitCardMarker = memo(function UsageLimitCardMarker({ projectId }: { projectId: number }) {
+export const UsageLimitCardMarker = memo(function UsageLimitCardMarker({ projectId, inStatus = false }: { projectId: number; inStatus?: boolean }) {
   const { t, i18n } = useTranslation()
   const marker = useStore((s) => limitMarkerKey(s.terminalStates, projectId))
   if (!marker) return null
@@ -171,5 +174,7 @@ export const UsageLimitCardMarker = memo(function UsageLimitCardMarker({ project
   const text = action === 'none' || resetsAt == null ? t('limit.cardMarkerUnknown')
     : action === 'armed' ? t('limit.cardMarkerArmed', { time: formatLimitTime(resetsAt + RESUME_GRACE_S, i18n.language) })
     : t('limit.cardMarker', { time: formatLimitTime(resetsAt, i18n.language) })
-  return <span data-testid="limit-marker" className="term-card__limit" title={text}>{text}</span>
+  return (
+    <span data-testid="limit-marker" className={`term-card__limit${inStatus ? ' term-card__limit--status' : ''}`} title={text}>{text}</span>
+  )
 })

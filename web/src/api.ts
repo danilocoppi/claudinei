@@ -130,8 +130,6 @@ export const dismissInterruption = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/interruption`, { method: 'DELETE' })
 export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
   req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
-export const setProjectFavorite = (id: number, favorite: boolean) =>
-  req<Project>(`/api/projects/${id}/favorite`, { method: 'PATCH', body: JSON.stringify({ favorite }) })
 /** Triagem da lista do usuário: só os projetos com algo aplicado (os demais estão no normal). */
 export const fetchTriage = () => req<TriageItem[]>('/api/triage')
 /** Fixa, assenta ou adia o projeto para o usuário; `snoozedUntil` é horário absoluto (ISO). */

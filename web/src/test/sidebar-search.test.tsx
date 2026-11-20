@@ -80,7 +80,7 @@ describe('Sidebar — busca', () => {
     fireEvent.change(search(), { target: { value: 'zzz' } })
     expect(screen.getByText('Nenhum terminal encontrado para “zzz”.')).toBeTruthy()
     fireEvent.change(search(), { target: { value: 'admin' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Somente favoritos' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Somente fixados' }))
     expect(screen.getByText('Nenhum terminal com “admin” nos filtros ligados.')).toBeTruthy()
   })
 

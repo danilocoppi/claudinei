@@ -1,6 +1,6 @@
 import type { Project, SessionInfo, TriageItem } from './types'
 import type { Entry } from './sidebarEntries'
-import { isTerminalProcessing } from './engineSession'
+import { displayStatusKey, isTerminalProcessing } from './engineSession'
 
 /**
  * Triagem da lista: em que seção da lateral cada terminal mora. Tudo aqui é puro
@@ -99,10 +99,40 @@ export function splitSections(entries: Entry[], triage: Record<number, TriageIte
  */
 export function isWorking(projectId: number, sessions: Record<string, SessionInfo>): boolean {
   for (const s of Object.values(sessions)) {
-    if (s.projectId !== projectId) continue
-    if (s.status === 'working' || !!s.compactingSince || isTerminalProcessing(s)) return true
+    if (s.projectId === projectId && isSessionWorking(s)) return true
   }
   return false
+}
+
+/** A sessão está em atividade, pelo critério da faixa Trabalhando (ver `isWorking`). */
+export function isSessionWorking(s: SessionInfo): boolean {
+  return s.status === 'working' || !!s.compactingSince || isTerminalProcessing(s)
+}
+
+/** Uma linha da faixa Trabalhando: uma sessão em atividade. */
+export interface WorkingRow {
+  localId: string
+  projectId: number
+  engine: string
+  /** Chave de `status.*` (a mesma do cartão: `displayStatusKey`). */
+  statusKey: string
+}
+
+/**
+ * As linhas da faixa numa passagem só pelas sessões (nunca um `isWorking` por
+ * projeto, que seria projetos × sessões a cada evento). O assentado entra (não
+ * acorda por trabalhar); o adiado vigente não entra, porque o operador pediu
+ * silêncio. Ordenadas por projeto, motor e sessão: a mesma situação dá sempre a
+ * mesma lista, e quem compara por valor não vê mudança onde não há.
+ */
+export function workingRows(sessions: Record<string, SessionInfo>, triage: Record<number, TriageItem>, now: number): WorkingRow[] {
+  const rows: WorkingRow[] = []
+  for (const s of Object.values(sessions)) {
+    if (!isSessionWorking(s)) continue
+    if (triageStateOf(triage[s.projectId], now) === 'snoozed') continue
+    rows.push({ localId: s.localId, projectId: s.projectId, engine: s.engine, statusKey: displayStatusKey(s) })
+  }
+  return rows.sort((a, b) => a.projectId - b.projectId || a.engine.localeCompare(b.engine) || a.localId.localeCompare(b.localId))
 }
 
 /** Quando (epoch ms) vence o próximo adiamento ainda futuro; `null` = nenhum. */

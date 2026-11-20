@@ -128,7 +128,7 @@ export function isWaitingForYou(s: SessionInfo): boolean {
 /**
  * O TUI do terminal interativo está processando? Vem da heurística de atividade
  * (`terminalActivity`) enquanto `in_terminal`. Fonte única do rosto trabalhando
- * (`faceStateOf`) e da faixa Trabalhando (`isWorking`).
+ * (`faceStateOf`) e da faixa Trabalhando (`isSessionWorking`).
  */
 export function isTerminalProcessing(s: SessionInfo): boolean {
   return s.status === 'in_terminal' && s.terminalActivity === 'working'
@@ -138,6 +138,6 @@ export function isTerminalProcessing(s: SessionInfo): boolean {
 export function dotClassOf(s: SessionInfo): string {
   if (s.pendingQuestion) return 'status-dot status-needs_attention'
   if (s.status === 'in_terminal' && s.terminalActivity === 'waiting') return 'status-dot status-needs_attention'
-  if (s.status === 'in_terminal' && s.terminalActivity === 'working') return 'status-dot status-in_terminal status-dot--pulse'
+  if (isTerminalProcessing(s)) return 'status-dot status-in_terminal status-dot--pulse'
   return `status-dot status-${s.status}`
 }

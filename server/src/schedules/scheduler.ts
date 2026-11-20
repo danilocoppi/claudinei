@@ -3,6 +3,7 @@ import type { SessionInfo } from '../claude/manager.js'
 import type { Project } from '../projects.js'
 import type { Schedule, SchedulesStore } from './store.js'
 import { getEngine } from '../engine/index.js'
+import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
 
 /**
  * O que o agendador precisa do gerenciador de sessões — e só isso. A superfície
@@ -107,6 +108,13 @@ export function createScheduler(deps: SchedulerDeps) {
       })
     } catch (err) {
       const message = (err as Error).message
+      // O reinício derrubou o turno (sendAndWait recusa com este texto): erro, mas
+      // não falha seguida da tarefa, como no closeInterruptedRuns da subida.
+      if (message === RESTART_FAIL_TEXT) {
+        store.finishRun(run.id, { status: 'error', error: RESTART_FAIL_TEXT, countFailure: false })
+        notify('schedule_run', { scheduleId: s.id, projectId: s.projectId })
+        return
+      }
       const status = err instanceof OverlapError ? 'skipped'
         : /timed out/i.test(message) ? 'timeout'
           : 'error'

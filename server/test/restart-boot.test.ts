@@ -122,6 +122,19 @@ describe('planBoot', () => {
     const [a] = planBoot([interrupted({ autostart: false })], latest())
     expect(a).toMatchObject({ kind: 'hold', alsoIdle: false })
   })
+
+  // Marca nova sempre chega sem motivo: um motivo gravado é de uma subida anterior.
+  it('hold off de uma subida anterior segue off mesmo com retomar ligado depois', () => {
+    expect(planBoot([interrupted({ autoResume: true, holdReason: 'off' })], latest())).toEqual([
+      { kind: 'hold', projectId: 1, engine: 'claude', reason: 'off', alsoIdle: false, localId: 'loc-int' },
+    ])
+  })
+
+  it('hold failed de uma subida anterior segue failed, sem nova tentativa; alsoIdle segue o iniciar', () => {
+    expect(planBoot([interrupted({ autoResume: true, autostart: true, holdReason: 'failed' })], latest())).toEqual([
+      { kind: 'hold', projectId: 1, engine: 'claude', reason: 'failed', alsoIdle: true, localId: 'loc-int' },
+    ])
+  })
 })
 
 // ---------------------------------------------------------------- executor
@@ -295,9 +308,14 @@ describe('createRestartService.boot', () => {
     const { p, localId, svc } = await heldAndLive()
     const { tasks, id } = dispatchAfterBoot(p)
 
-    expect(svc.resumeTerminal(p.id, 'claude')).toBe(true)
+    // No meio do turno da tarefa, o Continuar recusa: a retomada cairia no turno dela.
+    expect(mgr.get(localId)?.status).toBe('working')
+    expect(() => svc.resumeTerminal(p.id, 'claude')).toThrow(expect.objectContaining({ code: 'session_busy' }))
     await waitUntil(() => tasks.get(id)?.status === 'completed')
     expect(tasks.get(id)?.result).toBe('eco: [Task from unknown]: tarefa nova')
+    // Turno da tarefa terminado: o Continuar agora retoma.
+    await waitUntil(() => mgr.get(localId)?.status !== 'working')
+    expect(svc.resumeTerminal(p.id, 'claude')).toBe(true)
     // O turno da mensagem de retomada também fecha; um ouvinte a mais fecharia de novo.
     await waitUntil(() => mgrBroadcasts.some((b) => b.type === 'session_event' && b.localId === localId &&
       b.event?.kind === 'result' && JSON.stringify(b.event).includes('eco: [Claudinei: resume')))
@@ -491,6 +509,89 @@ describe('createRestartService: mensagens e interruptores', () => {
     svc.dismiss(p.id, 'claude')
     expect(store.get(p.id, 'claude').interruptedAt).toBeNull()
     expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: expect.objectContaining({ projectId: p.id, interruption: null }) })
+  })
+
+  it('subida não retoma uma marca segurada numa subida anterior', async () => {
+    const p = newProject('P')
+    const localId = seedSession(p)
+    store.markInterrupted(p.id, 'claude', localId, null)
+    store.setHold(p.id, 'claude', 'off')
+    store.setPrefs(p.id, 'claude', { autoResume: true })
+    const { svc } = makeService()
+    await svc.boot()
+    expect(store.get(p.id, 'claude')).toMatchObject({ holdReason: 'off', interruptedLocalId: localId })
+    expect(activeOf(p)).toBeUndefined()
+    expect(resumeEchoes()).toHaveLength(0)
+  })
+
+  it('Continuar com a sessão no meio de um turno não manda nada e a marca fica', async () => {
+    const p = newProject('P')
+    const info = mgr.start(p, { engine: 'claude' })
+    await waitUntil(() => mgr.get(info.localId)?.status === 'idle')
+    mgr.send(info.localId, 'demorada')
+    await waitUntil(() => mgr.get(info.localId)?.status === 'working')
+    store.markInterrupted(p.id, 'claude', info.localId, null)
+    store.setHold(p.id, 'claude', 'off')
+    const sent = vi.spyOn(mgr, 'sendAsClaudinei')
+    const { svc } = makeService()
+
+    expect(() => svc.resumeTerminal(p.id, 'claude')).toThrow(expect.objectContaining({ code: 'session_busy' }))
+    expect(sent).not.toHaveBeenCalled()
+    expect(store.get(p.id, 'claude')).toMatchObject({ holdReason: 'off', interruptedLocalId: info.localId })
+  })
+
+  describe('durante o encerramento', () => {
+    /** Marca gravada pelo captureShutdown, com o serviço já encerrando. */
+    const marcadoEncerrando = () => {
+      const p = newProject('P')
+      const localId = seedSession(p)
+      store.markInterrupted(p.id, 'claude', localId, null)
+      store.bumpResume(p.id, 'claude')
+      mgr.beginShutdown()
+      return { p, localId }
+    }
+
+    it('mensagem do operador não apaga a marca', () => {
+      const { p, localId } = marcadoEncerrando()
+      const { svc } = makeService()
+      svc.onOperatorMessage(p.id, 'claude')
+      expect(store.get(p.id, 'claude')).toMatchObject({ interruptedLocalId: localId, resumeCount: 1 })
+      expect(stateBroadcasts).toEqual([])
+    })
+
+    it('fechar o aviso não apaga a marca', () => {
+      const { p, localId } = marcadoEncerrando()
+      const { svc } = makeService()
+      svc.dismiss(p.id, 'claude')
+      expect(store.get(p.id, 'claude')).toMatchObject({ interruptedLocalId: localId, resumeCount: 1 })
+      expect(stateBroadcasts).toEqual([])
+    })
+
+    it('Continuar não revive nem apaga a marca', () => {
+      const { p, localId } = marcadoEncerrando()
+      const { svc } = makeService()
+      expect(svc.resumeTerminal(p.id, 'claude')).toBe(false)
+      expect(activeOf(p)).toBeUndefined()
+      expect(store.get(p.id, 'claude')).toMatchObject({ interruptedLocalId: localId, resumeCount: 1 })
+      expect(svc.isShuttingDown()).toBe(true)
+    })
+
+    it('turno que termina no encerramento tira a marca: não há o que retomar', () => {
+      const { p } = marcadoEncerrando()
+      const { svc } = makeService()
+      svc.onTurnResult(p.id, 'claude')
+      expect(store.get(p.id, 'claude')).toMatchObject({ interruptedAt: null, resumeCount: 0 })
+      expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: expect.objectContaining({ projectId: p.id, interruption: null }) })
+    })
+  })
+
+  it('fora do encerramento, o fim de um turno não mexe na marca', () => {
+    const p = newProject('P')
+    store.markInterrupted(p.id, 'claude', 'x', null)
+    store.setHold(p.id, 'claude', 'off')
+    const { svc } = makeService()
+    svc.onTurnResult(p.id, 'claude')
+    expect(store.get(p.id, 'claude')).toMatchObject({ interruptedLocalId: 'x', holdReason: 'off' })
   })
 
   it('setPrefs grava, faz broadcast e devolve o DTO; list devolve DTOs', () => {

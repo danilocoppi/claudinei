@@ -208,6 +208,35 @@ describe('rotas do reinício', () => {
     expect(store.get(p1.id, 'claude').interruptedAt).not.toBeNull()
   })
 
+  it('continue e DELETE durante o encerramento dão 409 shutting_down e a marca fica', async () => {
+    const localId = seedSession(p1)
+    store.markInterrupted(p1.id, 'claude', localId, null)
+    manager.beginShutdown()
+
+    for (const res of [await cont(p1.id), await dismiss(p1.id)]) {
+      expect(res.statusCode).toBe(409)
+      expect(res.json().code).toBe('shutting_down')
+    }
+    expect(store.get(p1.id, 'claude').interruptedLocalId).toBe(localId)
+    expect(manager.get(localId)?.status ?? 'stopped').toBe('stopped')
+    expect(states()).toEqual([])
+  })
+
+  it('continue com a sessão no meio de um turno dá 409 session_busy e não manda nada', async () => {
+    const info = manager.start(p1, { engine: 'claude' })
+    await waitUntil(() => manager.get(info.localId)?.status === 'idle')
+    manager.send(info.localId, 'demorada')
+    await waitUntil(() => manager.get(info.localId)?.status === 'working')
+    store.markInterrupted(p1.id, 'claude', info.localId, null)
+    store.setHold(p1.id, 'claude', 'off')
+
+    const res = await cont(p1.id)
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('session_busy')
+    expect(resumeEchoes()).toHaveLength(0)
+    expect(store.get(p1.id, 'claude').holdReason).toBe('off')
+  })
+
   it('DELETE limpa e faz broadcast terminal_state', async () => {
     store.markInterrupted(p1.id, 'claude', seedSession(p1), null)
     store.setHold(p1.id, 'claude', 'question')

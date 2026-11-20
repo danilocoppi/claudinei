@@ -2,6 +2,7 @@ import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
 import { createProjectsService } from '../projects.js'
 import { createTasksService } from '../tasks.js'
+import { UserError } from '../user-error.js'
 import { toDto, type HoldReason, type TerminalStateDto, type TerminalStateRow, type TerminalStateStore } from './terminal-state.js'
 
 /** Marca da mensagem de retomada: a interface a reconhece e mostra como vinda do Claudinei. */
@@ -24,6 +25,11 @@ const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
  * pergunta aberta segura; retomar ligado retoma até o teto; retomar desligado
  * segura; sem interrupção, sobe parado se "iniciar" estiver ligado.
  *
+ * Marca nova (encerramento ou queda) sempre chega sem motivo de espera. Uma com
+ * motivo foi segurada numa subida anterior e esperava o operador: segue segurada
+ * com o mesmo motivo, mesmo que o retomar tenha sido ligado depois (e a `failed`
+ * não é tentada de novo sozinha).
+ *
  * Saída ordenada: primeiro as retomadas, depois as subidas paradas (idle e hold
  * com `alsoIdle`) na ordem de entrada e, por último, os holds que não sobem nada.
  */
@@ -43,7 +49,8 @@ export function planBoot(
     const localId = r.interruptedLocalId ?? latestLocalId(projectId, engine)
     // Pergunta gravada como lista vazia não é pergunta (markInterrupted guarda `[]`).
     let reason: HoldReason | null
-    if (r.lostQuestion && r.lostQuestion.length > 0) reason = 'question'
+    if (r.holdReason != null) reason = r.holdReason
+    else if (r.lostQuestion && r.lostQuestion.length > 0) reason = 'question'
     else if (!r.autoResume) reason = 'off'
     else if (r.resumeCount >= MAX_AUTO_RESUMES) reason = 'limit'
     else reason = localId ? null : 'failed'   // sem sessão nenhuma para retomar
@@ -115,6 +122,10 @@ export function createRestartService(deps: {
     if (orch) for (const id of ids) orch.failInterrupted(id)
   }
 
+  /** A sessão de pé do terminal, se houver. */
+  const liveOf = (projectId: number, engine: string) =>
+    manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))
+
   /**
    * Garante uma sessão de pé no terminal e devolve o local id dela. Já viva:
    * usa essa. Senão revive a preferida (se a linha ainda existe), a mais
@@ -122,7 +133,7 @@ export function createRestartService(deps: {
    * mais recente da pasta. Erro do revive/start sobe para quem chamou.
    */
   const bringUp = (projectId: number, engine: string, preferred: string | null): string => {
-    const live = manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))
+    const live = liveOf(projectId, engine)
     if (live) return live.localId
     const localId = preferred && existsSql.get(preferred) ? preferred : latestLocalId(projectId, engine)
     if (localId) return manager.revive(localId).localId
@@ -136,10 +147,22 @@ export function createRestartService(deps: {
    * aqui. A marca sai (atomicamente) antes do envio: dois pedidos juntos mandam
    * uma mensagem só, e o segundo recebe `false`. Revive antes de tirar a marca,
    * para que um revive que falha deixe o terminal interrompido.
+   *
+   * Com o serviço encerrando devolve `false` sem tocar em nada: a marca acabou de
+   * ser gravada para a próxima subida, e um revive agora subiria um processo que
+   * o `stopAll` não conhece. No Continuar, sessão no meio de um turno recusa com
+   * `session_busy`: a mensagem de retomada cairia num turno que não é o perdido.
    */
   function resumeTerminal(projectId: number, engine: string, opts?: { auto?: boolean }): boolean {
+    if (manager.isShuttingDown()) return false
     const current = store.get(projectId, engine)
     if (current.interruptedAt == null) return false
+    if (!opts?.auto) {
+      const live = liveOf(projectId, engine)
+      if (live && (live.status === 'working' || live.compactingSince !== undefined)) {
+        throw new UserError('session_busy', 'sessão está trabalhando; aguarde o turno terminar')
+      }
+    }
     const localId = bringUp(projectId, engine, current.interruptedLocalId)
     const taken = store.takeInterruption(projectId, engine)
     if (!taken) return false
@@ -228,18 +251,33 @@ export function createRestartService(deps: {
 
     resumeTerminal,
 
+    /**
+     * Serviço encerrando: entre o `captureShutdown` e o fim do `stopAll`, nada
+     * do que o operador faz pode apagar a marca recém-gravada. As rotas do
+     * Continuar e do × respondem `shutting_down`.
+     */
+    isShuttingDown: (): boolean => manager.isShuttingDown(),
+
     dismiss(projectId: number, engine: string): void {
+      if (manager.isShuttingDown()) return
       dropInterruption(projectId, engine)
       publish(projectId, engine)
     },
 
     onOperatorMessage(projectId: number, engine: string): void {
+      if (manager.isShuttingDown()) return
       store.resetResume(projectId, engine)
       if (dropInterruption(projectId, engine)) publish(projectId, engine)
     },
 
     onTurnResult(projectId: number, engine: string): void {
       store.resetResume(projectId, engine)
+      // Turno que terminou durante o encerramento não foi interrompido: a marca
+      // que o captureShutdown gravou retomaria um trabalho já concluído.
+      if (manager.isShuttingDown() && store.get(projectId, engine).interruptedAt != null) {
+        store.clearInterruption(projectId, engine)
+        publish(projectId, engine)
+      }
     },
 
     setPrefs(projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean }): TerminalStateDto {

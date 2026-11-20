@@ -3,7 +3,7 @@ import type { Db } from '../db.js'
 import { createProjectsService } from '../projects.js'
 import { canAccessProject, requireProjectAccess } from '../auth/guards.js'
 import { hasEngine } from '../engine/index.js'
-import { errorBody, fail } from '../user-error.js'
+import { errorBody, fail, UserError } from '../user-error.js'
 import type { RestartService } from '../restart/boot.js'
 
 /**
@@ -24,6 +24,16 @@ export function registerTerminalStateRoutes(app: FastifyInstance, deps: { db: Db
     if (!hasEngine(params.engine)) { reply.code(400).send({ error: 'unknown_engine' }); return undefined }
     if (!projects.get(id)) { reply.code(404).send(fail('project_not_found', 'projeto não existe')); return undefined }
     return { projectId: id, engine: params.engine }
+  }
+
+  /**
+   * Serviço encerrando: a marca que o encerramento acabou de gravar não pode sair
+   * agora. Devolve `true` se já respondeu o 409.
+   */
+  const refuseWhileShuttingDown = (reply: FastifyReply): boolean => {
+    if (!deps.restart.isShuttingDown()) return false
+    reply.code(409).send(fail('shutting_down', 'o Claudinei está reiniciando; tente de novo quando ele voltar'))
+    return true
   }
 
   app.get('/api/terminals/state', async (req) =>
@@ -48,11 +58,14 @@ export function registerTerminalStateRoutes(app: FastifyInstance, deps: { db: Db
   app.post('/api/projects/:id/terminals/:engine/continue', async (req, reply) => {
     const t = target(req, reply)
     if (!t) return
+    if (refuseWhileShuttingDown(reply)) return
     try {
       if (!deps.restart.resumeTerminal(t.projectId, t.engine)) {
         return reply.code(409).send(fail('nothing_to_continue', 'não há trabalho interrompido para continuar'))
       }
     } catch (err) {
+      // Sessão no meio de um turno: a marca fica, e o operador tenta quando o turno acabar.
+      if (err instanceof UserError && err.code === 'session_busy') return reply.code(409).send(errorBody(err))
       // O revive (ou o envio) falhou: a marca fica, e o erro vai à tela como no revive comum.
       return reply.code(400).send(errorBody(err))
     }
@@ -62,6 +75,7 @@ export function registerTerminalStateRoutes(app: FastifyInstance, deps: { db: Db
   app.delete('/api/projects/:id/terminals/:engine/interruption', async (req, reply) => {
     const t = target(req, reply)
     if (!t) return
+    if (refuseWhileShuttingDown(reply)) return
     deps.restart.dismiss(t.projectId, t.engine)
     return { ok: true }
   })

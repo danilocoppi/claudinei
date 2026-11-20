@@ -614,6 +614,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
    * Liga o limite: o assistant de erro de API ou o result com erro cujo texto
    * casa LIMIT_TEXT_RE; ou um result com erro e um horário pendente. O horário
    * é sempre o do evento: o "resets 3:40pm" do texto não é interpretado.
+   * Um result sem erro desliga: o turno acabou bem, não houve limite.
    */
   private detectUsageLimit(evt: ClaudeEvent): void {
     if (evt.kind === 'raw') {
@@ -634,6 +635,9 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       return
     }
     if (evt.kind === 'result') {
+      // Turno que terminou bem não bateu no limite: o assistant de erro de API
+      // que casou o texto antes (a CLI tentou de novo e conseguiu) não vale.
+      if (!evt.isError) this.usageLimitHit = undefined
       if (evt.isError && (this.pendingRejectedResetsAt !== undefined || LIMIT_TEXT_RE.test(evt.resultText))) this.hitUsageLimit()
       // O result fecha o turno: o horário pendente era dele.
       this.pendingRejectedResetsAt = undefined

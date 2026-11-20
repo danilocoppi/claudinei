@@ -359,8 +359,9 @@ describe('serviço do limite de uso', () => {
     const localId = seedSession(p)
     store.setPrefs(p.id, 'claude', { autoResume: true, autoResumeLimit: true })
     store.markInterrupted(p.id, 'claude', localId, null)
-    // Vencida no relógio real (o do reinício) e no falso (o do limite).
-    store.recordUsageLimit(p.id, 'claude', { resetsAt: segs(Date.now()) - 3600, origin: 'operator' })
+    // Vencida no relógio real (o do reinício) e no falso (o do limite): o menor
+    // dos dois, porque o real passa do T0 falso a partir de 2027-01-15.
+    store.recordUsageLimit(p.id, 'claude', { resetsAt: Math.min(segs(Date.now()), segs(T0)) - 3600, origin: 'operator' })
     store.setLimitAction(p.id, 'claude', 'armed')
 
     const svc = makeService()
@@ -479,6 +480,32 @@ describe('serviço do limite de uso', () => {
     expect(store.get(b.p.id, 'claude')).toMatchObject({ limitHitAt: null, limitAction: 'none' })
     expect(lastState(b.p.id).usageLimit).toBeNull()
     expect(pending()).toHaveLength(0)
+  })
+
+  it('mensagem do operador zera as tentativas, com ou sem limite ativo', async () => {
+    const svc = makeService()
+    // Com o limite ativo.
+    const a = limited(svc, { name: 'A' })
+    store.bumpLimitTries(a.p.id, 'claude')
+    svc.onOperatorMessage(a.p.id, 'claude')
+    expect(store.get(a.p.id, 'claude')).toMatchObject({ limitHitAt: null, limitTries: 0 })
+
+    // Depois de uma retomada automática: o limite já saiu, a tentativa ficou.
+    const b = limited(svc, { name: 'B', auto: true })
+    await fire()
+    await waitUntil(() => limitEchoes().length === 1)
+    expect(store.get(b.p.id, 'claude')).toMatchObject({ limitHitAt: null, limitTries: 1 })
+    svc.onOperatorMessage(b.p.id, 'claude')
+    expect(store.get(b.p.id, 'claude').limitTries).toBe(0)
+  })
+
+  it('relógio: falha do banco ao rearmar fica no log e a promessa não rejeita', async () => {
+    const svc = makeService()
+    limited(svc, { auto: true })
+    vi.spyOn(store, 'listArmed').mockImplementation(() => { throw new Error('SQLITE_BUSY') })
+    await expect(fire()).resolves.toBeUndefined()
+    expect(logs.some((m) => m.includes('SQLITE_BUSY') && m.includes('rearmar'))).toBe(true)
+    await expect(svc.boot()).resolves.toBeUndefined()
   })
 
   it('limite com marca do reinício: a marca é absorvida', () => {

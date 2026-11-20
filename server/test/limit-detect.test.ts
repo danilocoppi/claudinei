@@ -135,6 +135,26 @@ describe('detecção do limite na sessão do Claude', () => {
     expect(onUsageLimit.mock.calls[0][2].origin).toBe('schedule')
   })
 
+  it('só o assistant de erro de API casa o texto e o result falha com outro texto: liga o limite', async () => {
+    const localId = await startIdle()
+    const session = sessions[0]
+    mgr.send(localId, 'limite-so-assistant')
+    await waitUntil(() => onTurnResult.mock.calls.length === 1)
+    expect(onTurnResult).toHaveBeenLastCalledWith(project.id, 'claude', { isError: true })
+    expect(onUsageLimit).toHaveBeenCalledTimes(1)
+    expect(onUsageLimit.mock.calls[0][2]).toEqual({ localId, resetsAt: null, origin: 'operator' })
+    expect(session.usageLimit).toEqual({ resetsAt: null })
+  })
+
+  it('assistant casa o texto, mas o turno termina bem: sem limite e quem espera recebe a resposta', async () => {
+    lastRejected = 1_900_000_000 // nem o horário guardado pode ressuscitar o limite
+    await startIdle()
+    const session = sessions[0]
+    await expect(mgr.askAgent(project.id, 'Origem', 'limite-recuperado')).resolves.toBe('resposta final')
+    expect(onUsageLimit).not.toHaveBeenCalled()
+    expect(session.usageLimit).toBeUndefined()
+  })
+
   it('turno comum não liga o limite; o limite zera no send seguinte', async () => {
     const localId = await startIdle()
     const session = sessions[0]

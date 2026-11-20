@@ -38,6 +38,12 @@
 //                         is_error com o mesmo texto.
 //   contém "limite-sem-evento" -> o mesmo, sem o rate_limit_event (o horário fica
 //                         por conta do que o uso já sabia).
+//   contém "limite-so-assistant" -> sem rate_limit_event; só o assistant de erro de
+//                         API casa o texto do limite; o result vem is_error com
+//                         outro texto (genérico).
+//   contém "limite-recuperado" -> sem rate_limit_event; o assistant de erro de API
+//                         casa o texto do limite, mas o turno termina bem (result
+//                         is_error false, "resposta final").
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
@@ -329,6 +335,14 @@ rl.on('line', (line) => {
   }
   if (text.includes('limite')) {
     const LIMIT_TEXT = "You've hit your session limit · resets 3:40pm (America/Sao_Paulo)"
+    if (text.includes('limite-so-assistant') || text.includes('limite-recuperado')) {
+      const ok = text.includes('limite-recuperado')
+      out({ type: 'assistant', session_id: sid, isApiErrorMessage: true, error: 'rate_limit', apiErrorStatus: 429,
+        message: { role: 'assistant', content: [{ type: 'text', text: LIMIT_TEXT }] } })
+      out({ type: 'result', subtype: ok ? 'success' : 'error_during_execution', is_error: !ok,
+        result: ok ? 'resposta final' : 'API Error: falha genérica', session_id: sid, num_turns: 1, total_cost_usd: 0 })
+      return
+    }
     if (!text.includes('limite-sem-evento')) {
       out({ type: 'rate_limit_event', session_id: sid, rate_limit_info: {
         status: 'rejected', rateLimitType: 'five_hour', resetsAt: Math.floor(Date.now() / 1000) + 60, utilization: 1 } })

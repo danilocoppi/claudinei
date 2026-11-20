@@ -200,7 +200,9 @@ if (process.argv.includes('--hermes')) {
     onOperatorMessage: (projectId, engine) => both('mensagem do operador',
       () => restart?.onOperatorMessage(projectId, engine),
       () => limit?.onOperatorMessage(projectId, engine)),
-    onUsageLimit: (projectId, engine, p) => limit?.onUsageLimit(projectId, engine, p),
+    // Também pelo both: só para a falha sair no log (o manager engole o erro).
+    onUsageLimit: (projectId, engine, p) => both('limite de uso',
+      () => limit?.onUsageLimit(projectId, engine, p)),
     // Limite detectado só pelo texto, sem rate_limit_event: o horário vem do último 429 do uso.
     lastRejectedResetsAt: () => usage.lastRejectedResetsAt(),
     terminalLauncher: (opts) => terminalManager.open(opts.localId, {
@@ -268,7 +270,7 @@ if (process.argv.includes('--hermes')) {
   // os ouvintes de SIGINT/SIGTERM (que registram a interrupção) podem esperar.
   // O limite de uso sobe depois do reinício e antes do agendador (ver startAfterListen).
   void startAfterListen({ restart, limit, scheduler, isShuttingDown: () => manager.isShuttingDown() })
-    .catch((err) => console.error('[reinício] arranque depois do listen falhou', err))
+    .catch((err) => console.error('[reinício/limite] arranque depois do listen falhou', err))
   console.log(
     `Termaster server em ${https ? 'https' : 'http'}://${host}:${port}` +
     (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : '') +

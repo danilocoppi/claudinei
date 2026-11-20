@@ -21,16 +21,29 @@ export type BootAction =
 /** Status em que a sessão está de pé (o mesmo ACTIVE do manager). */
 const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 
+/** Quanto vale um limite sem reabertura conhecida: o tamanho da janela curta do Claude. */
+export const UNKNOWN_RESET_ACTIVE_MS = 5 * 3600_000
+
 /**
- * Limite de uso ainda ativo: gravado e sem reabertura conhecida, com a
- * reabertura (`limitResetsAt`, epoch SEGUNDOS) ainda no futuro, ou com a
- * retomada armada, mesmo já vencida: quem manda a mensagem é o serviço do
- * limite, e a marca do reinício é absorvida (nunca duas retomadas). Em `none`
- * ou `snoozed` com a reabertura passada, o reinício retoma como sempre.
+ * `limitHitAt` vem do `datetime('now')` do SQLite: 'YYYY-MM-DD HH:MM:SS', em
+ * UTC e sem fuso escrito. Devolve epoch ms, ou NaN se não der para ler.
+ */
+const sqliteUtcMs = (s: string): number => Date.parse(`${s.replace(' ', 'T')}Z`)
+
+/**
+ * Limite de uso ainda ativo: com a reabertura (`limitResetsAt`, epoch
+ * SEGUNDOS) ainda no futuro; sem reabertura conhecida, só até 5 h depois de
+ * gravado (sem o teto, ele seguraria a retomada do reinício para sempre; data
+ * ilegível não segura); ou com a retomada armada, mesmo já vencida: quem manda
+ * a mensagem é o serviço do limite, e a marca do reinício é absorvida (nunca
+ * duas retomadas). Em `none` ou `snoozed` com a reabertura passada, o reinício
+ * retoma como sempre.
  */
 export function limitActive(r: TerminalStateRow, now: number = Date.now()): boolean {
   if (r.limitHitAt == null) return false
-  return r.limitAction === 'armed' || r.limitResetsAt == null || r.limitResetsAt * 1000 > now
+  if (r.limitAction === 'armed') return true
+  if (r.limitResetsAt == null) return sqliteUtcMs(r.limitHitAt) + UNKNOWN_RESET_ACTIVE_MS > now
+  return r.limitResetsAt * 1000 > now
 }
 
 /**

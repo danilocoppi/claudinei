@@ -71,8 +71,9 @@ export function createUsageLimitService(deps: {
     const deadlines = clockRows().map((r) => deadlineOf(r)!)
     if (deadlines.length === 0) return
     const ms = Math.min(Math.max(0, Math.min(...deadlines) - now()), MAX_TIMER_MS)
-    // Devolve a promessa (o setTimeout a ignora; processDue nunca rejeita): os testes a esperam.
-    timer = setTimer(() => { timer = null; return processDue() }, ms)
+    // Devolve a promessa (o setTimeout a ignora): os testes a esperam. O catch
+    // garante que ela nunca rejeita, nem se o próprio log falhar.
+    timer = setTimer(() => { timer = null; return processDue().catch(() => {}) }, ms)
   }
 
   /** A sessão de pé do terminal, se houver. */
@@ -168,7 +169,13 @@ export function createUsageLimitService(deps: {
       log(`[limite] o relógio falhou: ${(err as Error)?.message ?? err}`)
     } finally {
       processing = false
-      rearm()
+      // O rearme lê o banco e pode falhar: daqui a falha viraria rejeição sem
+      // dono (o setTimeout não espera a promessa) e derrubaria o processo.
+      try {
+        rearm()
+      } catch (err) {
+        log(`[limite] o relógio não conseguiu rearmar: ${(err as Error)?.message ?? err}`)
+      }
     }
   }
 
@@ -241,7 +248,9 @@ export function createUsageLimitService(deps: {
       return resumeAfterLimit(projectId, engine, { auto: false })
     },
 
+    /** O operador falou: limpa o limite e zera as tentativas (a janela é dele agora). */
     onOperatorMessage(projectId: number, engine: string): void {
+      store.resetLimitTries(projectId, engine)
       dropLimit(projectId, engine)
     },
 

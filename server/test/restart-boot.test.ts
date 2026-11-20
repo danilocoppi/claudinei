@@ -169,6 +169,22 @@ describe('planBoot', () => {
     ])
   })
 
+  it('planBoot: reabertura desconhecida só conta como ativa até 5 h depois do limite', () => {
+    // limitHitAt vem do datetime('now') do SQLite: 'YYYY-MM-DD HH:MM:SS', em UTC. AGORA = 12:00 UTC.
+    const semHora = (hitAt: string) => ({ ...limitado(null), limitHitAt: hitAt })
+    // 4 h 59 min 59 s depois: ainda ativo, o reinício não retoma.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-20 07:00:01') })], latest(), AGORA)).toEqual([])
+    // Exatamente 5 h depois, e além: já não é ativo, o reinício retoma como sempre.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-20 07:00:00') })], latest(), AGORA)).toEqual([
+      { kind: 'resume', projectId: 1, engine: 'claude', localId: 'loc-int' },
+    ])
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-19 12:00:00') })], latest(), AGORA)[0].kind).toBe('resume')
+    // Armado segue ativo sempre (R8), mesmo sem hora e com o limite antigo.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-19 12:00:00'), limitAction: 'armed' })], latest(), AGORA)).toEqual([])
+    // Data que não se lê não segura o terminal para sempre.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('lixo') })], latest(), AGORA)[0].kind).toBe('resume')
+  })
+
   it('planBoot pula interrupção com retomada armada já vencida', () => {
     const passado = AGORA / 1000 - 3600
     const armado = { ...limitado(passado), limitAction: 'armed' as const }

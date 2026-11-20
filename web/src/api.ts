@@ -1,4 +1,4 @@
-import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState } from './types'
+import type { ClaudeEvent, EngineMeta, PermissionMode, Progress, Project, SessionInfo, TerminalState, TriageItem } from './types'
 import type { IconBody } from './icons'
 import type { AccessHours, AccessStatus } from '../../shared/access-hours'
 import { localizeServerError } from './serverErrors'
@@ -133,8 +133,11 @@ export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
 /** Grava a lista de motores do terminal. O servidor ordena e devolve o terminal atualizado; não avisa os outros clientes. */
 export const setProjectEngines = (id: number, engines: string[]) =>
   req<Project>(`/api/projects/${id}/engines`, { method: 'PATCH', body: JSON.stringify({ engines }) })
-export const setProjectFavorite = (id: number, favorite: boolean) =>
-  req<Project>(`/api/projects/${id}/favorite`, { method: 'PATCH', body: JSON.stringify({ favorite }) })
+/** Triagem da lista do usuário: só os projetos com algo aplicado (os demais estão no normal). */
+export const fetchTriage = () => req<TriageItem[]>('/api/triage')
+/** Fixa, assenta ou adia o projeto para o usuário; `snoozedUntil` é horário absoluto (ISO). */
+export const setTriage = (projectId: number, p: { pinned?: boolean; settled?: boolean; snoozedUntil?: string | null }) =>
+  req<TriageItem>(`/api/projects/${projectId}/triage`, { method: 'PATCH', body: JSON.stringify(p) })
 export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number; sectorId?: number | null }
 /** Setor: um nível acima do grupo, com a mesma anatomia (aceita grupos E terminais). */
 export type Sector = Group

@@ -54,7 +54,10 @@ export function isProjectActive(projectId: number, sessions: Record<string, Sess
  * A busca (`query`) olha o NOME: do terminal, ou do grupo/setor onde ele mora. Um
  * contêiner cujo nome bate traz todos os filhos — procurar "Veaxa" tem de achar os
  * terminais do grupo Veaxa mesmo que eles se chamem "Vaexa - Admin". Ativos e
- * favoritos continuam valendo dentro dele.
+ * fixados continuam valendo dentro dele.
+ *
+ * "Só fixados" (`favoritesOnly`) lê o pin do usuário por `isPinned`, não a ⭐
+ * global de `projects.favorite`, que a lateral deixou de usar.
  *
  * Não muta a entrada: a lista completa segue sendo a fonte do `applyOrder`.
  */
@@ -64,8 +67,9 @@ export function filterEntries(
   activeOnly = true,
   favoritesOnly = false,
   query = '',
+  isPinned: (id: number) => boolean = () => false,
 ): Entry[] {
-  const passes = (p: Project) => (!activeOnly || isProjectActive(p.id, sessions)) && (!favoritesOnly || !!p.favorite)
+  const passes = (p: Project) => (!activeOnly || isProjectActive(p.id, sessions)) && (!favoritesOnly || isPinned(p.id))
   const hasQuery = query.trim() !== ''
   const named = (name: string) => !hasQuery || matchesSearch(name, query)
   // Recursivo porque a árvore tem três níveis: um setor sobrevive se sobrar algo

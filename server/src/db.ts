@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { backfillProjectEngines } from './terminal-engines.js'
+import { migrateFavoritesToPins } from './triage/store.js'
 
 export type Db = Database.Database
 
@@ -122,8 +123,9 @@ function migrarPathNaoUnico(db: Db, dbPath: string): void {
   const cols = (db.prepare(`PRAGMA table_info(projects)`).all() as { name: string }[]).map((c) => `"${c.name}"`).join(', ')
 
   // FORA da transação: dentro, este PRAGMA é no-op silencioso — e sem ele o DROP
-  // abaixo dispararia o ON DELETE CASCADE das sete tabelas que apontam para
-  // projects, levando embora sessões, mural, tarefas, agendamentos e ações.
+  // abaixo dispararia o ON DELETE CASCADE das nove tabelas que apontam para
+  // projects, levando embora sessões, mural, tarefas, acessos, agendamentos,
+  // ações, threads, estado do terminal e triagem.
   db.pragma('foreign_keys = OFF')
   try {
     db.exec('BEGIN')
@@ -332,6 +334,16 @@ export function openDb(path: string): Db {
       backfillProjectEngines(db)
     })()
   }
+
+  // Triagem da lista, por usuário: fixado, assentado e adiado (ver triage/store.ts).
+  // Sem FK para users pelo mesmo motivo de user_prefs: a linha 0 é a instalação
+  // sem auth e não corresponde a usuário nenhum.
+  db.exec(`CREATE TABLE IF NOT EXISTS user_triage (
+    user_id INTEGER NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    pinned_at TEXT, settled_at TEXT, snoozed_until TEXT,
+    PRIMARY KEY (user_id, project_id))`)
+  // A ⭐ global vira pin de cada usuário com acesso, uma vez na vida da instalação.
+  migrateFavoritesToPins(db)
 
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).

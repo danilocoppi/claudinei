@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import type { SessionInfo } from '../types'
-import { isWaitingForYou } from '../engineSession'
+import { isTerminalProcessing, isWaitingForYou } from '../engineSession'
 
 /**
  * O rosto do agente, na anatomia do design "Rostos de Agente".
@@ -28,9 +28,7 @@ export function faceStateOf(session: SessionInfo | undefined): FaceState {
   // Compactar é trabalho, mas de outro gesto: o rosto se espreme em vez de balançar.
   if (session.compactingSince) return 'compacting'
   if (session.status === 'working') return 'working'
-  if (session.status === 'in_terminal') {
-    return session.terminalActivity === 'working' ? 'working' : 'terminal'
-  }
+  if (session.status === 'in_terminal') return isTerminalProcessing(session) ? 'working' : 'terminal'
   if (session.status === 'starting') return 'uploading'
   if (session.status === 'stopped' || session.status === 'dead') return 'sleeping'
   return 'idle'

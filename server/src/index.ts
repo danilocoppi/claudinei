@@ -179,6 +179,8 @@ if (process.argv.includes('--hermes')) {
   // Mesmo padrão para o serviço do reinício, que nasce no buildApp: os ganchos
   // do manager (fim de turno, mensagem do operador) leem a referência atual.
   let restart: import('./restart/boot.js').RestartService | undefined
+  // E para o despertador da triagem, que nasce com o store dela no buildApp.
+  let triageWaker: import('./triage/wake.js').TriageWaker | undefined
   const terminalState = createTerminalStateStore(db)
   // Queda brusca da vez anterior: quem ficou `working` no banco estava no meio
   // de um turno. Tem que ler ANTES do createSessionManager, que reescreve esses
@@ -197,6 +199,7 @@ if (process.argv.includes('--hermes')) {
     onRateLimit: (info) => usage.observe(info),
     onTurnResult: (projectId, engine) => restart?.onTurnResult(projectId, engine),
     onOperatorMessage: (projectId, engine) => restart?.onOperatorMessage(projectId, engine),
+    onNeedsOperator: (projectId, reason) => triageWaker?.wake(projectId, reason),
     terminalLauncher: (opts) => terminalManager.open(opts.localId, {
       cwd: opts.cwd,
       file: opts.file,
@@ -244,6 +247,7 @@ if (process.argv.includes('--hermes')) {
     onOrchestratorReady: (o) => { drain = o.drain },
     onSchedulerReady: (s) => { scheduler = s },
     onRestartReady: (r) => { restart = r },
+    onTriageWakerReady: (w) => { triageWaker = w },
     onRevokeAll: () => {
       wsHub.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token

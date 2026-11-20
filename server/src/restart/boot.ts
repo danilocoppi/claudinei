@@ -90,6 +90,11 @@ export function createRestartService(deps: {
   closeInterruptedRuns: () => number
   batchSize?: number; gapMs?: number; sleep?: (ms: number) => Promise<void>
   log?: (msg: string) => void
+  /**
+   * Um aviso de trabalho interrompido acabou de ficar retido esperando o
+   * operador (na subida ou na retomada que falha): liga ao despertador da triagem.
+   */
+  onHeld?: (projectId: number) => void
 }) {
   const { db, manager, store } = deps
   const batchSize = deps.batchSize ?? 3
@@ -111,6 +116,17 @@ export function createRestartService(deps: {
     const state = toDto(store.get(projectId, engine))
     deps.broadcast({ type: 'terminal_state', state })
     return state
+  }
+
+  /**
+   * Um aviso acabou de ficar retido esperando o operador: acorda o terminal.
+   * Só onde o aviso NASCE retido (a subida, a retomada que falha); republicar
+   * um aviso que já existia (os interruptores do ⚙) não acorda de novo, senão
+   * desfaria o assentar que alguém fez depois. O despertador grava no banco, e
+   * uma falha dele não pode parar a subida.
+   */
+  const held = (projectId: number): void => {
+    try { deps.onHeld?.(projectId) } catch (err) { log(`[reinício] despertar ${projectId} falhou: ${(err as Error)?.message ?? err}`) }
   }
 
   /**
@@ -184,6 +200,7 @@ export function createRestartService(deps: {
       store.markInterrupted(projectId, engine, taken.interruptedLocalId ?? localId, taken.lostQuestion)
       store.setHold(projectId, engine, 'failed')
       publish(projectId, engine)
+      held(projectId)
       throw err
     }
     // Só as tarefas do turno interrompido (anotadas na subida). As de um terminal
@@ -217,9 +234,13 @@ export function createRestartService(deps: {
       }
     } catch (err) {
       log(`[reinício] terminal ${a.projectId}/${a.engine} não subiu: ${(err as Error)?.message ?? err}`)
+      // Um aviso que já estava retido (de uma subida anterior, ou deste mesmo
+      // boot) só troca de motivo: não nasce agora, então não acorda de novo.
+      const wasHeld = store.get(a.projectId, a.engine).holdReason != null
       store.setHold(a.projectId, a.engine, 'failed')
       failTasksOf(a.projectId, a.engine)
       publish(a.projectId, a.engine)
+      if (!wasHeld) held(a.projectId)
     }
   }
 
@@ -235,8 +256,13 @@ export function createRestartService(deps: {
       const actions = planBoot(store.list(), latestLocalId, (p, e) => enginesOf(db, p).includes(e))
       for (const a of actions) {
         if (a.kind !== 'hold') continue
+        // Marca que já tinha motivo foi retida (e acordou) numa subida anterior e
+        // segue esperando o operador: acordar de novo a cada reinício desfaria o
+        // assentar ou o adiar que ele fez depois.
+        const wasHeld = store.get(a.projectId, a.engine).holdReason != null
         store.setHold(a.projectId, a.engine, a.reason)
         publish(a.projectId, a.engine)
+        if (!wasHeld) held(a.projectId)
       }
       const resuming = new Set(actions.filter((a) => a.kind === 'resume').map((a) => keyOf(a.projectId, a.engine)))
       const orch = deps.orchestrator()

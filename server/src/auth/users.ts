@@ -123,10 +123,11 @@ export function createUsersService(db: Db, now: () => number = Date.now) {
       const row = getRaw(id)
       if (!row) throw new Error('user_not_found')
       assertNotLastAdmin(id)
-      // user_prefs não tem FK (a linha 0 é a instalação sem auth), então a limpeza
-      // é explícita — senão a aparência de um usuário apagado ressuscitaria no
-      // próximo que recebesse o mesmo id.
+      // user_prefs e user_triage não têm FK (a linha 0 é a instalação sem auth),
+      // então a limpeza é explícita — senão a aparência e a triagem de um usuário
+      // apagado ressuscitariam no próximo que recebesse o mesmo id.
       db.prepare('DELETE FROM user_prefs WHERE user_id=?').run(id)
+      db.prepare('DELETE FROM user_triage WHERE user_id=?').run(id)
       db.prepare('DELETE FROM users WHERE id=?').run(id)
     },
 

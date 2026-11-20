@@ -17,6 +17,8 @@ import { UserError, errorBody, fail } from '../user-error.js'
 import { getEngine, hasEngine } from '../engine/index.js'
 import { binAvailableCached } from '../engine/available.js'
 import { defaultEngines, validateEnginesInput } from '../terminal-engines.js'
+import type { TriageStore } from '../triage/store.js'
+import { SERVICE_TRIAGE_ERROR, triageMessage, triageUserId } from './triage.js'
 
 /** Teto do nome de um terminal temporário: o cliente manda um rótulo curto com data. */
 const SCRATCH_NAME_MAX = 120
@@ -30,6 +32,9 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
   terminalManager?: Pick<TerminalManager, 'closeAndWait'>
   /** Base das pastas de terminais temporários. Ausente = a rota não existe. */
   scratchDir?: string
+  /** A ⭐ fixa para o usuário que clicou. */
+  triage: TriageStore
+  broadcast?: (msg: object) => void
 }) {
   const svc = createProjectsService(deps.db)
 
@@ -178,14 +183,26 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
     }
   })
 
+  /**
+   * Rota antiga da ⭐: hoje fixa ou desafixa PARA QUEM CLICOU (triagem). Devolve
+   * o Project de sempre, com `favorite` = o pin de quem pediu, para o cliente
+   * antigo seguir funcionando; a coluna global `projects.favorite` não é mais
+   * escrita.
+   */
   app.patch('/api/projects/:id/favorite', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     if (!Number.isSafeInteger(id) || id <= 0) return reply.code(400).send({ error: 'id inválido' })
+    const userId = triageUserId(req)
+    if (userId === null) return reply.code(403).send({ error: SERVICE_TRIAGE_ERROR })
     if (!requireProjectAccess(req, reply, id)) return
     const favorite = (req.body as { favorite?: unknown } | undefined)?.favorite
     if (typeof favorite !== 'boolean') return reply.code(400).send({ error: 'favorite deve ser booleano' })
-    const project = svc.setFavorite(id, favorite)
-    return project ?? reply.code(404).send(fail('project_not_found', 'projeto não existe'))
+    const project = svc.get(id)
+    if (!project) return reply.code(404).send(fail('project_not_found', 'projeto não existe'))
+    const item = deps.triage.update(userId, id, { pinned: favorite })
+    // Os outros aparelhos do mesmo usuário ficam sabendo, como no PATCH da triagem.
+    deps.broadcast?.(triageMessage(userId, item))
+    return { ...project, favorite: item.pinned }
   })
 
   /** Avisos do plugin "You should know" do Claude neste terminal: grava e anexa/solta na hora. */

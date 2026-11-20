@@ -15,12 +15,14 @@ import { OrphanActions } from './components/OrphanActions'
 import { FileOpenMenu } from './components/FileOpenMenu'
 import { ExternalLinkConfirm } from './components/ExternalLinkConfirm'
 import { MobileTopbar } from './components/MobileTopbar'
+import { UndoToast } from './components/UndoToast'
 import { initNotifications } from './notifications'
 import { installIndicatorMotion } from './indicatorMotion'
 import { useAccessHours } from './useAccessHours'
 import { useEngineCatalog } from './useEngineCatalog'
 import { useTerminalStatesSync } from './useTerminalStatesSync'
 import { useUsageShortcut } from './useUsageShortcut'
+import { useTriageSync } from './useTriageSync'
 import { AccessLocked } from './components/AccessLocked'
 import './access-hours.css'
 
@@ -66,6 +68,7 @@ export default function App() {
   // Mesma regra da lateral para o cartão Uso: sem `me` (sem login) vale como administrador.
   const isAdmin = useStore((s) => !s.me || s.me.isAdmin !== false)
   useUsageShortcut(authStatus === 'ready' && isAdmin)
+  useTriageSync()
 
   useEffect(() => installIndicatorMotion(), [])
 
@@ -192,6 +195,7 @@ export default function App() {
         <FileViewerGate />
         <FileOpenMenu />
         <ExternalLinkConfirm />
+        <UndoToast />
       </div>
     </WsContext.Provider>
   )

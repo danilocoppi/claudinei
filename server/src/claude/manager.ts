@@ -102,6 +102,13 @@ interface Deps {
    * O que o próprio Claudinei manda (sendAsClaudinei, tarefas, agendamentos) não conta.
    */
   onOperatorMessage?: (projectId: number, engine: EngineId) => void
+  /**
+   * O terminal precisa do operador: abriu uma pergunta, o turno falhou ou a
+   * sessão morreu. Liga ao despertador da triagem (assentado e adiado voltam).
+   * Turno que só terminou, `working`, a interrupção pedida pelo operador e a
+   * morte no encerramento NÃO chamam.
+   */
+  onNeedsOperator?: (projectId: number, reason: 'question' | 'failed' | 'dead') => void
 }
 
 const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_attention'])
@@ -207,6 +214,15 @@ export function createSessionManager(deps: Deps) {
    */
   let shuttingDown = false
   const isShuttingDown = () => shuttingDown
+
+  /** Havia pergunta aberta no último status de cada sessão: só a borda ausente→presente acorda. */
+  const hadQuestion = new Map<string, boolean>()
+  /**
+   * Sessões com uma interrupção do operador em curso. O Claude fecha o turno
+   * interrompido com um result de erro (`error_during_execution`), que não é
+   * falha: foi o operador que parou. O Codex já marca `interrupted`.
+   */
+  const interrupting = new Set<string>()
 
   /**
    * O id de conversa a retomar, DEPOIS de conferir que ele ainda existe.
@@ -338,10 +354,22 @@ export function createSessionManager(deps: Deps) {
         ? (session.lastStderr || 'O processo do agente encerrou inesperadamente.')
         : undefined
       deps.broadcast(statusMsg({ status, detail }))
+      // O despertador da triagem. Grava no banco e roda dentro do handler da
+      // engine, então nunca pode lançar daqui (mesmo cuidado do onTurnResult).
+      const hasQuestion = session.pendingQuestion !== undefined
+      if (hasQuestion && !hadQuestion.get(localId)) {
+        try { deps.onNeedsOperator?.(projectId, 'question') } catch {}
+      }
+      hadQuestion.set(localId, hasQuestion)
+      // No encerramento, a sessão que morre foi derrubada pelo próprio Claudinei.
+      if (status === 'dead' && !shuttingDown) {
+        try { deps.onNeedsOperator?.(projectId, 'dead') } catch {}
+      }
       if (status === 'dead' || status === 'stopped') {
         // O processo saiu: o aviso que estava na tela some com ele.
         if (live.get(localId)?.headsUp) deps.broadcast({ type: 'heads_up', localId, projectId, tree: null })
         live.delete(localId)
+        hadQuestion.delete(localId)
       }
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => deps.onSessionAvailable?.(projectId))
@@ -380,6 +408,11 @@ export function createSessionManager(deps: Deps) {
       }
       // Mesmo cuidado: o gancho grava no banco e roda dentro do stdout da engine.
       if (event.kind === 'result') { try { deps.onTurnResult?.(projectId, engine) } catch {} }
+      // Turno que falhou acorda o terminal assentado ou adiado; o interrompido
+      // pelo operador, não.
+      if (event.kind === 'result' && event.isError && event.subtype !== 'interrupted' && !interrupting.has(localId)) {
+        try { deps.onNeedsOperator?.(projectId, 'failed') } catch {}
+      }
       if (engine === 'claude' && event.kind === 'raw') {
         const raw = event.raw as { type?: unknown; rate_limit_info?: unknown } | null
         // Mesmo cuidado da métrica acima: nada aqui pode derrubar o stdout.
@@ -626,7 +659,15 @@ export function createSessionManager(deps: Deps) {
     async interrupt(localId: string): Promise<void> {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
-      await entry.session.interrupt()
+      // O result do turno interrompido chega antes de o interrupt() resolver ou,
+      // se a sessão já fechou o turno, é descartado por ela como póstumo. Nos
+      // dois casos a marca pode sair no fim.
+      interrupting.add(localId)
+      try {
+        await entry.session.interrupt()
+      } finally {
+        interrupting.delete(localId)
+      }
     },
 
     async stop(localId: string): Promise<void> {

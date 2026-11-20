@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
 import { Sidebar } from '../components/Sidebar'
 import { useStore } from '../store'
 import type { EngineMeta, SessionInfo } from '../types'
@@ -146,7 +146,9 @@ describe('Sidebar Terminais', () => {
       },
     })
     render(<Sidebar />)
-    expect(screen.getByText('trabalhando')).toBeTruthy() // card mostra a viva
+    // card mostra a viva (a faixa Trabalhando também diz "trabalhando", por isso o escopo)
+    const card = screen.getAllByTestId('term-card').find((c) => c.querySelector('.term-card__name')?.textContent === 'Alpha')!
+    expect(within(card).getByText('trabalhando')).toBeTruthy()
     expect(screen.queryByTitle('Reviver')).toBeNull() // não oferece Reviver
   })
 

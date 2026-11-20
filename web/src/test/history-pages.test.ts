@@ -255,6 +255,33 @@ describe('setHistoryTail / prependHistory', () => {
       expect(keys(st().chat.s).slice(3)).toEqual(['p140', 'p150', 'p160', 'p170'])
     })
 
+    it('eco da fila, continue do goal e aviso de resultado ao vivo aparecem uma vez só depois da releitura do fim do turno', () => {
+      const item = 'item da fila do operador'
+      const resultado = '[Claudinei: task result]: Task #7 sent to Beta completed.\nresultado de Beta'
+      const cont = '[Claudinei: goal]: Continue toward the goal: testes verdes. Turn 2/20. When it is fully met, call goal_done with the evidence.'
+      st().setHistoryTail('s', tail1, 'c')
+      // Ao vivo: a fila e o Claudinei ecoam (session_event user), cada um seguido da resposta.
+      ao(pedido(item))
+      ao(texto('feito o item'))
+      ao(pedido(resultado))
+      ao(texto('li o resultado'))
+      ao(pedido(cont))
+      ao(texto('seguindo'))
+      const vivos = st().chat.s.slice(3)
+      expect(vivos.map((it) => it.kind)).toEqual(['user_text', 'assistant_text', 'claudinei_message', 'assistant_text', 'claudinei_message', 'assistant_text'])
+      expect(vivos.every((it) => /^l\d+$/.test(it.key!))).toBe(true)
+      // O fim do turno relê a cauda, agora com tudo gravado.
+      st().setHistoryTail('s', page([
+        texto('a-130', 130), pedido(item, 140), texto('feito o item', 150),
+        pedido(resultado, 160), texto('li o resultado', 170), pedido(cont, 180), texto('seguindo', 190),
+      ], 130), 'c')
+      const depois = st().chat.s.slice(3)
+      expect(depois.map((it) => it.kind)).toEqual(['user_text', 'assistant_text', 'claudinei_message', 'assistant_text', 'claudinei_message', 'assistant_text'])
+      expect(keys(depois)).toEqual(['p140', 'p150', 'p160', 'p170', 'p180', 'p190'])
+      expect(depois.filter((it) => it.kind === 'claudinei_message').map((it) => (it as { reason: string }).reason)).toEqual(['task_result', 'goal'])
+      expect(textos().filter((t) => t === item)).toHaveLength(1)
+    })
+
     it('reconexão no meio do turno: a resposta que chegou depois da leitura não some', () => {
       st().setHistoryTail('s', tail1, 'c')
       st().addLocalUserText('s', 'p-140')

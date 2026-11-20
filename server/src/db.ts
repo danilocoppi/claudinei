@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { backfillProjectEngines } from './terminal-engines.js'
 
 export type Db = Database.Database
 
@@ -316,6 +317,21 @@ export function openDb(path: string): Db {
   // que sobra dela depois de uma queda brusca, quando não há encerramento para
   // registrar nada.
   try { db.exec(`ALTER TABLE sessions ADD COLUMN pending_question TEXT`) } catch { /* já existe */ }
+
+  // Motores de cada terminal (terminal-engines.ts). Depois de project_threads,
+  // que o preenchimento lê, e antes de migrarPathNaoUnico, que recria projects.
+  // O preenchimento roda só quando a coluna acaba de nascer, para não desfazer
+  // a lista que o operador editou. Coluna e preenchimento numa transação só (o
+  // DDL do SQLite é transacional): se o preenchimento falhar, a coluna some
+  // junto e a próxima abertura migra de novo, em vez de deixar a coluna nula e
+  // todo terminal lido como Claude. O erro sobe, para que a falha apareça.
+  const projectCols = db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]
+  if (!projectCols.some((c) => c.name === 'engines')) {
+    db.transaction(() => {
+      db.exec('ALTER TABLE projects ADD COLUMN engines TEXT')
+      backfillProjectEngines(db)
+    })()
+  }
 
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).

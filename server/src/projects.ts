@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs'
 import type { Db } from './db.js'
 import { UserError } from './user-error.js'
+import { parseEngines, sortEngines } from './terminal-engines.js'
 
 export interface Project {
   id: number
@@ -17,6 +18,8 @@ export interface Project {
   sectorId: number | null
   /** Posição no espaço unificado da sidebar (compartilhado com project_groups.sort_order). */
   sortOrder: number
+  /** Motores do terminal, em ordem canônica (terminal-engines.ts). */
+  engines: string[]
 }
 
 export type ProjectsService = ReturnType<typeof createProjectsService>
@@ -24,6 +27,7 @@ export type ProjectsService = ReturnType<typeof createProjectsService>
 export function createProjectsService(db: Db) {
   const rowToProject = (r: any): Project => ({
     id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, favorite: !!r.favorite, headsUp: r.heads_up === undefined ? true : !!r.heads_up, groupId: r.group_id ?? null, sectorId: r.sector_id ?? null, sortOrder: r.sort_order ?? 0,
+    engines: parseEngines(r.engines) ?? ['claude'],
   })
 
   return {
@@ -34,14 +38,14 @@ export function createProjectsService(db: Db) {
       const r = db.prepare(`SELECT * FROM projects WHERE id = ?`).get(id)
       return r ? rowToProject(r) : undefined
     },
-    create(input: { name: string; path: string; color?: string; icon?: string }): Project {
+    create(input: { name: string; path: string; color?: string; icon?: string; engines?: string[] }): Project {
       if (!existsSync(input.path) || !statSync(input.path).isDirectory()) {
         throw new UserError('directory_missing', `diretório não existe: ${input.path}`, { path: input.path })
       }
       const nextOrder = (db.prepare(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM projects`).get() as any).n
       const info = db
-        .prepare(`INSERT INTO projects (name, path, color, icon, sort_order) VALUES (?, ?, ?, ?, ?)`)
-        .run(input.name, input.path, input.color ?? '#7c5cff', input.icon ?? '📁', nextOrder)
+        .prepare(`INSERT INTO projects (name, path, color, icon, sort_order, engines) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(input.name, input.path, input.color ?? '#7c5cff', input.icon ?? '📁', nextOrder, JSON.stringify(sortEngines(input.engines ?? ['claude'])))
       return this.get(Number(info.lastInsertRowid))!
     },
     update(id: number, patch: Partial<Pick<Project, 'name' | 'path' | 'color' | 'icon'>>): Project {
@@ -54,6 +58,11 @@ export function createProjectsService(db: Db) {
     },
     setHeadsUp(id: number, headsUp: boolean): Project | undefined {
       const updated = db.prepare('UPDATE projects SET heads_up = ? WHERE id = ?').run(headsUp ? 1 : 0, id)
+      return updated.changes ? this.get(id) : undefined
+    },
+
+    setEngines(id: number, engines: string[]): Project | undefined {
+      const updated = db.prepare('UPDATE projects SET engines = ? WHERE id = ?').run(JSON.stringify(sortEngines(engines)), id)
       return updated.changes ? this.get(id) : undefined
     },
 

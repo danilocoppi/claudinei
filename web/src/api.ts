@@ -77,7 +77,7 @@ export const searchIcons = (q: string) =>
 export const fetchSlashCommands = () => req<string[]>('/api/slash-commands')
 export const fetchEngines = () => req<EngineMeta[]>('/api/engines')
 /** `newFolder`: `path` é a pasta-base e o terminal nasce numa pasta nova dentro dela. */
-export const createProject = (input: { name: string; path: string; color?: string; icon?: string; newFolder?: string }) =>
+export const createProject = (input: { name: string; path: string; color?: string; icon?: string; newFolder?: string; engines?: string[] }) =>
   req<Project>('/api/projects', { method: 'POST', body: JSON.stringify(input) })
 /** Pasta padrão dos terminais novos (só admin). `effective`: a guardada, ou a home. */
 export interface DefaultFolder { path: string | null; effective: string; missing: boolean }
@@ -86,7 +86,7 @@ export const fetchDefaultFolder = () => req<DefaultFolder>('/api/settings/defaul
 export const saveDefaultFolder = (path: string) =>
   req<DefaultFolder>('/api/settings/default-folder', { method: 'PUT', body: JSON.stringify({ path }) })
 /** Terminal temporário: o servidor escolhe a pasta (nova, em ~/.claudinei/scratch). */
-export const createScratchProject = (input: { name?: string; color?: string; icon?: string } = {}) =>
+export const createScratchProject = (input: { name?: string; color?: string; icon?: string; engines?: string[] } = {}) =>
   req<Project>('/api/projects/scratch', { method: 'POST', body: JSON.stringify(input) })
 export type { PermissionMode }
 export const startSession = (
@@ -130,6 +130,9 @@ export const dismissInterruption = (projectId: number, engine: string) =>
   req<{ ok: true }>(`/api/projects/${projectId}/terminals/${encodeURIComponent(engine)}/interruption`, { method: 'DELETE' })
 export const setProjectHeadsUp = (id: number, headsUp: boolean) =>
   req<Project>(`/api/projects/${id}/heads-up`, { method: 'PATCH', body: JSON.stringify({ headsUp }) })
+/** Grava a lista de motores do terminal. O servidor ordena e devolve o terminal atualizado; não avisa os outros clientes. */
+export const setProjectEngines = (id: number, engines: string[]) =>
+  req<Project>(`/api/projects/${id}/engines`, { method: 'PATCH', body: JSON.stringify({ engines }) })
 export const setProjectFavorite = (id: number, favorite: boolean) =>
   req<Project>(`/api/projects/${id}/favorite`, { method: 'PATCH', body: JSON.stringify({ favorite }) })
 export interface Group { id: number; name: string; icon?: string; color?: string; sortOrder?: number; sectorId?: number | null }

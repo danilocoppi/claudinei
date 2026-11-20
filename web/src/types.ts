@@ -5,7 +5,11 @@ export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' 
 
 export type PermissionMode = 'default' | 'auto' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
-export interface Project { id: number; name: string; path: string; color: string; icon: string; favorite?: boolean; headsUp?: boolean; groupId?: number | null; sectorId?: number | null; sortOrder?: number }
+export interface Project {
+  id: number; name: string; path: string; color: string; icon: string; favorite?: boolean; headsUp?: boolean; groupId?: number | null; sectorId?: number | null; sortOrder?: number
+  /** Motores do terminal (ids, em ordem canônica); só eles ganham aba. Ver terminalEngines.ts. */
+  engines?: string[]
+}
 
 export interface SessionInfo {
   localId: string

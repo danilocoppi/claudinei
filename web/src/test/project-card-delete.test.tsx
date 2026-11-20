@@ -100,10 +100,19 @@ describe('ProjectCard - Reviver pergunta a engine', () => {
   }
 
   it('clicar em Reviver abre o seletor de engine em vez de reviver direto', () => {
-    render(<ProjectCard project={project} session={stoppedSession} unread={0} />)
+    const doisMotores: Project = { ...project, engines: ['claude', 'codex'] }
+    render(<ProjectCard project={doisMotores} session={stoppedSession} unread={0} />)
     fireEvent.click(screen.getByText('Reviver'))
     expect(screen.getByText('Claude Code')).toBeTruthy()
     expect(screen.getByText('Codex')).toBeTruthy()
+  })
+
+  it('o seletor do Reviver oferece só os motores da lista do terminal', () => {
+    const soClaude: Project = { ...project, engines: ['claude'] }
+    render(<ProjectCard project={soClaude} session={stoppedSession} unread={0} />)
+    fireEvent.click(screen.getByText('Reviver'))
+    expect(screen.getByText('Claude Code')).toBeTruthy()
+    expect(screen.queryByText('Codex')).toBeNull()
   })
 
   it('escolher a engine no seletor chama /revive daquela sessão e abre a sessão', async () => {

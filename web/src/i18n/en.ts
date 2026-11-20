@@ -182,6 +182,7 @@ export const en = {
     placementNewSector: '＋ New sector…', placementNewGroup: '＋ New group…', placementGroupSector: 'Inside sector',
     placementFailed: 'The terminal was created, but it could not be placed where you chose: {{msg}}. Try again or close — it stays loose in the sidebar.', retry: 'Try again',
   },
+  project: { engines: 'Engines', enginesHint: 'Only the checked ones get a tab and show up in this terminal\'s pickers.', enginesRequired: 'Check at least one engine.' },
   folder: { title: 'Choose folder', empty: 'No subfolders.', select: 'Select this folder', up: 'Up' },
   session: {
     title: 'New session',
@@ -259,6 +260,8 @@ export const en = {
     startEngine: 'Start {{engine}}',
     engineNotInstalled: 'not installed',
     engineNotInstalledHint: 'CLI not found on the server PATH. Install it',
+    addEngine: 'Add engine',
+    addEngineHint: 'The engine gets a tab in this terminal. To remove it, or to include one that is not installed, edit the terminal.',
   },
   question: {
     titleOne: 'The agent has a question for you',
@@ -469,6 +472,7 @@ export const en = {
     invalid_group_name: 'Invalid group name (1 to 60 characters).',
     invalid_sector_name: 'Invalid sector name (1 to 60 characters).',
     project_not_found: 'This terminal no longer exists.',
+    engines_required: 'Choose at least one known engine.',
     nothing_to_continue: 'There is no interrupted work to continue.',
     shutting_down: 'Claudinei is restarting; try again once it is back.',
     group_not_found: 'This group no longer exists.',

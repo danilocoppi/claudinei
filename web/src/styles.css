@@ -536,6 +536,15 @@ button.engine-tab__stop {
 }
 button.engine-tab__stop:hover { background: var(--surface-strong); color: var(--err); opacity: 1; filter: none; }
 
+/* "+" no fim das abas: acrescenta ao terminal um motor escondido. Tracejado para
+   não parecer mais uma aba; sem transição (a interface roda sem GPU). */
+button.engine-tabs__add {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 30px; padding: 0; border: 1px dashed var(--border); border-radius: var(--radius-md);
+  background: transparent; color: var(--text-dim); line-height: 0; cursor: pointer; transition: none;
+}
+button.engine-tabs__add:hover { background: var(--surface-strong); color: var(--text); filter: none; }
+
 /* Linha de opção (título + descrição + toggle) */
 .option-row {
   display: flex; align-items: center; gap: 14px;
@@ -3051,6 +3060,11 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .placement__row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-dim); }
 .placement__row > span { flex: none; min-width: 92px; }
 .placement__row select { flex: 1; min-width: 0; }
+
+/* Motores do terminal no formulário: uma caixa por motor, o selo "não instalada" ao lado. */
+.project-engines { display: flex; flex-direction: column; gap: 6px; }
+.project-engines__title { font-size: 13px; color: var(--text-dim); }
+.project-engines__hint { font-size: 12px; color: var(--text-dim); opacity: .8; }
 
 /* Avisos do plugin "You should know" do Claude, acima do campo (HeadsUpBand).
    Destacados com o âmbar do aviso; vários empilham, o mais novo embaixo, perto

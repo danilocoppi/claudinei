@@ -11,6 +11,7 @@ import { NewProjectModal } from './NewProjectModal'
 import { StartSessionModal } from './StartSessionModal'
 import { EngineIcon } from './EngineIcon'
 import { EnginePickerMenu } from './EnginePickerMenu'
+import { listedOf, pickableEngines } from '../terminalEngines'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { UsageCard } from './UsageCard'
 import { InteractionInfo } from './InteractionInfo'
@@ -189,10 +190,11 @@ export function Sidebar() {
     setScratchDraft({ name: t('sidebar.scratchName', { when }), icon: '🧪', color: '#7c5cff' })
   }
 
-  const createScratch = async (name: string): Promise<Project> => {
+  // O terminal temporário nasce com o motor escolhido no modal como a sua lista.
+  const createScratch = async (name: string, engineId: string): Promise<Project> => {
     let created: Project
     try {
-      created = await createScratchProject({ name })
+      created = await createScratchProject({ name, engines: [engineId] })
     } catch (err) {
       throw new Error(t('sidebar.scratchError', { message: (err as Error).message }))
     }
@@ -209,7 +211,8 @@ export function Sidebar() {
 
   // A sessão "cara do projeto" no card: prioridade de status (needs_attention >
   // working > starting > in_terminal > idle > paradas); empate → mais recente.
-  const sessionOf = (projectId: number): SessionInfo | undefined => primarySessionOf(projectId, sessions)
+  // Sem sessão viva, vale a parada mais recente de um motor da lista do terminal.
+  const sessionOf = (p: Project): SessionInfo | undefined => primarySessionOf(p.id, sessions, listedOf(p))
 
   // Árvore na ordem visual (setores, grupos e soltos pelo sortOrder unificado).
   const entries: Entry[] = buildEntries(projects, groups, sectors)
@@ -336,7 +339,7 @@ export function Sidebar() {
   }
 
   const renderCard = (p: Project) => {
-    const s = sessionOf(p.id)
+    const s = sessionOf(p)
     const live = liveSessionsOf(p.id, sessions)
     const active = !!s && s.localId === activeLocalId && (view === 'chat' || view === 'terminal')
     const canOpen = !!s && s.status !== 'stopped' && s.status !== 'dead'
@@ -535,7 +538,7 @@ export function Sidebar() {
           {isCollapsed && (
             <span className="term-group__dots">
               {items.slice(0, 6).map((p) => {
-                const s = sessionOf(p.id)
+                const s = sessionOf(p)
                 return <span key={p.id} className={s ? dotClassOf(s) : 'status-dot status-none'} title={p.name} />
               })}
             </span>
@@ -615,7 +618,7 @@ export function Sidebar() {
           {isCollapsed && (
             <span className="term-group__dots">
               {shown.slice(0, 6).map((p) => {
-                const ps = sessionOf(p.id)
+                const ps = sessionOf(p)
                 return <span key={p.id} className={ps ? dotClassOf(ps) : 'status-dot status-none'} title={p.name} />
               })}
             </span>
@@ -686,7 +689,7 @@ export function Sidebar() {
           }
           const p = l.project!
           const live = liveSessionsOf(p.id, sessions)
-          const principal = primarySessionOf(p.id, sessions)
+          const principal = sessionOf(p)
           const badge = unreadOf(p.id, sessions, unread)
           const esperando = live.some(isWaitingForYou)
           return (
@@ -898,7 +901,7 @@ export function Sidebar() {
 
       {reviveFor && (
         <EnginePickerMenu
-          engines={engines}
+          engines={pickableEngines(engines, listedOf(projects.find((p) => p.id === reviveFor.s.projectId)))}
           x={reviveFor.x}
           y={reviveFor.y}
           onClose={() => setReviveFor(null)}
@@ -926,7 +929,7 @@ export function Sidebar() {
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} />}
       {startFor && <StartSessionModal project={startFor} onClose={() => setStartFor(null)} />}
       {scratchDraft && (
-        <StartSessionModal project={scratchDraft} create={() => createScratch(scratchDraft.name)} onClose={() => setScratchDraft(null)} />
+        <StartSessionModal project={scratchDraft} create={(engineId) => createScratch(scratchDraft.name, engineId)} onClose={() => setScratchDraft(null)} />
       )}
     </div>
   )

@@ -184,6 +184,7 @@ export const ptBR: typeof en = {
     placementNewSector: '＋ Novo setor…', placementNewGroup: '＋ Novo grupo…', placementGroupSector: 'Dentro do setor',
     placementFailed: 'O terminal foi criado, mas não deu para colocá-lo no lugar escolhido: {{msg}}. Tente de novo ou feche — ele fica solto na lateral.', retry: 'Tentar de novo',
   },
+  project: { engines: 'Engines', enginesHint: 'Só as marcadas ganham aba e aparecem nas listas de escolha deste terminal.', enginesRequired: 'Marque pelo menos uma engine.' },
   folder: { title: 'Escolher pasta', empty: 'Nenhuma subpasta.', select: 'Selecionar esta pasta', up: 'Subir' },
   session: {
     title: 'Nova sessão',
@@ -262,6 +263,8 @@ export const ptBR: typeof en = {
     startEngine: 'Iniciar {{engine}}',
     engineNotInstalled: 'não instalada',
     engineNotInstalledHint: 'CLI não encontrada no PATH do servidor. Instale',
+    addEngine: 'Acrescentar engine',
+    addEngineHint: 'A engine ganha uma aba neste terminal. Para retirar, ou para incluir uma não instalada, edite o terminal.',
   },
   question: {
     titleOne: 'O agente tem uma pergunta para você',
@@ -472,6 +475,7 @@ export const ptBR: typeof en = {
     invalid_group_name: 'Nome do grupo inválido (de 1 a 60 caracteres).',
     invalid_sector_name: 'Nome do setor inválido (de 1 a 60 caracteres).',
     project_not_found: 'Este terminal não existe mais.',
+    engines_required: 'Escolha pelo menos uma engine conhecida.',
     nothing_to_continue: 'Não há trabalho interrompido para continuar.',
     shutting_down: 'O Claudinei está reiniciando; tente de novo quando ele voltar.',
     group_not_found: 'Este grupo não existe mais.',

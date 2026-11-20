@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { Project } from '../types'
-import { createProject, updateProject, fetchProjects, fetchDefaultFolder, fetchGroups, fetchSectors } from '../api'
+import { createProject, updateProject, setProjectEngines, fetchProjects, fetchDefaultFolder, fetchGroups, fetchSectors } from '../api'
 import { applyPlacement, type Placement, type PlacementMemo } from '../placement'
 import { folderSlug } from '../folderName'
 import { useStore } from '../store'
+import { defaultListed, listedOf } from '../terminalEngines'
 import { FolderPicker } from './FolderPicker'
 import { IconPicker } from './IconPicker'
 import { ColorField } from './ColorField'
 import { ProjectPreviewCard } from './ProjectPreviewCard'
 import { Icon } from './Icon'
+import { EngineIcon } from './EngineIcon'
 
 export function NewProjectModal({ onClose, editProject }: { onClose: () => void; editProject?: Project }) {
   const { t } = useTranslation()
@@ -19,6 +21,7 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
   const setSectors = useStore((s) => s.setSectors)
   const groups = useStore((s) => s.groups)
   const sectors = useStore((s) => s.sectors)
+  const engines = useStore((s) => s.engines)
   // Onde o terminal novo fica. Uma escolha só: o pertencimento é único no servidor.
   const [where, setWhere] = useState('root')
   const [placeName, setPlaceName] = useState('')
@@ -48,6 +51,26 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
       .then((d) => { if (!pathTouched.current && d?.effective) setPath(d.effective) })
       .catch(() => { /* sem pasta padrão: o campo começa vazio, como antes */ })
   }, [editProject])
+
+  // Motores do terminal. Na edição, a lista dele; na criação, `null` até o
+  // operador mexer, e vale o padrão do catálogo atual (que pode chegar depois).
+  const savedEngines = editProject ? listedOf(editProject) : null
+  const [picked, setPicked] = useState<string[] | null>(savedEngines)
+  const checked = picked ?? defaultListed(engines)
+  const toggleEngine = (id: string) => setPicked((cur) => {
+    const base = cur ?? defaultListed(engines)
+    return base.includes(id) ? base.filter((x) => x !== id) : [...base, id]
+  })
+  // Sem catálogo (ainda não carregou), não há o que marcar: o formulário não
+  // trava nem mexe na lista.
+  const catalogReady = engines.length > 0
+  // Ids gravados que esta tela não conhece (motor de outra versão) voltam ao salvar.
+  const unknownIds = (savedEngines ?? []).filter((id) => !engines.some((e) => e.id === id))
+  const checkedKnown = engines.filter((e) => checked.includes(e.id)).map((e) => e.id)
+  const enginesToSave = [...checkedKnown, ...unknownIds]
+  const noEngine = catalogReady && checkedKnown.length === 0
+  const enginesChanged = !!savedEngines
+    && (enginesToSave.length !== savedEngines.length || enginesToSave.some((id) => !savedEngines.includes(id)))
 
   const changeName = (value: string) => {
     setName(value)
@@ -91,12 +114,21 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
     try {
       if (editProject) {
         await updateProject(editProject.id, { name, icon, color })
+        if (enginesChanged) {
+          // A rota não avisa as outras telas: o Project devolvido entra no store aqui.
+          const updated = await setProjectEngines(editProject.id, enginesToSave)
+          setProjects(useStore.getState().projects.map((p) => (p.id === updated.id ? updated : p)))
+        }
         await refetchTree()
         onClose()
         return
       }
       if (id === null) {
-        id = (await createProject({ name, path, icon, color, ...(newFolder ? { newFolder: folder } : {}) })).id
+        id = (await createProject({
+          name, path, icon, color,
+          ...(newFolder ? { newFolder: folder } : {}),
+          ...(catalogReady ? { engines: enginesToSave } : {}),
+        })).id
         setCreatedId(id)
       }
     } catch (err) {
@@ -197,6 +229,23 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
             </div>
           )}
 
+          {catalogReady && (
+            <div className="project-engines" role="group" aria-label={t('project.engines')}>
+              <div className="project-engines__title">{t('project.engines')}</div>
+              <div className="project-engines__hint">{t('project.enginesHint')}</div>
+              {engines.map((e) => (
+                <label key={e.id} className="new-folder__toggle">
+                  <input type="checkbox" checked={checked.includes(e.id)} disabled={createdId !== null}
+                         onChange={() => toggleEngine(e.id)} />
+                  <EngineIcon icon={e.icon} />
+                  <span>{e.label}</span>
+                  {e.available === false && <span className="engine-picker__missing">{t('chat.engineNotInstalled')}</span>}
+                </label>
+              ))}
+              {noEngine && <span style={{ color: 'var(--err)', fontSize: 13 }}>{t('project.enginesRequired')}</span>}
+            </div>
+          )}
+
           <div style={{ marginTop: 4 }}>
             <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 6 }}>{t('common.preview')}</div>
             <ProjectPreviewCard name={name} icon={icon} color={color} />
@@ -208,7 +257,7 @@ export function NewProjectModal({ onClose, editProject }: { onClose: () => void;
           {error && <span style={{ color: 'var(--err)' }}>{error}</span>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button className="ghost" onClick={close}>{t('common.cancel')}</button>
-            <button disabled={!name || !path || (newFolder && !folder) || (needsPlaceName && !placeLabel)} onClick={submit}>
+            <button disabled={!name || !path || (newFolder && !folder) || (needsPlaceName && !placeLabel) || noEngine} onClick={submit}>
               {editProject ? t('common.save') : createdId !== null ? t('modal.retry') : t('common.create')}
             </button>
           </div>

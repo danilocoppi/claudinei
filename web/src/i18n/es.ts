@@ -184,6 +184,7 @@ export const es: typeof en = {
     placementNewSector: '＋ Nuevo sector…', placementNewGroup: '＋ Nuevo grupo…', placementGroupSector: 'Dentro del sector',
     placementFailed: 'El terminal fue creado, pero no se pudo colocar donde elegiste: {{msg}}. Intenta de nuevo o cierra — queda suelto en la barra lateral.', retry: 'Intentar de nuevo',
   },
+  project: { engines: 'Motores', enginesHint: 'Solo los marcados tienen pestaña y aparecen en las listas de elección de este terminal.', enginesRequired: 'Marca al menos un motor.' },
   folder: { title: 'Elegir carpeta', empty: 'Sin subcarpetas.', select: 'Seleccionar esta carpeta', up: 'Subir' },
   session: {
     title: 'Nueva sesión',
@@ -261,6 +262,8 @@ export const es: typeof en = {
     startEngine: 'Iniciar {{engine}}',
     engineNotInstalled: 'no instalada',
     engineNotInstalledHint: 'CLI no encontrada en el PATH del servidor. Instálala',
+    addEngine: 'Añadir motor',
+    addEngineHint: 'El motor gana una pestaña en este terminal. Para quitarlo, o para incluir uno no instalado, edita el terminal.',
   },
   question: {
     titleOne: 'El agente tiene una pregunta para ti',
@@ -471,6 +474,7 @@ export const es: typeof en = {
     invalid_group_name: 'Nombre de grupo no válido (de 1 a 60 caracteres).',
     invalid_sector_name: 'Nombre de sector no válido (de 1 a 60 caracteres).',
     project_not_found: 'Este terminal ya no existe.',
+    engines_required: 'Elige al menos un motor conocido.',
     nothing_to_continue: 'No hay trabajo interrumpido para continuar.',
     shutting_down: 'Claudinei se está reiniciando; inténtalo de nuevo cuando vuelva.',
     group_not_found: 'Este grupo ya no existe.',

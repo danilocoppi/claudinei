@@ -5,7 +5,8 @@ import { useStore } from '../store'
 import type { EngineMeta, Project } from '../types'
 import { CODEX_FALLBACK_CATALOG } from '../../../shared/codex-models'
 
-const project: Project = { id: 1, name: 'AiShiba', path: '/tmp/a', color: '#ff0000', icon: '🐕' }
+// Lista com os dois motores: os testes antigos escolhem entre Claude e Codex.
+const project: Project = { id: 1, name: 'AiShiba', path: '/tmp/a', color: '#ff0000', icon: '🐕', engines: ['claude', 'codex'] }
 
 // Espelha as capabilities reais do backend (server/src/engine/{claude,codex}) —
 // em produção o App carrega isto no boot via GET /api/engines.
@@ -260,5 +261,42 @@ describe('lembra as últimas escolhas (localStorage)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Codex/ }))
     const select = screen.getByLabelText(/Modelo|Model/) as HTMLSelectElement
     expect(select.value).toBe('gpt-5.4')
+  })
+})
+
+describe('motores por terminal', () => {
+  const KIMI: EngineMeta = { ...CODEX, id: 'kimi', label: 'Kimi Code', icon: '🌙' }
+
+  it('iniciar sessão oferece só os motores do terminal', async () => {
+    useStore.setState({ engines: [CLAUDE, CODEX, KIMI] })
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      okJson({ localId: 'k1', projectId: 1, engine: 'codex', status: 'starting', engineSessionId: null, updatedAt: 'x' }, 201))
+    render(<StartSessionModal project={{ ...project, engines: ['codex'] }} onClose={() => {}} />)
+    expect(screen.getByRole('button', { name: /Codex/ }).className).toContain('active')
+    expect(screen.queryByRole('button', { name: /Claude Code/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Kimi Code/ })).toBeNull()
+    fireEvent.click(screen.getByText('Iniciar sessão'))
+    await vi.waitFor(() => expect(spy).toHaveBeenCalled())
+    expect(JSON.parse((spy.mock.calls[0][1] as RequestInit).body as string)).toMatchObject({ engine: 'codex' })
+  })
+
+  it('motor lembrado fora da lista não vira a escolha', () => {
+    localStorage.setItem('claudinei:lastEngine', 'claude')
+    render(<StartSessionModal project={{ ...project, engines: ['codex'] }} onClose={() => {}} />)
+    expect(screen.getByRole('button', { name: /Codex/ }).className).toContain('active')
+  })
+
+  it('terminal temporário cria com o motor escolhido', async () => {
+    useStore.setState({ engines: [CLAUDE, CODEX, KIMI] })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      okJson({ localId: 't1', projectId: 9, engine: 'kimi', status: 'starting', engineSessionId: null, updatedAt: 'x' }, 201))
+    const create = vi.fn(async (_engineId: string) => ({ ...project, id: 9, engines: ['kimi'] }))
+    render(<StartSessionModal project={{ name: 'Temp', icon: '🧪', color: '#7c5cff' }} create={create} onClose={() => {}} />)
+    // rascunho: o terminal ainda não tem lista, então todos os motores aparecem
+    expect(screen.getByRole('button', { name: /Claude Code/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Codex/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Kimi Code/ }))
+    fireEvent.click(screen.getByText('Iniciar sessão'))
+    await vi.waitFor(() => expect(create).toHaveBeenCalledWith('kimi'))
   })
 })

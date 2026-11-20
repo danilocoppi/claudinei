@@ -135,6 +135,34 @@ describe('planBoot', () => {
       { kind: 'hold', projectId: 1, engine: 'claude', reason: 'failed', alsoIdle: true, localId: 'loc-int' },
     ])
   })
+
+  const unlisted = () => false
+
+  it('motor fora da lista não sobe sozinho', () => {
+    expect(planBoot([row({ autostart: true, interruptedAt: null })], latest(), unlisted)).toEqual([])
+  })
+
+  it('motor fora da lista interrompido ainda retoma', () => {
+    expect(planBoot([interrupted({ autoResume: true, autostart: true })], latest(), unlisted)).toEqual([
+      { kind: 'resume', projectId: 1, engine: 'claude', localId: 'loc-int' },
+    ])
+  })
+
+  it('hold de motor fora da lista não sobe parado', () => {
+    const out = planBoot([
+      interrupted({ projectId: 1, autostart: true }),
+      row({ projectId: 2, autostart: true }),
+    ], latest(), (projectId) => projectId !== 1)
+    expect(out[0]).toMatchObject({ kind: 'idle', projectId: 2 })
+    // Vai para o fim, com os holds que não sobem nada.
+    expect(out[1]).toMatchObject({ kind: 'hold', projectId: 1, reason: 'off', alsoIdle: false })
+  })
+
+  it('a lista é consultada por terminal (projeto e motor)', () => {
+    const seen: [number, string][] = []
+    planBoot([row({ projectId: 7, engine: 'codex', autostart: true })], latest(), (p, e) => { seen.push([p, e]); return true })
+    expect(seen).toEqual([[7, 'codex']])
+  })
 })
 
 // ---------------------------------------------------------------- executor
@@ -263,6 +291,18 @@ describe('createRestartService.boot', () => {
     expect(activeOf(p)?.localId).toBe(localId)
     await waitUntil(() => mgr.get(localId)?.status === 'idle')
     expect(resumeEchoes()).toHaveLength(0)
+  })
+
+  it('iniciar ligado num motor fora da lista do terminal não sobe a sessão', async () => {
+    const p = newProject('P')
+    seedSession(p)
+    store.setPrefs(p.id, 'claude', { autostart: true })
+    createProjectsService(db).setEngines(p.id, ['codex'])
+
+    const { svc } = makeService()
+    await svc.boot()
+
+    expect(activeOf(p)).toBeUndefined()
   })
 
   /** Terminal segurado (retomar desligado) com iniciar: de pé e parado depois da subida. */

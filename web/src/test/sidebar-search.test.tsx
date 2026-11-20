@@ -139,6 +139,21 @@ describe('Sidebar — terminal temporário', () => {
     await waitFor(() => expect(useStore.getState().activeLocalId).toBe('nova'))
   })
 
+  it('terminal temporário cria com o motor escolhido', async () => {
+    useStore.setState({
+      engines: [...useStore.getState().engines.filter((e) => e.id !== 'kimi'),
+        { id: 'kimi', label: 'Kimi Code', icon: '🌙', models: [''], efforts: [], permissions: [], slashSource: 'none', slashCommands: [] }],
+    })
+    const fetcher = servidor(() => new Response(JSON.stringify({ ...created, engines: ['kimi'] }), { status: 201 }))
+    render(<Sidebar />)
+    fireEvent.click(scratchButton())
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: /Kimi Code/ }))
+    fireEvent.click(within(modalDeSessao()).getByRole('button', { name: 'Iniciar sessão' }))
+    await waitFor(() => expect(posts(fetcher)).toEqual(['/api/projects/scratch', '/api/projects/9/sessions']))
+    const body = JSON.parse(String(fetcher.mock.calls.find(([u]) => String(u) === '/api/projects/scratch')![1]?.body))
+    expect(body.engines).toEqual(['kimi'])
+  })
+
   it('sessão recusada depois de criar: tentar de novo usa o mesmo terminal, não cria outro', async () => {
     let tentativas = 0
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {

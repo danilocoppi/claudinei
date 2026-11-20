@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import type { Project } from '../types'
+import type { EngineMeta, Project } from '../types'
 import { startSession, type PermissionMode } from '../api'
 import { useStore } from '../store'
 import { MODE_KEY } from '../permissionLabels'
+import { listedOf, pickableEngines } from '../terminalEngines'
 import { EngineIcon } from './EngineIcon'
 import { Icon } from './Icon'
 import { modelDisplayName } from '../../../shared/engine-options'
@@ -35,11 +36,23 @@ const remember = (k: string, v: string) => {
 /**
  * O terminal da sessão: um que já existe, ou o rascunho de um que só nasce ao
  * iniciar — o terminal temporário. Cancelar o rascunho não deixa terminal nem
- * pasta para trás.
+ * pasta para trás. O rascunho nasce com o motor escolhido aqui na lista dele.
  */
 type Target =
   | { project: Project; create?: undefined }
-  | { project: Pick<Project, 'name' | 'icon' | 'color'>; create: () => Promise<Project> }
+  | { project: Pick<Project, 'name' | 'icon' | 'color'>; create: (engineId: string) => Promise<Project> }
+
+/**
+ * O motor que fica marcado: o pedido (o lembrado ou o clicado), se o terminal o
+ * oferece; senão o Claude, o primeiro instalado ou o primeiro da lista. Sem
+ * isto, um lembrado fora da lista do terminal iniciaria um motor escondido.
+ */
+function resolveEngine(offered: EngineMeta[], id: string): EngineMeta | undefined {
+  return offered.find((e) => e.id === id)
+    ?? offered.find((e) => e.id === 'claude')
+    ?? offered.find((e) => e.available !== false)
+    ?? offered[0]
+}
 
 export function StartSessionModal({ project, create, onClose }: Target & { onClose: () => void }) {
   const { t } = useTranslation()
@@ -47,17 +60,24 @@ export function StartSessionModal({ project, create, onClose }: Target & { onClo
   const created = useRef<Project | null>(null)
   const openSession = useStore((s) => s.openSession)
   const engines = useStore((s) => s.engines)
-  const [engineId, setEngineId] = useState(() => recall(LAST_ENGINE_KEY) || 'claude')
+  // Terminal que existe oferece só os motores da lista dele; o rascunho ainda
+  // não tem lista, então oferece todos.
+  const offered = create ? engines : pickableEngines(engines, listedOf(project as Project))
+  const initialEngineId = () => {
+    const wanted = recall(LAST_ENGINE_KEY) || 'claude'
+    return resolveEngine(offered, wanted)?.id ?? wanted
+  }
+  const [engineId, setEngineId] = useState(initialEngineId)
   const [continueConversation, setContinueConversation] = useState(true)
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
-    () => (recall(lastPermissionKey(recall(LAST_ENGINE_KEY) || 'claude')) || 'bypassPermissions') as PermissionMode,
+    () => (recall(lastPermissionKey(initialEngineId())) || 'bypassPermissions') as PermissionMode,
   )
-  const [model, setModel] = useState(() => recall(lastModelKey(recall(LAST_ENGINE_KEY) || 'claude')))
+  const [model, setModel] = useState(() => recall(lastModelKey(initialEngineId())))
   const [error, setError] = useState('')
   // Dois cliques rápidos criariam dois terminais temporários.
   const [busy, setBusy] = useState(false)
 
-  const engine = engines.find((e) => e.id === engineId) ?? engines.find((e) => e.id === 'claude') ?? engines[0]
+  const engine = resolveEngine(offered, engineId)
   const models = engine?.models ?? []
   const permissions = engine?.permissions ?? []
   // Valida o lembrado contra as listas atuais da engine (model removido/lista ainda
@@ -76,7 +96,7 @@ export function StartSessionModal({ project, create, onClose }: Target & { onClo
     if (busy) return
     setBusy(true)
     try {
-      const target = create ? (created.current ??= await create()) : project
+      const target = create ? (created.current ??= await create(engine?.id ?? engineId)) : project
       const info = await startSession(target.id, {
         continueConversation,
         ...(permissions.length > 0 ? { permissionMode: permissionValue } : {}),
@@ -120,13 +140,13 @@ export function StartSessionModal({ project, create, onClose }: Target & { onClo
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
-          {engines.length > 0 && (
+          {offered.length > 0 && (
             <div className="engine-picker" role="group" aria-label={t('session.engine')}>
-              {engines.map((e) => (
+              {offered.map((e) => (
                 <button
                   key={e.id}
                   type="button"
-                  className={`engine-picker__btn ${e.id === engineId ? 'active' : ''}`}
+                  className={`engine-picker__btn ${e.id === engine?.id ? 'active' : ''}`}
                   disabled={e.available === false}
                   title={e.available === false
                     ? `${t('chat.engineNotInstalledHint')}${e.installHint ? ` — ${e.installHint}` : ''}`

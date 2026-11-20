@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { fetchQueue } from './api'
-import { progressKey, useStore } from './store'
+import { progressKey, queueSeqOf, useStore } from './store'
 
 /**
  * Lê do servidor a fila do operador do terminal (projeto + motor) ao montar e a
@@ -17,10 +17,12 @@ export function useQueueSync(projectId: number, engine: string): void {
     let alive = true
     const key = progressKey(projectId, engine)
     const antes = useStore.getState().queues[key]
+    const seq = queueSeqOf(projectId, engine)
     fetchQueue(projectId, engine)
       .then((queue) => {
+        // Uma resposta da API aplicada no meio também é mais nova que a leitura.
         if (!alive || useStore.getState().queues[key] !== antes) return
-        useStore.getState().setQueue({ ...queue, projectId, engine })
+        useStore.getState().applyQueueReply({ ...queue, projectId, engine }, seq)
       })
       .catch(() => { /* fica o que já havia: o WebSocket continua atualizando */ })
     return () => { alive = false }

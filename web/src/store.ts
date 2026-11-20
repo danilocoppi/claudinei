@@ -22,6 +22,10 @@ const PROGRESS_OPEN_KEY = 'claudinei:progressOpen'
 /** Chave do acompanhamento de um terminal: projeto + motor. */
 export const progressKey = (projectId: number, engine: string) => `${projectId}:${engine}`
 
+/** O número de filas do terminal que chegaram pelo WebSocket até agora (ver `applyQueueReply`). */
+export const queueSeqOf = (projectId: number, engine: string): number =>
+  useStore.getState().queueWsSeq[progressKey(projectId, engine)] ?? 0
+
 /**
  * Fallback embutido para `store.engines`, usado até `GET /api/engines` resolver (ou se falhar).
  * Espelha `capabilities()` de server/src/engine/claude-engine.ts e server/src/engine/codex/codex-engine.ts —
@@ -223,6 +227,19 @@ interface State {
   queues: Record<string, OperatorQueue>
   setQueue(queue: OperatorQueue): void
   /**
+   * Quantas filas de cada terminal chegaram pelo WebSocket. A resposta HTTP de
+   * uma mudança na fila pode chegar DEPOIS de um `operator_queue` mais novo (o
+   * "enviar agora" responde antes de a entrega acontecer): quem chama a API
+   * anota o número antes e aplica a resposta por `applyQueueReply`.
+   */
+  queueWsSeq: Record<string, number>
+  /**
+   * Aplica a fila devolvida pela API só se nenhum `operator_queue` do terminal
+   * chegou desde `seq` (lido por `queueSeqOf` antes da chamada). Se chegou, a
+   * resposta é descartada: o WebSocket já trouxe um estado pelo menos tão novo.
+   */
+  applyQueueReply(queue: OperatorQueue, seq: number): void
+  /**
    * Triagem da lista do usuário logado, por projeto: fixado, assentado e adiado.
    * Projeto fora do mapa está no normal. Lida por `useTriageSync` e mantida pela
    * mensagem `triage` do WebSocket, que o servidor manda só ao dono.
@@ -421,6 +438,12 @@ export const useStore = create<State>((set, get) => ({
     if (!queue || !Array.isArray(queue.items)) return
     set((s) => ({ queues: { ...s.queues, [progressKey(queue.projectId, queue.engine)]: queue } }))
   },
+  queueWsSeq: {},
+  applyQueueReply: (queue, seq) => {
+    if (!queue) return
+    if ((get().queueWsSeq[progressKey(queue.projectId, queue.engine)] ?? 0) !== seq) return
+    get().setQueue(queue)
+  },
   triage: {},
   undo: null,
   triageError: null,
@@ -482,7 +505,13 @@ export const useStore = create<State>((set, get) => ({
       get().setTerminalState(msg.state as TerminalState)
     } else if (msg.type === 'operator_queue' && msg.queue && typeof msg.projectId === 'number' && typeof msg.engine === 'string' && Array.isArray(msg.queue.items)) {
       // A chave vem do envelope: é ele que diz de que terminal é a fila.
-      get().setQueue({ ...(msg.queue as OperatorQueue), projectId: msg.projectId, engine: msg.engine })
+      // Um set só: a fila e a contagem que invalida as respostas HTTP em voo.
+      const key = progressKey(msg.projectId, msg.engine)
+      const queue: OperatorQueue = { ...(msg.queue as OperatorQueue), projectId: msg.projectId, engine: msg.engine }
+      set((s) => ({
+        queues: { ...s.queues, [key]: queue },
+        queueWsSeq: { ...s.queueWsSeq, [key]: (s.queueWsSeq[key] ?? 0) + 1 },
+      }))
     } else if (msg.type === 'triage' && msg.item && typeof msg.item.projectId === 'number') {
       // Chega só ao dono (ação dele em outra aba, ou o despertar): `userId` não precisa de conferência.
       get().setTriageItem(msg.item as TriageItem)

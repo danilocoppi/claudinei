@@ -439,3 +439,10 @@ describe('compactação em curso', () => {
     expect(displayStatusKey(sess({}))).toBe('working')
   })
 })
+
+describe('motores embutidos', () => {
+  it('Claude e Codex aceitam mensagem no meio do turno (midTurnInput) no fallback embutido', () => {
+    const embutidos = useStore.getInitialState().engines
+    expect(embutidos.filter((e) => e.midTurnInput).map((e) => e.id).sort()).toEqual(['claude', 'codex'])
+  })
+})

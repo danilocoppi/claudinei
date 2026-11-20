@@ -1,7 +1,7 @@
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WsContext } from '../wsContext'
-import { useStore, useEngineFor, useSessionSlashCommands, type FileMenuAction } from '../store'
+import { queueSeqOf, useStore, useEngineFor, useSessionSlashCommands, type FileMenuAction } from '../store'
 import { addToQueue, checkUploads, uploadFile } from '../api'
 import { SessionControls } from './SessionControls'
 import { filterCommands } from '../slash'
@@ -189,8 +189,10 @@ export function ChatInput({
     histIdxRef.current = null
     setUploadError(null); setQueueError(null)
     attachments.current.clear()
+    // Um `operator_queue` que chegue antes da resposta é mais novo que ela: a resposta fica de fora.
+    const seq = queueSeqOf(projectId, motor)
     addToQueue(projectId, motor, out)
-      .then((q) => useStore.getState().setQueue({ ...q, projectId, engine: motor }))
+      .then((q) => useStore.getState().applyQueueReply({ ...q, projectId, engine: motor }, seq))
       .catch((err) => {
         // Campo desmontado no meio: o texto volta como rascunho, para não se perder.
         if (!vivo.current) {

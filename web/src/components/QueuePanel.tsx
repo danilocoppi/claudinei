@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   editQueueItem, pauseQueue, removeQueueItem, reorderQueue, resumeQueue, sendQueueItemNow,
 } from '../api'
-import { progressKey, useStore } from '../store'
+import { progressKey, queueSeqOf, useStore } from '../store'
 import { useQueueSync } from '../useQueueSync'
 import { queueHeld } from '../queueHold'
 import type { OperatorQueue, QueueItem } from '../types'
@@ -35,12 +35,17 @@ export function QueuePanel({ projectId, engine }: { projectId: number; engine: s
 
   if (!queue || (queue.items.length === 0 && !queue.paused)) return null
 
-  /** Chama a API e aplica a fila devolvida na hora, sem esperar o WebSocket. */
+  /**
+   * Chama a API e aplica a fila devolvida na hora, sem esperar o WebSocket —
+   * a menos que um `operator_queue` deste terminal tenha chegado no meio: aí a
+   * resposta é mais velha (o "enviar agora" responde antes da entrega) e fica de fora.
+   */
   const call = async (fn: () => Promise<OperatorQueue>): Promise<boolean> => {
     setError(null)
+    const seq = queueSeqOf(projectId, engine)
     try {
       const q = await fn()
-      useStore.getState().setQueue({ ...q, projectId, engine })
+      useStore.getState().applyQueueReply({ ...q, projectId, engine }, seq)
       return true
     } catch (err) {
       setError((err as Error).message)

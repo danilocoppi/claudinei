@@ -151,6 +151,48 @@ describe('painel da fila', () => {
   })
 })
 
+/** Promessa que o teste resolve na hora que quiser: a resposta HTTP que chega atrasada. */
+function adiada<T>() {
+  let resolve!: (v: T) => void
+  const promise = new Promise<T>((r) => { resolve = r })
+  return { promise, resolve }
+}
+const ws = (q: OperatorQueue) =>
+  act(() => useStore.getState().applyWsMessage({ type: 'operator_queue', projectId: q.projectId, engine: q.engine, queue: q }))
+
+describe('resposta HTTP atrasada não sobrescreve a fila mais nova do WebSocket', () => {
+  it('enviar agora no Kimi: a resposta que chega depois da entrega não ressuscita o item', async () => {
+    const resposta = adiada<OperatorQueue>()
+    vi.mocked(api.sendQueueItemNow).mockReturnValue(resposta.promise)
+    poe(fila({ items: [B] }))
+    abrir()
+    fireEvent.click(within(linha(/^segundo/)).getByRole('button', { name: 'Enviar agora' }))
+    // A ordem vista no app real: o emit do sendNow, a entrega (emit do offer) e só então o 200.
+    ws(fila({ items: [B] }))
+    ws(fila())
+    await act(async () => { resposta.resolve(fila({ items: [B] })); await resposta.promise })
+    expect(screen.queryByTestId('queue-panel')).toBeNull()
+    expect(useStore.getState().queues['1:claude'].items).toEqual([])
+  })
+
+  it('sem WebSocket no meio, a resposta da API vale', async () => {
+    vi.mocked(api.removeQueueItem).mockResolvedValue(fila({ items: [B] }))
+    poe(fila({ items: [A, B] }))
+    abrir()
+    fireEvent.click(within(linha(/^primeiro/)).getByRole('button', { name: 'Remover da fila' }))
+    await waitFor(() => expect(screen.queryByText('primeiro: rode os testes')).toBeNull())
+  })
+
+  it('a leitura inicial que chega depois de um WebSocket fica de fora', async () => {
+    const leitura = adiada<OperatorQueue>()
+    vi.mocked(api.fetchQueue).mockReturnValue(leitura.promise)
+    abrir()
+    ws(fila())
+    await act(async () => { leitura.resolve(fila({ items: [A] })); await leitura.promise })
+    expect(screen.queryByTestId('queue-panel')).toBeNull()
+  })
+})
+
 describe('queueHeld: a fila segura enquanto há aviso aberto (espelha holdsForNotice)', () => {
   const AGORA = Date.parse('2026-11-20T15:00:00Z')
   const lim = (o: Partial<NonNullable<TerminalState['usageLimit']>>) =>

@@ -152,4 +152,18 @@ describe('a fila no campo', () => {
     await waitFor(() => expect(campo().value).toBe('vigésima primeira'))
     expect(screen.getByText(/A fila já tem 20 mensagens/)).toBeTruthy()
   })
+
+  it('a resposta do addToQueue que chega depois do WebSocket não sobrescreve a fila', async () => {
+    let responde!: (q: OperatorQueue) => void
+    enfileirar.mockReturnValue(new Promise<OperatorQueue>((r) => { responde = r }))
+    abrir('c1')
+    digitar('um')
+    altEnter()
+    // Outra aba enfileirou logo depois: o WebSocket já traz os dois.
+    const dois = fila('claude', { items: [{ id: 7, text: 'um', createdAt: 'x' }, { id: 8, text: 'dois', createdAt: 'x' }] })
+    useStore.getState().applyWsMessage({ type: 'operator_queue', projectId: 1, engine: 'claude', queue: dois })
+    responde(fila('claude', { items: [{ id: 7, text: 'um', createdAt: 'x' }] }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(useStore.getState().queues['1:claude'].items.map((i) => i.id)).toEqual([7, 8])
+  })
 })

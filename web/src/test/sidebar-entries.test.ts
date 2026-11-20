@@ -51,15 +51,16 @@ describe('isProjectActive', () => {
 })
 
 describe('filterEntries', () => {
-  it('filtra favoritos parados e combina favorito com ativo sem mudar a ordem', () => {
+  it('filtra fixados parados e combina fixado com ativo sem mudar a ordem', () => {
     const entries: Entry[] = [
-      { kind: 'project', p: { ...proj(1), favorite: true } },
+      { kind: 'project', p: proj(1) },
       { kind: 'project', p: proj(2) },
-      { kind: 'project', p: { ...proj(3), favorite: true } },
+      { kind: 'project', p: proj(3) },
     ]
     const sessions = byId(sess('a', 1, 'stopped'), sess('b', 2, 'working'), sess('c', 3, 'working'))
-    expect(filterEntries(entries, sessions, false, true).map((e) => e.kind === 'project' && e.p.id)).toEqual([1, 3])
-    expect(filterEntries(entries, sessions, true, true).map((e) => e.kind === 'project' && e.p.id)).toEqual([3])
+    const pinned = (id: number) => id === 1 || id === 3
+    expect(filterEntries(entries, sessions, false, true, '', pinned).map((e) => e.kind === 'project' && e.p.id)).toEqual([1, 3])
+    expect(filterEntries(entries, sessions, true, true, '', pinned).map((e) => e.kind === 'project' && e.p.id)).toEqual([3])
     expect(entries).toHaveLength(3)
   })
 
@@ -338,10 +339,8 @@ describe('filterEntries com busca por nome', () => {
     expect(ids(filterEntries(tree(), nada, false, false, 'daily'))).toEqual([1, 2, 3])
   })
 
-  it('combina com favoritos e devolve a árvore sem contêineres vazios', () => {
-    const t = tree()
-    ;(t[1] as Extract<Entry, { kind: 'group' }>).items[0].favorite = true
-    const out = filterEntries(t, nada, false, true, 'backend')
+  it('combina com fixados e devolve a árvore sem contêineres vazios', () => {
+    const out = filterEntries(tree(), nada, false, true, 'backend', (id) => id === 4)
     expect(ids(out)).toEqual([4])
     expect(out.map(entryKeyOf)).toEqual(['g-20'])
   })

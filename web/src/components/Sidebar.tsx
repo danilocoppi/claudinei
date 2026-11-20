@@ -145,6 +145,7 @@ export function Sidebar() {
   const [pendingFavoriteIds, setPendingFavoriteIds] = useState<number[]>([])
   const railMode = useStore((s) => s.railMode)
   const toggleRail = useStore((s) => s.toggleRail)
+  const triage = useStore((s) => s.triage)
   const toggleActiveOnly = () => {
     setActiveOnly((cur) => {
       try { localStorage.setItem(ACTIVE_ONLY_KEY, cur ? '0' : '1') } catch { /* só não persiste */ }
@@ -224,7 +225,7 @@ export function Sidebar() {
   const filtering = activeOnly || favoritesOnly || searching
   const canDrag = isAdmin && !filtering
   // Só a VISÃO é filtrada: `entries` (completo) segue sendo a base do applyOrder.
-  const visibleEntries = filtering ? filterEntries(entries, sessions, activeOnly, favoritesOnly, searching ? query : '') : entries
+  const visibleEntries = filtering ? filterEntries(entries, sessions, activeOnly, favoritesOnly, searching ? query : '', (id) => !!triage[id]?.pinned) : entries
 
   const toggleGroup = (id: number) => {
     setCollapsed((cur) => {

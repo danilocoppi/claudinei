@@ -169,6 +169,19 @@ export interface TerminalState {
   interruption: null | { at: string; reason: InterruptionReason; question?: Question[] }
 }
 
+/**
+ * Triagem da lista, por usuário e projeto. Espelha `TriageDto` de
+ * server/src/triage/store.ts. `snoozedUntil` em ISO UTC; o servidor já manda
+ * `null` no adiamento vencido, mas um que vença com a página aberta só é visto
+ * aqui (ver `triageStateOf`).
+ */
+export interface TriageItem {
+  projectId: number
+  pinned: boolean
+  settled: boolean
+  snoozedUntil: string | null
+}
+
 /** Acompanhamento de tarefas longas, por terminal (projeto + motor). Ver server/src/progress.ts. */
 export type ProgressStatus = 'pending' | 'in_progress' | 'review' | 'blocked' | 'done'
 export interface Progress {

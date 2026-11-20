@@ -20,6 +20,7 @@ import { installIndicatorMotion } from './indicatorMotion'
 import { useAccessHours } from './useAccessHours'
 import { useEngineCatalog } from './useEngineCatalog'
 import { useTerminalStatesSync } from './useTerminalStatesSync'
+import { useTriageSync } from './useTriageSync'
 import { AccessLocked } from './components/AccessLocked'
 import './access-hours.css'
 
@@ -60,6 +61,7 @@ export default function App() {
   useAccessHours()
   useEngineCatalog(authStatus === 'ready')
   useTerminalStatesSync()
+  useTriageSync()
 
   useEffect(() => installIndicatorMotion(), [])
 

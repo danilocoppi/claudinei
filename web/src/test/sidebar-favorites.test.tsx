@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Sidebar } from '../components/Sidebar'
 import { useStore } from '../store'
-import type { Project, SessionInfo } from '../types'
+import type { Project, SessionInfo, TriageItem } from '../types'
 
 const project = (id: number, name: string, extra: Partial<Project> = {}): Project =>
   ({ id, name, path: `/tmp/${id}`, icon: '📁', color: '#fff', ...extra })
 const session = (projectId: number, status: SessionInfo['status']): SessionInfo =>
   ({ localId: `s${projectId}`, projectId, status, engine: 'claude', engineSessionId: 'c', updatedAt: 'x' })
+// "Somente favoritos" lê o pin do usuário (triagem), não `projects.favorite`.
+const pin = (projectId: number, pinned = true): TriageItem => ({ projectId, pinned, settled: false, snoozedUntil: null })
 
 beforeEach(() => {
   localStorage.clear()
@@ -20,6 +22,7 @@ beforeEach(() => {
     groups: [{ id: 10, name: 'Grupo', sectorId: 20 }],
     sectors: [{ id: 20, name: 'Setor' }],
     sessions: { s1: session(1, 'working'), s2: session(2, 'stopped'), s3: session(3, 'stopped') },
+    triage: { 1: pin(1), 3: pin(3) },
     chat: {}, unread: {}, streaming: {}, historyLoadedFor: {}, schedules: [],
     view: 'dashboard', activeLocalId: undefined, railMode: false,
     me: { setupRequired: false, id: 1, username: 'root', isAdmin: true },
@@ -60,6 +63,8 @@ describe('Sidebar — favoritos', () => {
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
       if (String(url).endsWith('/favorite')) {
         const favorite = JSON.parse(String(init?.body)).favorite
+        // A rota antiga fixa para quem clicou e avisa pelo WebSocket.
+        useStore.getState().applyWsMessage({ type: 'triage', userId: 1, item: pin(2, favorite) })
         return new Response(JSON.stringify({ ...project(2, 'Beta'), favorite }), { status: 200 })
       }
       return new Response('{}', { status: 200 })

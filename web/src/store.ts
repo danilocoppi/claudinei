@@ -11,7 +11,7 @@ import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
-import type { HeadsUpNode, Progress, TerminalState } from './types'
+import type { HeadsUpNode, Progress, TerminalState, TriageItem } from './types'
 
 /** Estado de VISÃO da barra lateral: por navegador, sobrevive ao reload. */
 const RAIL_KEY = 'claudinei:railMode'
@@ -195,6 +195,13 @@ interface State {
    */
   terminalStates: Record<string, TerminalState>
   setTerminalState(state: TerminalState): void
+  /**
+   * Triagem da lista do usuário logado, por projeto: fixado, assentado e adiado.
+   * Projeto fora do mapa está no normal. Lida por `useTriageSync` e mantida pela
+   * mensagem `triage` do WebSocket, que o servidor manda só ao dono.
+   */
+  triage: Record<number, TriageItem>
+  setTriageItem(item: TriageItem): void
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
@@ -233,7 +240,7 @@ export const useStore = create<State>((set, get) => ({
     saveRuns([])
     return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {},
-      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {},
+      actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, triage: {},
       board: [], tasks: [], schedules: [], editRequest: undefined }
   }),
   projects: [],
@@ -361,6 +368,8 @@ export const useStore = create<State>((set, get) => ({
   terminalStates: {},
   setTerminalState: (state) =>
     set((s) => ({ terminalStates: { ...s.terminalStates, [progressKey(state.projectId, state.engine)]: state } })),
+  triage: {},
+  setTriageItem: (item) => set((s) => ({ triage: { ...s.triage, [item.projectId]: item } })),
   setProgress: (projectId, engine, progress) =>
     set((s) => ({ progress: { ...s.progress, [progressKey(projectId, engine)]: progress } })),
   progressOpen: (() => {
@@ -416,6 +425,9 @@ export const useStore = create<State>((set, get) => ({
       get().setProgress(msg.projectId, msg.engine, (msg.progress ?? null) as Progress | null)
     } else if (msg.type === 'terminal_state' && msg.state && typeof msg.state.projectId === 'number' && typeof msg.state.engine === 'string') {
       get().setTerminalState(msg.state as TerminalState)
+    } else if (msg.type === 'triage' && msg.item && typeof msg.item.projectId === 'number') {
+      // Chega só ao dono (ação dele em outra aba, ou o despertar): `userId` não precisa de conferência.
+      get().setTriageItem(msg.item as TriageItem)
     } else if (msg.type === 'heads_up' && typeof msg.localId === 'string') {
       applyHeadsUp(msg.localId, (msg.tree ?? null) as HeadsUpNode | null)
     } else if (msg.type === 'sessions_snapshot') {

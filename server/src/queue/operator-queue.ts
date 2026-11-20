@@ -8,11 +8,13 @@ import { UserError } from '../user-error.js'
  * sessões novas do mesmo terminal; some com o terminal (ON DELETE CASCADE).
  *
  * Entrega um item por turno, quando a sessão fica livre (lugar 3 da ordem do
- * "próximo envio"). Pausa em erro do turno, limite de uso, interrupção pelo
- * operador e morte real da sessão; só o Retomar tira a pausa.
+ * "próximo envio"). Pausa em erro do turno, interrupção pelo operador, morte
+ * real da sessão e no botão de pausar; só o Retomar tira a pausa. O limite de
+ * uso não pausa: o aviso do limite segura a fila enquanto está aberto, e depois
+ * da retomada do Claudinei ela continua sozinha.
  */
 
-export type PauseReason = 'error' | 'limit' | 'interrupted' | 'dead' | 'manual'
+export type PauseReason = 'error' | 'interrupted' | 'dead' | 'manual'
 export interface QueueItem { id: number; text: string; createdAt: string }
 export interface QueueDto { projectId: number; engine: string; items: QueueItem[]; paused: boolean; pauseReason: PauseReason | null }
 
@@ -174,7 +176,7 @@ export function createOperatorQueueService(deps: {
   warn?: (...args: unknown[]) => void
   /**
    * O serviço está encerrando: o turno que cai com erro, a interrupção e a
-   * morte são da parada do reinício, que não pausa a fila. O limite pausa.
+   * morte são da parada do reinício, que não pausa a fila.
    */
   isShuttingDown?: () => boolean
 }) {
@@ -221,9 +223,6 @@ export function createOperatorQueueService(deps: {
   const deliver = (projectId: number, engine: string, localId: string, item: QueueItem): boolean => {
     try {
       manager.send(localId, item.text, { echo: true })
-      // Fila que esvaziou não fica pausada: não sobrou nada a proteger.
-      if (store.list(projectId, engine).length === 0) store.setPaused(projectId, engine, null)
-      return true
     } catch (err) {
       try {
         store.putFirst(projectId, engine, item)
@@ -235,6 +234,15 @@ export function createOperatorQueueService(deps: {
       warn(`[operator-queue] envio do item ${item.id} falhou; fila pausada:`, err instanceof Error ? err.message : err)
       return false
     }
+    // Fora do try do envio: o item já saiu, e uma falha daqui em diante não pode
+    // devolvê-lo à fila (seria mandado de novo). Fila que esvaziou não fica
+    // pausada: não sobrou nada a proteger.
+    try {
+      if (store.list(projectId, engine).length === 0) store.setPaused(projectId, engine, null)
+    } catch (err) {
+      warn(`[operator-queue] item ${item.id} enviado, mas a pausa da fila vazia não saiu:`, err instanceof Error ? err.message : err)
+    }
+    return true
   }
 
   /** Tira um item pelo id (não necessariamente o primeiro) e manda. */
@@ -376,9 +384,11 @@ export function createOperatorQueueService(deps: {
       const k = key(projectId, engine)
       // A marca vale para o result logo depois do "enviar agora", seja qual for.
       const ownInterrupt = interruptToSend.delete(k)
-      if (info.limited) pauseFor(projectId, engine, 'limit')
-      else if (deps.isShuttingDown?.()) return
-      else if (info.interrupted) { if (!ownInterrupt) pauseFor(projectId, engine, 'interrupted') }
+      // Limite de uso não pausa (nem como erro): o aviso do limite segura a fila
+      // enquanto está aberto, e depois da retomada do Claudinei ela continua.
+      if (info.limited) return
+      if (deps.isShuttingDown?.()) return
+      if (info.interrupted) { if (!ownInterrupt) pauseFor(projectId, engine, 'interrupted') }
       else if (info.isError) pauseFor(projectId, engine, 'error')
     },
 

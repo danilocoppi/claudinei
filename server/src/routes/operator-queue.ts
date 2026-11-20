@@ -23,7 +23,10 @@ export function registerOperatorQueueRoutes(
     const id = Number(params.id)
     if (!Number.isSafeInteger(id) || id <= 0) { reply.code(400).send({ error: 'id inválido' }); return undefined }
     if (!requireProjectAccess(req, reply, id)) return undefined
-    if (!hasEngine(params.engine)) { reply.code(400).send({ error: 'unknown_engine' }); return undefined }
+    if (!hasEngine(params.engine)) {
+      reply.code(400).send(fail('unknown_engine', `motor desconhecido: ${params.engine}`, { engine: params.engine }))
+      return undefined
+    }
     if (!projects.get(id)) { reply.code(404).send(fail('project_not_found', 'projeto não existe')); return undefined }
     return { projectId: id, engine: params.engine }
   }

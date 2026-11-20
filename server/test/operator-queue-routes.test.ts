@@ -191,7 +191,10 @@ describe('rotas da fila do operador', () => {
     expect(now.json().code).toBe('session_not_active')
 
     // Motor desconhecido, projeto que não existe, id malformado.
-    expect((await req('GET', url(p1.id, '', 'nope'))).statusCode).toBe(400)
+    const unknown = await req('GET', url(p1.id, '', 'nope'))
+    expect(unknown.statusCode).toBe(400)
+    // O mesmo formato dos outros erros: texto, código e parâmetros.
+    expect(unknown.json()).toEqual({ error: 'motor desconhecido: nope', code: 'unknown_engine', params: { engine: 'nope' } })
     expect((await req('GET', url(9999))).statusCode).toBe(404)
     expect((await req('PATCH', url(p1.id, '/abc'), { text: 'x' })).statusCode).toBe(400)
 

@@ -223,6 +223,34 @@ describe('serviço da fila do operador', () => {
     expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'error' })
   })
 
+  it('falha na arrumação depois do envio não devolve à fila o item já enviado', () => {
+    // A arrumação de depois do envio (tirar a pausa da fila que esvaziou) falha:
+    // o item já foi entregue e não pode voltar à frente nem pausar com 'error'.
+    const quebrado: OperatorQueueStore = {
+      ...store,
+      setPaused: (projectId, engine, reason) => {
+        if (reason === null) throw new Error('banco travado')
+        store.setPaused(projectId, engine, reason)
+      },
+    }
+    const svc2 = createOperatorQueueService({
+      warn: (...args) => warnings.push(args),
+      store: quebrado,
+      manager: mgr as any,
+      broadcast: (m) => broadcasts.push(m),
+      holds: () => false,
+      acceptsMidTurn: () => true,
+      liveLocalId: () => LOCAL,
+    })
+    mgr.status.set(LOCAL, 'working')
+    svc2.add(project.id, 'claude', 'só um')
+    mgr.status.set(LOCAL, 'idle')
+    expect(svc2.offer(ctx())).toBe(true)
+    expect(sends()).toEqual([['send', LOCAL, 'só um', { echo: true }]])
+    expect(svc2.dto(project.id, 'claude')).toMatchObject({ items: [], paused: false, pauseReason: null })
+    expect(warnings).toHaveLength(1)
+  })
+
   it('add com sessão livre e fila vazia entrega na hora', () => {
     mgr.status.set(LOCAL, 'idle')
     const dto = svc.add(project.id, 'claude', 'agora')
@@ -396,10 +424,23 @@ describe('serviço da fila do operador', () => {
     expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'error' })
   })
 
-  it('limite pausa com limit', () => {
-    queued('claude', 'a')
+  it('limite de uso não pausa a fila: o aviso aberto já segura, e ela segue depois da retomada', () => {
+    queued('claude', 'a', 'b')
+    // O turno do limite chega com isError: nem por isso pausa com 'error'.
     svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: true })
-    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'limit' })
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: false, pauseReason: null })
+    // Enquanto o aviso do limite está aberto, a fila segura.
+    mgr.status.set(LOCAL, 'idle')
+    holding = true
+    expect(svc.offer(ctx())).toBe(false)
+    expect(sends()).toHaveLength(0)
+    // O aviso saiu (a retomada do Claudinei terminou): a fila continua sem Retomar.
+    holding = false
+    expect(svc.offer(ctx())).toBe(true)
+    expect(sends()).toEqual([['send', LOCAL, 'a', { echo: true }]])
+    // Mesmo com o turno do limite marcado como interrompido, não pausa.
+    svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: true, limited: true })
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: false, pauseReason: null, items: [{ text: 'b' }] })
   })
 
   it('onSessionDied pausa com dead', () => {
@@ -408,16 +449,16 @@ describe('serviço da fila do operador', () => {
     expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'dead', items: [{ text: 'a' }] })
   })
 
-  it('no encerramento do serviço, nem o erro, nem a interrupção, nem a morte pausam', () => {
+  it('no encerramento do serviço, nem o erro, nem a interrupção, nem a morte, nem o limite pausam', () => {
     queued('claude', 'a')
     shuttingDown = true
     svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: false })
     svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: true, limited: false })
     svc.onSessionDied(project.id, 'claude')
     expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: false, pauseReason: null, items: [{ text: 'a' }] })
-    // O limite é de verdade mesmo no encerramento: pausa.
+    // O limite também não pausa: quem segura a fila é o aviso do limite.
     svc.onTurnResult(project.id, 'claude', { isError: true, interrupted: false, limited: true })
-    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: true, pauseReason: 'limit' })
+    expect(svc.dto(project.id, 'claude')).toMatchObject({ paused: false, pauseReason: null })
   })
 
   it('resume tira a pausa e entrega se livre', () => {

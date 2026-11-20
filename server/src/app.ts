@@ -196,7 +196,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   })
   // O limite nasce junto do reinício: revive e publica pelo serviço dele, e
   // absorve a marca do reinício quando o limite bate.
-  const limit = createUsageLimitService({ manager: deps.manager, store: terminalState, restart })
+  const limit = createUsageLimitService({
+    manager: deps.manager, store: terminalState, restart,
+    onLimitNotice: (projectId) => triageWaker.wake(projectId, 'usage_limit'),
+  })
   // Fechar o app desliga o relógio: nenhuma retomada dispara num app fechado.
   app.addHook('onClose', async () => { limit.dispose() })
   registerTerminalStateRoutes(app, { db: deps.db, restart, limit })

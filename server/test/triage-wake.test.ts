@@ -10,6 +10,7 @@ import { createSessionManager } from '../src/claude/manager.js'
 import { ClaudeSession, type SessionOptions } from '../src/claude/session.js'
 import { createTerminalStateStore } from '../src/restart/terminal-state.js'
 import { createRestartService, type RestartService } from '../src/restart/boot.js'
+import { createUsageLimitService, type UsageLimitService } from '../src/limit/usage-limit.js'
 import { createTriageStore, type TriageStore } from '../src/triage/store.js'
 import { createTriageWaker, type TriageWaker } from '../src/triage/wake.js'
 import { buildApp } from '../src/app.js'
@@ -337,6 +338,65 @@ describe('aviso de trabalho interrompido do reinício', () => {
   })
 })
 
+describe('aviso de limite de uso', () => {
+  let terminalState: ReturnType<typeof createTerminalStateStore>
+  let onLimitNotice: ReturnType<typeof vi.fn>
+  let limit: UsageLimitService
+  const daquiSegs = (ms: number) => Math.floor((Date.now() + ms) / 1000)
+
+  beforeEach(() => {
+    terminalState = createTerminalStateStore(db)
+    const waker = createTriageWaker({ store, broadcast: (m) => triageMsgs.push(m as never) })
+    onLimitNotice = vi.fn((projectId: number) => waker.wake(projectId, 'usage_limit'))
+    const restart = createRestartService({
+      db, manager: mgr, store: terminalState,
+      orchestrator: () => undefined,
+      broadcast: () => {},
+      closeInterruptedRuns: () => 0,
+      log: () => {},
+    })
+    limit = createUsageLimitService({
+      manager: mgr, store: terminalState, restart,
+      setTimer: () => ({ clear() {} }),
+      log: () => {},
+      onLimitNotice,
+    })
+  })
+  afterEach(() => limit.dispose())
+
+  it('limite de uso acorda o assentado e o adiado quando o aviso nasce', () => {
+    settleAndSnooze()
+    limit.onUsageLimit(project.id, 'claude', { localId: 'x', resetsAt: daquiSegs(HORA), origin: 'operator' })
+    expect(onLimitNotice.mock.calls).toEqual([[project.id]])
+    expectAwake()
+  })
+
+  it('limite armado sozinho também acorda: o aviso aparece, em destaque', () => {
+    terminalState.setPrefs(project.id, 'claude', { autoResumeLimit: true })
+    settleAndSnooze()
+    limit.onUsageLimit(project.id, 'claude', { localId: 'x', resetsAt: daquiSegs(HORA), origin: 'operator' })
+    expect(terminalState.get(project.id, 'claude').limitAction).toBe('armed')
+    expect(onLimitNotice.mock.calls).toEqual([[project.id]])
+    expectAwake()
+  })
+
+  it('limite que bate de novo com o aviso ainda aberto não acorda de novo', () => {
+    limit.onUsageLimit(project.id, 'claude', { localId: 'x', resetsAt: daquiSegs(HORA), origin: 'operator' })
+    expect(onLimitNotice).toHaveBeenCalledTimes(1)
+    // O operador assentou e adiou com o aviso aberto; outro turno bate no limite.
+    settleAndSnooze()
+    limit.onUsageLimit(project.id, 'claude', { localId: 'x', resetsAt: daquiSegs(2 * HORA), origin: 'schedule' })
+    expect(onLimitNotice).toHaveBeenCalledTimes(1)
+    expectAsleep()
+  })
+
+  it('um despertador que lança não impede o registro do limite', () => {
+    onLimitNotice.mockImplementation(() => { throw new Error('banco travado') })
+    limit.onUsageLimit(project.id, 'claude', { localId: 'x', resetsAt: daquiSegs(HORA), origin: 'operator' })
+    expect(terminalState.get(project.id, 'claude').limitHitAt).not.toBeNull()
+  })
+})
+
 describe('amarração no app', () => {
   it('o buildApp entrega o despertador e liga o aviso retido a ele', async () => {
     const appMsgs: Array<{ type: string; userId?: number }> = []
@@ -353,6 +413,24 @@ describe('amarração no app', () => {
       settleAndSnooze()
       createTerminalStateStore(db).markInterrupted(project.id, 'claude', 'x', null)
       await restart!.boot()
+      expect(appMsgs.filter((m) => m.type === 'triage').map((m) => m.userId)).toEqual([ANA, BETO])
+      expectAwake()
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('o buildApp liga o aviso de limite de uso ao despertador', async () => {
+    const appMsgs: Array<{ type: string; userId?: number }> = []
+    let limit: UsageLimitService | undefined
+    const app = await buildApp({
+      config: loadConfig({}), db, manager: mgr,
+      wsHub: { broadcast: (m: object) => appMsgs.push(m as never), register: () => {} } as never,
+      onLimitReady: (l) => { limit = l },
+    })
+    try {
+      settleAndSnooze()
+      limit!.onUsageLimit(project.id, 'claude', { localId: 'x', resetsAt: Math.floor(Date.now() / 1000) + 3600, origin: 'operator' })
       expect(appMsgs.filter((m) => m.type === 'triage').map((m) => m.userId)).toEqual([ANA, BETO])
       expectAwake()
     } finally {

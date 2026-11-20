@@ -27,6 +27,11 @@ export function createUsageLimitService(deps: {
   setTimer?: (fn: () => void, ms: number) => Timer
   batchSize?: number; gapMs?: number; sleep?: (ms: number) => Promise<void>
   log?: (msg: string) => void
+  /**
+   * O aviso do limite acabou de aparecer para o operador (o terminal não estava
+   * no limite): liga ao despertador da triagem, como o `onHeld` do reinício.
+   */
+  onLimitNotice?: (projectId: number) => void
 }) {
   const { manager, store, restart } = deps
   const now = deps.now ?? Date.now
@@ -214,6 +219,9 @@ export function createUsageLimitService(deps: {
      * tentativa automática nesta janela e reabertura no futuro, arma sozinho.
      */
     onUsageLimit(projectId: number, engine: string, p: { localId: string; resetsAt: number | null; origin: LimitOrigin }): void {
+      // Só onde o aviso NASCE: um limite novo sobre um aviso que segue aberto não
+      // acorda de novo, senão desfaria o assentar ou o adiar feito depois dele.
+      const isNew = store.get(projectId, engine).limitHitAt == null
       restart.absorbInterruption(projectId, engine)
       const row = store.recordUsageLimit(projectId, engine, { resetsAt: p.resetsAt, origin: p.origin })
       limitedLocal.set(keyOf(projectId, engine), p.localId)
@@ -224,6 +232,11 @@ export function createUsageLimitService(deps: {
       // Sempre: um limite novo sobre um armado volta a none e sai do relógio.
       rearm()
       restart.publish(projectId, engine)
+      // Armado ou não, o aviso aparece. O despertador grava no banco, e uma
+      // falha dele não pode desfazer o registro do limite.
+      if (isNew) {
+        try { deps.onLimitNotice?.(projectId) } catch (err) { log(`[limite] despertar ${projectId} falhou: ${(err as Error)?.message ?? err}`) }
+      }
     },
 
     arm(projectId: number, engine: string): void {

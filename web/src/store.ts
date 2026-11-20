@@ -67,6 +67,8 @@ export interface TriageUndo {
   projectId: number
   /** O estado de antes da ação: o desfazer devolve os três campos. */
   before: TriageItem
+  /** O estado logo depois da ação. Se o terminal mudou desde então (acordou), não desfaz. */
+  after: TriageItem
   /** Epoch ms; passado o prazo, não desfaz mais. */
   expiresAt: number
 }
@@ -218,7 +220,7 @@ interface State {
    * navegador; quem escreve e lê é `triageActions.ts`, e o `UndoToast` mostra.
    */
   undo: TriageUndo | null
-  /** Chave i18n do aviso de falha da última ação de triagem; some na próxima. */
+  /** Chave i18n do aviso de falha da última ação de triagem (no canto do `UndoToast`). */
   triageError: 'sidebar.pinSaveError' | 'sidebar.triageSaveError' | null
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void

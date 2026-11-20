@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Sidebar } from '../components/Sidebar'
+import { UndoToast } from '../components/UndoToast'
 import { useStore } from '../store'
 import type { Project, SessionInfo, TriageItem } from '../types'
 
@@ -96,7 +97,7 @@ describe('Sidebar — fixados', () => {
       String(url).endsWith('/triage')
         ? new Response(JSON.stringify({ error: 'falha' }), { status: 500 })
         : new Response('{}', { status: 200 }))
-    render(<Sidebar />)
+    render(<><Sidebar /><UndoToast /></>)
     fireEvent.click(pinnedSwitch())
     fireEvent.click(screen.getByRole('button', { name: 'Desafixar Alpha' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Não foi possível fixar ou desafixar/))

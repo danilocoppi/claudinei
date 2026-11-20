@@ -416,7 +416,7 @@ export const en = {
     unsnooze: 'Cancel snooze',
     didPin: '{{name}} pinned', didUnpin: '{{name}} unpinned', didSettle: '{{name}} settled',
     didUnsettle: '{{name}} removed from settled', didSnooze: '{{name}} snoozed', didUnsnooze: 'Snooze of {{name}} canceled',
-    undo: 'Undo',
+    undo: 'Undo', closeError: 'Close notice',
   },
   restart: {
     queued: 'Resuming the interrupted work…',

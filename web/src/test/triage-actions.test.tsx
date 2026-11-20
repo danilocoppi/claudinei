@@ -30,6 +30,16 @@ type Patch = { pinned?: boolean; settled?: boolean; snoozedUntil?: string | null
 /** O servidor de mentira: aplica as combinações na mesma ordem da rota de verdade. */
 let server: Record<number, TriageItem> = {}
 let failTriage = false
+/** Segura a resposta da rota para um projeto até `release()`: o pedido fica a caminho. */
+let gate: { projectId: number; promise: Promise<void>; release: () => void } | null = null
+const holdRoute = (projectId: number) => {
+  let release = () => {}
+  const promise = new Promise<void>((r) => { release = r })
+  gate = { projectId, promise, release }
+  return gate
+}
+/** O servidor manda pelo WebSocket a triagem nova (o despertar, ou o eco da própria ação). */
+const wsTriage = (t: TriageItem) => act(() => { useStore.getState().applyWsMessage({ type: 'triage', item: t }) })
 const patches: Array<{ projectId: number; body: Patch }> = []
 
 const stubFetch = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
@@ -38,6 +48,7 @@ const stubFetch = () => vi.spyOn(globalThis, 'fetch').mockImplementation(async (
     const projectId = Number(m[1])
     const body = JSON.parse(String(init.body)) as Patch
     patches.push({ projectId, body })
+    if (gate?.projectId === projectId) await gate.promise
     if (failTriage) return new Response(JSON.stringify({ error: 'falha' }), { status: 500 })
     const cur = { ...(server[projectId] ?? item(projectId)) }
     if (body.settled !== undefined) { cur.settled = body.settled; if (body.settled) { cur.pinned = false; cur.snoozedUntil = null } }
@@ -61,6 +72,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW)
   server = {}
   failTriage = false
+  gate = null
   patches.length = 0
   useStore.setState({
     projects: [project(1, 'Alpha'), project(2, 'Beta')],
@@ -192,6 +204,8 @@ describe('triagem pelo menu do cartão', () => {
     expect(useStore.getState().triage[1]).toEqual(item(1, { settled: true }))
     expect(within(screen.getByTestId('triage-settled')).getByText('Alpha')).toBeTruthy()
     expect(toast()?.textContent).toContain('Alpha assentado')
+    // O eco da própria ação pelo WebSocket (mesmo conteúdo, objeto novo) não trava o desfazer.
+    wsTriage(item(1, { settled: true }))
 
     fireEvent.click(within(toast() as HTMLElement).getByRole('button', { name: 'Desfazer' }))
     await settle()
@@ -286,5 +300,75 @@ describe('triagem pelo menu do cartão', () => {
     fireEvent.click(openMenu('Alpha').getByText('Desafixar'))
     await settle()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('com a lateral em trilho, a falha aparece no canto; o × fecha e o aviso não fica velho', async () => {
+    useStore.setState({ railMode: true })
+    failTriage = true
+    renderApp()
+    // Pelo menu do título do chat: a lista larga nem está na tela.
+    await act(() => applyTriage(1, { settled: true }, 'Alpha assentado', null))
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert').textContent).toMatch(/Não foi possível mudar a triagem/)
+    fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Fechar aviso' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(useStore.getState().triageError).toBeNull()
+
+    // Sem o ×, some no mesmo prazo do desfazer: abrir a gaveta depois não mostra erro velho.
+    await act(() => applyTriage(1, { settled: true }, 'Alpha assentado', null))
+    expect(screen.getByRole('alert')).toBeTruthy()
+    act(() => { vi.advanceTimersByTime(5_000) })
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('Desfazer não esconde de novo um terminal que acordou nesse meio-tempo', async () => {
+    const until = new Date(NOW + 3_600_000).toISOString()
+    useStore.setState({ triage: { 1: item(1, { snoozedUntil: until }) } })
+    server = { 1: item(1, { snoozedUntil: until }) }
+    renderApp()
+    await act(() => applyTriage(1, { settled: true }, 'Alpha assentado', null))
+    expect(toast()).toBeTruthy()
+    // O servidor acorda o Alpha (pergunta aberta): tira o assentado.
+    wsTriage(item(1))
+    fireEvent.click(within(toast() as HTMLElement).getByRole('button', { name: 'Desfazer' }))
+    await settle()
+    // Nada vai à rota: re-adiar esconderia o terminal que precisa do operador.
+    expect(patches).toHaveLength(1)
+    expect(useStore.getState().triage[1]).toEqual(item(1))
+    expect(toast()).toBeNull()
+    expect(useStore.getState().undo).toBeNull()
+  })
+
+  it('falha da rota não apaga um despertar que chegou com o pedido a caminho', async () => {
+    const until = new Date(NOW + 3_600_000).toISOString()
+    useStore.setState({ triage: { 1: item(1, { snoozedUntil: until }) } })
+    failTriage = true
+    const hold = holdRoute(1)
+    renderApp()
+    let done: Promise<void> = Promise.resolve()
+    act(() => { done = applyTriage(1, { settled: true }, 'Alpha assentado', null) })
+    expect(useStore.getState().triage[1]).toEqual(item(1, { settled: true })) // a mudança imediata
+    wsTriage(item(1)) // o servidor acordou o Alpha
+    hold.release()
+    await act(() => done)
+    // O estado de antes (adiado) não volta por cima do despertar; o aviso aparece.
+    expect(useStore.getState().triage[1]).toEqual(item(1))
+    expect(screen.getByRole('alert').textContent).toMatch(/Não foi possível mudar a triagem/)
+  })
+
+  it('a ação ignorada (pedido do mesmo terminal a caminho) não apaga o desfazer de outro', async () => {
+    renderApp()
+    const hold = holdRoute(1)
+    let first: Promise<void> = Promise.resolve()
+    act(() => { first = applyTriage(1, { settled: true }, 'Alpha assentado', null) })
+    await act(() => applyTriage(2, { settled: true }, 'Beta assentado', null))
+    expect(toast()?.textContent).toContain('Beta assentado')
+    // Segundo clique no Alpha com o primeiro a caminho: ignorado, sem mexer no aviso do Beta.
+    await act(() => applyTriage(1, { pinned: true }, 'Alpha fixado', null))
+    expect(toast()?.textContent).toContain('Beta assentado')
+    expect(useStore.getState().undo?.projectId).toBe(2)
+    expect(patches.filter((p) => p.projectId === 1)).toHaveLength(1)
+    hold.release()
+    await act(() => first)
   })
 })

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { isForeignField } from '../keyboard'
-import { undoTriage } from '../triageActions'
+import { dismissTriageError, undoTriage } from '../triageActions'
 
 /**
  * O aviso da última ação de triagem ("Alpha assentado · Desfazer") e o `Ctrl+Z`
@@ -13,11 +13,16 @@ import { undoTriage } from '../triageActions'
  * terminal, um modal) o `Ctrl+Z` desfaz o texto, não a triagem. Um listener só,
  * montado com o App, que sem desfazer pendente sai na primeira linha.
  *
+ * O mesmo canto mostra o aviso de falha de uma ação de triagem, venha ela da
+ * lateral larga, do trilho ou do menu do título do chat: é o único lugar sempre na
+ * tela. Falha e desfazer não convivem (a ação que falhou não deixa o que desfazer).
+ *
  * Estático, sem animação nem transição: a interface precisa andar sem GPU.
  */
 export function UndoToast() {
   const { t } = useTranslation()
   const undo = useStore((s) => s.undo)
+  const error = useStore((s) => s.triageError)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -31,6 +36,15 @@ export function UndoToast() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  if (error) {
+    return (
+      <div className="undo-toast undo-toast--error" role="alert" data-testid="triage-error">
+        <span className="undo-toast__label">{t(error)}</span>
+        <button type="button" className="undo-toast__close" aria-label={t('triage.closeError')} title={t('triage.closeError')}
+                onClick={dismissTriageError}>×</button>
+      </div>
+    )
+  }
   if (!undo) return null
   return (
     <div className="undo-toast" role="status" data-testid="undo-toast">

@@ -158,8 +158,6 @@ export function Sidebar() {
   const [showGroupEmoji, setShowGroupEmoji] = useState(false)
   const [activeOnly, setActiveOnly] = useState(loadActiveOnly)
   const [favoritesOnly, setFavoritesOnly] = useState(loadFavoritesOnly)
-  // O aviso de falha de qualquer ação de triagem (⭐ ou menu), daqui ou do chat.
-  const triageError = useStore((s) => s.triageError)
   // Busca pelo nome: estado TRANSITÓRIO, de propósito fora do localStorage. Uma
   // busca esquecida que voltasse no próximo carregamento faria a lista parecer
   // vazia sem motivo aparente.
@@ -189,7 +187,8 @@ export function Sidebar() {
   /**
    * A ⭐ fixa e desafixa, para o usuário logado (triagem), pela mesma porta do
    * menu: muda na hora, entra no desfazer, e se o servidor recusar volta e o aviso
-   * aparece. A estrela fica desabilitada enquanto o pedido não volta.
+   * aparece (no canto do `UndoToast`, o mesmo do desfazer). A estrela fica
+   * desabilitada enquanto o pedido não volta.
    */
   const togglePin = async (p: Project) => {
     const pinned = !useStore.getState().triage[p.id]?.pinned
@@ -914,7 +913,6 @@ export function Sidebar() {
       )}
 
       <div className="term-list">
-        {triageError && <div className="term-list__error" role="alert">{t(triageError)}</div>}
         {/* De cima para baixo: Trabalhando, Fixados, a árvore, Adiados, Assentados.
             Cada uma num contêiner fixo nesta ordem — trocar de seção é trocar de
             pai, então só a triagem (nunca o status de uma sessão) faz isso. */}

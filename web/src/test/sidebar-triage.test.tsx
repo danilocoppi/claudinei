@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Sidebar } from '../components/Sidebar'
+import { UndoToast } from '../components/UndoToast'
 import { WorkingStrip } from '../components/WorkingStrip'
 import { useStore } from '../store'
 import { DEFAULT_APPEARANCE } from '../appearance'
@@ -277,12 +278,12 @@ describe('Sidebar — desempenho da triagem (AGENTS.md)', () => {
   })
 })
 
-// O erro de gravação da ⭐ usa o aviso de sempre (o desfazer: triage-actions.test.tsx).
+// O erro de gravação da ⭐ aparece no canto do UndoToast (o desfazer: triage-actions.test.tsx).
 describe('Sidebar — falha ao fixar', () => {
   it('erro de gravação devolve o cartão e avisa', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(JSON.stringify({ error: 'falha' }), { status: 500 }))
-    render(<Sidebar />)
+    render(<><Sidebar /><UndoToast /></>)
     fireEvent.click(screen.getByRole('button', { name: 'Fixar Beta' }))
     await settle()
     expect(screen.getByRole('alert').textContent).toMatch(/Não foi possível fixar/)

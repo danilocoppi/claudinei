@@ -41,6 +41,9 @@ function combine(cur: TriageItem, p: TriagePatch): TriageItem {
 /** Pedido em andamento por projeto: outro pedido no mesmo terminal, enquanto este não volta, é ignorado. */
 const inFlight = new Set<number>()
 let expiry: ReturnType<typeof setTimeout> | undefined
+let errorExpiry: ReturnType<typeof setTimeout> | undefined
+
+type ErrorKey = 'sidebar.pinSaveError' | 'sidebar.triageSaveError'
 
 /** Troca a entrada de desfazer. O prazo é UM setTimeout, que só limpa se ela ainda for a vigente. */
 function setUndo(entry: TriageUndo | null): void {
@@ -54,23 +57,54 @@ function setUndo(entry: TriageUndo | null): void {
 }
 
 /**
- * Muda o store na hora, grava e aplica a resposta. Devolve o estado de antes, ou
- * `null` se não gravou (falha da rota, que já restaurou e avisou, ou outro pedido
- * do mesmo terminal ainda a caminho).
+ * Mostra (ou tira) o aviso de falha, no mesmo canto do desfazer. Some no × do
+ * aviso, na próxima ação ou no mesmo prazo do desfazer: um erro antigo não fica
+ * esperando a gaveta abrir para aparecer fora de contexto.
  */
-async function commit(projectId: number, patch: TriagePatch, errorKey: 'sidebar.pinSaveError' | 'sidebar.triageSaveError'): Promise<TriageItem | null> {
+function setError(key: ErrorKey | null): void {
+  clearTimeout(errorExpiry)
+  useStore.setState({ triageError: key })
+  if (key) {
+    errorExpiry = setTimeout(() => {
+      if (useStore.getState().triageError === key) useStore.setState({ triageError: null })
+    }, UNDO_MS)
+  }
+}
+
+/** O × do aviso de falha. */
+export function dismissTriageError(): void {
+  setError(null)
+}
+
+const current = (projectId: number): TriageItem | undefined => useStore.getState().triage[projectId]
+const sameTriage = (a: TriageItem, b: TriageItem) =>
+  a.pinned === b.pinned && a.settled === b.settled && a.snoozedUntil === b.snoozedUntil
+
+/**
+ * Muda o store na hora, grava e aplica a resposta. Devolve o estado de antes e o
+ * de depois, ou `null` se não gravou (falha da rota, que já avisou, ou outro
+ * pedido do mesmo terminal ainda a caminho).
+ *
+ * O que o servidor mandou pelo WebSocket enquanto o pedido ia e voltava (um
+ * despertar, ou o eco da própria ação) é mais novo que a mudança imediata: se o
+ * item do store já não é o que pusemos aqui, nem a resposta nem a restauração
+ * passam por cima dele.
+ */
+async function commit(projectId: number, patch: TriagePatch, errorKey: ErrorKey): Promise<{ before: TriageItem; after: TriageItem } | null> {
   if (inFlight.has(projectId)) return null
   inFlight.add(projectId)
   const { setTriageItem } = useStore.getState()
-  const before = useStore.getState().triage[projectId] ?? blank(projectId)
-  useStore.setState({ triageError: null })
-  setTriageItem(combine(before, patch))
+  const before = current(projectId) ?? blank(projectId)
+  const optimistic = combine(before, patch)
+  setError(null)
+  setTriageItem(optimistic)
   try {
-    setTriageItem(await setTriage(projectId, patch))
-    return before
+    const saved = await setTriage(projectId, patch)
+    if (current(projectId) === optimistic) setTriageItem(saved)
+    return { before, after: current(projectId) ?? saved }
   } catch {
-    setTriageItem(before)
-    useStore.setState({ triageError: errorKey })
+    if (current(projectId) === optimistic) setTriageItem(before)
+    setError(errorKey)
     return null
   } finally {
     inFlight.delete(projectId)
@@ -97,25 +131,31 @@ function markProjectRead(projectId: number, ws: Ws): void {
 /**
  * Uma ação de triagem do operador. A ação nova substitui a entrada de desfazer da
  * anterior; se a rota falha, não há o que desfazer. `label` é o texto do aviso.
+ * A ação ignorada (o mesmo terminal com pedido a caminho) não mexe em nada.
  */
 export async function applyTriage(projectId: number, patch: TriagePatch, label: string, ws: Ws): Promise<void> {
+  if (inFlight.has(projectId)) return
   setUndo(null)
   const onlyPin = Object.keys(patch).every((k) => k === 'pinned')
-  const before = await commit(projectId, patch, onlyPin ? 'sidebar.pinSaveError' : 'sidebar.triageSaveError')
-  if (!before) return
+  const done = await commit(projectId, patch, onlyPin ? 'sidebar.pinSaveError' : 'sidebar.triageSaveError')
+  if (!done) return
   if (patch.settled === true || (patch.snoozedUntil ?? null) !== null) markProjectRead(projectId, ws)
-  setUndo({ label, projectId, before, expiresAt: Date.now() + UNDO_MS })
+  setUndo({ label, projectId, before: done.before, after: done.after, expiresAt: Date.now() + UNDO_MS })
 }
 
 /**
  * Devolve os três campos de antes da última ação (desfazer um assentar devolve o
  * pin que ele tirou) e limpa a entrada. Um adiamento de antes que já venceu volta
  * como "não adiado": a rota não aceita horário passado. O desfazer não se desfaz.
+ *
+ * Se o terminal mudou desde a ação (o servidor o acordou), o desfazer só some:
+ * devolver o estado de antes esconderia de novo quem precisa do operador.
  */
 export async function undoTriage(): Promise<void> {
   const u = useStore.getState().undo
   if (!u || Date.now() >= u.expiresAt) return
   setUndo(null)
+  if (!sameTriage(current(u.projectId) ?? blank(u.projectId), u.after)) return
   const { before } = u
   const snoozedUntil = before.snoozedUntil !== null && Date.parse(before.snoozedUntil) > Date.now() ? before.snoozedUntil : null
   await commit(u.projectId, { pinned: before.pinned, settled: before.settled, snoozedUntil }, 'sidebar.triageSaveError')

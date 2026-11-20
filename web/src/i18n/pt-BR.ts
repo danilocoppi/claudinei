@@ -419,7 +419,7 @@ export const ptBR: typeof en = {
     unsnooze: 'Cancelar o adiamento',
     didPin: '{{name}} fixado', didUnpin: '{{name}} desafixado', didSettle: '{{name}} assentado',
     didUnsettle: '{{name}} saiu dos assentados', didSnooze: '{{name}} adiado', didUnsnooze: 'Adiamento de {{name}} cancelado',
-    undo: 'Desfazer',
+    undo: 'Desfazer', closeError: 'Fechar aviso',
   },
   restart: {
     queued: 'Retomando o trabalho interrompido…',

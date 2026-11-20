@@ -418,7 +418,7 @@ export const es: typeof en = {
     unsnooze: 'Cancelar el aplazamiento',
     didPin: '{{name}} fijado', didUnpin: '{{name}} dejó de estar fijado', didSettle: '{{name}} asentado',
     didUnsettle: '{{name}} salió de asentados', didSnooze: '{{name}} pospuesto', didUnsnooze: 'Aplazamiento de {{name}} cancelado',
-    undo: 'Deshacer',
+    undo: 'Deshacer', closeError: 'Cerrar aviso',
   },
   restart: {
     queued: 'Retomando el trabajo interrumpido…',

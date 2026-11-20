@@ -32,6 +32,17 @@ export function holdsForNotice(row: TerminalStateRow, now: number = Date.now()):
     (row.limitHitAt != null && row.limitAction !== 'snoozed')
 }
 
+/**
+ * O aviso que segura o agendador, mais estreito que o `holdsForNotice`: o
+ * trabalho interrompido pelo reinício esperando, ou a janela do limite ainda
+ * fechada (ou com a retomada armada). O aviso do limite que segue na tela
+ * depois da reabertura não segura: o turno bom do agendamento é que o tira
+ * (o próprio agendamento pode ter batido no limite, e ninguém o armou).
+ */
+export function holdsForSchedule(row: TerminalStateRow, now: number = Date.now()): boolean {
+  return row.interruptedAt != null || limitActive(row, now)
+}
+
 export function createNextSend(deps: {
   /** Ordenados por lugar aqui dentro; a integração acrescenta os lugares 4 e 6 por `register`. */
   providers: NextSendProvider[]

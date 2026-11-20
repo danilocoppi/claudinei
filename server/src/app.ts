@@ -50,7 +50,7 @@ import { createTerminalStateStore } from './restart/terminal-state.js'
 import { createRestartService, type RestartService } from './restart/boot.js'
 import { createUsageLimitService, type UsageLimitService } from './limit/usage-limit.js'
 import { createOperatorQueueService, createOperatorQueueStore, type OperatorQueueService } from './queue/operator-queue.js'
-import { createNextSend, holdsForNotice, type NextSend } from './queue/next-send.js'
+import { createNextSend, holdsForNotice, holdsForSchedule, type NextSend } from './queue/next-send.js'
 import { registerOperatorQueueRoutes } from './routes/operator-queue.js'
 import { createTaskWake, type TaskWake } from './delegate/task-wake.js'
 import { createGoalService, type GoalService } from './goal/goal.js'
@@ -268,8 +268,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const schedulesStore = createSchedulesStore(deps.db, { dir: deps.config.schedulesDir })
   const scheduler = createScheduler({
     db: deps.db, store: schedulesStore, manager: deps.manager, broadcast: deps.wsHub?.broadcast,
-    // Só o aviso (o encerramento já para o laço e fecha as execuções na subida).
-    holds: (projectId, engine) => holdsForNotice(terminalState.get(projectId, engine)),
+    // Só o reinício esperando e a janela do limite fechada (o encerramento já
+    // para o laço e fecha as execuções na subida). O aviso do limite que ficou
+    // depois da reabertura não segura: o turno bom do agendamento o tira.
+    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine)),
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)

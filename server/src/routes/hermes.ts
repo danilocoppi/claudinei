@@ -117,6 +117,13 @@ export function registerHermesRoutes(
     const fromProject = body.fromProjectId ? projects.get(Number(body.fromProjectId)) : undefined
     const fromLabel = fromProject?.name ?? 'unknown'
 
+    // Encerrando (reinício do serviço): o motivo é este, e não o aviso do terminal.
+    if (deps.manager.isShuttingDown()) {
+      return reply.code(400).send({
+        error: 'Claudinei is shutting down (service restart in progress); try again in a minute, '
+          + 'or use dispatch_task instead (the task waits for the restart)',
+      })
+    }
     try {
       const accept = deps.canTake ? (engine: string) => deps.canTake!(target.id, engine) : undefined
       const answer = await deps.manager.askAgent(target.id, fromLabel, body.question, undefined, { accept })

@@ -20,6 +20,7 @@ import type { OperatorQueueService } from '../src/queue/operator-queue.js'
 import type { TaskWake } from '../src/delegate/task-wake.js'
 import type { GoalService } from '../src/goal/goal.js'
 import { createTasksService } from '../src/tasks.js'
+import { holdsForNotice } from '../src/queue/next-send.js'
 import { TASK_RESULT_PREFIX } from '../src/delegate/texts.js'
 import { GOAL_PREFIX, goalContinueText } from '../src/goal/texts.js'
 
@@ -190,3 +191,41 @@ describe('ordem única do próximo envio com as três trilhas', () => {
     expect((await req('POST', '/api/hermes/goal-done', { projectId: alfa.id, engine: 'claude', evidence: 'ok' })).statusCode).toBe(200)
   })
 })
+
+describe('agendador e ask_agent com o estado do terminal (app real)', () => {
+  it('limite cuja janela já reabriu (sem retomada armada): o agendamento sai e o turno bom tira o limite', async () => {
+    const { localId: a } = manager.start(alfa)
+    await waitUntil(() => manager.get(a)?.status === 'idle')
+    // O próprio agendamento bateu no limite antes; a reabertura já passou e ninguém agiu.
+    store.recordUsageLimit(alfa.id, 'claude', { resetsAt: Math.floor(Date.now() / 1000) - 60, origin: 'schedule' })
+    expect(store.get(alfa.id, 'claude').limitAction).toBe('none')
+    // Para a fila e o resto, o aviso segue aberto (só sai pelo operador ou por um turno bom).
+    expect(holdsForNotice(store.get(alfa.id, 'claude'))).toBe(true)
+
+    const created = await app.inject({
+      method: 'POST', url: `/api/projects/${alfa.id}/schedules`, cookies,
+      payload: { name: 'Diário', task: 'conferir', cadence: { kind: 'daily', at: '12:00' }, engine: 'claude' },
+    })
+    expect(created.statusCode).toBe(201)
+    const id = created.json().id as number
+    expect((await req('POST', `/api/schedules/${id}/run`)).statusCode).toBe(202)
+    let runs: any[] = []
+    await waitUntil(() => {
+      void app.inject({ method: 'GET', url: `/api/schedules/${id}/runs`, cookies }).then((r) => { runs = r.json() })
+      return runs[0]?.status === 'ok'
+    })
+    expect(userTexts(a).some((t) => t.includes('conferir'))).toBe(true)
+    await waitUntil(() => store.get(alfa.id, 'claude').limitHitAt == null)
+  })
+
+  it('ask_agent no encerramento do serviço responde com o motivo do encerramento, não com o do aviso', async () => {
+    const { localId: b } = manager.start(beta)
+    await waitUntil(() => manager.get(b)?.status === 'idle')
+    manager.beginShutdown()
+    const res = await req('POST', '/api/hermes/ask', { fromProjectId: alfa.id, toProjectName: 'Beta', question: 'oi?' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/shutting down/)
+    expect(res.json().error).not.toMatch(/notice/)
+  })
+})
+

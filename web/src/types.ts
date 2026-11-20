@@ -134,13 +134,14 @@ export type ChatItem =
    */
   | { kind: 'scheduled_message'; name: string; run: number; text: string; fromSubagent?: boolean; parentId?: string }
   /**
-   * Mensagem de retomada que o PRÓPRIO Claudinei mandou ao agente depois de um
-   * reinício no meio do turno. Vai em inglês ao agente (como as regras do Hermes);
-   * a tela mostra o texto traduzido, e o selo `[Claudinei: resume after restart]`
-   * é o que a separa de uma mensagem digitada. `text` é o corpo em inglês, guardado
-   * só para referência.
+   * Mensagem de retomada que o PRÓPRIO Claudinei mandou ao agente: depois de um
+   * reinício no meio do turno (`restart`) ou da reabertura da janela do limite de
+   * uso (`limit`). Vai em inglês ao agente (como as regras do Hermes); a tela
+   * mostra o texto traduzido do motivo, e o selo (`[Claudinei: resume after
+   * restart]` ou `[Claudinei: resume after usage limit]`) é o que a separa de uma
+   * mensagem digitada. `text` é o corpo em inglês, guardado só para referência.
    */
-  | { kind: 'claudinei_message'; text: string; fromSubagent?: boolean; parentId?: string }
+  | { kind: 'claudinei_message'; reason: 'restart' | 'limit'; text: string; fromSubagent?: boolean; parentId?: string }
 
 /**
  * Um nó do cartão que o plugin "You should know" do Claude desenha (o mesmo que o
@@ -155,8 +156,9 @@ export type HeadsUpNode = string | {
 }
 
 /**
- * Reinício sem prejuízo, por terminal (projeto + motor): os dois interruptores e a
- * marca de turno interrompido pelo reinício do serviço. Espelha `TerminalStateDto`
+ * Reinício sem prejuízo e limite de uso, por terminal (projeto + motor): os
+ * interruptores, a marca de turno interrompido pelo reinício do serviço e o
+ * limite de uso que o terminal bateu. Espelha `TerminalStateDto`
  * de server/src/restart/terminal-state.ts.
  * - `queued`: na fila para retomar sozinho;
  * - `off`: "retomar" desligado no terminal;
@@ -165,12 +167,27 @@ export type HeadsUpNode = string | {
  * - `failed`: a retomada automática falhou.
  */
 export type InterruptionReason = 'off' | 'question' | 'limit' | 'failed' | 'queued'
+/**
+ * Limite de uso que o terminal bateu. `resetsAt` em epoch SEGUNDOS (`null`:
+ * reabertura desconhecida). `action`: `none` (só o aviso), `armed` (retoma
+ * sozinho 60 s depois da reabertura) ou `snoozed` (aviso escondido até ela).
+ */
+export type UsageLimitAction = 'none' | 'armed' | 'snoozed'
+export interface UsageLimit {
+  hitAt: string
+  resetsAt: number | null
+  action: UsageLimitAction
+  origin: 'operator' | 'schedule' | 'task' | 'claudinei'
+}
 export interface TerminalState {
   projectId: number
   engine: string
   autostart: boolean
   autoResume: boolean
   interruption: null | { at: string; reason: InterruptionReason; question?: Question[] }
+  /** "Continuar sozinho quando o limite reabrir" (só o Claude). */
+  autoResumeLimit: boolean
+  usageLimit: null | UsageLimit
 }
 
 /**

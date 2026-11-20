@@ -181,6 +181,15 @@ if (process.argv.includes('--hermes')) {
   let restart: import('./restart/boot.js').RestartService | undefined
   // E para o despertador da triagem, que nasce com o store dela no buildApp.
   let triageWaker: import('./triage/wake.js').TriageWaker | undefined
+  // E para o do limite de uso, que nasce junto dele: o limite que bateu, o fim
+  // de turno e a mensagem do operador chegam pela referência atual.
+  let limit: import('./limit/usage-limit.js').UsageLimitService | undefined
+  /** Um gancho que falha não pode impedir o outro: cada serviço cuida do seu estado. */
+  const both = (label: string, ...calls: Array<() => void>): void => {
+    for (const call of calls) {
+      try { call() } catch (err) { console.error(`[${label}] gancho falhou`, err) }
+    }
+  }
   const terminalState = createTerminalStateStore(db)
   // Queda brusca da vez anterior: quem ficou `working` no banco estava no meio
   // de um turno. Tem que ler ANTES do createSessionManager, que reescreve esses
@@ -197,8 +206,17 @@ if (process.argv.includes('--hermes')) {
     onSessionAvailable: (projectId) => drain?.(projectId),
     onEngineUsage: (engine, tokens) => engineUsage.record(engine, tokens),
     onRateLimit: (info) => usage.observe(info),
-    onTurnResult: (projectId, engine) => restart?.onTurnResult(projectId, engine),
-    onOperatorMessage: (projectId, engine) => restart?.onOperatorMessage(projectId, engine),
+    onTurnResult: (projectId, engine, info) => both('fim de turno',
+      () => restart?.onTurnResult(projectId, engine),
+      () => limit?.onTurnResult(projectId, engine, info)),
+    onOperatorMessage: (projectId, engine) => both('mensagem do operador',
+      () => restart?.onOperatorMessage(projectId, engine),
+      () => limit?.onOperatorMessage(projectId, engine)),
+    // Também pelo both: só para a falha sair no log (o manager engole o erro).
+    onUsageLimit: (projectId, engine, p) => both('limite de uso',
+      () => limit?.onUsageLimit(projectId, engine, p)),
+    // Limite detectado só pelo texto, sem rate_limit_event: o horário vem do último 429 do uso.
+    lastRejectedResetsAt: () => usage.lastRejectedResetsAt(),
     onNeedsOperator: (projectId, reason) => triageWaker?.wake(projectId, reason),
     terminalLauncher: (opts) => terminalManager.open(opts.localId, {
       cwd: opts.cwd,
@@ -248,6 +266,7 @@ if (process.argv.includes('--hermes')) {
     onSchedulerReady: (s) => { scheduler = s },
     onRestartReady: (r) => { restart = r },
     onTriageWakerReady: (w) => { triageWaker = w },
+    onLimitReady: (l) => { limit = l },
     onRevokeAll: () => {
       wsHub.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
@@ -263,8 +282,9 @@ if (process.argv.includes('--hermes')) {
   // agendador só liga depois da subida: um agendamento não disputa a sessão com
   // a retomada. Sem await: a subida espera entre lotes, e nem o log abaixo nem
   // os ouvintes de SIGINT/SIGTERM (que registram a interrupção) podem esperar.
-  void startAfterListen({ restart, scheduler, isShuttingDown: () => manager.isShuttingDown() })
-    .catch((err) => console.error('[reinício] arranque depois do listen falhou', err))
+  // O limite de uso sobe depois do reinício e antes do agendador (ver startAfterListen).
+  void startAfterListen({ restart, limit, scheduler, isShuttingDown: () => manager.isShuttingDown() })
+    .catch((err) => console.error('[reinício/limite] arranque depois do listen falhou', err))
   // Sem await: a primeira passada roda em segundo plano e repete a cada 10 min; uma
   // passada que lança é registrada no log pelo próprio indexador.
   usageIndexer.start()
@@ -291,6 +311,8 @@ if (process.argv.includes('--hermes')) {
       // tarefas encaminhadas abertas para a próxima subida religar).
       const marcadas = captureShutdown(manager, terminalState)
       if (marcadas > 0) console.log(`[reinício] ${marcadas} terminal(is) interrompidos no meio de um turno`)
+      // O relógio do limite para: uma retomada armada fica no banco para a próxima subida.
+      limit?.dispose()
       scheduler?.stop()
       await manager.stopAll()
       await speech.stop()

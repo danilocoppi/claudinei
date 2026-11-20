@@ -2,9 +2,10 @@ import type { Db } from '../db.js'
 import type { Question } from '../claude/session.js'
 
 /**
- * Estado de reinício por terminal (projeto + motor): os dois interruptores
- * ("Iniciar com o Claudinei" e "Retomar trabalho interrompido") e a marca de
- * turno interrompido pelo reinício do serviço.
+ * Estado de reinício por terminal (projeto + motor): os interruptores
+ * ("Iniciar com o Claudinei", "Retomar trabalho interrompido" e "Continuar
+ * sozinho quando o limite reabrir"), a marca de turno interrompido pelo
+ * reinício do serviço e o limite de uso que o terminal bateu.
  *
  * Terminal sem linha é o padrão: tudo desligado e nada interrompido. As linhas
  * só nascem quando algo é gravado.
@@ -19,17 +20,38 @@ import type { Question } from '../claude/session.js'
  */
 export type HoldReason = 'off' | 'question' | 'limit' | 'failed'
 
+/**
+ * O que fazer quando o limite de uso reabrir:
+ * - `none`: nada, só o aviso;
+ * - `armed`: retomar sozinho (com a folga depois do `resetsAt`);
+ * - `snoozed`: esconder o aviso até a reabertura, sem mandar nada.
+ */
+export type LimitAction = 'none' | 'armed' | 'snoozed'
+
+/** Quem disparou o turno que bateu o limite. */
+export type LimitOrigin = 'operator' | 'schedule' | 'task' | 'claudinei'
+
+const LIMIT_ACTIONS: readonly string[] = ['none', 'armed', 'snoozed'] satisfies LimitAction[]
+const LIMIT_ORIGINS: readonly string[] = ['operator', 'schedule', 'task', 'claudinei'] satisfies LimitOrigin[]
+
 export interface TerminalStateRow {
   projectId: number; engine: string
   autostart: boolean; autoResume: boolean
   interruptedAt: string | null; interruptedLocalId: string | null
   lostQuestion: Question[] | null; resumeCount: number
   holdReason: HoldReason | null   // null + interruptedAt = na fila para retomar
+  autoResumeLimit: boolean
+  limitHitAt: string | null       // null = sem limite ativo
+  limitResetsAt: number | null    // epoch SEGUNDOS; null = reabertura desconhecida
+  limitAction: LimitAction; limitOrigin: LimitOrigin | null
+  limitTries: number              // retomadas automáticas na janela; zera num turno sem erro
 }
 
 export interface TerminalStateDto {
   projectId: number; engine: string; autostart: boolean; autoResume: boolean
   interruption: null | { at: string; reason: HoldReason | 'queued'; question?: Question[] }
+  autoResumeLimit: boolean
+  usageLimit: null | { hitAt: string; resetsAt: number | null; action: LimitAction; origin: LimitOrigin }
 }
 
 /** Erro com que fecham a tarefa encaminhada e a execução de agendamento que o reinício matou. */
@@ -40,6 +62,9 @@ interface RawRow {
   autostart: number; auto_resume: number
   interrupted_at: string | null; interrupted_local_id: string | null; lost_question: string | null
   resume_count: number; hold_reason: string | null
+  auto_resume_limit: number
+  limit_hit_at: string | null; limit_resets_at: number | null
+  limit_action: string; limit_origin: string | null; limit_tries: number
 }
 
 /** JSON das perguntas gravado no banco. Ilegível vira `null`: perder o texto da pergunta não pode derrubar a subida. */
@@ -64,6 +89,13 @@ function fromRaw(r: RawRow): TerminalStateRow {
     lostQuestion: parseQuestions(r.lost_question),
     resumeCount: r.resume_count,
     holdReason: r.hold_reason as HoldReason | null,
+    autoResumeLimit: r.auto_resume_limit === 1,
+    limitHitAt: r.limit_hit_at,
+    limitResetsAt: r.limit_resets_at,
+    // Valor desconhecido no banco não arma nem adia nada: vira 'none'.
+    limitAction: LIMIT_ACTIONS.includes(r.limit_action) ? (r.limit_action as LimitAction) : 'none',
+    limitOrigin: r.limit_origin != null && LIMIT_ORIGINS.includes(r.limit_origin) ? (r.limit_origin as LimitOrigin) : null,
+    limitTries: r.limit_tries,
   }
 }
 
@@ -73,6 +105,8 @@ function defaultRow(projectId: number, engine: string): TerminalStateRow {
     autostart: false, autoResume: false,
     interruptedAt: null, interruptedLocalId: null,
     lostQuestion: null, resumeCount: 0, holdReason: null,
+    autoResumeLimit: false,
+    limitHitAt: null, limitResetsAt: null, limitAction: 'none', limitOrigin: null, limitTries: 0,
   }
 }
 
@@ -97,6 +131,17 @@ export function createTerminalStateStore(db: Db) {
         SET interrupted_at = NULL, interrupted_local_id = NULL, lost_question = NULL, hold_reason = NULL
       WHERE project_id = ? AND engine = ?`,
   )
+  // Não mexe em `limit_tries`: a tentativa automática conta por janela, e só um
+  // turno sem erro a zera (resetLimitTries).
+  const clearLimitSql = db.prepare(
+    `UPDATE terminal_state
+        SET limit_hit_at = NULL, limit_resets_at = NULL, limit_action = 'none', limit_origin = NULL
+      WHERE project_id = ? AND engine = ?`,
+  )
+  const selectByAction = db.prepare(
+    `SELECT * FROM terminal_state
+      WHERE limit_action = ? AND limit_hit_at IS NOT NULL ORDER BY project_id, engine`,
+  )
 
   function get(projectId: number, engine: string): TerminalStateRow {
     const r = selectOne.get(projectId, engine) as RawRow | undefined
@@ -111,16 +156,22 @@ export function createTerminalStateStore(db: Db) {
     },
 
     /** Grava só os interruptores que vieram; o que ficou de fora mantém o valor. */
-    setPrefs(projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean }): TerminalStateRow {
-      const autostart = p.autostart === undefined ? null : p.autostart ? 1 : 0
-      const autoResume = p.autoResume === undefined ? null : p.autoResume ? 1 : 0
+    setPrefs(
+      projectId: number, engine: string,
+      p: { autostart?: boolean; autoResume?: boolean; autoResumeLimit?: boolean },
+    ): TerminalStateRow {
+      const bit = (v: boolean | undefined) => (v === undefined ? null : v ? 1 : 0)
+      const autostart = bit(p.autostart)
+      const autoResume = bit(p.autoResume)
+      const autoResumeLimit = bit(p.autoResumeLimit)
       db.prepare(
-        `INSERT INTO terminal_state (project_id, engine, autostart, auto_resume)
-         VALUES (?, ?, COALESCE(?, 0), COALESCE(?, 0))
+        `INSERT INTO terminal_state (project_id, engine, autostart, auto_resume, auto_resume_limit)
+         VALUES (?, ?, COALESCE(?, 0), COALESCE(?, 0), COALESCE(?, 0))
          ON CONFLICT(project_id, engine) DO UPDATE SET
            autostart = COALESCE(?, autostart),
-           auto_resume = COALESCE(?, auto_resume)`,
-      ).run(projectId, engine, autostart, autoResume, autostart, autoResume)
+           auto_resume = COALESCE(?, auto_resume),
+           auto_resume_limit = COALESCE(?, auto_resume_limit)`,
+      ).run(projectId, engine, autostart, autoResume, autoResumeLimit, autostart, autoResume, autoResumeLimit)
       return get(projectId, engine)
     },
 
@@ -161,6 +212,65 @@ export function createTerminalStateStore(db: Db) {
     resetResume(projectId: number, engine: string): void {
       db.prepare(`UPDATE terminal_state SET resume_count = 0 WHERE project_id = ? AND engine = ?`).run(projectId, engine)
     },
+
+    /**
+     * Grava o limite de uso que o terminal bateu agora. A ação volta a `none`
+     * (o operador decide de novo) e não toca na marca do reinício, nos
+     * interruptores nem em `limit_tries`.
+     */
+    recordUsageLimit(projectId: number, engine: string, p: { resetsAt: number | null; origin: LimitOrigin }): TerminalStateRow {
+      db.prepare(
+        `INSERT INTO terminal_state (project_id, engine, limit_hit_at, limit_resets_at, limit_action, limit_origin)
+         VALUES (?, ?, datetime('now'), ?, 'none', ?)
+         ON CONFLICT(project_id, engine) DO UPDATE SET
+           limit_hit_at = datetime('now'),
+           limit_resets_at = excluded.limit_resets_at,
+           limit_action = 'none',
+           limit_origin = excluded.limit_origin`,
+      ).run(projectId, engine, p.resetsAt, p.origin)
+      return get(projectId, engine)
+    },
+
+    /** Só muda a ação de uma linha que já existe: sem limite gravado não há o que armar. */
+    setLimitAction(projectId: number, engine: string, action: LimitAction): void {
+      db.prepare(`UPDATE terminal_state SET limit_action = ? WHERE project_id = ? AND engine = ?`).run(action, projectId, engine)
+    },
+
+    /**
+     * Limpa o limite e devolve o que havia; `null` se não havia. Na transação,
+     * o relógio e o clique em "Continuar agora" não retomam a mesma janela duas vezes.
+     */
+    takeLimit: db.transaction((projectId: number, engine: string): TerminalStateRow | null => {
+      const row = get(projectId, engine)
+      if (row.limitHitAt == null) return null
+      clearLimitSql.run(projectId, engine)
+      return row
+    }),
+
+    clearLimit(projectId: number, engine: string): void {
+      clearLimitSql.run(projectId, engine)
+    },
+
+    bumpLimitTries(projectId: number, engine: string): void {
+      db.prepare(
+        `INSERT INTO terminal_state (project_id, engine, limit_tries) VALUES (?, ?, 1)
+         ON CONFLICT(project_id, engine) DO UPDATE SET limit_tries = limit_tries + 1`,
+      ).run(projectId, engine)
+    },
+
+    resetLimitTries(projectId: number, engine: string): void {
+      db.prepare(`UPDATE terminal_state SET limit_tries = 0 WHERE project_id = ? AND engine = ?`).run(projectId, engine)
+    },
+
+    /** Terminais com limite ativo e retomada armada. */
+    listArmed(): TerminalStateRow[] {
+      return (selectByAction.all('armed') as RawRow[]).map(fromRaw)
+    },
+
+    /** Terminais com limite ativo e aviso adiado até a reabertura. */
+    listSnoozed(): TerminalStateRow[] {
+      return (selectByAction.all('snoozed') as RawRow[]).map(fromRaw)
+    },
   }
 }
 
@@ -172,7 +282,20 @@ export function toDto(row: TerminalStateRow): TerminalStateDto {
     interruption = { at: row.interruptedAt, reason: row.holdReason ?? 'queued' }
     if (row.lostQuestion) interruption.question = row.lostQuestion
   }
-  return { projectId: row.projectId, engine: row.engine, autostart: row.autostart, autoResume: row.autoResume, interruption }
+  let usageLimit: TerminalStateDto['usageLimit'] = null
+  if (row.limitHitAt != null) {
+    usageLimit = {
+      hitAt: row.limitHitAt,
+      resetsAt: row.limitResetsAt,
+      action: row.limitAction,
+      // recordUsageLimit sempre grava a origem; ausente no banco, vale a do operador.
+      origin: row.limitOrigin ?? 'operator',
+    }
+  }
+  return {
+    projectId: row.projectId, engine: row.engine, autostart: row.autostart, autoResume: row.autoResume,
+    interruption, autoResumeLimit: row.autoResumeLimit, usageLimit,
+  }
 }
 
 /**

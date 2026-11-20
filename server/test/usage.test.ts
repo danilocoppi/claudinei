@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Fastify from 'fastify'
-import { createUsageService } from '../src/usage.js'
+import { createUsageService, rateLimitWindows } from '../src/usage.js'
 import { registerUsageRoutes } from '../src/routes/usage.js'
 
 /** Resposta real do endpoint (spike 2026-07-12), reduzida ao que importa. */
@@ -130,5 +130,40 @@ describe('GET /api/usage', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ limits: [], tokens })
     await app.close()
+  })
+})
+
+describe('limite rejeitado guardado no uso', () => {
+  const T0 = Date.parse('2026-11-20T12:00:00Z')
+  const sec = (iso: string) => Date.parse(iso) / 1000
+
+  it('lastRejectedResetsAt: o maior resetsAt futuro entre as janelas rejeitadas (critical), em segundos', () => {
+    let t = T0
+    const svc = createUsageService({ credentialsPath: '/nao/existe', now: () => t })
+    expect(svc.lastRejectedResetsAt()).toBeNull()
+    // Janela permitida não conta.
+    svc.observe({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.5, resetsAt: sec('2026-11-20T15:00:00Z') })
+    expect(svc.lastRejectedResetsAt()).toBeNull()
+    // As duas rejeitadas: vale a que reabre mais tarde.
+    svc.observe({
+      status: 'rejected', rateLimitType: 'five_hour', resetsAt: sec('2026-11-20T15:00:00Z'),
+      unifiedWindows: {
+        five_hour: { status: 'rejected', utilization: 1, resetsAt: sec('2026-11-20T15:00:00Z') },
+        seven_day: { status: 'rejected', utilization: 1, resetsAt: sec('2026-11-22T00:00:00Z') },
+      },
+    })
+    expect(svc.lastRejectedResetsAt()).toBe(sec('2026-11-22T00:00:00Z'))
+    // Só a de 5 h rejeitada: a semanal volta a permitida.
+    svc.observe({ status: 'allowed', rateLimitType: 'seven_day', utilization: 0.4, resetsAt: sec('2026-11-22T00:00:00Z') })
+    expect(svc.lastRejectedResetsAt()).toBe(sec('2026-11-20T15:00:00Z'))
+    // Depois da hora, nada.
+    t = Date.parse('2026-11-20T15:00:01Z')
+    expect(svc.lastRejectedResetsAt()).toBeNull()
+  })
+
+  it('rateLimitWindows lê as janelas de um rate_limit_info', () => {
+    expect(rateLimitWindows({ status: 'rejected', rateLimitType: 'five_hour', resetsAt: 100 }))
+      .toEqual([['five_hour', { utilization: 100, resetsAt: 100, status: 'rejected' }]])
+    expect(rateLimitWindows('lixo')).toEqual([])
   })
 })

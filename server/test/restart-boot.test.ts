@@ -38,6 +38,8 @@ const row = (over: Partial<TerminalStateRow> = {}): TerminalStateRow => ({
   autostart: false, autoResume: false,
   interruptedAt: null, interruptedLocalId: null,
   lostQuestion: null, resumeCount: 0, holdReason: null,
+  autoResumeLimit: false,
+  limitHitAt: null, limitResetsAt: null, limitAction: 'none', limitOrigin: null, limitTries: 0,
   ...over,
 })
 const interrupted = (over: Partial<TerminalStateRow> = {}) =>
@@ -162,6 +164,67 @@ describe('planBoot', () => {
     const seen: [number, string][] = []
     planBoot([row({ projectId: 7, engine: 'codex', autostart: true })], latest(), (p, e) => { seen.push([p, e]); return true })
     expect(seen).toEqual([[7, 'codex']])
+  })
+
+  const listed = () => true
+
+  // Limite de uso ativo: a retomada fica com o serviço do limite, e o boot absorve a marca.
+  const AGORA = Date.UTC(2026, 10, 20, 12, 0, 0)   // ms
+  const limitado = (resetsAt: number | null) =>
+    ({ limitHitAt: '2026-11-20 11:00:00', limitResetsAt: resetsAt, limitOrigin: 'operator' as const })
+
+  it('planBoot pula interrupção com limite futuro', () => {
+    const futuro = AGORA / 1000 + 3600   // epoch segundos
+    expect(planBoot([interrupted({ autoResume: true, ...limitado(futuro) })], latest(), listed, AGORA)).toEqual([])
+    // Nem hold, nem subida parada com o iniciar ligado, nem com uma pergunta perdida.
+    expect(planBoot([interrupted({ autostart: true, ...limitado(futuro) })], latest(), listed, AGORA)).toEqual([])
+    expect(planBoot([interrupted({ lostQuestion: pergunta, ...limitado(futuro) })], latest(), listed, AGORA)).toEqual([])
+    // Reabertura desconhecida conta como limite ativo.
+    expect(planBoot([interrupted({ autoResume: true, ...limitado(null) })], latest(), listed, AGORA)).toEqual([])
+    // Sem interrupção, o limite não impede o iniciar.
+    expect(planBoot([row({ autostart: true, ...limitado(futuro) })], latest(), listed, AGORA)).toEqual([
+      { kind: 'idle', projectId: 1, engine: 'claude', localId: 'loc-ult' },
+    ])
+  })
+
+  it('planBoot retoma normalmente se o limite já reabriu', () => {
+    const passado = AGORA / 1000 - 60
+    expect(planBoot([interrupted({ autoResume: true, ...limitado(passado) })], latest(), listed, AGORA)).toEqual([
+      { kind: 'resume', projectId: 1, engine: 'claude', localId: 'loc-int' },
+    ])
+    // Exatamente na hora da reabertura já não é ativo.
+    expect(planBoot([interrupted({ autoResume: true, ...limitado(AGORA / 1000) })], latest(), listed, AGORA)[0].kind).toBe('resume')
+    expect(planBoot([interrupted({ ...limitado(passado) })], latest(), listed, AGORA)).toEqual([
+      { kind: 'hold', projectId: 1, engine: 'claude', reason: 'off', alsoIdle: false, localId: 'loc-int' },
+    ])
+  })
+
+  it('planBoot: reabertura desconhecida só conta como ativa até 5 h depois do limite', () => {
+    // limitHitAt vem do datetime('now') do SQLite: 'YYYY-MM-DD HH:MM:SS', em UTC. AGORA = 12:00 UTC.
+    const semHora = (hitAt: string) => ({ ...limitado(null), limitHitAt: hitAt })
+    // 4 h 59 min 59 s depois: ainda ativo, o reinício não retoma.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-20 07:00:01') })], latest(), listed, AGORA)).toEqual([])
+    // Exatamente 5 h depois, e além: já não é ativo, o reinício retoma como sempre.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-20 07:00:00') })], latest(), listed, AGORA)).toEqual([
+      { kind: 'resume', projectId: 1, engine: 'claude', localId: 'loc-int' },
+    ])
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-19 12:00:00') })], latest(), listed, AGORA)[0].kind).toBe('resume')
+    // Armado segue ativo sempre (R8), mesmo sem hora e com o limite antigo.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('2026-11-19 12:00:00'), limitAction: 'armed' })], latest(), listed, AGORA)).toEqual([])
+    // Data que não se lê não segura o terminal para sempre.
+    expect(planBoot([interrupted({ autoResume: true, ...semHora('lixo') })], latest(), listed, AGORA)[0].kind).toBe('resume')
+  })
+
+  it('planBoot pula interrupção com retomada armada já vencida', () => {
+    const passado = AGORA / 1000 - 3600
+    const armado = { ...limitado(passado), limitAction: 'armed' as const }
+    // A mensagem é do serviço do limite: o reinício não retoma, não segura nem sobe.
+    expect(planBoot([interrupted({ autoResume: true, ...armado })], latest(), listed, AGORA)).toEqual([])
+    expect(planBoot([interrupted({ autostart: true, ...armado })], latest(), listed, AGORA)).toEqual([])
+    // Adiado com a reabertura passada segue o caminho de sempre.
+    expect(planBoot([interrupted({ autoResume: true, ...limitado(passado), limitAction: 'snoozed' })], latest(), listed, AGORA)).toEqual([
+      { kind: 'resume', projectId: 1, engine: 'claude', localId: 'loc-int' },
+    ])
   })
 })
 
@@ -480,6 +543,117 @@ describe('createRestartService.boot', () => {
   })
 })
 
+describe('createRestartService: limite de uso', () => {
+  const emUmaHora = () => Math.floor(Date.now() / 1000) + 3600   // epoch segundos
+
+  it('boot absorve a marca do terminal limitado e fecha as tarefas anotadas', async () => {
+    const p = newProject('P')
+    const localId = seedSession(p)
+    store.setPrefs(p.id, 'claude', { autoResume: true, autostart: true })
+    store.markInterrupted(p.id, 'claude', localId, null)
+    store.recordUsageLimit(p.id, 'claude', { resetsAt: emUmaHora(), origin: 'operator' })
+    const tasks = createTasksService(db)
+    const t = tasks.create(null, p.id, 'faça', 'in_progress').id
+    tasks.setToEngine(t, 'claude')
+    const sent = vi.spyOn(mgr, 'sendAsClaudinei')
+
+    const { svc } = makeService()
+    await svc.boot()
+
+    const st = store.get(p.id, 'claude')
+    expect(st).toMatchObject({ interruptedAt: null, interruptedLocalId: null, holdReason: null })
+    // O limite fica: a retomada é do serviço do limite.
+    expect(st.limitHitAt).not.toBeNull()
+    expect(tasks.get(t)).toMatchObject({ status: 'failed', result: RESTART_FAIL_TEXT })
+    expect(stateBroadcasts).toContainEqual({
+      type: 'terminal_state',
+      state: expect.objectContaining({ projectId: p.id, interruption: null, usageLimit: expect.objectContaining({ action: 'none' }) }),
+    })
+    // Nada sobe nem sai: nem retomada, nem subida parada.
+    expect(sent).not.toHaveBeenCalled()
+    expect(activeOf(p)).toBeUndefined()
+    expect(resumeEchoes()).toHaveLength(0)
+  })
+
+  it('boot com o limite já reaberto retoma como antes', async () => {
+    const p = newProject('P')
+    const localId = seedSession(p)
+    store.setPrefs(p.id, 'claude', { autoResume: true })
+    store.markInterrupted(p.id, 'claude', localId, null)
+    store.recordUsageLimit(p.id, 'claude', { resetsAt: Math.floor(Date.now() / 1000) - 60, origin: 'operator' })
+
+    const { svc } = makeService()
+    await svc.boot()
+
+    await waitUntil(() => resumeEchoes().length === 1)
+    expect(store.get(p.id, 'claude').interruptedAt).toBeNull()
+  })
+
+  it('absorbInterruption tira a marca, fecha as tarefas anotadas e publica', async () => {
+    // Retomada no segundo lote: a tarefa dele fica anotada enquanto o primeiro sobe.
+    const [p1, p2] = [newProject('P1'), newProject('P2')]
+    const ids = [p1, p2].map((p) => {
+      const localId = seedSession(p)
+      store.setPrefs(p.id, 'claude', { autoResume: true })
+      store.markInterrupted(p.id, 'claude', localId, null)
+      return localId
+    })
+    const tasks = createTasksService(db)
+    const t = tasks.create(null, p2.id, 'faça', 'in_progress').id
+    tasks.setToEngine(t, 'claude')
+    let release!: () => void
+    const svc = createRestartService({
+      db, manager: mgr, store, orchestrator: () => orch, broadcast: (m) => stateBroadcasts.push(m),
+      closeInterruptedRuns: () => 0,
+      batchSize: 1, sleep: () => new Promise<void>((r) => { release = r }), log: () => {},
+    })
+    const booting = svc.boot()
+    await waitUntil(() => release !== undefined)
+    expect(tasks.get(t)?.status).toBe('in_progress')
+
+    svc.absorbInterruption(p2.id, 'claude')
+    expect(store.get(p2.id, 'claude').interruptedAt).toBeNull()
+    expect(tasks.get(t)).toMatchObject({ status: 'failed', result: RESTART_FAIL_TEXT })
+    expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: expect.objectContaining({ projectId: p2.id, interruption: null }) })
+
+    release()
+    await booting
+    // O lote encontra a marca já absorvida: só o primeiro terminal retoma.
+    await waitUntil(() => resumeEchoes().length === 1)
+    expect(resumeEchoes().map((b) => b.localId)).toEqual([ids[0]])
+    expect(activeOf(p2)).toBeUndefined()
+  })
+
+  it('absorbInterruption sem marca não publica', () => {
+    const p = newProject('P')
+    const { svc } = makeService()
+    svc.absorbInterruption(p.id, 'claude')
+    expect(stateBroadcasts).toEqual([])
+  })
+
+  it('absorbInterruption não faz nada durante o encerramento', () => {
+    const p = newProject('P')
+    const localId = seedSession(p)
+    store.markInterrupted(p.id, 'claude', localId, null)
+    mgr.beginShutdown()
+    const { svc } = makeService()
+    svc.absorbInterruption(p.id, 'claude')
+    expect(store.get(p.id, 'claude')).toMatchObject({ interruptedLocalId: localId })
+    expect(stateBroadcasts).toEqual([])
+  })
+
+  it('bringUp e publish ficam expostos ao serviço do limite', async () => {
+    const p = newProject('P')
+    const localId = seedSession(p)
+    const { svc } = makeService()
+    expect(svc.bringUp(p.id, 'claude', localId)).toBe(localId)
+    expect(activeOf(p)?.localId).toBe(localId)
+    const dto = svc.publish(p.id, 'claude')
+    expect(dto).toMatchObject({ projectId: p.id, engine: 'claude', interruption: null })
+    expect(stateBroadcasts).toEqual([{ type: 'terminal_state', state: dto }])
+  })
+})
+
 describe('createRestartService: mensagens e interruptores', () => {
   it('onOperatorMessage limpa o aviso e zera o contador', () => {
     const p = newProject('P')
@@ -638,7 +812,10 @@ describe('createRestartService: mensagens e interruptores', () => {
     const p = newProject('P')
     const { svc } = makeService()
     const dto = svc.setPrefs(p.id, 'claude', { autostart: true })
-    expect(dto).toEqual({ projectId: p.id, engine: 'claude', autostart: true, autoResume: false, interruption: null })
+    expect(dto).toEqual({
+      projectId: p.id, engine: 'claude', autostart: true, autoResume: false, interruption: null,
+      autoResumeLimit: false, usageLimit: null,
+    })
     expect(stateBroadcasts).toContainEqual({ type: 'terminal_state', state: dto })
     expect(svc.list()).toEqual([dto])
   })

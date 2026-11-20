@@ -315,6 +315,16 @@ export function openDb(path: string): Db {
     interrupted_at TEXT, interrupted_local_id TEXT, lost_question TEXT,
     resume_count INTEGER NOT NULL DEFAULT 0, hold_reason TEXT,
     PRIMARY KEY (project_id, engine))`)
+  // Bateu o limite: o limite de uso que o terminal bateu (hora, reabertura em
+  // epoch segundos, o que fazer quando reabrir e quem disparou o turno), as
+  // tentativas automáticas na janela e o interruptor "Continuar sozinho quando o
+  // limite reabrir". Ver restart/terminal-state.ts.
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_hit_at TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_resets_at INTEGER`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_action TEXT NOT NULL DEFAULT 'none'`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_origin TEXT`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN limit_tries INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
+  try { db.exec(`ALTER TABLE terminal_state ADD COLUMN auto_resume_limit INTEGER NOT NULL DEFAULT 0`) } catch { /* já existe */ }
   // Pergunta (AskUserQuestion) aberta, em JSON, enquanto espera o operador: é o
   // que sobra dela depois de uma queda brusca, quando não há encerramento para
   // registrar nada.

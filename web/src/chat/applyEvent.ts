@@ -3,6 +3,8 @@ import type { ChatItem, ClaudeEvent, ContentBlock } from '../types'
 
 /** Selo da mensagem de retomada que o servidor manda ao agente (cópia de `RESUME_PREFIX` em server/src/restart/boot.ts). */
 export const RESUME_PREFIX = '[Claudinei: resume after restart]'
+/** Selo da retomada na reabertura do limite de uso (cópia de `LIMIT_RESUME_PREFIX` em server/src/limit/texts.ts). */
+export const LIMIT_RESUME_PREFIX = '[Claudinei: resume after usage limit]'
 
 function blockToText(content: unknown): string {
   if (typeof content === 'string') return content
@@ -46,10 +48,13 @@ function classifyUserText(text: string): ChatItem[] {
   const task = cleaned.match(/^\[Task from ([^\]]+)\]:\s*([\s\S]*)$/)
   if (task) return [{ kind: 'task_message', from: task[1].trim(), text: task[2].trim() }]
 
-  // Retomada depois de um reinício do serviço: quem escreveu foi o próprio
-  // Claudinei, em inglês para o agente.
+  // Retomada depois de um reinício do serviço ou da reabertura do limite de
+  // uso: quem escreveu foi o próprio Claudinei, em inglês para o agente.
   if (cleaned.startsWith(`${RESUME_PREFIX}:`)) {
-    return [{ kind: 'claudinei_message', text: cleaned.slice(RESUME_PREFIX.length + 1).trim() }]
+    return [{ kind: 'claudinei_message', reason: 'restart', text: cleaned.slice(RESUME_PREFIX.length + 1).trim() }]
+  }
+  if (cleaned.startsWith(`${LIMIT_RESUME_PREFIX}:`)) {
+    return [{ kind: 'claudinei_message', reason: 'limit', text: cleaned.slice(LIMIT_RESUME_PREFIX.length + 1).trim() }]
   }
 
   const scheduled = cleaned.match(/^\[Agendamento: (.+) #(\d+)\]:\s*([\s\S]*)$/)

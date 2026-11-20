@@ -15,6 +15,7 @@ import { BackgroundProcesses } from './BackgroundProcesses'
 import { CompactingIndicator } from './CompactingIndicator'
 import { ReauthBanner } from './ReauthBanner'
 import { InterruptedNotice } from './InterruptedNotice'
+import { UsageLimitNotice } from './UsageLimitNotice'
 import { QuestionPanel } from './QuestionPanel'
 import { groupActions } from '../chat/grouping'
 import { ActionGroup } from './ActionGroup'
@@ -333,6 +334,8 @@ export function ChatView() {
       <HeadsUpBand localId={session.localId} />
       {/* Trabalho interrompido pelo reinício do Claudinei, do terminal desta aba. */}
       <InterruptedNotice projectId={session.projectId} engine={engine} />
+      {/* Limite de uso que o terminal desta aba bateu. */}
+      <UsageLimitNotice projectId={session.projectId} engine={engine} />
       {session.status === 'in_terminal' ? (
         <div className="notice-info">
           <span aria-hidden="true">🖥️</span>

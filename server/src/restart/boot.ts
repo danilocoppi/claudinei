@@ -5,6 +5,7 @@ import { createTasksService } from '../tasks.js'
 import { enginesOf } from '../terminal-engines.js'
 import { UserError } from '../user-error.js'
 import { toDto, type HoldReason, type TerminalStateDto, type TerminalStateRow, type TerminalStateStore } from './terminal-state.js'
+import type { UsageLimitService } from '../limit/usage-limit.js'
 
 /** Marca da mensagem de retomada: a interface a reconhece e mostra como vinda do Claudinei. */
 export const RESUME_PREFIX = '[Claudinei: resume after restart]'
@@ -21,10 +22,37 @@ export type BootAction =
 /** Status em que a sessão está de pé (o mesmo ACTIVE do manager). */
 const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 
+/** Quanto vale um limite sem reabertura conhecida: o tamanho da janela curta do Claude. */
+export const UNKNOWN_RESET_ACTIVE_MS = 5 * 3600_000
+
+/**
+ * `limitHitAt` vem do `datetime('now')` do SQLite: 'YYYY-MM-DD HH:MM:SS', em
+ * UTC e sem fuso escrito. Devolve epoch ms, ou NaN se não der para ler.
+ */
+const sqliteUtcMs = (s: string): number => Date.parse(`${s.replace(' ', 'T')}Z`)
+
+/**
+ * Limite de uso ainda ativo: com a reabertura (`limitResetsAt`, epoch
+ * SEGUNDOS) ainda no futuro; sem reabertura conhecida, só até 5 h depois de
+ * gravado (sem o teto, ele seguraria a retomada do reinício para sempre; data
+ * ilegível não segura); ou com a retomada armada, mesmo já vencida: quem manda
+ * a mensagem é o serviço do limite, e a marca do reinício é absorvida (nunca
+ * duas retomadas). Em `none` ou `snoozed` com a reabertura passada, o reinício
+ * retoma como sempre.
+ */
+export function limitActive(r: TerminalStateRow, now: number = Date.now()): boolean {
+  if (r.limitHitAt == null) return false
+  if (r.limitAction === 'armed') return true
+  if (r.limitResetsAt == null) return sqliteUtcMs(r.limitHitAt) + UNKNOWN_RESET_ACTIVE_MS > now
+  return r.limitResetsAt * 1000 > now
+}
+
 /**
  * Decide o que fazer com cada terminal na subida, na ordem do desenho:
- * pergunta aberta segura; retomar ligado retoma até o teto; retomar desligado
- * segura; sem interrupção, sobe parado se "iniciar" estiver ligado.
+ * interrompido com limite de uso ativo é pulado (a retomada fica com o serviço
+ * do limite, e o `boot` absorve a marca); pergunta aberta segura; retomar
+ * ligado retoma até o teto; retomar desligado segura; sem interrupção, sobe
+ * parado se "iniciar" estiver ligado.
  *
  * Marca nova (encerramento ou queda) sempre chega sem motivo de espera. Uma com
  * motivo foi segurada numa subida anterior e esperava o operador: segue segurada
@@ -43,6 +71,7 @@ export function planBoot(
   rows: TerminalStateRow[],
   latestLocalId: (projectId: number, engine: string) => string | null,
   isListed: (projectId: number, engine: string) => boolean = () => true,
+  now: number = Date.now(),
 ): BootAction[] {
   const resumes: BootAction[] = []
   const risers: BootAction[] = []
@@ -54,6 +83,8 @@ export function planBoot(
       if (autostart) risers.push({ kind: 'idle', projectId, engine, localId: latestLocalId(projectId, engine) })
       continue
     }
+    // Nem resume, nem idle, nem hold: duas mensagens de retomada na mesma janela, nunca.
+    if (limitActive(r, now)) continue
     const localId = r.interruptedLocalId ?? latestLocalId(projectId, engine)
     // Pergunta gravada como lista vazia não é pergunta (markInterrupted guarda `[]`).
     let reason: HoldReason | null
@@ -253,7 +284,17 @@ export function createRestartService(deps: {
      */
     async boot(): Promise<void> {
       deps.closeInterruptedRuns()
-      const actions = planBoot(store.list(), latestLocalId, (p, e) => enginesOf(db, p).includes(e))
+      const rows = store.list()
+      const now = Date.now()
+      const actions = planBoot(rows, latestLocalId, (p, e) => enginesOf(db, p).includes(e), now)
+      // Marca de quem bateu o limite: absorvida pelo limite, que retoma sozinho
+      // (ou espera o operador) quando a janela reabrir. Nada foi anotado para
+      // esse terminal, então as tarefas dele fecham no laço abaixo, como no ×.
+      for (const r of rows) {
+        if (r.interruptedAt == null || !limitActive(r, now)) continue
+        dropInterruption(r.projectId, r.engine)
+        publish(r.projectId, r.engine)
+      }
       for (const a of actions) {
         if (a.kind !== 'hold') continue
         // Marca que já tinha motivo foi retida (e acordou) numa subida anterior e
@@ -285,6 +326,22 @@ export function createRestartService(deps: {
 
     resumeTerminal,
 
+    /** Para o serviço do limite: garante a sessão de pé do terminal (veja acima). */
+    bringUp,
+
+    /** Para o serviço do limite publicar o estado no mesmo formato. */
+    publish,
+
+    /**
+     * O limite absorve a marca do reinício: ela sai sem retomar, e as tarefas
+     * anotadas do turno fecham como no ×. Nada durante o encerramento (a marca
+     * é da próxima subida), e sem marca não publica: não há o que mudar.
+     */
+    absorbInterruption(projectId: number, engine: string): void {
+      if (manager.isShuttingDown()) return
+      if (dropInterruption(projectId, engine)) publish(projectId, engine)
+    },
+
     /**
      * Serviço encerrando: entre o `captureShutdown` e o fim do `stopAll`, nada
      * do que o operador faz pode apagar a marca recém-gravada. As rotas do
@@ -314,7 +371,10 @@ export function createRestartService(deps: {
       }
     },
 
-    setPrefs(projectId: number, engine: string, p: { autostart?: boolean; autoResume?: boolean }): TerminalStateDto {
+    setPrefs(
+      projectId: number, engine: string,
+      p: { autostart?: boolean; autoResume?: boolean; autoResumeLimit?: boolean },
+    ): TerminalStateDto {
       store.setPrefs(projectId, engine, p)
       return publish(projectId, engine)
     },
@@ -328,13 +388,17 @@ export function createRestartService(deps: {
 export type RestartService = ReturnType<typeof createRestartService>
 
 /**
- * O que roda depois do `listen`: primeiro a subida dos terminais, depois o
- * agendador, para que um agendamento não dispute a sessão com a retomada. Falha
- * da subida é registrada e nunca sobe: ela não pode impedir o agendador. Se o
- * encerramento começou durante a subida, o agendador fica desligado.
+ * O que roda depois do `listen`: primeiro a subida dos terminais, depois a do
+ * limite de uso, por fim o agendador, para que um agendamento não dispute a
+ * sessão com uma retomada. A ordem entre as duas subidas importa: uma retomada
+ * armada absorve a marca do reinício, e a garantia de uma só mensagem por
+ * janela depende de a subida do reinício ter terminado antes. Falha de uma
+ * subida é registrada e nunca sobe: ela não pode impedir as seguintes. Se o
+ * encerramento começou no meio, o que falta fica desligado.
  */
 export async function startAfterListen(deps: {
   restart: Pick<RestartService, 'boot'> | undefined
+  limit?: Pick<UsageLimitService, 'boot'>
   scheduler: { start(): void } | undefined
   isShuttingDown?: () => boolean
   log?: (msg: string) => void
@@ -344,6 +408,12 @@ export async function startAfterListen(deps: {
     await deps.restart?.boot()
   } catch (err) {
     log(`[reinício] a subida dos terminais falhou: ${(err as Error)?.message ?? err}`)
+  }
+  if (deps.isShuttingDown?.()) return
+  try {
+    await deps.limit?.boot()
+  } catch (err) {
+    log(`[limite] a subida do limite de uso falhou: ${(err as Error)?.message ?? err}`)
   }
   if (deps.isShuttingDown?.()) return
   deps.scheduler?.start()

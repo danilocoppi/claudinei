@@ -111,7 +111,10 @@ describe('rotas do reinício', () => {
   it('PATCH grava e devolve o DTO', async () => {
     const res = await patch(p1.id, { autostart: true })
     expect(res.statusCode).toBe(200)
-    const dto = { projectId: p1.id, engine: 'claude', autostart: true, autoResume: false, interruption: null }
+    const dto = {
+      projectId: p1.id, engine: 'claude', autostart: true, autoResume: false, interruption: null,
+      autoResumeLimit: false, usageLimit: null,
+    }
     expect(res.json()).toEqual(dto)
     expect(store.get(p1.id, 'claude')).toMatchObject({ autostart: true, autoResume: false })
     expect(states()).toEqual([{ type: 'terminal_state', state: dto }])
@@ -247,7 +250,10 @@ describe('rotas do reinício', () => {
     expect(store.get(p1.id, 'claude')).toMatchObject({ interruptedAt: null, holdReason: null })
     expect(states()).toEqual([{
       type: 'terminal_state',
-      state: { projectId: p1.id, engine: 'claude', autostart: false, autoResume: false, interruption: null },
+      state: {
+        projectId: p1.id, engine: 'claude', autostart: false, autoResume: false, interruption: null,
+        autoResumeLimit: false, usageLimit: null,
+      },
     }])
     expect(resumeEchoes()).toHaveLength(0)
   })

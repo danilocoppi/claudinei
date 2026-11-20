@@ -8,6 +8,7 @@ import { createSchedulesStore, type SchedulesStore } from '../src/schedules/stor
 import { createScheduler, type SchedulerManager } from '../src/schedules/scheduler.js'
 import type { SessionInfo } from '../src/claude/manager.js'
 import { RESTART_FAIL_TEXT } from '../src/restart/terminal-state.js'
+import { usageLimitFailText } from '../src/limit/texts.js'
 
 let db: Db
 let store: SchedulesStore
@@ -274,6 +275,21 @@ describe('a sessão certa, no estado certo', () => {
     expect(run.status).toBe('error')
     expect(run.error).toBe(RESTART_FAIL_TEXT)
     // Nem soma, nem zera: não foi a tarefa que falhou nem que deu certo.
+    expect(store.get(s.id)!.consecutiveFailures).toBe(1)
+  })
+
+  it('execução que bate no limite de uso fecha como erro, com a hora, sem contar falha seguida', async () => {
+    const s = store.create(projectId, base)
+    db.prepare(`UPDATE schedules SET consecutive_failures=1 WHERE id=?`).run(s.id)
+    overdue(s.id)
+    const texto = usageLimitFailText(1_900_000_000)
+    const { manager } = fakeManager({
+      sendAndWait: async () => { throw new Error(texto) },
+    })
+    await createScheduler({ db, store, manager }).tick()
+    const [run] = store.listRuns(s.id, 1)
+    expect(run.status).toBe('error')
+    expect(run.error).toBe(texto)
     expect(store.get(s.id)!.consecutiveFailures).toBe(1)
   })
 })

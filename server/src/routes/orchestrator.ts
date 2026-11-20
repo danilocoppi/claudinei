@@ -9,8 +9,12 @@ import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
 
 /** O que o orchestrator expõe ao resto do servidor (manager e subida). */
 export interface OrchestratorHooks {
-  /** Entrega a próxima tarefa da fila do projeto, se ele estiver livre. */
-  drain(projectId: number): void
+  /**
+   * Entrega a próxima tarefa da fila do projeto, se ele estiver livre. Devolve
+   * se entregou. `localId`: só naquela sessão (o árbitro do próximo envio
+   * oferece a sessão que ficou livre, lugar 5).
+   */
+  drain(projectId: number, localId?: string): boolean
   /**
    * Religa uma tarefa `in_progress` ao turno da sessão (reinício: o turno
    * interrompido foi retomado). Fecha como o dispatch fecharia. `false` se a
@@ -23,7 +27,15 @@ export interface OrchestratorHooks {
 
 export function registerOrchestratorRoutes(
   app: FastifyInstance,
-  deps: { db: Db; manager: SessionManager; broadcast?: (msg: object) => void },
+  deps: {
+    db: Db; manager: SessionManager; broadcast?: (msg: object) => void
+    /**
+     * O terminal (projeto + motor) pode receber uma tarefa agora? Falso com
+     * aviso aberto esperando o operador: a tarefa espera, como a fila do
+     * operador. Ausente = todos podem.
+     */
+    canTake?: (projectId: number, engine: string) => boolean
+  },
 ): OrchestratorHooks {
   const projects = createProjectsService(deps.db)
   const tasks = createTasksService(deps.db)
@@ -51,16 +63,25 @@ export function registerOrchestratorRoutes(
   // que o alvo já está livre nesse instante. O encadeamento da fila (tarefa
   // termina → próxima é entregue) vem do hook onSessionAvailable do manager
   // chamando drain de novo quando o alvo volta a ficar livre.
-  const drain = (projectId: number): void => {
-    if (!deps.manager.hasFreeSession(projectId)) return
+  //
+  // Terminal com aviso aberto (`canTake` falso) não recebe: a tarefa espera o
+  // aviso sair, e o árbitro cutuca quando ele sai. A escolha vai inteira ao
+  // manager, antes de marcar a tarefa: sem sessão que sirva, ela segue queued.
+  const drain = (projectId: number, localId?: string): boolean => {
+    const target = {
+      localId,
+      accept: deps.canTake ? (engine: string) => deps.canTake!(projectId, engine) : undefined,
+    }
+    if (!deps.manager.hasFreeSession(projectId, target)) return false
     const next = tasks.nextQueued(projectId)
-    if (!next) return
+    if (!next) return false
     tasks.markInProgress(next.id)
-    const delivered = deps.manager.dispatchTask(next.toProjectId, next.fromProjectName ?? 'unknown', next.description, onTaskEnd(next))
+    const delivered = deps.manager.dispatchTask(next.toProjectId, next.fromProjectName ?? 'unknown', next.description, onTaskEnd(next), undefined, target)
     // A engine que executa só é conhecida na entrega (o dispatch pega a 1ª sessão
     // livre do projeto — pode ser o Claude, o Codex ou o OpenCode dele).
     if (delivered) tasks.setToEngine(next.id, delivered)
     broadcastTask(next.id)
+    return !!delivered
   }
 
   app.get('/api/orchestrator/tasks', async (req) => {

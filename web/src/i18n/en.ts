@@ -197,6 +197,7 @@ export const en = {
     skipTitle: 'Skip permissions', skipDesc: 'Claude runs commands without asking for your confirmation at each step.',
     permWarning: 'With this off, actions that need permission are auto-denied in the web chat. To approve interactively, use “Open in terminal”.',
     start: 'Start session',
+    noEngineInstalled: 'None of the engines in this list is installed', noEngineEdit: 'edit',
   },
   chat: {
     sendHint: 'Enter in the field · Ctrl+Enter from anywhere on the screen',
@@ -455,6 +456,15 @@ export const en = {
     armed: 'Resume armed for {{time}}',
     cardMarker: 'limit until {{time}}', cardMarkerUnknown: 'usage limit', cardMarkerArmed: 'resumes at {{time}}',
   },
+  stash: {
+    button: '{{count}} saved prompt. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',
+    button_other: '{{count}} saved prompts. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',
+    menu: 'Saved prompts',
+    attachments: '{{count}} attachment', attachments_other: '{{count}} attachments',
+    missing: 'no longer available',
+    saveFailed: 'Could not save: the browser storage is full or blocked. The text is still in the input.',
+  },
+  zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
     tooLarge: 'File too large to preview — download it instead.',

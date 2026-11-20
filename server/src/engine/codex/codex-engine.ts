@@ -13,6 +13,7 @@ const CAPABILITIES: EngineCapabilities = {
   icon: 'openai', // token → o frontend renderiza o logomark oficial da OpenAI (EngineIcon)
   slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
   installHint: 'npm install -g @openai/codex',
+  midTurnInput: true, // Enter no meio do turno entra no turno atual
 }
 
 /**

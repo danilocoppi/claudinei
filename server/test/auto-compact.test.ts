@@ -102,6 +102,34 @@ describe('auto-compact por limiar', () => {
     await mgr.stopAll()
   })
 
+  it('a auto-compactação vem antes de quem pega a sessão livre (lugar 1 antes do 3)', async () => {
+    process.env.CLAUDE_FAKE_CTX = '150000' // 75% da janela de 200k
+    let armed = false
+    let mgr: ReturnType<typeof createSessionManager>
+    // Como o árbitro do próximo envio: no "livre", manda o próximo item se a sessão segue livre.
+    mgr = createSessionManager({
+      db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m),
+      autoCompactPct: () => 50,
+      onSessionAvailable: (_p, ctx) => {
+        if (!armed || !ctx || !['idle', 'needs_attention'].includes(mgr.get(ctx.localId)?.status ?? '')) return
+        armed = false
+        mgr.send(ctx.localId, 'da fila', { echo: true })
+      },
+    })
+    const { localId } = mgr.start(project, {})
+    await waitUntil(() => mgr.get(localId)?.status === 'idle')
+    await new Promise((r) => setTimeout(r, 20))
+    armed = true
+    mgr.send(localId, 'oi')
+    await waitUntil(() => ecos().some((b) => b.event.resultText === 'eco: da fila'))
+    const userTexts = broadcasts
+      .filter((b) => b.type === 'session_event' && b.event?.kind === 'user')
+      .map((b) => b.event.message?.content?.[0]?.text)
+    expect(userTexts.indexOf('/compact')).toBeGreaterThan(-1)
+    expect(userTexts.indexOf('/compact')).toBeLessThan(userTexts.indexOf('da fila'))
+    await mgr.stopAll()
+  })
+
   it('desligado (pct 0/ausente) não compacta nem com contexto alto', async () => {
     process.env.CLAUDE_FAKE_CTX = '190000'
     const mgr = createSessionManager({ db, sessionFactory: fakeFactory, broadcast: (m) => broadcasts.push(m) })

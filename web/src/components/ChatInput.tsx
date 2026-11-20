@@ -2,16 +2,19 @@ import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } fro
 import { useTranslation } from 'react-i18next'
 import { WsContext } from '../wsContext'
 import { useStore, useEngineFor, useSessionSlashCommands, type FileMenuAction } from '../store'
-import { uploadFile } from '../api'
+import { checkUploads, uploadFile } from '../api'
 import { SessionControls } from './SessionControls'
 import { filterCommands } from '../slash'
 import { readDraft, saveDraft } from '../drafts'
+import { readStash, pushStash, takeStash, stashKey, type StashEntry } from '../stash'
+import { StashMenu } from './StashMenu'
 import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
 import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
 import { isForeignField } from '../keyboard'
+import { isLargePaste, pasteFileName } from '../paste'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
 
@@ -39,6 +42,10 @@ function useTelaEstreita(): boolean {
 
 /** Token inline que marca a posição do anexo no texto até o envio. */
 const token = (name: string) => `[📎 ${name}]`
+/** O nome de dentro do token (`[📎 nome]` → `nome`). */
+const tokenName = (tok: string) => /^\[📎 (.*)\]$/u.exec(tok)?.[1] ?? tok
+/** Teto do POST /api/uploads/check; um guardado tem bem menos anexos que isso. */
+const CHECK_MAX = 200
 
 export function ChatInput({
   localId,
@@ -69,6 +76,21 @@ export function ChatInput({
   const attachments = useRef(new Map<string, string>())
   // índice atual no histórico de mensagens do usuário (↑/↓); null = fora do modo histórico
   const histIdxRef = useRef<number | null>(null)
+
+  /**
+   * Prompts guardados com Ctrl+S. A chave é o TERMINAL (projeto + motor), não a
+   * sessão: um /clear ou uma retomada trocam a sessão, e o guardado fica.
+   */
+  const termKey = session ? stashKey(session.projectId, session.engine) : null
+  const [stash, setStash] = useState<StashEntry[]>(() => (termKey ? readStash(termKey) : []))
+  useEffect(() => { setStash(termKey ? readStash(termKey) : []) }, [termKey])
+  const [stashOpen, setStashOpen] = useState(false)
+  const [stashError, setStashError] = useState<string | null>(null)
+  const stashBtnRef = useRef<HTMLButtonElement>(null)
+  // checagem dos anexos de um guardado em andamento: outro Ctrl+S espera
+  const restoring = useRef(false)
+  const vivo = useRef(true)
+  useEffect(() => { vivo.current = true; return () => { vivo.current = false } }, [])
 
   const editRequest = useStore((s) => s.editRequest)
   useEffect(() => {
@@ -119,6 +141,10 @@ export function ChatInput({
   const [mencaoAberta, setMencaoAberta] = useState(false)
   const [fileCursor, setFileCursor] = useState<number | null>(null)
   const fileSelection = useRef<number | null>(null)
+  // Ctrl+Shift+V: até este instante (Date.now), o próximo paste entra como
+  // texto, por maior que seja. O evento paste não diz que tecla o disparou,
+  // então o keydown marca e o paste consome.
+  const colarComoTexto = useRef(0)
   useLayoutEffect(() => {
     if (fileSelection.current === null || fileCursor !== null) return
     const cursor = fileSelection.current
@@ -193,6 +219,82 @@ export function ChatInput({
     send()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `send` é recriado a cada render; o que importa é o render com o texto final
   }, [enviarAposDitado, micBusy])
+
+  /**
+   * Traz de volta o guardado do índice (ordem guardada: 0 = o mais antigo).
+   *
+   * Os anexos podem ter sumido (a rotação dos uploads apaga os antigos): antes de
+   * devolver, pergunta ao servidor. O que sumiu volta MARCADO no texto e fica fora
+   * do mapa de anexos — vai como texto, e o envio não quebra. Só tira o guardado
+   * da lista depois da resposta: se o campo for desmontado no meio, nada se perde.
+   */
+  const restaurar = async (index: number) => {
+    if (!termKey) return
+    const entry = readStash(termKey)[index]
+    if (!entry) return
+    let missing = new Set<string>()
+    const paths = [...new Set(entry.attachments.map(([, path]) => path))].slice(0, CHECK_MAX)
+    if (paths.length) {
+      restoring.current = true
+      try {
+        missing = new Set((await checkUploads(paths)).missing)
+      } catch {
+        // Sem resposta do servidor: devolve como estava. Na pior das hipóteses o
+        // agente recebe um caminho que não existe — melhor que perder o anexo.
+      } finally {
+        restoring.current = false
+      }
+      if (!vivo.current) return
+    }
+    const atual = readStash(termKey)
+    const i = atual.findIndex((e) => e.savedAt === entry.savedAt && e.text === entry.text)
+    if (i < 0) return // outra aba já o tirou
+    takeStash(termKey, i)
+    setStash(readStash(termKey))
+
+    let out = entry.text
+    for (const [tok, path] of entry.attachments) {
+      if (missing.has(path)) out = out.split(tok).join(`[📎 ${tokenName(tok)} — ${t('stash.missing')}]`)
+      else attachments.current.set(tok, path)
+    }
+    // Campo com texto (escolha pelo menu, ou digitação durante a checagem): o
+    // guardado entra depois, sem apagar o que já estava escrito.
+    setText((atualTxt) => (atualTxt.trim() ? `${atualTxt}\n${out}` : out))
+    histIdxRef.current = null
+    requestAnimationFrame(() => {
+      const el = areaRef.current
+      el?.focus()
+      el?.setSelectionRange(el.value.length, el.value.length)
+    })
+  }
+
+  /**
+   * Ctrl+S no campo: com texto, guarda (com os anexos) e limpa; vazio, traz o
+   * último. Com upload ou ditado em andamento não faz nada — o texto ainda teria
+   * token sem caminho, ou a transcrição cairia depois no campo já limpo. Quem
+   * chama já barrou o "salvar página" do navegador.
+   */
+  const guardarOuTrazer = () => {
+    if (!termKey || uploading > 0 || micBusy || restoring.current) return
+    if (!text.trim()) {
+      const lista = readStash(termKey)
+      if (lista.length) void restaurar(lista.length - 1)
+      return
+    }
+    // Só os anexos cujo token ainda está no texto: apagar o token não limpa o mapa.
+    const anexos = [...attachments.current].filter(([tok]) => text.includes(tok))
+    // Não gravou (armazenamento cheio ou bloqueado): o campo fica como está, com
+    // os anexos valendo. Limpar aqui seria perder o texto sem rastro.
+    if (!pushStash(termKey, { text, attachments: anexos, savedAt: Date.now() })) {
+      setStashError(t('stash.saveFailed'))
+      return
+    }
+    setStashError(null)
+    setStash(readStash(termKey))
+    setText('')
+    histIdxRef.current = null
+    attachments.current.clear()
+  }
 
   // Ctrl+Enter de qualquer ponto da tela. No próprio campo quem trata é o
   // onKeyDown (que já envia com qualquer Enter sem Shift); num outro campo de
@@ -396,6 +498,7 @@ export function ChatInput({
           onChange={(e) => {
             setText(e.target.value)
             setSlashDismissed(false); setActiveIndex(0); histIdxRef.current = null
+            setStashError(null)
             // `@@` abre terminais; `@!` abre arquivos. A conferência é pela
             // POSIÇÃO DO CURSOR, não pelo texto inteiro: um gatilho mais atrás
             // na frase já foi resolvido ou foi descartado, e reabrir a lista por
@@ -408,6 +511,14 @@ export function ChatInput({
           onBlur={() => setSlashDismissed(true)}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing || e.keyCode === 229) return
+            // Ctrl+S: sempre barra o "salvar página", mesmo quando ignorado.
+            if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+              e.preventDefault(); guardarOuTrazer(); return
+            }
+            // Ctrl+Shift+V: só marca; o navegador cola (sem preventDefault).
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v') {
+              colarComoTexto.current = Date.now() + 1000; return
+            }
             if (slashOpen) {
               if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => (i + 1) % slashMatches.length); return }
               if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => (i - 1 + slashMatches.length) % slashMatches.length); return }
@@ -429,7 +540,16 @@ export function ChatInput({
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
           }}
           onPaste={(e) => {
-            if (e.clipboardData?.files?.length) { e.preventDefault(); void attachFiles(e.clipboardData.files) }
+            const comoTexto = Date.now() <= colarComoTexto.current
+            colarComoTexto.current = 0 // vale para um paste só
+            if (e.clipboardData?.files?.length) { e.preventDefault(); void attachFiles(e.clipboardData.files); return }
+            if (comoTexto) return
+            // texto grande vira anexo .txt; o campo recebe só o token
+            const colado = e.clipboardData?.getData('text/plain') ?? ''
+            if (isLargePaste(colado)) {
+              e.preventDefault()
+              void attachFiles([new File([colado], pasteFileName(), { type: 'text/plain' })])
+            }
           }}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
@@ -441,6 +561,30 @@ export function ChatInput({
         {session?.status === 'working' && (
           <button type="button" className="input-action stop-btn"
                   aria-label={t('chat.stop')} title={t('chat.stop')} onClick={stopTurn}>■</button>
+        )}
+        {stash.length > 0 && (
+          <button ref={stashBtnRef} type="button" className="input-action stash-btn" data-testid="stash-btn"
+                  aria-haspopup="menu" aria-expanded={stashOpen} disabled={disabled}
+                  aria-label={t('stash.button', { count: stash.length })} title={t('stash.button', { count: stash.length })}
+                  onClick={() => {
+                    // relê: outra aba pode ter guardado ou tirado algum
+                    if (termKey) setStash(readStash(termKey))
+                    setStashOpen((o) => !o)
+                  }}>
+            🗂<span className="stash-btn__count">{stash.length}</span>
+          </button>
+        )}
+        {stashOpen && stash.length > 0 && (
+          <StashMenu
+            entries={stash}
+            anchorRef={stashBtnRef}
+            onPick={(i) => {
+              setStashOpen(false)
+              if (uploading > 0 || micBusy || restoring.current) return
+              void restaurar(i)
+            }}
+            onClose={() => { setStashOpen(false); areaRef.current?.focus() }}
+          />
         )}
         <MicButton
           ref={micRef}
@@ -456,8 +600,8 @@ export function ChatInput({
         <button className="chat-send" onClick={submit} disabled={disabled || uploading > 0}
                 title={t('chat.sendHint')}>{t('common.send')}</button>
       </div>
-      {(uploadError || micError) && (
-        <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError}</div>
+      {(uploadError || micError || stashError) && (
+        <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError ?? stashError}</div>
       )}
     </div>
   )

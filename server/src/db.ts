@@ -355,6 +355,20 @@ export function openDb(path: string): Db {
   // A ⭐ global vira pin de cada usuário com acesso, uma vez na vida da instalação.
   migrateFavoritesToPins(db)
 
+  // Fila do operador: mensagens que esperam o próximo turno, por terminal
+  // (projeto + motor), para sobreviver a sessões novas e a recarregar a página.
+  // A pausa fica numa tabela à parte porque vale mesmo com a fila vazia.
+  // Ver queue/operator-queue.ts.
+  db.exec(`CREATE TABLE IF NOT EXISTS operator_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    engine TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_opq_terminal ON operator_queue(project_id, engine, position)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS operator_queue_state (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, engine TEXT NOT NULL,
+    paused INTEGER NOT NULL DEFAULT 0, pause_reason TEXT, PRIMARY KEY (project_id, engine))`)
+
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).
   // Recriado aqui a cada boot porque o DROP TABLE da migração leva os índices

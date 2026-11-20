@@ -199,6 +199,7 @@ export const es: typeof en = {
     skipTitle: 'Omitir permisos', skipDesc: 'Claude ejecuta comandos sin pedir tu confirmación en cada paso.',
     permWarning: 'Con esto desactivado, las acciones que requieren permiso se deniegan automáticamente en el chat web. Para aprobar interactivamente, usa “Abrir en la terminal”.',
     start: 'Iniciar sesión',
+    noEngineInstalled: 'Ningún motor de esta lista está instalado', noEngineEdit: 'editar',
   },
   chat: {
     sendHint: 'Enter en el campo · Ctrl+Enter desde cualquier punto de la pantalla',
@@ -457,6 +458,15 @@ export const es: typeof en = {
     armed: 'Reanudación programada para las {{time}}',
     cardMarker: 'límite hasta las {{time}}', cardMarkerUnknown: 'límite de uso', cardMarkerArmed: 'reanuda a las {{time}}',
   },
+  stash: {
+    button: '{{count}} prompt guardado. Ctrl+S guarda lo que está en el campo; con el campo vacío, trae el último.',
+    button_other: '{{count}} prompts guardados. Ctrl+S guarda lo que está en el campo; con el campo vacío, trae el último.',
+    menu: 'Prompts guardados',
+    attachments: '{{count}} adjunto', attachments_other: '{{count}} adjuntos',
+    missing: 'ya no disponible',
+    saveFailed: 'No se pudo guardar: el almacenamiento del navegador está lleno o bloqueado. El texto sigue en el campo.',
+  },
+  zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',
     tooLarge: 'Archivo demasiado grande para vista previa — descárgalo para verlo.',

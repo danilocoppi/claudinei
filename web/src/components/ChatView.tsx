@@ -216,7 +216,9 @@ export function ChatView() {
   return (
     <div className="chat-layout">
     <div className="chat-main">
-      <div className="chat-header" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
+      {/* O `display` mora no CSS (.chat-header), não aqui: o modo Zen esconde o
+          cabeçalho por `.app.zen .chat-header`. */}
+      <div className="chat-header" style={{ alignItems: 'center', gap: 10, padding: '12px 20px', borderBottom: '1px solid var(--glass-border)' }}>
         {/* O mesmo menu do cartão da lista, aqui no título: quem está lendo a
             conversa não devia ter que voltar à barra lateral para renomear o
             terminal ou abrir a pasta dele. */}

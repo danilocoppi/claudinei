@@ -44,11 +44,16 @@
 //   contém "limite-recuperado" -> sem rate_limit_event; o assistant de erro de API
 //                         casa o texto do limite, mas o turno termina bem (result
 //                         is_error false, "resposta final").
+//   env FAKE_CLAUDE_LIMIT_ON_RESUME_FILE -> só para o ensaio de ponta a ponta: se o
+//                         arquivo apontado existe, a mensagem de retomada do Claudinei
+//                         ("[Claudinei: resume after usage limit]") bate no limite como
+//                         "limite" (a retomada automática que bate de novo).
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
 // sessão segue viva, o turno é abortado com erro).
 import readline from 'node:readline'
+import { existsSync } from 'node:fs'
 
 const sid = process.env.FAKE_SESSION_ID ?? 'fake-session-0001'
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
@@ -333,7 +338,10 @@ rl.on('line', (line) => {
     ciclo()
     return
   }
-  if (text.includes('limite')) {
+  const limiteNaRetomada = !!process.env.FAKE_CLAUDE_LIMIT_ON_RESUME_FILE
+    && text.includes('[Claudinei: resume after usage limit]')
+    && existsSync(process.env.FAKE_CLAUDE_LIMIT_ON_RESUME_FILE)
+  if (text.includes('limite') || limiteNaRetomada) {
     const LIMIT_TEXT = "You've hit your session limit · resets 3:40pm (America/Sao_Paulo)"
     if (text.includes('limite-so-assistant') || text.includes('limite-recuperado')) {
       const ok = text.includes('limite-recuperado')

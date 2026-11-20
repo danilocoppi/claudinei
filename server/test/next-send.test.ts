@@ -125,6 +125,46 @@ describe('árbitro do próximo envio', () => {
     nextSend.onSessionAvailable(ctx)
     expect(s.calls).toEqual(['fila', 'aviso-delegada', 'tarefas', 'objetivo'])
   })
+
+  it('providers registered at slots 4 and 6 are consulted in order 3,4,5,6 and held by holds', () => {
+    const s = setup()
+    let aviso = false
+    let objetivo = false
+    const nextSend = createNextSend({
+      ...s.deps,
+      providers: [s.provider('fila', 3, () => false), s.provider('tarefas', 5, () => false)],
+    })
+    // Registrados fora de ordem, como a integração faria.
+    nextSend.register(s.provider('objetivo', 6, () => objetivo))
+    nextSend.register(s.provider('aviso-delegada', 4, () => aviso))
+
+    // Ninguém entrega: todos consultados, na ordem dos lugares.
+    nextSend.onSessionAvailable(ctx)
+    expect(s.calls).toEqual(['fila', 'aviso-delegada', 'tarefas', 'objetivo'])
+
+    // O lugar 6 entrega: é o último, nada depois dele.
+    s.calls.length = 0
+    objetivo = true
+    nextSend.onSessionAvailable(ctx)
+    expect(s.calls).toEqual(['fila', 'aviso-delegada', 'tarefas', 'objetivo'])
+    expect(s.busy.has('L1')).toBe(true)
+
+    // O lugar 4 entrega: para nele, antes das tarefas e do objetivo.
+    s.calls.length = 0
+    s.busy.clear()
+    aviso = true
+    nextSend.onSessionAvailable(ctx)
+    expect(s.calls).toEqual(['fila', 'aviso-delegada'])
+
+    // Com aviso aberto, nem o 4 nem o 6 são consultados (nem pelo poke).
+    s.calls.length = 0
+    s.busy.clear()
+    s.setHold(true)
+    nextSend.onSessionAvailable(ctx)
+    nextSend.poke(1, 'claude')
+    expect(s.calls).toEqual([])
+    expect(s.busy.size).toBe(0)
+  })
 })
 
 describe('holdsForNotice', () => {

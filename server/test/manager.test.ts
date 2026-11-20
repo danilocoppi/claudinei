@@ -1053,7 +1053,7 @@ describe('ganchos do árbitro do próximo envio', () => {
     // Turno comum.
     mgr.send(info.localId, 'oi')
     await waitUntil(() => results.length === 1)
-    expect(results[0]).toEqual({ isError: false, interrupted: false, limited: false })
+    expect(results[0]).toEqual({ isError: false, interrupted: false, limited: false, origin: 'operator' })
 
     // Interrompido pelo operador, com o result chegando antes de o interrupt resolver.
     await waitUntil(() => mgr.get(info.localId)?.status === 'needs_attention')
@@ -1087,7 +1087,7 @@ describe('ganchos do árbitro do próximo envio', () => {
     await waitUntil(() => mgr.get(info.localId)?.status !== 'working')
     mgr.send(info.localId, 'oi de novo')
     await waitUntil(() => results.length === 5)
-    expect(results[4]).toEqual({ isError: false, interrupted: false, limited: false })
+    expect(results[4]).toEqual({ isError: false, interrupted: false, limited: false, origin: 'operator' })
     await mgr.stop(info.localId)
   })
 
@@ -1110,7 +1110,7 @@ describe('ganchos do árbitro do próximo envio', () => {
     expect(results).toEqual([])
     stub.closeInterrupted()
     await tick()
-    expect(results).toEqual([{ isError: false, interrupted: true, limited: false }])
+    expect(results).toEqual([{ isError: false, interrupted: true, limited: false, origin: 'operator' }])
     expect(order).toEqual(['result:kimi', 'livre:kimi'])
 
     // Um turno normal depois: o result da engine é o único fim, sem marca de interrupção.
@@ -1118,7 +1118,7 @@ describe('ganchos do árbitro do próximo envio', () => {
     mgr.send(info.localId, 'outro')
     stub.finish()
     await tick()
-    expect(results[1]).toEqual({ isError: false, interrupted: false, limited: false })
+    expect(results[1]).toEqual({ isError: false, interrupted: false, limited: false, origin: 'operator' })
     expect(order).toEqual(['result:kimi', 'livre:kimi'])
 
     // Livre sem interrupção (markRead, init) não sintetiza nada.
@@ -1140,7 +1140,7 @@ describe('ganchos do árbitro do próximo envio', () => {
     mgr.send(info.localId, 'turno')
     stub.finish()
     await tick()
-    expect(results).toEqual([{ isError: false, interrupted: false, limited: false }])
+    expect(results).toEqual([{ isError: false, interrupted: false, limited: false, origin: 'operator' }])
   })
 
   it('onSessionDied não dispara no encerramento', async () => {
@@ -1177,10 +1177,139 @@ describe('ganchos do árbitro do próximo envio', () => {
     mgr2.beginShutdown()
     stubs[stubs.length - 1].closeInterrupted()
     await tick()
-    expect(results.at(-1)).toEqual({ isError: false, interrupted: false, limited: false })
+    expect(results.at(-1)).toEqual({ isError: false, interrupted: false, limited: false, origin: 'operator' })
     mgr2.send(c.localId, 'outro')
     stubs[stubs.length - 1].die()
     await tick()
     expect(died).toHaveLength(1)
+  })
+
+  it('onTurnResult traz origin', async () => {
+    const results: Array<{ origin: string; interrupted: boolean }> = []
+    const mgr = createSessionManager({
+      db, sessionFactory: fakeFactory, broadcast: () => {},
+      onTurnResult: (_p, _e, info) => results.push(info),
+    })
+    const info = mgr.start(project)
+    await waitUntil(() => mgr.get(info.localId)?.status === 'idle')
+
+    // O operador, pelo send.
+    mgr.send(info.localId, 'oi')
+    await waitUntil(() => results.length === 1)
+    expect(results[0]).toMatchObject({ origin: 'operator', interrupted: false })
+
+    // O próprio Claudinei.
+    await waitUntil(() => mgr.get(info.localId)?.status === 'needs_attention')
+    mgr.sendAsClaudinei(info.localId, 'oi do Claudinei')
+    await waitUntil(() => results.length === 2)
+    expect(results[1]).toMatchObject({ origin: 'claudinei', interrupted: false })
+
+    // Tarefa de outro agente.
+    await waitUntil(() => mgr.get(info.localId)?.status === 'needs_attention')
+    const done: string[] = []
+    expect(mgr.dispatchTask(project.id, 'Outro', 'faça algo', (st) => done.push(st))).toBe('claude')
+    await waitUntil(() => results.length === 3)
+    expect(results[2]).toMatchObject({ origin: 'task', interrupted: false })
+    await waitUntil(() => done.length === 1)
+
+    // Esc no meio de um turno do Claudinei: o fim é do turno interrompido.
+    await waitUntil(() => mgr.get(info.localId)?.status === 'needs_attention')
+    mgr.sendAsClaudinei(info.localId, 'demorada-junto')
+    await new Promise((r) => setTimeout(r, 50))
+    await mgr.interrupt(info.localId)
+    await waitUntil(() => results.length === 4)
+    expect(results[3]).toMatchObject({ origin: 'claudinei', interrupted: true })
+    await mgr.stop(info.localId)
+  })
+
+  it('turno interrompido sem result guarda a origem dele, mesmo com um envio logo depois do Esc', async () => {
+    const stub = new TurnBasedStub()
+    const results: Array<{ origin: string; interrupted: boolean }> = []
+    const mgr = createSessionManager({
+      db, sessionFactory: () => stub as never, broadcast: () => {},
+      onTurnResult: (_p, _e, info) => results.push(info),
+    })
+    const info = mgr.start(project, { engine: 'kimi' })
+    await tick()
+    mgr.sendAsClaudinei(info.localId, 'continue')
+    // "Enviar agora": o interrupt do Kimi resolve na hora e a mensagem do operador
+    // sai antes de o processo do turno interrompido sair.
+    await mgr.interrupt(info.localId)
+    mgr.send(info.localId, 'agora')
+    stub.closeInterrupted()
+    await tick()
+    expect(results[0]).toMatchObject({ origin: 'claudinei', interrupted: true })
+  })
+
+  it('/goal é interceptado e não conta como mensagem do operador quando tratado', async () => {
+    const stub = new TurnBasedStub()
+    const sent: string[] = []
+    const origSend = stub.send.bind(stub)
+    stub.send = ((text: string) => { sent.push(text); origSend() }) as typeof stub.send
+    const intercepted: Array<[unknown, string]> = []
+    const operator: number[] = []
+    const results: Array<{ origin: string }> = []
+    const mgr = createSessionManager({
+      db, sessionFactory: () => stub as never, broadcast: () => {},
+      interceptCommand: (ctx, text) => { intercepted.push([ctx, text]); return true },
+      onOperatorMessage: (projectId) => operator.push(projectId),
+      onTurnResult: (_p, _e, info) => results.push(info),
+    })
+    const info = mgr.start(project, { engine: 'kimi' })
+    await tick()
+
+    // Um turno do Claudinei em curso: o /goal tratado não troca a origem dele.
+    mgr.sendAsClaudinei(info.localId, 'continue')
+    mgr.send(info.localId, '/goal testes verdes')
+    mgr.send(info.localId, '  /goal  ')
+    expect(intercepted).toEqual([
+      [{ projectId: project.id, engine: 'kimi', localId: info.localId }, '/goal testes verdes'],
+      [{ projectId: project.id, engine: 'kimi', localId: info.localId }, '  /goal  '],
+    ])
+    expect(sent).toEqual(['continue'])
+    expect(operator).toEqual([])
+    stub.finish()
+    await tick()
+    expect(results[0]).toMatchObject({ origin: 'claudinei' })
+
+    // Só a palavra /goal: /goalx e um texto que só cita /goal seguem o envio normal.
+    mgr.send(info.localId, '/goalx')
+    mgr.send(info.localId, 'veja o /goal')
+    expect(intercepted).toHaveLength(2)
+    expect(sent).toEqual(['continue', '/goalx', 'veja o /goal'])
+    expect(operator).toEqual([project.id, project.id])
+  })
+
+  it('interceptCommand false → envio normal; o que ele lança chega a quem enviou, sem enviar', async () => {
+    const stub = new TurnBasedStub()
+    const sent: string[] = []
+    const origSend = stub.send.bind(stub)
+    stub.send = ((text: string) => { sent.push(text); origSend() }) as typeof stub.send
+    const operator: number[] = []
+    const results: Array<{ origin: string }> = []
+    let mode: 'pass' | 'throw' = 'pass'
+    const mgr = createSessionManager({
+      db, sessionFactory: () => stub as never, broadcast: () => {},
+      interceptCommand: () => { if (mode === 'throw') throw new Error('goal_invalid'); return false },
+      onOperatorMessage: (projectId) => operator.push(projectId),
+      onTurnResult: (_p, _e, info) => results.push(info),
+    })
+    const info = mgr.start(project, { engine: 'kimi' })
+    await tick()
+
+    mgr.sendAsClaudinei(info.localId, 'continue')
+    stub.finish()
+    await tick()
+    mgr.send(info.localId, '/goal testes verdes')
+    expect(sent).toEqual(['continue', '/goal testes verdes'])
+    expect(operator).toEqual([project.id])
+    stub.finish()
+    await tick()
+    expect(results[1]).toMatchObject({ origin: 'operator' })
+
+    mode = 'throw'
+    expect(() => mgr.send(info.localId, '/goal')).toThrow('goal_invalid')
+    expect(sent).toHaveLength(2)
+    expect(operator).toEqual([project.id])
   })
 })

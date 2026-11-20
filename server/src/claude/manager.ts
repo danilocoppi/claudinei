@@ -11,6 +11,7 @@ import { recordThread, foreignThreadIds, ownLatestThread, isSharedPath } from '.
 import { UserError } from '../user-error.js'
 import { createHeadsUp, type HeadsUpNode, type HeadsUpPress, type HeadsUpSurface } from './heads-up.js'
 import { RESTART_FAIL_TEXT, type LimitOrigin } from '../restart/terminal-state.js'
+import type { SlotContext } from '../queue/operator-queue.js'
 import { usageLimitFailText } from '../limit/texts.js'
 
 /** A sessão sabe ser uma superfície remota (só a do Claude). */
@@ -111,8 +112,12 @@ interface Deps {
    * sintetizado, antes do onSessionAvailable da mesma transição. No
    * encerramento do serviço, `interrupted` é sempre false: a parada não foi do
    * operador.
+   *
+   * `origin` é quem mandou o turno que terminou, lida no fim dele, antes de
+   * qualquer envio novo. No turno interrompido, é a origem guardada no Esc: o
+   * "enviar agora" que sai logo depois não troca a origem do turno interrompido.
    */
-  onTurnResult?: (projectId: number, engine: EngineId, info: { isError: boolean; interrupted: boolean; limited: boolean }) => void
+  onTurnResult?: (projectId: number, engine: EngineId, info: TurnResultInfo) => void
   /** A sessão morreu de verdade (status 'dead' fora do encerramento do serviço). */
   onSessionDied?: (projectId: number, engine: EngineId) => void
   /**
@@ -129,6 +134,15 @@ interface Deps {
    */
   onOperatorMessage?: (projectId: number, engine: EngineId) => void
   /**
+   * Comando do Claudinei digitado no chat (hoje só o `/goal`: `/goal` sozinho ou
+   * `/goal <...>`, não `/goalx`). Chamado no início do `send`, com a sessão viva.
+   * Devolve true se tratou: nada vai à sessão, o `onOperatorMessage` não é
+   * chamado e a origem da sessão não muda. Com false (ou sem o gancho), o envio
+   * segue normal. O que ele lança (ex.: `UserError('goal_invalid')`) chega a quem
+   * chamou o `send`, sem enviar nada.
+   */
+  interceptCommand?: (ctx: SlotContext, text: string) => boolean
+  /**
    * O terminal precisa do operador: abriu uma pergunta, o turno falhou ou a
    * sessão morreu. Liga ao despertador da triagem (assentado e adiado voltam).
    * Turno que só terminou, `working`, a interrupção pedida pelo operador e a
@@ -136,6 +150,12 @@ interface Deps {
    */
   onNeedsOperator?: (projectId: number, reason: 'question' | 'failed' | 'dead') => void
 }
+
+/** O fim de um turno, para o onTurnResult (veja lá). */
+export interface TurnResultInfo { isError: boolean; interrupted: boolean; limited: boolean; origin: LimitOrigin }
+
+/** `/goal` sozinho ou seguido de espaço: o comando do objetivo, não `/goalx`. */
+const GOAL_COMMAND = /^\/goal(\s|$)/
 
 const ACTIVE = new Set<SessionStatus>(['starting', 'idle', 'working', 'needs_attention'])
 
@@ -293,8 +313,9 @@ export function createSessionManager(deps: Deps) {
    * `interrupting`, a marca dura até o fim do turno: no Kimi e no OpenCode o
    * interrupt() resolve na hora e o processo só sai depois, sem result. Sai no
    * result do turno, no "livre" que fecha o turno sem result ou na morte.
+   * Guarda a origem do turno interrompido, lida no Esc: o fim dele sai com ela.
    */
-  const interruptedTurn = new Set<string>()
+  const interruptedTurn = new Map<string, LimitOrigin>()
 
   /**
    * O limite em que o turno da sessão bateu, com o horário resolvido: o do
@@ -379,7 +400,7 @@ export function createSessionManager(deps: Deps) {
    * engine: nunca lança daqui. No encerramento, nenhum turno conta como
    * interrompido pelo operador (a fila não pausa por causa de um reinício).
    */
-  const turnResult = (projectId: number, engine: EngineId, info: { isError: boolean; interrupted: boolean; limited: boolean }): void => {
+  const turnResult = (projectId: number, engine: EngineId, info: TurnResultInfo): void => {
     try { deps.onTurnResult?.(projectId, engine, { ...info, interrupted: info.interrupted && !shuttingDown }) } catch {}
   }
 
@@ -479,7 +500,11 @@ export function createSessionManager(deps: Deps) {
           // cujo result póstumo a sessão descarta): o fim dele sai daqui. Na
           // microtask, e não no status: no Claude o status chega ANTES do result
           // do mesmo turno, e aqui o result (se houve) já consumiu a marca.
-          if (interruptedTurn.delete(localId)) turnResult(projectId, engine, { isError: false, interrupted: true, limited: false })
+          const cut = interruptedTurn.get(localId)
+          if (cut !== undefined) {
+            interruptedTurn.delete(localId)
+            turnResult(projectId, engine, { isError: false, interrupted: true, limited: false, origin: cut })
+          }
           // No Claude, o status chega antes do result que decide compactar: o
           // "livre" espera a compactação, cujo fim dá outro "livre".
           if (live.get(localId)?.compactPending) return
@@ -532,8 +557,10 @@ export function createSessionManager(deps: Deps) {
         }
         // A marca do operador vale para este turno e sai com ele. O `interrupted`
         // do Codex é o próprio motor confirmando a interrupção.
+        // A origem é lida aqui, no próprio result: a do Esc, se houve, senão a da sessão.
+        const origin = interruptedTurn.get(localId) ?? live.get(localId)?.origin ?? 'operator'
         const interrupted = interruptedTurn.delete(localId) || interrupting.has(localId) || event.subtype === 'interrupted'
-        turnResult(projectId, engine, { isError: event.isError, interrupted, limited: !!limited })
+        turnResult(projectId, engine, { isError: event.isError, interrupted, limited: !!limited, origin })
       }
       // Turno que falhou acorda o terminal assentado ou adiado; o interrompido
       // pelo operador e o do limite de uso (acordado pelo serviço do limite), não.
@@ -770,6 +797,10 @@ export function createSessionManager(deps: Deps) {
     send(localId: string, text: string, opts?: { echo?: boolean }): void {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
+      // O /goal tratado pelo Claudinei não vai à sessão nem conta como mensagem do operador.
+      if (deps.interceptCommand && typeof text === 'string' && GOAL_COMMAND.test(text.trim())) {
+        if (deps.interceptCommand({ projectId: entry.projectId, engine: entry.engine, localId }, text)) return
+      }
       if (typeof text === 'string' && text.trim() === '/compact') {
         if (!entry.session.compact) throw new UserError('engine_no_compact', 'esta engine não oferece compactação no chat')
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
@@ -824,7 +855,8 @@ export function createSessionManager(deps: Deps) {
       interrupting.add(localId)
       // Só um turno em curso tem o que interromper: fora dele, a marca cairia
       // no turno seguinte.
-      if (entry.session.status === 'working') interruptedTurn.add(localId)
+      // Um segundo Esc no mesmo turno não troca a origem guardada pelo primeiro.
+      if (entry.session.status === 'working' && !interruptedTurn.has(localId)) interruptedTurn.set(localId, entry.origin)
       try {
         await entry.session.interrupt()
       } catch (err) {

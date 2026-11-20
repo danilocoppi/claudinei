@@ -8,6 +8,7 @@ import type { TerminalManager } from './terminal/manager.js'
 import type { SpeechService } from './speech/transcriber.js'
 import type { UsageService } from './usage.js'
 import type { EngineUsageService } from './engine-usage.js'
+import type { UsageIndexer } from './usage-index/indexer.js'
 import type { AuthService } from './auth/index.js'
 import { registerAuth, registerSecurityHeaders } from './auth/plugin.js'
 import { registerAuthRoutes } from './auth/routes.js'
@@ -26,6 +27,7 @@ import { registerTerminalRoutes } from './routes/terminal.js'
 import { registerUploadRoutes } from './routes/uploads.js'
 import { registerTranscribeRoutes } from './routes/transcribe.js'
 import { registerUsageRoutes } from './routes/usage.js'
+import { registerUsageReportRoutes } from './routes/usage-report.js'
 import { registerScheduleRoutes } from './routes/schedules.js'
 import { registerPrefsRoutes } from './routes/prefs.js'
 import { registerLocalAppRoutes, type LocalAppsRouteDeps } from './routes/local-apps.js'
@@ -55,6 +57,11 @@ export interface AppDeps {
   extraUsage?: Array<Pick<UsageService, 'getLimits'>>
   /** Acumulador de tokens por engine (Codex etc.) exposto ao lado dos limites de plano em /api/usage. */
   engineUsage?: Pick<EngineUsageService, 'all'>
+  /**
+   * Indexador dos históricos locais (Claude e Codex): a rota do relatório só lê o `status()`
+   * dele. Ausente (testes) → a rota continua lá, com o índice dado como parado.
+   */
+  usageIndexer?: Pick<UsageIndexer, 'status'>
   /** Caminho absoluto de web/dist (SPA buildado). Se ausente, o static não é registrado. */
   webDist?: string
   /**
@@ -167,6 +174,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })
   if (deps.usage) await registerUsageRoutes(app, { usage: deps.usage, extraUsage: deps.extraUsage, engineUsage: deps.engineUsage })
+  // Fora do `if (deps.usage)`: o relatório lê só o banco, que todo app tem.
+  registerUsageReportRoutes(app, { db: deps.db, usageIndexer: deps.usageIndexer })
   if (deps.terminalManager) registerTerminalRoutes(app, { manager: deps.manager, terminalManager: deps.terminalManager })
   if (deps.wsHub) deps.wsHub.register(app, { manager: deps.manager, db: deps.db })
 

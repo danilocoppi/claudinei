@@ -107,6 +107,9 @@ if (process.argv.includes('--hermes')) {
   const { captureCrashed, createTerminalStateStore } = await import('./restart/terminal-state.js')
   const { captureShutdown } = await import('./restart/capture.js')
   const { startAfterListen } = await import('./restart/boot.js')
+  const { createUsageIndexStore } = await import('./usage-index/store.js')
+  const { createUsageIndexer } = await import('./usage-index/indexer.js')
+  const { sessionsRoot } = await import('./engine/codex/rollout.js')
 
   migrateLegacyDataDir()
   const config = loadConfig()
@@ -161,6 +164,13 @@ if (process.argv.includes('--hermes')) {
   const kimiUsage = createKimiUsageService()
   const { codexMetadata } = await import('./engine/codex/codex-metadata.js')
   const engineUsage = createEngineUsageService(db)
+  // Índice de uso dos históricos locais (Claude e Codex) para a página de uso. Só liga
+  // depois do listen; as passadas cedem o laço entre fatias e nunca seguram a subida.
+  const usageIndexer = createUsageIndexer({
+    store: createUsageIndexStore(db),
+    claudeProjectsDir: join(config.claudeConfigDir, 'projects'),
+    codexSessionsDir: sessionsRoot(),
+  })
   // drain nasce do orchestrator, que só existe depois do buildApp — mas o
   // manager (criado agora, antes) precisa poder chamá-lo assim que uma sessão
   // libera. Guarda numa referência mutável que buildApp preenche via
@@ -226,7 +236,7 @@ if (process.argv.includes('--hermes')) {
     process.exit(1)
   }
   const app = await buildApp({
-    config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage, codexMetadata], engineUsage, auth,
+    config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage, codexMetadata], engineUsage, usageIndexer, auth,
     insecure: !!cli.insecure,
     behindProxy,
     https: https ?? undefined,
@@ -251,6 +261,9 @@ if (process.argv.includes('--hermes')) {
   // os ouvintes de SIGINT/SIGTERM (que registram a interrupção) podem esperar.
   void startAfterListen({ restart, scheduler, isShuttingDown: () => manager.isShuttingDown() })
     .catch((err) => console.error('[reinício] arranque depois do listen falhou', err))
+  // Sem await: a primeira passada roda em segundo plano e repete a cada 10 min; uma
+  // passada que lança é registrada no log pelo próprio indexador.
+  usageIndexer.start()
   console.log(
     `Termaster server em ${https ? 'https' : 'http'}://${host}:${port}` +
     (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : '') +
@@ -277,6 +290,8 @@ if (process.argv.includes('--hermes')) {
       scheduler?.stop()
       await manager.stopAll()
       await speech.stop()
+      // Interrompe a passada na próxima fatia; o que já foi gravado fica coerente.
+      await usageIndexer.stop()
       await app.close()
       process.exit(0)
     })

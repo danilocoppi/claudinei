@@ -1188,7 +1188,8 @@ button.usage-page__row--link:hover { filter: none; background: var(--surface-str
    mas discretas — quem abriu a conversa veio ler, não mexer na configuração. */
 /* Ícone + nome do projeto viraram um bloco só (para o celular escondê-los de uma
    vez); o gap que eles tinham como filhos diretos do flex vive aqui agora. */
-.chat-header__project { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* `overflow: hidden`: o selo do ramo (nowrap) não vaza sobre as abas de motor. */
+.chat-header__project { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
 /* Botões do cabeçalho não encolhem — o rótulo "Abrir no terminal" quebrava em
    duas linhas e engordava o cabeçalho inteiro assim que a barra de engines
    enchia. Quem cede espaço é a barra, que já rola (ver .engine-tabs). */
@@ -1196,11 +1197,16 @@ button.usage-page__row--link:hover { filter: none; background: var(--surface-str
 /* O `display` do cabeçalho mora aqui, e não no style inline do ChatView, para o
    `.app.zen .chat-header` ter a palavra final. */
 .chat-header { display: flex; }
-.chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* O nome do terminal tem prioridade sobre o selo do ramo: cede menos e nunca some. */
+.chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 6ch; flex-shrink: 0.2; }
 /* Discreto de propósito: é orientação, não alerta — a pasta compartilhada foi
    pedida pelo operador. */
 .chat-header__shared { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
-.chat-header__fork { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+/* "ramo de X · cópia até HH:MM": encolhe primeiro, com reticências. */
+.chat-header__fork {
+  font-size: 11px; color: var(--text-dim);
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .chat-header__more { padding:5px; line-height:0; color:var(--text-dim); }
 .chat-header__more:hover { color:var(--text); }
 /* Fronteira entre o que é preferência de quem entrou e o que é da máquina. */

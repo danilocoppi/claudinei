@@ -79,6 +79,12 @@ function merge(a: DeclaredChange, b: DeclaredChange): DeclaredChange {
  * O que as ferramentas do bloco do turno declararam mexer, um item por
  * caminho, na ordem em que apareceram. Inclui o que os subagentes fizeram
  * (o servidor conta igual). Bash e afins não entram: não declaram caminho.
+ *
+ * Os caminhos ficam como a ferramenta os mandou. O servidor resolve o
+ * relativo contra a pasta do projeto (`resolve(cwd, p)` em
+ * server/src/undo/declared.ts); aqui não há `cwd`, então `a.txt` e
+ * `/proj/a.txt` são duas entradas. Quem cruzar com os caminhos do servidor
+ * precisa resolver antes.
  */
 export function declaredChanges(items: ChatItem[]): DeclaredChange[] {
   const byPath = new Map<string, DeclaredChange>()

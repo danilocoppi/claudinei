@@ -129,17 +129,34 @@ export function createRewindService(deps: RewindDeps) {
     return { text: t!.text!, occurrence: t!.occurrence!, ...(t!.turnId !== undefined ? { turnId: t!.turnId } : {}) }
   }
 
-  /** O turno gravado da mensagem: o `turnId` pedido, ou a `occurrence`-ésima com a chave, de trás para frente. */
-  function targetTurn(info: SessionInfo, current: TurnRow[], target: RewindTarget, key: string): TurnRow | undefined {
+  /**
+   * A mensagem a achar no motor: o turno gravado, a chave e a ocorrência (de
+   * trás para frente, 0 = a última).
+   *
+   * Com `turnId` (R22), a chave é a `text_key` do turno e a ocorrência conta
+   * os turnos da conversa atual depois dele com a mesma chave; o texto e a
+   * ocorrência da web são ignorados. O rastreador grava todo envio como turno,
+   * inclusive a mensagem enfileirada no meio do turno do Claude, que o CLI
+   * guarda como `queued_command` e o `findClaudeCut` conta; a web não a vê
+   * depois de recarregar e contaria uma a menos, cortando a mensagem errada.
+   * Turno sem chave (aberto pelo motor) não tem texto a achar: fica com a da web.
+   *
+   * Sem `turnId` (mensagem anterior ao recurso): a chave do texto e a
+   * ocorrência da web; o turno é o `occurrence`-ésimo com a chave, se houver.
+   */
+  function targetOf(info: SessionInfo, current: TurnRow[], target: RewindTarget): { turn: TurnRow | undefined; key: string; occurrence: number } {
     if (target.turnId !== undefined) {
       const row = store.turn(target.turnId)
       if (!row || row.projectId !== info.projectId || row.engine !== info.engine) {
         throw new UserError('undo_turn_not_found', `turno ${target.turnId} não encontrado`, { id: target.turnId })
       }
       if (!current.some(t => t.id === row.id)) throw new UserError('rewind_turn_outside', 'esta mensagem já não está na conversa atual')
-      return row
+      if (!row.textKey) return { turn: row, key: turnKey(target.text), occurrence: target.occurrence }
+      const occurrence = current.filter(t => t.id > row.id && t.textKey === row.textKey).length
+      return { turn: row, key: row.textKey, occurrence }
     }
-    return current.filter(t => t.textKey === key).reverse()[target.occurrence]
+    const key = turnKey(target.text)
+    return { turn: current.filter(t => t.textKey === key).reverse()[target.occurrence], key, occurrence: target.occurrence }
   }
 
   async function hasGit(path: string): Promise<boolean> {
@@ -154,9 +171,8 @@ export function createRewindService(deps: RewindDeps) {
     const info = sessionOf(localId)
     const project = deps.projects.get(info.projectId)
     if (!project) throw new UserError('session_project_gone', 'projeto da sessão não existe mais')
-    const key = turnKey(target.text)
     const current = currentTurns(info)
-    const turn = targetTurn(info, current, target, key)
+    const { turn, key, occurrence } = targetOf(info, current, target)
     const range = turn ? current.filter(t => t.id >= turn.id) : current
     const kept = turn ? current.filter(t => t.id < turn.id) : []
     const filesTouched = range.some(t => t.declared.length > 0 || (!!t.summary && t.summary.files + t.summary.outside > 0))
@@ -172,7 +188,7 @@ export function createRewindService(deps: RewindDeps) {
     if (turn?.midTurn) return both(off(info.engine === 'codex' ? 'codex_mid_turn' : 'claude_mid_turn'))
     let cut: ConversationCut | null = null
     try {
-      cut = await plan.adapter.locate({ localId, projectPath: project.path, engineSessionId: info.engineSessionId, turn }, key, target.occurrence)
+      cut = await plan.adapter.locate({ localId, projectPath: project.path, engineSessionId: info.engineSessionId, turn }, key, occurrence)
     } catch (e) {
       // Conversa ocupada sem âncora, transcript ilegível: a tela mostra o motivo, nunca 500.
       log(`achar a mensagem em ${localId}: ${errText(e)}`)

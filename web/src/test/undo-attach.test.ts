@@ -1,6 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { attachTurns, occurrenceOf } from '../undo/attachTurns'
 import { turnKey, type TurnDto } from '../../../shared/undo'
+
+// A turnKey espiada (mesmo comportamento) para contar quantas vezes o attachTurns a chama.
+vi.mock('../../../shared/undo', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../shared/undo')>()
+  return { ...actual, turnKey: vi.fn(actual.turnKey) }
+})
 import type { ChatItem } from '../types'
 
 let nextId = 1
@@ -68,6 +74,64 @@ describe('attachTurns', () => {
     const b = turn('[Agendamento: Diário #3]: resuma o dia', { origin: 'schedule' })
     const c = turn('[Claudinei: goal start]: New goal: x. Work toward it turn after turn. Only when it is entirely met, call goal_done with the evidence.', { origin: 'goal' })
     expect(placed(items, [a, b, c])).toEqual([[a.id, 0, 1], [b.id, 2, 3], [c.id, 4, 4]])
+  })
+
+  it('corpo de tarefa e agendamento que começa com colchete: a chave é a do servidor com o envelope', () => {
+    const items: ChatItem[] = [
+      { kind: 'task_message', from: 'X', text: '[WIP] foo' }, reply('ok'),
+      { kind: 'scheduled_message', name: 'Diário', run: 2, text: '[docs](http://x) leia' }, reply('lido'),
+      { kind: 'claudinei_message', reason: 'task_result', text: '[nota] resultado', tasks: [] },
+    ]
+    const a = turn('[Task from X]: [WIP] foo', { origin: 'task' })
+    const b = turn('[Agendamento: Diário #2]: [docs](http://x) leia', { origin: 'schedule' })
+    const c = turn('[Claudinei: task result]: [nota] resultado', { origin: 'claudinei' })
+    expect(a.key).toBe('[WIP] foo')
+    expect(b.key).toBe('[docs](http://x) leia')
+    expect(placed(items, [a, b, c])).toEqual([[a.id, 0, 1], [b.id, 2, 3], [c.id, 4, 4]])
+    expect(occurrenceOf(items, 0).key).toBe('[WIP] foo')
+    expect(occurrenceOf(items, 2).key).toBe('[docs](http://x) leia')
+  })
+
+  it('o texto digitado com colchete segue a chave do servidor (sem envelope a pôr)', () => {
+    const items = [user('[WIP] foo'), reply('ok')]
+    const a = turn('[WIP] foo')
+    expect(a.key).toBe('foo')
+    expect(placed(items, [a])).toEqual([[a.id, 0, 1]])
+    expect(occurrenceOf(items, 0)).toEqual({ key: 'foo', occurrence: 0 })
+  })
+
+  it('não refaz as chaves dos itens que já viu', () => {
+    const items = [user('continue'), reply('a'), user('faça Y'), tool('t'), user('continue')]
+    const turns = [turn('continue'), turn('faça Y'), turn('continue')]
+    const spy = vi.mocked(turnKey)
+    spy.mockClear()
+    const first = placed(items, turns)
+    const calls = spy.mock.calls.length
+    expect(calls).toBe(3)
+    // Mesma lista, ou a lista com um item novo no fim: só o novo é calculado.
+    expect(placed(items, turns)).toEqual(first)
+    expect(spy.mock.calls.length).toBe(calls)
+    placed([...items, user('mais uma')], turns)
+    expect(spy.mock.calls.length).toBe(calls + 1)
+    occurrenceOf(items, 0)
+    expect(spy.mock.calls.length).toBe(calls + 1)
+  })
+
+  it('muitos textos repetidos: casa igual à busca do mais novo ao mais velho', () => {
+    const items: ChatItem[] = []
+    for (let i = 0; i < 40; i++) items.push(user(i % 3 === 0 ? 'continue' : `msg ${i % 5}`), reply(String(i)))
+    const turns = items.filter((_, i) => i % 2 === 0 && i % 7 !== 0).map(it => turn((it as { text: string }).text))
+    // Referência: a busca linear de antes, do mais novo ao mais velho.
+    const expected: Array<number | null> = []
+    let limit = items.length
+    for (let k = turns.length - 1; k >= 0; k--) {
+      let hit: number | null = null
+      for (let i = limit - 1; i >= 0; i--) {
+        if (items[i].kind === 'user_text' && turnKey((items[i] as { text: string }).text) === turns[k].key) { hit = i; limit = i; break }
+      }
+      expected[k] = hit
+    }
+    expect(attachTurns(items, turns).map(p => p.itemIndex)).toEqual(expected)
   })
 
   it('item sem turno não ganha linha', () => {

@@ -529,6 +529,52 @@ describe('createRewindService (unidade)', () => {
     expect(res.working).toBe(true)
   })
 
+  /** O serviço com um adaptador do Claude espiado e três turnos "continue", o último no meio do turno. */
+  function sameTextTurns() {
+    const udb = openDb(':memory:')
+    const store = createUndoStore(udb)
+    const dir = makeTempDir('claudinei-rewind-unit-')
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    createProjectsService(udb).create({ name: 'P', path: dir })
+    const open = (over: Partial<Parameters<typeof store.openTurn>[0]>) => {
+      const id = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'operator', textKey: 'continue', conversationId: 'S1', ...over })
+      store.setEnd(id, null, 'result', (over.conversationId as string | undefined) ?? 'S1')
+      return id
+    }
+    const a = open({})
+    const b = open({})
+    // Turno de mesmo texto que já saiu da conversa (outra conversa): não conta.
+    open({ conversationId: 'VELHA' })
+    const c = open({ midTurn: true })
+    const locate = vi.fn<RewindAdapter['locate']>(async () => ({ kind: 'claude', parentUuid: null }))
+    const svc = createRewindService({
+      manager: { get: () => ({ localId: 'L', projectId: 1, engine: 'claude', status: 'idle', engineSessionId: 'S1' }) as any, interrupt: vi.fn(), send: vi.fn() },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { claude: { locate, apply: vi.fn(async () => ({})) } },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
+    })
+    return { svc, locate, a, b, c }
+  }
+  const admin = { isAdmin: true, projectIds: 'all' as const }
+
+  it('R22: com turnId, a chave e a ocorrência saem das linhas de turno (a enfileirada conta), não da web', async () => {
+    const { svc, locate, a, b } = sameTextTurns()
+    // A web não vê a mensagem enfileirada de C depois de recarregar: manda 1.
+    await svc.options('L', { turnId: a, text: 'continue', occurrence: 1 }, admin)
+    expect(locate).toHaveBeenLastCalledWith(expect.objectContaining({ turn: expect.objectContaining({ id: a }) }), 'continue', 2)
+    // Ocorrência e texto da web ignorados de todo.
+    await svc.options('L', { turnId: a, text: '[WIP] continue', occurrence: 0 }, admin)
+    expect(locate).toHaveBeenLastCalledWith(expect.anything(), 'continue', 2)
+    await svc.options('L', { turnId: b, text: 'continue', occurrence: 7 }, admin)
+    expect(locate).toHaveBeenLastCalledWith(expect.objectContaining({ turn: expect.objectContaining({ id: b }) }), 'continue', 1)
+  })
+
+  it('R22: sem turnId (mensagem anterior ao recurso), vale a ocorrência da web', async () => {
+    const { svc, locate } = sameTextTurns()
+    await svc.options('L', { text: 'continue', occurrence: 1 }, admin)
+    expect(locate).toHaveBeenLastCalledWith(expect.anything(), 'continue', 1)
+  })
+
   it('codex com fork: os turnos que ficam passam ao id novo na hora', async () => {
     const udb = openDb(':memory:')
     const store = createUndoStore(udb)

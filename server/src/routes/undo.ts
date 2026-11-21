@@ -6,7 +6,7 @@ import { errorBody, fail, UserError } from '../user-error.js'
 import { UndoChangedError, type UndoRequest } from '../undo/service.js'
 import type { Undo } from '../undo/index.js'
 import type { TurnRow } from '../undo/store.js'
-import type { ViewerFull } from '../../../shared/undo.js'
+import type { RewindMode, RewindTarget, RestoreAction, ViewerFull } from '../../../shared/undo.js'
 
 /**
  * Rotas do desfazer turno. A autorização segue o projeto do turno, do
@@ -22,6 +22,7 @@ const STATUS: Record<string, number> = {
   undo_bad_decision: 400,
   undo_not_redoable: 400,
   undo_bad_request: 400,
+  rewind_bad_request: 400,
   forbidden_project: 403,
   forbidden_path: 403,
   // Quem não é administrador não refaz desfazer com arquivos de fora (R16): pede ao administrador.
@@ -35,6 +36,13 @@ const STATUS: Record<string, number> = {
   undo_blocked: 409,
   undo_writing: 409,
   undo_already_redone: 409,
+  // Editar a partir daqui: opção desligada, outra volta em curso, mensagem que saiu da conversa, turno que não parou.
+  rewind_unavailable: 409,
+  rewind_busy: 409,
+  rewind_in_progress: 409,
+  rewind_turn_outside: 409,
+  rewind_turn_stuck: 409,
+  session_project_gone: 404,
   snapshot_lost: 410,
   // Dá para tentar de novo: o git não respondeu ou o marco não saiu.
   snapshot_check_failed: 503,
@@ -191,6 +199,32 @@ export function registerUndoRoutes(app: FastifyInstance, deps: { undo: Undo; man
     if (!ids) return
     try {
       return await undo.service.apply(ids, bodyOf(req), viewerOf(req))
+    } catch (err) { return sendError(reply, err) }
+  })
+
+  // ── Editar a partir daqui ──
+
+  app.post('/api/undo/terminals/:localId/rewind/options', async (req, reply) => {
+    const info = sessionOf(req, reply, (req.params as { localId: string }).localId)
+    if (!info) return
+    try {
+      const target = (req.body as { target?: RewindTarget } | undefined)?.target as RewindTarget
+      return await undo.rewind.options(info.localId, target, viewerOf(req))
+    } catch (err) { return sendError(reply, err) }
+  })
+
+  app.post('/api/undo/terminals/:localId/rewind', async (req, reply) => {
+    const info = sessionOf(req, reply, (req.params as { localId: string }).localId)
+    if (!info) return
+    const b = (req.body ?? {}) as { target?: unknown; mode?: unknown; editedText?: unknown; token?: unknown; decisions?: unknown }
+    try {
+      return await undo.rewind.execute(info.localId, {
+        target: b.target as RewindTarget,
+        mode: b.mode as RewindMode,
+        editedText: b.editedText as string,
+        ...(typeof b.token === 'string' ? { token: b.token } : {}),
+        ...(b.decisions && typeof b.decisions === 'object' ? { decisions: b.decisions as Record<string, RestoreAction> } : {}),
+      }, viewerOf(req))
     } catch (err) { return sendError(reply, err) }
   })
 

@@ -9,6 +9,9 @@ import { listIntervals, markSide } from './attribution.js'
 import { runRetention } from './retention.js'
 import { changeDiff, errText, inProjectOf, projectRelOf, underTop } from './scope.js'
 import { createUndoService, turnDto } from './service.js'
+import { createRewindService } from './rewind.js'
+import { createClaudeRewind } from './rewind-claude.js'
+import { createCodexRewind } from './rewind-codex.js'
 import { createUndoStore, type MarkRow, type TurnRow } from './store.js'
 import { createTurnTracker } from './tracker.js'
 import type { TurnObserver } from './types.js'
@@ -26,7 +29,8 @@ import type {
 
 export interface UndoDeps {
   db: Db
-  manager: Pick<SessionManager, 'list'>
+  /** `list` para o desfazer; o resto para "Editar a partir daqui" (interromper, relançar, voltar e mandar o texto). */
+  manager: Pick<SessionManager, 'list' | 'get' | 'interrupt' | 'send' | 'relaunch' | 'liveSession' | 'revive'>
   projects: { get(id: number): { id: number; name: string; path: string } | undefined }
   broadcast(m: object): void
   /** A escrita de um desfazer terminou: cutuca o árbitro de cada terminal do repositório. */
@@ -74,13 +78,22 @@ export function createUndo(deps: UndoDeps) {
 
   // O serviço e o rastreador se chamam: o rastreador recusa mensagem durante a
   // escrita (holdInput) e publica o resumo no fim do turno; o serviço tira os
-  // marcos do desfazer pela fila do rastreador.
+  // marcos do desfazer pela fila do rastreador. A volta da conversa ("Editar a
+  // partir daqui") também segura as mensagens do terminal e rotula a conversa
+  // nova do Claude no fim do primeiro turno dela.
   let service: ReturnType<typeof createUndoService>
+  let rewind: ReturnType<typeof createRewindService>
   const tracker = createTurnTracker({
     store, resolver, queue,
     projectPath: id => deps.projects.get(id)?.path ?? null,
-    holdInput: ctx => service.holdInput(ctx),
-    onTurnClosed: id => { void service.summarizeTurn(id) },
+    holdInput: (ctx) => {
+      service.holdInput(ctx)
+      rewind.holdInput(ctx)
+    },
+    onTurnClosed: (id) => {
+      void service.summarizeTurn(id)
+      rewind.onTurnClosed(id)
+    },
     log,
   })
   service = createUndoService({
@@ -96,6 +109,12 @@ export function createUndo(deps: UndoDeps) {
         log(`cutucar os terminais de ${top}: ${errText(e)}`)
       }
     }),
+    log,
+  })
+  rewind = createRewindService({
+    manager: deps.manager, store, undo: service, projects: deps.projects, resolver,
+    adapters: { claude: createClaudeRewind({ manager: deps.manager }), codex: createCodexRewind({ manager: deps.manager }) },
+    nextSend: () => (deps.poke ? { poke: deps.poke } : undefined),
     log,
   })
 
@@ -169,7 +188,7 @@ export function createUndo(deps: UndoDeps) {
   }
 
   return {
-    store, resolver, queue, tracker, service,
+    store, resolver, queue, tracker, service, rewind,
 
     /** Subida: fecha os turnos que ficaram abertos (fim incerto) e solta a retenção em segundo plano. */
     async boot(): Promise<void> {
@@ -185,9 +204,14 @@ export function createUndo(deps: UndoDeps) {
       if (retaining) await retaining
     },
 
-    /** Para o árbitro: o repositório do terminal está em escrita. */
+    /**
+     * Para o árbitro, o agendador e as tarefas e perguntas de outros agentes: o
+     * repositório do terminal está em escrita, ou o terminal está voltando a
+     * conversa. Um `holds` só: todo lugar do app que segura pelo desfazer
+     * segura também pela volta.
+     */
     holds(projectId: number, engine: string): boolean {
-      return service.holds(projectId, engine)
+      return service.holds(projectId, engine) || rewind.holds(projectId, engine)
     },
 
     /**

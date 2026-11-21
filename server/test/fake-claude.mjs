@@ -53,12 +53,23 @@
 //                         arquivo apontado existe, a mensagem de retomada do Claudinei
 //                         ("[Claudinei: resume after usage limit]") bate no limite como
 //                         "limite" (a retomada automática que bate de novo).
+//   contém "escreve:<rel>=<texto>" -> grava <texto>\n em <rel> (relativo à pasta da
+//                         sessão) e declara: tool_use Write com o file_path absoluto,
+//                         tool_result, depois "eco: …" e result. Para o desfazer.
+//   contém "bash-escreve:<rel>=<texto>" -> grava do mesmo jeito sem declarar (tool_use
+//                         Bash, que não é ferramenta de escrita).
+//                         Nos dois, numa pasta com git, a escrita espera o marco de
+//                         início do turno (um ref novo em refs/claudinei/, até 3 s):
+//                         a CLI de verdade leva segundos, e escrever antes do marco
+//                         poria a mudança no retrato de início.
 //   qualquer outro     -> responde "eco: <texto>"
 // control_request { subtype: 'interrupt' } -> sempre responde success e emite
 // result error_during_execution (replica o comportamento real do claude: a
 // sessão segue viva, o turno é abortado com erro).
 import readline from 'node:readline'
-import { existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 const sid = process.env.FAKE_SESSION_ID ?? 'fake-session-0001'
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
@@ -132,6 +143,45 @@ const modelUsage = () => process.env.CLAUDE_FAKE_WINDOW
       [model]: { contextWindow: Number(process.env.CLAUDE_FAKE_WINDOW), canonicalModel: model },
     }
   : undefined
+
+// escreve: / bash-escreve: os refs dos marcos do Claudinei na pasta (só leitura);
+// null fora de um repositório git.
+const refsDosMarcos = () => {
+  const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[k]
+  try {
+    return execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/claudinei/'],
+      { cwd: process.cwd(), env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').filter(Boolean)
+  } catch { return null }
+}
+// Espera um ref novo (o marco de início do turno), até 3 s; sem git, segue já.
+const esperaMarco = async () => {
+  const antes = refsDosMarcos()
+  if (!antes) return
+  const t0 = Date.now()
+  while (Date.now() - t0 < 3000) {
+    await new Promise((r) => setTimeout(r, 20))
+    const agora = refsDosMarcos()
+    if (!agora || agora.some((r) => !antes.includes(r))) break
+  }
+  // O marco já está no git; o Claudinei ainda grava o fim dele no banco.
+  await new Promise((r) => setTimeout(r, 50))
+}
+const escreve = async (text, m) => {
+  await esperaMarco()
+  const [, bash, rel, corpo] = m
+  const abs = join(process.cwd(), rel)
+  mkdirSync(dirname(abs), { recursive: true })
+  writeFileSync(abs, `${corpo}\n`)
+  const id = `toolu_escreve_${Date.now()}`
+  const tool = bash
+    ? { type: 'tool_use', id, name: 'Bash', input: { command: `printf '%s\\n' '${corpo}' > '${rel}'` } }
+    : { type: 'tool_use', id, name: 'Write', input: { file_path: abs, content: `${corpo}\n` } }
+  out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [tool], usage: ctxUsage() } })
+  out({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } })
+  out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${text}` }], usage: ctxUsage() } })
+  out({ type: 'result', subtype: 'success', is_error: false, result: `eco: ${text}`, session_id: sid, num_turns: 1, total_cost_usd: 0, usage: turnUsage() })
+}
 
 const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
@@ -377,6 +427,11 @@ rl.on('line', (line) => {
     out({ type: 'assistant', session_id: sid, isApiErrorMessage: true, error: 'rate_limit', apiErrorStatus: 429,
       message: { role: 'assistant', content: [{ type: 'text', text: LIMIT_TEXT }] } })
     out({ type: 'result', subtype: 'success', is_error: true, result: LIMIT_TEXT, session_id: sid, num_turns: 1, total_cost_usd: 0 })
+    return
+  }
+  const escrita = text.match(/(bash-)?escreve:([^=\s]+)=([^\n]*)/)
+  if (escrita) {
+    void escreve(text, escrita)
     return
   }
   if (text.includes('demorada')) {

@@ -84,6 +84,43 @@ export interface UndoRunDto {
   hiddenOutside?: number
 }
 
+// ── Editar a partir daqui (server/src/undo/rewind.ts) ──
+
+/**
+ * A mensagem do operador a editar: o turno gravado (quando a web o conhece) e,
+ * sempre, o texto e a ocorrência dele (0 = a última mensagem com a mesma chave).
+ */
+export interface RewindTarget { turnId?: number; text: string; occurrence: number }
+
+export type RewindMode = 'conversation' | 'conversation_and_files'
+
+/**
+ * Por que uma das duas voltas está desligada. `claude_mid_turn`: a mensagem
+ * entrou no meio do turno do Claude, e o corte ali não foi ensaiado (R20).
+ */
+export type RewindReason =
+  | 'engine_unsupported' | 'codex_mid_turn' | 'claude_mid_turn' | 'anchor_not_found' | 'no_git' | 'no_snapshot'
+  | 'snapshot_late' | 'snapshot_lost' | 'no_session'
+
+export interface Availability { enabled: boolean; reason?: RewindReason; params?: Record<string, string> }
+
+/**
+ * POST /api/undo/terminals/:localId/rewind/options. `files.preview` só vem com
+ * os turnos do trecho terminados; com o agente trabalhando, a prévia chega no
+ * 409 do `rewind` depois da interrupção. `filesTouched`: algum turno do trecho
+ * mexeu em arquivos (a volta só da conversa leva a nota).
+ */
+export interface RewindOptionsDto {
+  engine: string
+  conversation: Availability
+  files: Availability & { preview?: UndoPreview }
+  filesTouched: boolean
+  working: boolean
+}
+
+/** POST /api/undo/terminals/:localId/rewind. `error`: a conversa não voltou (ou o texto não saiu); `run` fica. */
+export interface RewindResultDto { conversationRewound: boolean; run?: UndoRunDto; error?: { code: string; message: string } }
+
 // ── Turnos ──
 
 export type TurnOrigin = 'operator' | 'claudinei' | 'task' | 'schedule' | 'goal' | 'engine' | 'interactive'

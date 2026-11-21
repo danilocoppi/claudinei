@@ -37,8 +37,16 @@ import { isAtBottom, SLACK } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { ProgressButton, ProgressColumn } from './ProgressColumn'
+import { useUndoStore } from '../undo/undoStore'
+import { attachTurns, type TurnPlacement } from '../undo/attachTurns'
+import { TurnLine } from './undo/TurnLine'
+import { ChangesPanel, type PanelFocus } from './undo/ChangesPanel'
+import type { TurnDto } from '../../../shared/undo'
 
 const EMPTY_ITEMS: ChatItem[] = []
+const NO_LINES = new Map<number, TurnPlacement[]>()
+/** Desfazer/Refazer da linha do turno: a Task 16 troca este marcador pela tela de prévia. */
+const undoPending = (turn: TurnDto) => { console.info('[undo] desfazer/refazer do turno ainda sem tela', turn.id) }
 /** Teclas que rolam a conversa com o foco nela. */
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 
@@ -211,6 +219,31 @@ export function ChatView() {
   }, [])
 
   const nodes = useMemo(() => groupActions(items, session?.status === 'working'), [items, session?.status])
+
+  // Desfazer turno: os turnos do terminal ao abrir; a linha de cada um vai
+  // depois do último item do bloco dele. O cálculo só refaz quando a lista de
+  // itens ou de turnos troca (o texto do streaming mora fora de `items`).
+  const [undoPanel, setUndoPanel] = useState<PanelFocus | null>(null)
+  const undoTurns = useUndoStore((s) => (activeLocalId ? s.byLocal[activeLocalId]?.turns : undefined))
+  const atStart = !!historyCursor?.atStart
+  useEffect(() => {
+    setUndoPanel(null)
+    if (!activeLocalId) return
+    useUndoStore.getState().load(activeLocalId).catch((e) => console.warn('[undo] turnos não carregaram', e))
+  }, [activeLocalId])
+  const turnLines = useMemo(() => {
+    if (!undoTurns || undoTurns.length === 0) return NO_LINES
+    const byAfter = new Map<number, TurnPlacement[]>()
+    for (const p of attachTurns(items, undoTurns)) {
+      // Antes do primeiro item só com a conversa inteira carregada: senão o
+      // turno é de uma página antiga e a linha entra quando ela chegar.
+      if (p.afterIndex < 0 && !atStart) continue
+      const list = byAfter.get(p.afterIndex)
+      if (list) list.push(p)
+      else byAfter.set(p.afterIndex, [p])
+    }
+    return byAfter
+  }, [items, undoTurns, atStart])
   const firstItemIndex = useFirstItemIndex(activeLocalId ?? undefined, nodes)
 
   // D4: (re)carrega o histórico sempre que a sessão ativa tiver um engineSessionId
@@ -428,14 +461,25 @@ export function ChatView() {
     st.requestEdit(localId, text)
   }, [localId])
 
-  const renderNode = useCallback((_index: number, node: ChatNode) => (
-    <div className="chat-entry" data-key={nodeKey(node)}>
-      {node.kind === 'group'
-        ? <ActionGroup items={node.items} currentLocalId={localId!} />
-        : <MessageBlock item={node.item} currentLocalId={localId!}
-                        editable={editableIdx.has(node.index)} onEdit={handleEdit} />}
-    </div>
-  ), [localId, editableIdx, handleEdit])
+  // Sem git, a linha lê as ferramentas do bloco do turno; com git, não lê item nenhum.
+  const turnLinesAt = useCallback((at: number) => turnLines.get(at)?.map((p) => (
+    <TurnLine key={p.turn.id} turn={p.turn} onOpen={setUndoPanel} onUndo={undoPending} onRedo={undoPending}
+              items={p.turn.state === 'no_git' && p.itemIndex !== null ? items.slice(p.itemIndex, p.afterIndex + 1) : EMPTY_ITEMS} />
+  )), [turnLines, items])
+  const renderNode = useCallback((_index: number, node: ChatNode) => {
+    const first = node.kind === 'group' ? node.start : node.index
+    const last = node.kind === 'group' ? node.items[node.items.length - 1].index : node.index
+    return (
+      <div className="chat-entry" data-key={nodeKey(node)}>
+        {first === 0 && turnLinesAt(-1)}
+        {node.kind === 'group'
+          ? <ActionGroup items={node.items} currentLocalId={localId!} />
+          : <MessageBlock item={node.item} currentLocalId={localId!}
+                          editable={editableIdx.has(node.index)} onEdit={handleEdit} />}
+        {turnLinesAt(last)}
+      </div>
+    )
+  }, [localId, editableIdx, handleEdit, turnLinesAt])
 
   const edge: ListContext['edge'] = nodes.length === 0 ? null
     : historyCursor?.atStart ? 'start'
@@ -593,6 +637,7 @@ export function ChatView() {
           onClose={() => setEditConfirm(null)}
         />
       )}
+      {undoPanel && <ChangesPanel localId={session.localId} focus={undoPanel} onClose={() => setUndoPanel(null)} />}
       {handoffDialog && session && (
         <ConfirmDialog
           title={t('chat.handoffTitle')}

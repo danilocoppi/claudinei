@@ -839,5 +839,8 @@ export const es: typeof en = {
       of: 'rama de {{name}}',
     },
   },
+  editFromHere: {
+    commandNotAllowed: 'Los comandos no se pueden usar al editar; usa el campo de mensaje',
+  },
 }
 export default es

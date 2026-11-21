@@ -512,6 +512,43 @@ describe('Editar a partir daqui', () => {
     expect(screen.queryByRole('dialog', { name: 'Editar a partir daqui' })).toBeNull()
   })
 
+  it('texto editado que é comando (/side, /btw, /fork): o aviso aparece e nada é enviado', async () => {
+    setup()
+    routes[OPTIONS] = opts()
+    routes[REWIND] = { conversationRewound: true } satisfies RewindResultDto
+    abrir()
+    const dlg = await editar(1)
+    const campo = within(dlg).getByRole('textbox') as HTMLTextAreaElement
+    const aviso = 'Comandos não podem ser usados ao editar; use o campo de mensagem'
+    fireEvent.change(campo, { target: { value: '/side oi' } })
+    await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
+    // Antes de confirmar, nenhum aviso.
+    expect(within(dlg).queryByText(aviso)).toBeNull()
+    fireEvent.click(botao(dlg, 'Voltar só a conversa'))
+    expect(within(dlg).getByText(aviso)).toBeTruthy()
+    // "Conversa e arquivos" também não abre a tela de desfazer nem envia.
+    fireEvent.click(botao(dlg, 'Voltar a conversa e os arquivos'))
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1)
+    // O mesmo reconhecimento do campo principal: espaço no começo, sozinho, /btw e /fork.
+    for (const v of ['  /side', '/btw pergunta', '/fork', '/fork Nome']) {
+      fireEvent.change(campo, { target: { value: v } })
+      fireEvent.click(botao(dlg, 'Voltar só a conversa'))
+      expect(within(dlg).getByText(aviso), v).toBeTruthy()
+    }
+    await new Promise((r) => setTimeout(r, 0))
+    expect(calls(REWIND)).toEqual([])
+    expect(screen.queryByRole('dialog', { name: 'Editar a partir daqui' })).toBeTruthy()
+    // O aviso some quando o texto deixa de ser comando (e /sidebar não é comando).
+    fireEvent.change(campo, { target: { value: '/sidebar' } })
+    expect(within(dlg).queryByText(aviso)).toBeNull()
+    // Em en e es a chave resolve.
+    for (const lng of ['en', 'es'] as const) {
+      await i18n.changeLanguage(lng)
+      expect(i18n.t('editFromHere.commandNotAllowed')).not.toBe('editFromHere.commandNotAllowed')
+    }
+    await i18n.changeLanguage('pt-BR')
+  })
+
   it('o texto "recomeça a conversa a partir dela" não existe mais em nenhuma língua', async () => {
     const all = JSON.stringify([ptBR, en, es])
     expect(all).not.toMatch(/recomeça a conversa a partir dela/)

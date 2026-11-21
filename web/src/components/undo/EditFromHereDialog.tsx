@@ -11,6 +11,7 @@ import { useUndoStore } from '../../undo/undoStore'
 import { attachTurns, occurrenceOf } from '../../undo/attachTurns'
 import { changedPreview, fetchRewindOptions, rewind, type UndoDecision } from '../../undo/api'
 import { localizeServerError } from '../../serverErrors'
+import { parseBranchCommand } from '../../branch/commands'
 import { UndoDialog } from './UndoDialog'
 import { useDialogKeys } from './useDialogKeys'
 import './undo.css'
@@ -107,6 +108,20 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
   /** O aviso final (a conversa não voltou, ou o texto não saiu): só resta fechar. */
   const [finished, setFinished] = useState<string | null>(null)
   const [files, setFiles] = useState<FilesStep | null>(null)
+  /**
+   * `/side`, `/btw` e `/fork` são do Claudinei e só o campo de mensagem os
+   * trata: aqui eles iriam ao motor como texto. O reconhecimento é o mesmo do
+   * campo (texto aparado). Tentar voltar com um deles marca o aviso, que só
+   * aparece enquanto o texto continuar sendo comando.
+   */
+  const isCommand = parseBranchCommand(text.trim()) !== null
+  const [commandTried, setCommandTried] = useState(false)
+  /** Barra a volta quando o texto é comando e liga o aviso. */
+  const blockCommand = () => {
+    if (!isCommand) return false
+    setCommandTried(true)
+    return true
+  }
 
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
@@ -188,6 +203,7 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
    * servidor interrompe o turno e devolve a prévia no 409, sem tocar em nada.
    */
   const send = async (mode: RewindMode, decision?: UndoDecision) => {
+    if (blockCommand()) return
     const edited = text
     const probe = mode === 'conversation_and_files' && !decision
     const interrupting = working
@@ -235,7 +251,7 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
   }
 
   const onFiles = () => {
-    if (opts.status !== 'ok') return
+    if (opts.status !== 'ok' || blockCommand()) return
     const preview = opts.data.files.preview
     if (preview) setFiles({ preview, changed: false })
     else void send('conversation_and_files')
@@ -277,6 +293,9 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
               {opts.status === 'error' && <p className="undo-dialog__err">{t('undo.panel.loadFailed', { message: opts.message })}</p>}
               {reasons.map(([id, r]) => <p key={id} className="undo-edit__reason" data-option={id}>{r}</p>)}
               {finished !== null && <p className="undo-dialog__warn" role="alert">{finished}</p>}
+              {commandTried && isCommand && finished === null && (
+                <p className="undo-dialog__err undo-edit__command" role="alert">{t('editFromHere.commandNotAllowed')}</p>
+              )}
             </div>
             {error && <p className="undo-dialog__err" role="alert">{error}</p>}
             {showWarn && finished === null && (

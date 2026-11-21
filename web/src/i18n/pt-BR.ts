@@ -840,5 +840,8 @@ export const ptBR: typeof en = {
       of: 'ramo de {{name}}',
     },
   },
+  editFromHere: {
+    commandNotAllowed: 'Comandos não podem ser usados ao editar; use o campo de mensagem',
+  },
 }
 export default ptBR

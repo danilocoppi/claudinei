@@ -238,6 +238,47 @@ describe('pé', () => {
     })
   })
 
+  it('teclas do campo da lateral: a mesma regra do campo principal', async () => {
+    const fetch = api()
+    put(info())
+    render(<Coluna />)
+    const campo = screen.getByPlaceholderText('Pergunte na conversa lateral…') as HTMLTextAreaElement
+    const envios = () => fetch.mock.calls.filter(([u]) => String(u).endsWith('/side/message'))
+      .map(([, init]) => JSON.parse(init!.body as string).text)
+    const tecla = (key: string, code: string, mods: object = {}) => fireEvent.keyDown(campo, { key, code, ...mods })
+    const enviaCom = async (texto: string, key: string, code: string, mods: object = {}) => {
+      fireEvent.change(campo, { target: { value: texto } })
+      expect(tecla(key, code, mods), `${texto}: a tecla é do envio`).toBe(false)
+      await waitFor(() => expect(campo.value).toBe(''))
+    }
+    const naoEnvia = (texto: string, key: string, code: string, mods: object = {}) => {
+      fireEvent.change(campo, { target: { value: texto } })
+      const antes = envios().length
+      tecla(key, code, mods)
+      expect(envios().length, texto).toBe(antes)
+      expect(campo.value).toBe(texto)
+    }
+    try {
+      // Enter puro envia; Shift+Enter quebra a linha (fica com o navegador).
+      await enviaCom('um', 'Enter', 'Enter')
+      naoEnvia('dois', 'Enter', 'Enter', { shiftKey: true })
+      // O atalho de enviar do registro (Mod+Enter por padrão) também envia.
+      await enviaCom('dois', 'Enter', 'Enter', { ctrlKey: true })
+      // Alt+Enter não é Enter puro nem o atalho de enviar: não manda.
+      naoEnvia('três', 'Enter', 'Enter', { altKey: true })
+      // Durante a composição do IME, Enter confirma a composição e não envia.
+      naoEnvia('três', 'Enter', 'Enter', { isComposing: true })
+      naoEnvia('três', 'Enter', 'Enter', { keyCode: 229 })
+      // Com o enviar trocado no registro, a combinação nova envia e a antiga não.
+      act(() => useStore.getState().setKeybindings({ 'chat.send': 'Alt+S' }))
+      naoEnvia('três', 'Enter', 'Enter', { ctrlKey: true })
+      await enviaCom('três', 's', 'KeyS', { altKey: true })
+      expect(envios()).toEqual(['um', 'dois', 'três'])
+    } finally {
+      useStore.getState().setKeybindings({})
+    }
+  })
+
   it('campo da lateral desabilitado trabalhando no Kimi e habilitado no Claude', () => {
     api()
     put(info({ engine: 'kimi', status: 'working' }))

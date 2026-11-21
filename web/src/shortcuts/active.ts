@@ -20,6 +20,18 @@ export function matchShortcut(e: KeyLike, id: ShortcutId): boolean {
   return combo !== null && matchCombo(e, combo, isMac())
 }
 
+/**
+ * A tecla que envia num campo de mensagem (o principal e o da conversa
+ * lateral): a combinação de enviar do registro ou o Enter puro (sem Ctrl, ⌘,
+ * Alt nem Shift). Com modificador e fora da combinação, não: o Shift+Enter
+ * quebra a linha, e o Alt+Enter antigo não manda a mensagem sem querer. A
+ * composição do IME fica com quem chama (o campo a pula antes de tudo).
+ */
+export function isSendKey(e: KeyLike): boolean {
+  if (matchShortcut(e, 'chat.send')) return true
+  return e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+}
+
 /** O foco está onde o atalho do id escuta (o escopo do registro). */
 export function inShortcutScope(id: ShortcutId, target: EventTarget | null, chatInput: HTMLElement | null): boolean {
   return inScope(editableById(id).scope, target, chatInput)

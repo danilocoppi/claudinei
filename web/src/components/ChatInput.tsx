@@ -16,7 +16,7 @@ import { MentionMenu } from './MentionMenu'
 import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
-import { inShortcutScope, matchShortcut, useShortcutLabel } from '../shortcuts/active'
+import { inShortcutScope, isSendKey, matchShortcut, useShortcutLabel } from '../shortcuts/active'
 import { isLargePaste, pasteFileName } from '../paste'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
@@ -665,11 +665,9 @@ export function ChatInput({
             // A combinação da fila: para a fila, em qualquer motor. Com upload em
             // andamento o send ignora (o texto ainda teria token sem caminho), como o Enter.
             if (matchShortcut(e, 'chat.queue')) { e.preventDefault(); submit(true); return }
-            if (matchShortcut(e, 'chat.send')) { e.preventDefault(); submit(); return }
-            // Enter puro (sem Ctrl, ⌘, Alt nem Shift) envia. Com modificador e fora
-            // das combinações acima, não: com a fila em outra tecla, o Alt+Enter
-            // antigo não manda a mensagem na hora sem querer.
-            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) { e.preventDefault(); submit() }
+            // A combinação de enviar ou o Enter puro (ver `isSendKey`). Com a fila
+            // em outra tecla, o Alt+Enter antigo não manda a mensagem na hora sem querer.
+            if (isSendKey(e)) { e.preventDefault(); submit() }
           }}
           onPaste={(e) => {
             const comoTexto = Date.now() <= colarComoTexto.current

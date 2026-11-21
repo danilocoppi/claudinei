@@ -140,10 +140,57 @@ describe('bastão', () => {
     expect(baton.state()).toEqual({ kind: 'free' })
 
     // E o relógio de outro usuário nunca começa.
+    baton.presence(1, true)
     baton.operatorAct(ANA)
     baton.presence(2, false)
     vi.advanceTimersByTime(60_000)
     expect(baton.state()).toEqual({ kind: 'operator', userId: 1, name: 'Ana' })
+  })
+
+  it('presence(1, false) com o bastão livre, depois operatorAct do usuário 1 → o bastão volta em 30 s', () => {
+    const { baton, notices } = make()
+    baton.presence(1, false)
+    baton.operatorAct(ANA)
+    vi.advanceTimersByTime(29_000)
+    // Outra ação do mesmo dono, ainda sem coluna, não reinicia o relógio.
+    baton.operatorAct(ANA)
+    expect(baton.state().kind).toBe('operator')
+    vi.advanceTimersByTime(1_000)
+    expect(baton.state()).toEqual({ kind: 'free' })
+    expect(notices).toEqual(['control returned to the agent'])
+
+    // Com a coluna à vista de novo, a ação seguinte não liga relógio.
+    baton.presence(1, true)
+    baton.operatorAct(ANA)
+    vi.advanceTimersByTime(60_000)
+    expect(baton.state()).toEqual({ kind: 'operator', userId: 1, name: 'Ana' })
+  })
+
+  it('outro operador toma o bastão sem coluna conhecida à vista: o relógio dele começa', () => {
+    const { baton } = make()
+    baton.operatorAct(ANA)
+    baton.presence(2, false)
+    vi.advanceTimersByTime(60_000)
+    expect(baton.state()).toEqual({ kind: 'operator', userId: 1, name: 'Ana' })
+    baton.operatorAct(BETO)
+    vi.advanceTimersByTime(30_000)
+    expect(baton.state()).toEqual({ kind: 'free' })
+  })
+
+  it("release com uma ação do agente em curso: fica 'agent' e vira 'free' no endAgent", () => {
+    const { baton, notices } = make()
+    const fn = vi.fn()
+    baton.onChange(fn)
+    baton.beginAgent()
+    baton.operatorAct(ANA)
+    baton.release()
+    expect(baton.state()).toEqual({ kind: 'agent' })
+    expect(notices).toEqual(['control returned to the agent'])
+    baton.endAgent()
+    expect(baton.state()).toEqual({ kind: 'free' })
+    expect(notices).toEqual(['control returned to the agent'])
+    // begin, operador, release, endAgent: uma troca cada.
+    expect(fn).toHaveBeenCalledTimes(4)
   })
 
   it('outro operador toma o bastão: o relógio do dono antigo para', () => {

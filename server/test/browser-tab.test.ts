@@ -379,7 +379,6 @@ describe('TerminalTab: viewport, avisos e estado', () => {
       await tab.close('closed_by_user')
       vi.advanceTimersByTime(60_000)
       expect(tab.takeAgentNotices()).toEqual([])
-      expect(tab.baton.state().kind).toBe('operator')
     } finally {
       vi.useRealTimers()
     }

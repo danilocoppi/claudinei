@@ -52,6 +52,12 @@ export function createBaton(o: { onNotice: (agentText: string) => void; graceMs?
   let epoch = 0
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
+  /**
+   * A última presença conhecida de cada usuário, dono ou não: o `operatorAct`
+   * pode chegar depois do "sem coluna" de quem age (ação já em trânsito quando a
+   * coluna fechou), e esse dono novo precisa nascer com o relógio contando.
+   */
+  const presenceOf = new Map<number | null, boolean>()
 
   function emit(): void {
     for (const fn of [...listeners]) {
@@ -61,6 +67,13 @@ export function createBaton(o: { onNotice: (agentText: string) => void; graceMs?
 
   function stopGrace(): void {
     if (graceTimer) { clearTimeout(graceTimer); graceTimer = undefined }
+  }
+
+  /** Liga o relógio do dono; já contando, não reinicia. */
+  function startGrace(): void {
+    if (graceTimer || disposed) return
+    graceTimer = setTimeout(() => { graceTimer = undefined; release() }, graceMs)
+    graceTimer.unref?.()
   }
 
   function release(): void {
@@ -93,22 +106,27 @@ export function createBaton(o: { onNotice: (agentText: string) => void; graceMs?
 
     operatorAct(user) {
       epoch++
-      const changed = !operator || operator.userId !== user.userId || operator.name !== user.name
-      // Quem age tem a coluna à vista: o relógio do dono (antigo ou atual) para.
-      stopGrace()
+      const ownerChanged = !operator || operator.userId !== user.userId
+      const changed = ownerChanged || operator!.name !== user.name
+      // Outro dono: o relógio do antigo para.
+      if (ownerChanged) stopGrace()
       operator = { userId: user.userId, name: user.name }
+      // O relógio segue a última presença conhecida do dono: sem coluna, conta
+      // (sem reiniciar se já contava); com coluna ou sem notícia, para.
+      if (presenceOf.get(user.userId) === false) startGrace()
+      else stopGrace()
       if (changed) emit()
     },
 
     release,
 
     presence(userId, hasVisibleColumn) {
-      if (disposed || !operator || userId !== operator.userId) return
-      if (hasVisibleColumn) { stopGrace(); return }
+      if (disposed) return
+      presenceOf.set(userId, hasVisibleColumn)
+      if (!operator || userId !== operator.userId) return
+      if (hasVisibleColumn) stopGrace()
       // Já contando: repetir o "sem coluna" não reinicia o relógio.
-      if (graceTimer) return
-      graceTimer = setTimeout(() => { graceTimer = undefined; release() }, graceMs)
-      graceTimer.unref?.()
+      else startGrace()
     },
 
     onChange(fn) {
@@ -120,6 +138,7 @@ export function createBaton(o: { onNotice: (agentText: string) => void; graceMs?
       disposed = true
       stopGrace()
       listeners.clear()
+      presenceOf.clear()
     },
   }
 }

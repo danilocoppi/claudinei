@@ -1,0 +1,12 @@
+{"timestamp":"2026-11-20T10:00:00.000Z","type":"session_meta","payload":{"id":"019f0000-0000-7000-8000-00000000c0de","cwd":"/tmp/projeto-ramificar"}}
+{"timestamp":"2026-11-20T10:00:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"019f0000-0000-7000-8000-0000000000t1"}}
+{"timestamp":"2026-11-20T10:00:01.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"primeira pergunta"}]}}
+{"timestamp":"2026-11-20T10:00:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"primeira resposta"}]}}
+{"timestamp":"2026-11-20T10:00:05.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"019f0000-0000-7000-8000-0000000000t1","last_agent_message":"primeira resposta"}}
+{"timestamp":"2026-11-20T10:05:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"019f0000-0000-7000-8000-0000000000t2"}}
+{"timestamp":"2026-11-20T10:05:00.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"segunda pergunta"}]}}
+{"timestamp":"2026-11-20T10:05:09.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"segunda resposta"}]}}
+{"timestamp":"2026-11-20T10:05:10.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"019f0000-0000-7000-8000-0000000000t2","last_agent_message":"segunda resposta"}}
+{"timestamp":"2026-11-20T10:10:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"019f0000-0000-7000-8000-0000000000t3"}}
+{"timestamp":"2026-11-20T10:10:00.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"terceira pergunta, em curso"}]}}
+{"timestamp":"2026-11-20T10:10:03.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}

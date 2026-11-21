@@ -110,6 +110,7 @@ if (process.argv.includes('--hermes')) {
   const { createUsageIndexStore } = await import('./usage-index/store.js')
   const { createUsageIndexer } = await import('./usage-index/indexer.js')
   const { sessionsRoot } = await import('./engine/codex/rollout.js')
+  const { observerOf } = await import('./undo/index.js')
 
   migrateLegacyDataDir()
   const config = loadConfig()
@@ -193,6 +194,8 @@ if (process.argv.includes('--hermes')) {
   // reinício: o fim de turno, a mensagem do operador e o `/goal` chegam por elas.
   let taskWake: import('./delegate/task-wake.js').TaskWake | undefined
   let goal: import('./goal/goal.js').GoalService | undefined
+  // E para o desfazer turno: o rastreador vê cada mensagem, status e evento do manager.
+  let undo: import('./undo/index.js').Undo | undefined
   /** Um gancho que falha não pode impedir os outros (aceita N): cada serviço cuida do seu estado. */
   const both = (label: string, ...calls: Array<() => void>): void => {
     for (const call of calls) {
@@ -240,6 +243,7 @@ if (process.argv.includes('--hermes')) {
     // Limite detectado só pelo texto, sem rate_limit_event: o horário vem do último 429 do uso.
     lastRejectedResetsAt: () => usage.lastRejectedResetsAt(),
     onNeedsOperator: (projectId, reason) => triageWaker?.wake(projectId, reason),
+    turnObserver: observerOf(() => undo),
     terminalLauncher: (opts) => terminalManager.open(opts.localId, {
       cwd: opts.cwd,
       file: opts.file,
@@ -293,6 +297,7 @@ if (process.argv.includes('--hermes')) {
     onLimitReady: (l) => { limit = l },
     onTaskWakeReady: (w) => { taskWake = w },
     onGoalReady: (g) => { goal = g },
+    onUndoReady: (u) => { undo = u },
     onRevokeAll: () => {
       wsHub.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
@@ -310,8 +315,12 @@ if (process.argv.includes('--hermes')) {
   // os ouvintes de SIGINT/SIGTERM (que registram a interrupção) podem esperar.
   // O limite de uso sobe depois do reinício, e os avisos de resultado de tarefa
   // pendentes depois do limite, todos antes do agendador (ver startAfterListen).
-  void startAfterListen({ restart, limit, taskWake, scheduler, isShuttingDown: () => manager.isShuttingDown() })
+  // O desfazer sobe antes de todos (fecha os turnos que ficaram abertos antes de
+  // qualquer sessão voltar); a retenção dele roda na subida e a cada 24 h.
+  void startAfterListen({ undo, restart, limit, taskWake, scheduler, isShuttingDown: () => manager.isShuttingDown() })
     .catch((err) => console.error('[reinício/limite] arranque depois do listen falhou', err))
+  const undoRetention = setInterval(() => { void undo?.retain() }, 24 * 60 * 60 * 1000)
+  undoRetention.unref()
   // Sem await: a primeira passada roda em segundo plano e repete a cada 10 min; uma
   // passada que lança é registrada no log pelo próprio indexador.
   usageIndexer.start()
@@ -340,6 +349,7 @@ if (process.argv.includes('--hermes')) {
       if (marcadas > 0) console.log(`[reinício] ${marcadas} terminal(is) interrompidos no meio de um turno`)
       // O relógio do limite para: uma retomada armada fica no banco para a próxima subida.
       limit?.dispose()
+      clearInterval(undoRetention)
       scheduler?.stop()
       await manager.stopAll()
       await speech.stop()

@@ -109,6 +109,32 @@ export interface TurnDto {
   endedAt: string | null
 }
 
+/**
+ * Mudanças fora de turno entre dois marcos seguidos do repositório (`from` e
+ * `to` são ids de marco). `between`: entre turnos; `undo`: o próprio desfazer.
+ * `at`: quando o marco de fim foi tirado.
+ */
+export interface IntervalDto { from: number; to: number; kind: 'between' | 'undo'; at: string }
+
+/** GET /api/undo/terminals/:localId/turns */
+export interface TerminalTurnsDto {
+  git: boolean
+  /** Conversa atual: não voltados, e da conversa de agora (ou sem conversa registrada). */
+  turns: TurnDto[]
+  /** "Fora da conversa atual". */
+  outside: TurnDto[]
+  /** Feito no terminal interativo. */
+  interactive: TurnDto[]
+  /** Só os que mudaram algo, do mais novo para o mais velho, até 50. */
+  intervals: IntervalDto[]
+}
+
+/**
+ * Arquivos de um turno ou de um intervalo. `warnings`: `late` (retrato
+ * atrasado), `limited` (retrato limitado), `uncertain_end` (fim incerto).
+ */
+export interface ChangedFilesDto { files: AttributedFile[]; hiddenOutside: number; warnings: string[] }
+
 // ── Textos ao agente (inglês, verbatim) ──
 
 export const FILES_REVERTED_PREFIX = '[Claudinei: files reverted]'

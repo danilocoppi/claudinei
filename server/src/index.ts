@@ -237,7 +237,8 @@ if (process.argv.includes('--hermes')) {
     onOperatorMessage: (projectId, engine, info) => both('mensagem do operador',
       () => restart?.onOperatorMessage(projectId, engine),
       () => limit?.onOperatorMessage(projectId, engine),
-      () => goal?.onOperatorMessage(projectId, engine, info)),
+      () => goal?.onOperatorMessage(projectId, engine, info),
+      () => branch?.onOperatorMessage(projectId, engine, info)),
     // O `/goal` digitado (ou vindo da fila) é do goal; antes de ele existir, segue como mensagem comum.
     interceptCommand: (ctx, text) => goal?.command(ctx, text) ?? false,
     // Também pelo both: só para a falha sair no log (o manager engole o erro).

@@ -9,6 +9,7 @@ import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/gu
 import { hasEngine, DEFAULT_ENGINE_ID, getEngine } from '../engine/index.js'
 import { ownLatestThread, isSharedPath } from '../project-threads.js'
 import { sideThreadIds } from '../branch/side-threads.js'
+import { forkPreviewPage } from '../branch/fork-source.js'
 import { errorBody, fail } from '../user-error.js'
 import { lastEventsOf, readPage, type HistoryResponse } from '../history-page.js'
 import type { Engine } from '../engine/types.js'
@@ -268,6 +269,8 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     if (!project) return EMPTY_HISTORY
     const engine = getEngine(info.engine as string)
     try {
+      const preview = await forkPreviewPage(deps.db, info, project.path, before, limit)
+      if (preview) return preview
       const id = historyConversationId(deps.db, info, project.path, engine, { refresh: before === undefined })
       if (!id) return EMPTY_HISTORY
       return lastEventsOf(await readPage(engine, project.path, id, { before, minItems: limit }), limit)

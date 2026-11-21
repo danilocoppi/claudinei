@@ -1,4 +1,9 @@
-import type { EngineSessionOptions } from '../engine/types.js'
+import type { Db } from '../db.js'
+import type { SessionInfo } from '../claude/manager.js'
+import type { Engine, EngineSessionOptions } from '../engine/types.js'
+import { getEngine } from '../engine/index.js'
+import { readRolloutPage } from '../engine/codex/rollout.js'
+import { lastEventsOf, readPage, type HistoryPage, type HistoryResponse } from '../history-page.js'
 import { openCodeLastMessageId } from './cut.js'
 
 /**
@@ -88,4 +93,57 @@ export function forkPlanOf(src: ForkSource, projectPath: string): Pick<EngineSes
     default:
       return {}
   }
+}
+
+/**
+ * A cópia do ramo já está no storage do motor? É o que encerra o `fork_source`
+ * (fim do primeiro turno) e o que separa a morte comum da cópia recusada.
+ * Quem sabe conferir (o Claude: o transcript do id escolhido) confere; os
+ * outros bastam com o id gravado (Codex: o `thread/fork` só devolve o id se
+ * copiou; OpenCode: o id só sai no init do primeiro turno).
+ */
+export function forkCopyDone(engine: Engine, projectPath: string, id: string | null | undefined): boolean {
+  if (!id || !SAFE_ID.test(id)) return false
+  return engine.conversationExists ? engine.conversationExists(projectPath, id) : true
+}
+
+/**
+ * A conversa própria do ramo já tem o que mostrar? Como `forkCopyDone`, mais o
+ * Codex conferido pelo rollout: com o id na mão e o arquivo ainda ausente, a
+ * prévia segue mostrando o original em vez de uma conversa vazia.
+ */
+function ownHistoryShown(engine: Engine, projectPath: string, id: string | null): boolean {
+  if (!forkCopyDone(engine, projectPath, id)) return false
+  if (engine.id === 'codex') return (engine.transcriptRef?.(projectPath, id!) ?? null) !== null
+  return true
+}
+
+/**
+ * Prévia do ramo antes do primeiro turno: a página do histórico do ORIGINAL até
+ * o corte, para o chat não abrir vazio. `null` quando não se aplica (a sessão
+ * não é ramo pendente, a cópia própria já existe, ou o corte não tem posição,
+ * como no OpenCode copiado no meio do turno) e a rota segue o caminho de sempre.
+ *
+ * O `before` é o menor entre o pedido e o `previewBefore`: a página anterior
+ * pagina dentro do original, e nada depois do corte aparece.
+ */
+export async function forkPreviewPage(db: Db, info: SessionInfo, projectPath: string,
+  before: number | undefined, limit: number): Promise<HistoryResponse | null> {
+  const row = db.prepare('SELECT fork_source FROM sessions WHERE local_id=?').get(info.localId) as { fork_source?: string | null } | undefined
+  const src = parseForkSource(row?.fork_source)
+  if (!src || src.engine !== info.engine || src.previewBefore === null) return null
+  const engine = getEngine(info.engine)
+  if (ownHistoryShown(engine, projectPath, info.engineSessionId)) return null
+  const opts = { before: Math.min(before ?? Infinity, src.previewBefore), minItems: limit }
+  let page: HistoryPage
+  if (engine.id === 'codex') {
+    // O mesmo arquivo do corte (`cutFor` acha pelo `transcriptRef`, sem memória):
+    // depois de um `thread/revert` o caminho guardado pelo `readHistoryPage`
+    // pode ser o rollout antigo, e o `previewBefore` é byte do novo.
+    const file = engine.transcriptRef?.(projectPath, src.sourceId) ?? null
+    page = file ? await readRolloutPage(file, opts) : { events: [], start: 0, atStart: true }
+  } else {
+    page = await readPage(engine, projectPath, src.sourceId, opts)
+  }
+  return lastEventsOf(page, limit)
 }

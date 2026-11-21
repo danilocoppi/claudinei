@@ -5,6 +5,7 @@ import { requireProjectAccess } from '../auth/guards.js'
 import { hasEngine } from '../engine/index.js'
 import { errorBody, fail, UserError } from '../user-error.js'
 import type { BranchService } from '../branch/service.js'
+import { canFork } from '../branch/fork.js'
 
 /** Recusas que são o estado do terminal, não falha: já há lateral, ou nada para copiar. */
 const CONFLICTS = new Set(['side_exists', 'no_conversation'])
@@ -13,7 +14,8 @@ const CONFLICTS = new Set(['side_exists', 'no_conversation'])
 const statusOf = (err: unknown): number => {
   if (!(err instanceof UserError)) return 400
   if (CONFLICTS.has(err.code)) return 409
-  if (err.code === 'side_not_found') return 404
+  if (err.code === 'side_not_found' || err.code === 'project_not_found') return 404
+  if (err.code === 'fork_admin_only') return 403
   return 400
 }
 
@@ -22,6 +24,8 @@ const statusOf = (err: unknown): number => {
  * conversar, interromper, fechar e o estado que a interface lê ao recarregar.
  * As mudanças vão às telas pelo próprio serviço, como `side_state` e
  * `side_event`, sempre com o `projectId` (o filtro por usuário do ws).
+ *
+ * E o ramo (`/fork`): cria o terminal irmão com a cópia da conversa.
  */
 export function registerBranchRoutes(app: FastifyInstance, deps: { db: Db; branch: BranchService }) {
   const projects = createProjectsService(deps.db)
@@ -87,5 +91,23 @@ export function registerBranchRoutes(app: FastifyInstance, deps: { db: Db; branc
     if (!t) return
     await deps.branch.side.close(t.projectId, t.engine)
     return reply.code(204).send()
+  })
+
+  /**
+   * `/fork [nome]`: o terminal irmão, logo abaixo do original, com a cópia da
+   * conversa do motor até o último turno fechado. Criar terminal é de admin.
+   */
+  app.post('/api/projects/:id/fork', async (req, reply) => {
+    if (!canFork(req.authUser)) return reply.code(403).send(fail('fork_admin_only', 'Só um administrador pode criar terminais'))
+    const b = body(req)
+    const t = target(req, reply, b.engine)
+    if (!t) return
+    if (b.name !== undefined && typeof b.name !== 'string') return reply.code(400).send({ error: 'name deve ser texto' })
+    try {
+      const r = await deps.branch.fork({ projectId: t.projectId, engine: t.engine, name: b.name as string | undefined, user: req.authUser })
+      return reply.code(201).send(r)
+    } catch (err) {
+      return reply.code(statusOf(err)).send(errorBody(err))
+    }
   })
 }

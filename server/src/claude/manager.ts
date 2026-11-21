@@ -139,8 +139,9 @@ interface Deps {
    * O que o próprio Claudinei manda (sendAsClaudinei, tarefas, agendamentos) não conta.
    * `queued`: a mensagem saiu da fila do operador (lugar 3 do árbitro), não foi
    * digitada agora; o goal não pausa por ela (ele vem sempre depois da fila).
+   * `localId` e `text`: a sessão e o texto (o ramo guarda o que vai à cópia ainda pendente).
    */
-  onOperatorMessage?: (projectId: number, engine: EngineId, info: { queued: boolean }) => void
+  onOperatorMessage?: (projectId: number, engine: EngineId, info: { queued: boolean; localId?: string; text?: string }) => void
   /**
    * Comando do Claudinei digitado no chat (hoje só o `/goal`: `/goal` sozinho ou
    * `/goal <...>`, não `/goalx`). Chamado no início do `send`, com a sessão viva.
@@ -918,7 +919,7 @@ export function createSessionManager(deps: Deps) {
       else entry.session.send(text)
       entry.origin = 'operator'
       // Só depois do envio aceito: mensagem recusada não conta como o operador agindo.
-      try { deps.onOperatorMessage?.(entry.projectId, entry.engine, { queued: !!opts?.queued }) } catch {}
+      try { deps.onOperatorMessage?.(entry.projectId, entry.engine, { queued: !!opts?.queued, localId, text }) } catch {}
     },
 
     /**

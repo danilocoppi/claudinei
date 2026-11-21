@@ -366,6 +366,18 @@ export function createSessionManager(deps: Deps) {
    * sessão morre/para. Chave: localId; valor: a sessão marcada.
    */
   const awaitingInit = new Map<string, EngineSession>()
+  /**
+   * Sessões paradas por um relaunch ("Editar a partir daqui" do Claude e do
+   * Codex): o terminal continua, só troca de processo, então o 'stopped' delas
+   * não anuncia o fim (onSessionEnded fecharia a lateral, que é uma cópia
+   * independente). Chave: a sessão ANTIGA, nunca o localId, para a marca não
+   * pegar a sessão nova; valor: se o fim foi de fato engolido. O relaunch tira a
+   * marca no fim, dê certo ou não; se falhar depois de engolir o fim, anuncia.
+   */
+  const relaunchStopping = new Map<EngineSession, boolean>()
+  const announceEnd = (projectId: number, engine: EngineId, localId: string): void => {
+    try { deps.onSessionEnded?.(projectId, engine, localId) } catch (err) { console.error('[manager] onSessionEnded falhou', err) }
+  }
 
   /**
    * Ligado por beginShutdown, quando o serviço vai parar. A partir daí, sessão que
@@ -616,7 +628,8 @@ export function createSessionManager(deps: Deps) {
         live.delete(localId)
         hadQuestion.delete(localId)
         interruptedTurn.delete(localId)
-        try { deps.onSessionEnded?.(projectId, engine, localId) } catch (err) { console.error('[manager] onSessionEnded falhou', err) }
+        if (relaunchStopping.has(session)) relaunchStopping.set(session, true) // o relaunch decide
+        else announceEnd(projectId, engine, localId)
         if (heldEngineId.get(localId) === session) heldEngineId.delete(localId)
         if (awaitingInit.get(localId) === session) awaitingInit.delete(localId)
       }
@@ -1148,11 +1161,7 @@ export function createSessionManager(deps: Deps) {
       if (opts.resumeSessionId && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(opts.resumeSessionId)) throw new Error('id de sessão inválido')
       const engine = (row.engine ?? DEFAULT_ENGINE_ID) as EngineId
       const cur = live.get(localId)
-      if (cur) {
-        await cur.session.stop()
-        live.delete(localId)
-      }
-      wire(localId, row.project_id, engine, makeSession(engine, {
+      const launch = () => wire(localId, row.project_id, engine, makeSession(engine, {
         projectPath: project.path,
         resumeSessionId: opts.resumeSessionId ?? undefined,
         continueLatest: false,
@@ -1162,6 +1171,25 @@ export function createSessionManager(deps: Deps) {
         hermes: deps.hermes ? { ...deps.hermes, projectId: row.project_id, engine } : undefined,
         extraArgs: opts.extraArgs,
       }), { holdEngineId: opts.holdEngineId, awaitInit: opts.awaitInit })
+      if (!cur) {
+        launch()
+        return infoOf(localId)!
+      }
+      // O stop do relaunch não anuncia o fim (veja relaunchStopping). Se o stop ou
+      // a subida da sessão nova falhar depois de o fim ter sido engolido, o
+      // terminal ficou sem processo: aí é um encerramento de verdade e anuncia.
+      relaunchStopping.set(cur.session, false)
+      let ok = false
+      try {
+        await cur.session.stop()
+        live.delete(localId)
+        launch()
+        ok = true
+      } finally {
+        const swallowed = relaunchStopping.get(cur.session)
+        relaunchStopping.delete(cur.session)
+        if (!ok && swallowed) announceEnd(row.project_id, cur.engine, localId)
+      }
       return infoOf(localId)!
     },
 

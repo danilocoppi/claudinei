@@ -616,6 +616,30 @@ describe('conversa lateral', () => {
     expect(svc.snapshot(project.id, 'codex')).toBeNull()
   })
 
+  it.each(['claude', 'codex'] as const)('relaunch da principal (%s, "Editar a partir daqui") não fecha a lateral', async (engine) => {
+    let svc!: ReturnType<typeof service>
+    const mains: SideFake[] = []
+    const mgr = createSessionManager({
+      db, broadcast: () => {},
+      sessionFactory: (opts) => { const s = new SideFake(engine, opts); mains.push(s); return s },
+      onSessionEnded: (projectId, eng) => svc.onSessionEnded(projectId, eng),
+    })
+    const m = mgr.start(project, { engine })
+    svc = service()
+    await svc.open(project.id, engine, 'oi')
+    await mgr.relaunch(m.localId, { resumeSessionId: null })
+    expect(mains).toHaveLength(2)
+    expect(mains[0].stopped).toBe(true)
+    // O fechamento seria assíncrono (void closeSide): dá a volta no laço antes de conferir.
+    await new Promise((r) => setTimeout(r, 20))
+    expect(fakes[0].stopped).toBe(false)
+    expect(svc.snapshot(project.id, engine)).not.toBeNull()
+    // Encerrar a principal depois continua fechando a lateral.
+    await mgr.stop(m.localId)
+    await waitUntil(() => fakes[0].stopped)
+    expect(svc.snapshot(project.id, engine)).toBeNull()
+  })
+
   it('dispose só para os processos; a subida limpa', async () => {
     const svc = service()
     await svc.open(project.id, 'claude', 'oi')

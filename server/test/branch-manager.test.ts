@@ -127,6 +127,58 @@ describe('manager: ganchos do ramificar', () => {
     expect(ended).toHaveLength(3)
   })
 
+  it.each(['claude', 'codex'] as const)('relaunch (%s) não chama onSessionEnded; stop e morte depois continuam chamando', async (engine) => {
+    const mgr = makeManager()
+    const a = mgr.start(project, { engine })
+    await mgr.relaunch(a.localId, { resumeSessionId: null })
+    expect(created[0].status).toBe('stopped')
+    expect(ended).toEqual([])
+    // A sessão nova do relaunch encerra normalmente: o fim é anunciado.
+    await mgr.relaunch(a.localId, { resumeSessionId: null })
+    expect(ended).toEqual([])
+    created[2].set('dead')
+    expect(ended).toEqual([[project.id, engine, a.localId]])
+    // Outro terminal parado à mão também anuncia.
+    const b = mgr.start(project, { engine })
+    await mgr.stop(b.localId)
+    expect(ended).toEqual([[project.id, engine, a.localId], [project.id, engine, b.localId]])
+  })
+
+  it('relaunch que falha depois do stop anuncia o fim e não deixa a marca presa', async () => {
+    let falhar = false
+    const mgr = createSessionManager({
+      db, broadcast: () => {},
+      sessionFactory: (opts) => {
+        if (falhar) throw new Error('spawn falhou')
+        const s = new FakeSession(opts); created.push(s); return s
+      },
+      onSessionEnded: (projectId, engine, localId) => { ended.push([projectId, engine, localId]) },
+    })
+    const a = mgr.start(project, { engine: 'claude' })
+    falhar = true
+    await expect(mgr.relaunch(a.localId, { resumeSessionId: null })).rejects.toThrow('spawn falhou')
+    // O terminal ficou sem processo: é um encerramento de verdade (a lateral fecha).
+    expect(ended).toEqual([[project.id, 'claude', a.localId]])
+    expect(mgr.liveSession(a.localId)).toBeUndefined()
+    // Sem marca presa: o relaunch seguinte e o stop dele se comportam como sempre.
+    falhar = false
+    await mgr.relaunch(a.localId, { resumeSessionId: null })
+    expect(ended).toHaveLength(1)
+    await mgr.stop(a.localId)
+    expect(ended).toEqual([[project.id, 'claude', a.localId], [project.id, 'claude', a.localId]])
+  })
+
+  it('relaunch cujo stop falha sem encerrar a sessão não anuncia fim', async () => {
+    const mgr = makeManager()
+    const a = mgr.start(project, { engine: 'codex' })
+    created[0].stop = async () => { throw new Error('stop falhou') }
+    await expect(mgr.relaunch(a.localId, { resumeSessionId: null })).rejects.toThrow('stop falhou')
+    expect(ended).toEqual([])
+    // A sessão segue viva; se ela morrer depois, o fim sai normalmente.
+    created[0].set('dead')
+    expect(ended).toEqual([[project.id, 'codex', a.localId]])
+  })
+
   it('onSessionEnded que lança não derruba o handler de status', () => {
     const mgr = createSessionManager({
       db, broadcast: () => {},

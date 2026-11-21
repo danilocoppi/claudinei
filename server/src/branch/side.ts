@@ -116,7 +116,8 @@ export function createSideService(deps: {
   collect?: typeof collectHandoff // testes
   cleanup?: { claudeConfigDir?: string; run?: ExecLike } // testes
   /**
-   * Antes de cada mensagem do operador à lateral: lança a recusa do desfazer
+   * Antes de cada mensagem do operador à lateral (inclusive a pergunta que
+   * abre a lateral): lança a recusa do desfazer
    * (`undo_writing`, `rewind_in_progress`) enquanto ele segura a pasta ou a
    * conversa do terminal.
    */
@@ -125,6 +126,12 @@ export function createSideService(deps: {
   onWorking?: (projectId: number, engine: string, working: boolean) => void
 }): SideService {
   const sides = new Map<string, Side>()
+  /**
+   * Fechadas trabalhando, com o processo ainda parando: já saíram de `sides`
+   * (a chave fica livre para reabrir), mas uma ferramenta de shell ainda viva
+   * pode escrever na pasta, então o desfazer continua a contá-las.
+   */
+  const stopping = new Set<Side>()
   const keyOf = (projectId: number, engine: string) => `${projectId}:${engine}`
   const makeSession = deps.makeSession ?? ((engine, opts) => getEngine(engine).createSession(opts))
   const cutFn = deps.cutFor ?? cutFor
@@ -275,13 +282,15 @@ export function createSideService(deps: {
   const closeSide = (side: Side, opts: { shutdown?: boolean } = {}): Promise<void> => {
     if (side.closing) return side.closing
     side.closed = true
-    // Fechada trabalhando: para o desfazer, o turno dela acabou aqui.
-    if (side.info.status === 'working') setStatus(side, 'stopped')
+    // Fechada trabalhando: para o desfazer, o turno dela só acaba quando o
+    // processo parar (o status da sessão fechada não chega mais).
+    if (side.info.status === 'working') stopping.add(side)
     const owned = sides.get(side.key) === side
     if (owned) sides.delete(side.key)
     if (owned && !opts.shutdown) publishNull(side.info.projectId, side.info.engine)
     side.closing = (async () => {
       try { await side.session?.stop() } catch (err) { console.error(`[lateral] falha ao parar ${side.info.id}`, err) }
+      if (stopping.delete(side)) setStatus(side, 'stopped')
       // No encerramento só o processo para: a subida seguinte limpa pelo side_threads.
       if (opts.shutdown) return
       await cleanupSideTrace({ id: side.info.id, engine: side.info.engine, threadId: side.threadId }, cleanupDeps)
@@ -312,6 +321,9 @@ export function createSideService(deps: {
       const antes = deps.main(projectId, engine)
       if (!antes?.engineSessionId || !deps.projectPath(projectId)) throw noConversation()
       const q = question?.trim() ? question : null
+      // Com pergunta, algo sai para o agente: o desfazer segurando a pasta (ou
+      // voltando a conversa) recusa com o código dele, sem mexer em nada.
+      if (q !== null) deps.holdInput?.(projectId, engine)
       const id = randomUUID()
       const side: Side = {
         key,
@@ -357,6 +369,11 @@ export function createSideService(deps: {
           seed = h.text
           side.info.mode = 'seed'
         }
+
+        // A trava de novo depois dos awaits (fechar a antiga, cortar, montar o
+        // pacote): daqui até o envio da pergunta tudo é síncrono. A recusa cai
+        // no catch, que fecha a lateral antes de a sessão nascer.
+        if (q !== null) deps.holdInput?.(projectId, engine)
 
         // Sem hermes e sem permissionMode: o `set_permission_mode` pós-init
         // tiraria o Claude do modo plano.
@@ -422,8 +439,9 @@ export function createSideService(deps: {
     },
 
     working() {
-      return [...sides.values()]
-        .filter((s) => !s.opening && !s.closed && s.info.status === 'working' && s.info.files !== 'read_only')
+      const vivas = [...sides.values()].filter((s) => !s.opening && !s.closed)
+      return [...new Set([...vivas, ...stopping])]
+        .filter((s) => s.info.status === 'working' && s.info.files !== 'read_only')
         .map((s) => ({ projectId: s.info.projectId, engine: s.info.engine }))
     },
 

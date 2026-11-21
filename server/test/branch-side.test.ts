@@ -632,6 +632,81 @@ describe('conversa lateral', () => {
     expect(chamadas.every(([p, e]) => p === project.id && e === 'kimi')).toBe(true)
   })
 
+  it('open com pergunta respeita a trava do desfazer antes de mexer em qualquer coisa', async () => {
+    let trava: UserError | null = new UserError('undo_writing', 'o Claudinei está desfazendo arquivos nesta pasta')
+    let cortes = 0
+    const svc = service({
+      holdInput: () => { if (trava) throw trava },
+      cutFor: async () => { cortes++; return corte() },
+    })
+    await expect(svc.open(project.id, 'claude', 'pergunta')).rejects.toMatchObject({ code: 'undo_writing' })
+    expect(cortes).toBe(0)
+    expect(fakes).toHaveLength(0)
+    expect(broadcasts).toEqual([])
+    expect(listSideThreads(db)).toEqual([])
+    expect(svc.snapshot(project.id, 'claude')).toBeNull()
+    // Sem pergunta nada sai para o agente: abre mesmo com a trava.
+    await svc.open(project.id, 'kimi', null)
+    expect(svc.snapshot(project.id, 'kimi')).not.toBeNull()
+    // Com `replace`, a antiga continua aberta.
+    trava = new UserError('rewind_in_progress', 'voltando a conversa')
+    await expect(svc.open(project.id, 'kimi', 'outra', { replace: true })).rejects.toMatchObject({ code: 'rewind_in_progress' })
+    expect(svc.snapshot(project.id, 'kimi')).not.toBeNull()
+    expect(fakes).toHaveLength(1)
+    expect(fakes[0].stopped).toBe(false)
+  })
+
+  it('open com pergunta confere a trava de novo depois dos awaits: recusa, fecha a lateral e nada sai', async () => {
+    let trava: UserError | null = null
+    let solta!: () => void
+    const espera = new Promise<void>((r) => { solta = r })
+    const svc = service({
+      holdInput: () => { if (trava) throw trava },
+      cutFor: async () => { await espera; return corte() },
+    })
+    const abrindo = svc.open(project.id, 'claude', 'pergunta')
+    // O desfazer começa a escrever enquanto a cópia é cortada.
+    trava = new UserError('undo_writing', 'o Claudinei está desfazendo arquivos nesta pasta')
+    solta()
+    await expect(abrindo).rejects.toMatchObject({ code: 'undo_writing' })
+    expect(fakes.every((f) => f.sends.length === 0)).toBe(true)
+    expect(svc.snapshot(project.id, 'claude')).toBeNull()
+    expect(svc.working()).toEqual([])
+    expect(listSideThreads(db)).toEqual([])
+    // A chave ficou livre: solta a trava e abre.
+    trava = null
+    await svc.open(project.id, 'claude', 'pergunta')
+    expect(fakes.at(-1)!.sends).toHaveLength(1)
+  })
+
+  it('fechada trabalhando: continua em working para o desfazer até o processo parar', async () => {
+    let solta!: () => void
+    const espera = new Promise<void>((r) => { solta = r })
+    class Lenta extends SideFake {
+      override async stop(): Promise<void> { await espera; await super.stop() }
+    }
+    const avisos: Array<[number, string, boolean]> = []
+    const svc = service({
+      onWorking: (p, e, w) => avisos.push([p, e, w]),
+      makeSession: (engine, opts) => { const s = new Lenta(engine, opts); fakes.push(s); return s },
+    })
+    await svc.open(project.id, 'kimi', 'escreve')
+    expect(svc.working()).toEqual([{ projectId: project.id, engine: 'kimi' }])
+    const fechando = svc.close(project.id, 'kimi')
+    await flush()
+    // A coluna já sumiu, mas uma ferramenta ainda viva pode escrever: o desfazer espera.
+    expect(svc.snapshot(project.id, 'kimi')).toBeNull()
+    expect(svc.working()).toEqual([{ projectId: project.id, engine: 'kimi' }])
+    expect(avisos).toEqual([[project.id, 'kimi', true]])
+    // A chave já está livre para reabrir enquanto a antiga para.
+    await svc.open(project.id, 'kimi', null)
+    solta()
+    await fechando
+    expect(svc.working()).toEqual([])
+    expect(avisos).toEqual([[project.id, 'kimi', true], [project.id, 'kimi', false]])
+    expect(svc.snapshot(project.id, 'kimi')).not.toBeNull()
+  })
+
   it('onSessionEnded fecha a lateral', async () => {
     const svc = service()
     await svc.open(project.id, 'claude', 'oi')

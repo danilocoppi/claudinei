@@ -100,8 +100,12 @@ export function createTurnTracker(deps: {
   let deferred: Promise<void> | null = null
   /** Tudo o que roda fora do caminho síncrono, para o idle(). */
   const inflight = new Set<Promise<void>>()
-  /** Conversas laterais trabalhando agora: projeto+motor → projeto. */
-  const sidesWorking = new Map<string, number>()
+  /**
+   * Conversas laterais trabalhando agora: projeto+motor → projeto e quantas.
+   * Conta, não marca: a lateral substituída avisa a saída só depois de o
+   * processo dela parar, e a nova da mesma chave pode já estar trabalhando.
+   */
+  const sidesWorking = new Map<string, { projectId: number; n: number }>()
   /** Projetos cuja lateral entrou em working desde o último marco do repositório deles. */
   const sideTouched = new Set<number>()
 
@@ -148,7 +152,7 @@ export function createTurnTracker(deps: {
 
   /** Alguma lateral do repositório trabalhando agora. */
   function sideWorkingIn(repo: RepoInfo): boolean {
-    for (const projectId of sidesWorking.values()) if (inRepo(projectId, repo)) return true
+    for (const { projectId } of sidesWorking.values()) if (inRepo(projectId, repo)) return true
     return false
   }
 
@@ -175,12 +179,15 @@ export function createTurnTracker(deps: {
       : prev.mode === 'full' ? 'full' as const
       : prev.listingHash ? store.listing(prev.listingHash) : null
     const n = store.nextMarkN(repo.key)
+    // Lateral trabalhando quando o retrato começa: mesmo que pare no meio dele,
+    // o que gravou depois de o retrato ler o arquivo cai no intervalo deste marco.
+    const busy = sideWorkingIn(repo)
     const snap = await takeSnapshot(repo, n, { previousListing, limits: deps.snapshotLimits })
     const listingHash = snap.listing ? store.putListing(snap.listing) : null
     // Lateral que entrou em working durante o retrato: conta nos dois intervalos.
     const late = takeSideTouched(repo)
     if (prev && late) store.addSideActive(prev.id)
-    const withSide = late || sideWorkingIn(repo) ? [...active, SIDE_ACTIVE] : active
+    const withSide = busy || late || sideWorkingIn(repo) ? [...active, SIDE_ACTIVE] : active
     // `snap.n`: o seguinte livre, se outra instância já tinha a ref `n`.
     const id = store.insertMark({
       repoKey: repo.key, n: snap.n, repoTop: repo.top, ref: snap.ref, commitSha: snap.commit, headSha: snap.head,
@@ -553,8 +560,13 @@ export function createTurnTracker(deps: {
     onSideWorking(projectId: number, engine: string, working: boolean): void {
       safe('lateral', () => {
         const key = `${projectId}\0${engine}`
-        if (!working) { sidesWorking.delete(key); return }
-        sidesWorking.set(key, projectId)
+        const cur = sidesWorking.get(key)
+        if (!working) {
+          if (cur && --cur.n <= 0) sidesWorking.delete(key)
+          return
+        }
+        if (cur) cur.n++
+        else sidesWorking.set(key, { projectId, n: 1 })
         sideTouched.add(projectId)
         // Pasta nunca vista: resolve fora da pilha, para o marco achar o repositório certo.
         const path = deps.projectPath(projectId)

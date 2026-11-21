@@ -344,6 +344,18 @@ describe('rotas da lateral', () => {
     expect((await message(p1.id, { engine: 'claude', text: 'e agora?' })).statusCode).toBe(204)
   })
 
+  it('o desfazer segurando a pasta: abrir a lateral com pergunta recusa com 409 e a lateral não abre', async () => {
+    await startMain(p1)
+    vi.spyOn(undo!.service, 'holds').mockImplementation((p) => p === p1.id)
+    const res = await openSide(p1.id, { engine: 'claude', text: 'oi' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('undo_writing')
+    expect((await getSide(p1.id)).json()).toEqual({ side: null, events: [] })
+    expect(listSideThreads(db)).toEqual([])
+    vi.restoreAllMocks()
+    expect((await openSide(p1.id, { engine: 'claude', text: 'oi' })).statusCode).toBe(201)
+  })
+
   it('parar a sessão principal pela rota de stop publica side: null', async () => {
     const localId = await startMain(p1)
     const side = (await openSide(p1.id, { engine: 'claude', text: 'oi' })).json()

@@ -274,6 +274,56 @@ describe('atribuição entre terminais', () => {
     expect(listIntervals(store, repoInfo.key).map(i => [i.from.id, i.to.id, i.kind])).toEqual([[end1.id, start2.id, 'between']])
   })
 
+  it('lateral que trabalhava desde antes e para durante o retrato: o marco novo ainda a conta', async () => {
+    const r = repo()
+    const a = project(r.dir, 'A')
+    const b = project(r.dir, 'B')
+    // A fila chama o gancho logo depois de o marco começar (o retrato já em curso).
+    let gancho: (() => void) | null = null
+    const fila = createSerialQueue()
+    const t = createTurnTracker({
+      store, resolver, projectPath: id => paths.get(id) ?? null,
+      queue: {
+        run: (k, fn) => fila.run(k, () => { const p = fn(); const g = gancho; gancho = null; g?.(); return p }),
+        idle: fila.idle,
+      } as typeof queue,
+    })
+    const repoInfo = (await resolver.get(r.dir))!
+    const A = { localId: 'LA', projectId: a, engine: 'claude' } as UndoCtx
+    t.onSideWorking(b, 'kimi', true)
+    send(t, A, 'primeiro')
+    await t.idle()
+    finish(t, A)
+    await t.idle()
+    // A lateral para enquanto o marco de início do segundo turno é tirado.
+    gancho = () => t.onSideWorking(b, 'kimi', false)
+    const t2 = send(t, A, 'segundo')
+    await t.idle()
+    // O que ela gravou depois que o retrato leu o arquivo cai no intervalo do turno.
+    r.write('d.txt', 'da lateral\n')
+    finish(t, A)
+    await t.idle()
+    expect(store.mark(store.turn(t2)!.startMark!)!.active).toEqual([t2, SIDE_ACTIVE])
+    expect(brief(await attribute(repoInfo, t2))).toEqual([{ path: 'd.txt', class: 'uncertain', overlapped: false }])
+  })
+
+  it('duas laterais na mesma chave (a antiga ainda parando): a saída da antiga não apaga a nova', async () => {
+    const { r, t, repoInfo, A, B } = await twoTerminals()
+    t.onSideWorking(B.projectId, 'kimi', true)
+    // A nova abre e trabalha antes de a antiga terminar de parar.
+    t.onSideWorking(B.projectId, 'kimi', true)
+    const ta = send(t, A, 'trabalha')
+    await t.idle()
+    t.onSideWorking(B.projectId, 'kimi', false)
+    r.write('a.txt', 'quem?\n')
+    finish(t, A)
+    await t.idle()
+    expect(store.mark(store.turn(ta)!.startMark!)!.active).toEqual([ta, SIDE_ACTIVE])
+    // A nova segue trabalhando: o marco de fim também a conta.
+    expect(store.mark(store.turn(ta)!.endMark!)!.active).toEqual([SIDE_ACTIVE])
+    expect(brief(await attribute(repoInfo, ta))).toEqual([{ path: 'a.txt', class: 'uncertain', overlapped: false }])
+  })
+
   it('lateral de outro repositório não mexe na atribuição', async () => {
     const { r, t, repoInfo, A } = await twoTerminals()
     const outro = makeRepo({ 'z.txt': 'z\n' })

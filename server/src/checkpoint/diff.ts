@@ -1,6 +1,7 @@
 import { git, splitZ } from './git.js'
 import type { RepoInfo } from './repo.js'
 import type { UntrackedEntry } from './snapshot.js'
+import type { FileChange, FileDiff, FileStatus } from '../../../shared/undo.js'
 
 /**
  * O que mudou entre dois marcos, e o diff de um arquivo.
@@ -13,23 +14,11 @@ import type { UntrackedEntry } from './snapshot.js'
  * as listas saem com `-z`, então espaço, acento, tab e aspas não atrapalham.
  */
 
-export type FileStatus = 'added' | 'modified' | 'deleted' | 'mode' | 'submodule' | 'too_big' | 'unsnapshotted'
-
-export interface FileChange {
-  path: string
-  status: FileStatus
-  /** Linhas acrescentadas (numstat); 0 em binário, submódulo, too_big e unsnapshotted. */
-  added: number
-  removed: number
-  binary: boolean
-  /** too_big e unsnapshotted: tamanho em bytes, quando conhecido. */
-  size?: number
-}
+// Os tipos que a web também usa moram em shared/undo.ts.
+export type { FileStatus, FileChange, FileDiff } from '../../../shared/undo.js'
 
 /** O lado de um marco no diff: o commit e o que ficou fora dele. */
 export interface MarkSide { commit: string; big: UntrackedEntry[]; listing: UntrackedEntry[] | null }
-
-export interface FileDiff { path: string; binary: boolean; sizeKb?: number; text: string; truncated: boolean }
 
 export const DIFF_MAX_LINES = 2000
 /** Teto de bytes do texto do diff: com linhas muito longas, o corte vem antes das 2.000 linhas. */

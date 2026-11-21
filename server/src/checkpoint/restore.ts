@@ -8,6 +8,10 @@ import { dirname, join } from 'node:path'
 import { git, GitError, splitZ } from './git.js'
 import type { RepoInfo } from './repo.js'
 import { DIFF_MAX_BYTES, DIFF_MAX_LINES } from './diff.js'
+import type { RestoreAction, RestoreResult, RestoreVerdict } from '../../../shared/undo.js'
+
+// Os tipos que a web também usa moram em shared/undo.ts.
+export type { RestoreAction, RestoreResult, RestoreVerdict } from '../../../shared/undo.js'
 
 /**
  * Desfazer os arquivos de um turno: as três comparações e a escrita.
@@ -38,7 +42,6 @@ import { DIFF_MAX_BYTES, DIFF_MAX_LINES } from './diff.js'
 export interface BlobState { sha: string; mode: '100644' | '100755' | '120000' }
 /** `null` = o arquivo não existia naquele marco. */
 export interface RestoreItem { path: string; before: BlobState | null; after: BlobState | null }
-export type RestoreVerdict = 'revert' | 'already' | 'conflict'
 export interface RestorePlanItem {
   path: string
   verdict: RestoreVerdict
@@ -51,8 +54,6 @@ export interface RestorePlanItem {
   /** O sinceTurn foi cortado no teto. */
   sinceTurnTruncated?: boolean
 }
-export type RestoreAction = 'revert' | 'merge' | 'force' | 'keep'
-export type RestoreResult = 'reverted' | 'merged' | 'forced' | 'kept' | 'already' | 'changed_since_preview'
 
 /** Interno: o que applyPrepared faz com um arquivo. */
 export interface PreparedEntry {
@@ -62,7 +63,7 @@ export interface PreparedEntry {
   expected: string | null
   op: { kind: 'write'; mode: BlobState['mode']; bytes: Buffer } | { kind: 'delete' } | { kind: 'none' }
   /** Resultado quando o disco ainda é o esperado. */
-  result: Exclude<RestoreResult, 'changed_since_preview'>
+  result: Exclude<RestoreResult, 'changed_since_preview' | 'failed'>
   /** O disco já mudou no preparo: nada a escrever. */
   stale: boolean
 }

@@ -4,10 +4,10 @@ import { simulateMac } from './mac'
 import type { ShortcutScope } from '../shortcuts/registry'
 
 /**
- * Ctrl+F (⌘+F) abre a busca do Claudinei com o foco no chat, no campo de
- * mensagem ou em nada. Em outro campo de texto, num modal, no editor de arquivo
- * ou no terminal interativo, fica o do navegador. Com a barra aberta, o segundo
- * Ctrl+F também é do navegador.
+ * A combinação de buscar (aqui a padrão, Ctrl+F; ⌘F no Mac) abre a busca do
+ * Claudinei com o foco no chat, no campo de mensagem ou em nada. Em outro campo de
+ * texto, num modal, no editor de arquivo ou no terminal interativo, fica a do
+ * navegador. Com a barra aberta, a segunda vez também é do navegador.
  */
 const tecla = (target: EventTarget | null, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }> = { ctrlKey: true }, key = 'f') =>
   ({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...mods, target })

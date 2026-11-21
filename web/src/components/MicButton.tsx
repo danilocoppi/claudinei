@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShortcutLabel } from '../shortcuts/active'
 import { startMicCapture as defaultCapture, micSupported, type MicHandle } from '../speech/recorder'
 import { rmsOf, normalizePeak } from '../speech/audio'
 import { pcmToWav } from '../speech/wav'
@@ -58,6 +59,7 @@ export const MicButton = forwardRef<MicButtonHandle, MicButtonProps>(function Mi
   deps = realDeps,
 }, ref) {
   const { t } = useTranslation()
+  const atalho = useShortcutLabel('chat.voice')
   const [state, setState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const [secs, setSecs] = useState(0)
   const handleRef = useRef<MicHandle | null>(null)
@@ -176,7 +178,7 @@ export const MicButton = forwardRef<MicButtonHandle, MicButtonProps>(function Mi
     <button
       type="button"
       aria-label={label}
-      title={`${label} — ${t('mic.shortcut')}`}
+      title={atalho === null ? label : `${label} — ${t('mic.shortcut', { combo: atalho })}`}
       disabled={disabled}
       className={state === 'recording' ? 'input-action mic-btn--rec' : 'input-action'}
       onClick={onClick}

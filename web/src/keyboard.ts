@@ -5,8 +5,8 @@ import { matchShortcut } from './shortcuts/active'
 
 /**
  * Um campo de digitação que não é o do chat. Com o foco nele, os atalhos globais
- * do chat (Ctrl+Espaço, Ctrl+Enter) são desse campo — a busca da lateral, um
- * modal, o editor de arquivo, o terminal — e não fazem nada no chat.
+ * do chat (as combinações do microfone e do enviar) são desse campo — a busca da
+ * lateral, um modal, o editor de arquivo, o terminal — e não fazem nada no chat.
  */
 export function isForeignField(target: EventTarget | null, own: HTMLElement | null): boolean {
   if (!(target instanceof HTMLElement) || target === own) return false
@@ -16,7 +16,7 @@ export function isForeignField(target: EventTarget | null, own: HTMLElement | nu
 /**
  * O foco está no terminal interativo (o xterm recebe as teclas num textarea
  * dentro de `.xterm`). Lá as teclas são do shell ou do programa que roda nele:
- * Alt+Z, por exemplo, é do TUI, não da página.
+ * a combinação do Zen, por exemplo, é do TUI, não da página.
  */
 export function isTerminalTarget(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest('.xterm')
@@ -42,7 +42,7 @@ function inPage(target: EventTarget | null, chatInput: HTMLElement | null): bool
   return !isForeignField(target, chatInput)
 }
 
-/** Como a página, e fora de modal e do terminal: a regra de sempre do Ctrl+F. */
+/** Como a página, e fora de modal e do terminal: a regra de sempre da busca. */
 function inConversation(target: EventTarget | null, chatInput: HTMLElement | null): boolean {
   return isChatInput(target, chatInput) || (!isForeignField(target, chatInput) && !inModalOrTerminal(target))
 }

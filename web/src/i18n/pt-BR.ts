@@ -203,7 +203,10 @@ export const ptBR: typeof en = {
     noEngineInstalled: 'Nenhum motor desta lista está instalado', noEngineEdit: 'editar',
   },
   chat: {
-    sendHint: 'Enter no campo · Ctrl+Enter de qualquer ponto da tela · Alt+Enter põe na fila',
+    // o título do Enviar junta, com ' · ', só as partes que têm atalho
+    sendHintEnter: 'Enter no campo',
+    sendHintAnywhere: '{{combo}} de qualquer ponto da tela',
+    sendHintQueue: '{{combo}} põe na fila',
     select: 'Selecione uma sessão.', openInTerminal: 'Abrir no terminal', backToTerminal: 'Voltar ao terminal',
     sharedPath: 'pasta compartilhada',
     sharedPathTitle: 'Outro terminal aponta para esta mesma pasta. As conversas são separadas; os arquivos, não.',
@@ -382,7 +385,7 @@ export const ptBR: typeof en = {
   },
   mic: {
     start: 'Gravar áudio',
-    shortcut: 'Ctrl+Espaço: toque liga e desliga, segure para falar',
+    shortcut: '{{combo}}: toque liga e desliga, segure para falar',
     stop: 'Parar gravação',
     transcribing: 'transcrevendo…',
     errPermission: 'Permita o microfone para gravar.',
@@ -510,8 +513,10 @@ export const ptBR: typeof en = {
     cardMarker: 'Objetivo: turno {{turns}}/{{max}} · {{status}}',
   },
   stash: {
-    button: '{{count}} prompt guardado. Ctrl+S guarda o que está no campo; com o campo vazio, traz o último.',
-    button_other: '{{count}} prompts guardados. Ctrl+S guarda o que está no campo; com o campo vazio, traz o último.',
+    button: '{{count}} prompt guardado. {{combo}} guarda o que está no campo; com o campo vazio, traz o último.',
+    button_other: '{{count}} prompts guardados. {{combo}} guarda o que está no campo; com o campo vazio, traz o último.',
+    buttonNoKey: '{{count}} prompt guardado.',
+    buttonNoKey_other: '{{count}} prompts guardados.',
     menu: 'Prompts guardados',
     attachments: '{{count}} anexo', attachments_other: '{{count}} anexos',
     missing: 'não disponível',
@@ -535,7 +540,7 @@ export const ptBR: typeof en = {
     orphanLabel: 'Edição da mensagem que saiu da fila',
     requeue: 'Pôr na fila de novo', discard: 'Descartar',
   },
-  zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. Alt+Z liga e desliga.' },
+  zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. {{combo}} liga e desliga.', hintNoKey: 'Modo Zen: só a conversa e o campo.' },
   shortcuts: {
     keySpace: 'Espaço',
     labels: {

@@ -201,7 +201,10 @@ export const en = {
     noEngineInstalled: 'None of the engines in this list is installed', noEngineEdit: 'edit',
   },
   chat: {
-    sendHint: 'Enter in the field · Ctrl+Enter from anywhere on the screen · Alt+Enter queues it',
+    // o título do Enviar junta, com ' · ', só as partes que têm atalho
+    sendHintEnter: 'Enter in the field',
+    sendHintAnywhere: '{{combo}} from anywhere on the screen',
+    sendHintQueue: '{{combo}} queues it',
     select: 'Select a session.', openInTerminal: 'Open in terminal', backToTerminal: 'Back to the terminal',
     sharedPath: 'shared folder',
     sharedPathTitle: 'Another terminal points at this same folder. The conversations are separate; the files are not.',
@@ -379,7 +382,7 @@ export const en = {
   },
   mic: {
     start: 'Record audio',
-    shortcut: 'Ctrl+Space: tap to start or stop, hold to talk',
+    shortcut: '{{combo}}: tap to start or stop, hold to talk',
     stop: 'Stop recording',
     transcribing: 'transcribing…',
     errPermission: 'Allow the microphone to record.',
@@ -507,8 +510,10 @@ export const en = {
     cardMarker: 'Goal: turn {{turns}}/{{max}} · {{status}}',
   },
   stash: {
-    button: '{{count}} saved prompt. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',
-    button_other: '{{count}} saved prompts. Ctrl+S saves what is in the input; with the input empty, it brings back the last one.',
+    button: '{{count}} saved prompt. {{combo}} saves what is in the input; with the input empty, it brings back the last one.',
+    button_other: '{{count}} saved prompts. {{combo}} saves what is in the input; with the input empty, it brings back the last one.',
+    buttonNoKey: '{{count}} saved prompt.',
+    buttonNoKey_other: '{{count}} saved prompts.',
     menu: 'Saved prompts',
     attachments: '{{count}} attachment', attachments_other: '{{count}} attachments',
     missing: 'no longer available',
@@ -532,7 +537,7 @@ export const en = {
     orphanLabel: 'Edit of the message that left the queue',
     requeue: 'Queue it again', discard: 'Discard',
   },
-  zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
+  zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. {{combo}} toggles it.', hintNoKey: 'Zen mode: just the conversation and the input.' },
   shortcuts: {
     keySpace: 'Space',
     labels: {

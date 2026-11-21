@@ -14,7 +14,7 @@ import { MentionMenu } from './MentionMenu'
 import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
-import { inShortcutScope, matchShortcut } from '../shortcuts/active'
+import { inShortcutScope, matchShortcut, useShortcutLabel } from '../shortcuts/active'
 import { isLargePaste, pasteFileName } from '../paste'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
@@ -91,6 +91,18 @@ export function ChatInput({
   // A fila recusou o texto (cheia, grande demais): o texto volta ao campo e o motivo aparece.
   const [queueError, setQueueError] = useState<string | null>(null)
   const stashBtnRef = useRef<HTMLButtonElement>(null)
+  // as dicas da tela mostram a combinação que está valendo (null: ação sem atalho)
+  const atalhoEnviar = useShortcutLabel('chat.send')
+  const atalhoFila = useShortcutLabel('chat.queue')
+  const atalhoGuardar = useShortcutLabel('chat.stash')
+  const dicaEnviar = [
+    t('chat.sendHintEnter'),
+    atalhoEnviar !== null && t('chat.sendHintAnywhere', { combo: atalhoEnviar }),
+    atalhoFila !== null && t('chat.sendHintQueue', { combo: atalhoFila }),
+  ].filter(Boolean).join(' · ')
+  const dicaGuardados = atalhoGuardar === null
+    ? t('stash.buttonNoKey', { count: stash.length })
+    : t('stash.button', { count: stash.length, combo: atalhoGuardar })
   // checagem dos anexos de um guardado em andamento: outro guardar espera
   const restoring = useRef(false)
   const vivo = useRef(true)
@@ -627,7 +639,7 @@ export function ChatInput({
         {stash.length > 0 && (
           <button ref={stashBtnRef} type="button" className="input-action stash-btn" data-testid="stash-btn"
                   aria-haspopup="menu" aria-expanded={stashOpen} disabled={disabled}
-                  aria-label={t('stash.button', { count: stash.length })} title={t('stash.button', { count: stash.length })}
+                  aria-label={dicaGuardados} title={dicaGuardados}
                   onClick={() => {
                     // relê: outra aba pode ter guardado ou tirado algum
                     if (termKey) setStash(readStash(termKey))
@@ -660,7 +672,7 @@ export function ChatInput({
         />
         {session && <SessionControls session={session} />}
         <button className="chat-send" onClick={() => submit()} disabled={disabled || uploading > 0}
-                title={t('chat.sendHint')}>{t('common.send')}</button>
+                title={dicaEnviar}>{t('common.send')}</button>
       </div>
       {(uploadError || micError || stashError || queueError) && (
         <div style={{ color: 'var(--err)', fontSize: 12, marginTop: 6 }}>⚠ {uploadError ?? micError ?? stashError ?? queueError}</div>

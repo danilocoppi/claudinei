@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import type { StashEntry } from '../stash'
 
 /**
- * A lista dos prompts guardados com Ctrl+S neste terminal, aberta pelo 🗂.
+ * A lista dos prompts guardados neste terminal, aberta pelo 🗂.
  *
- * O Ctrl+S com o campo vazio só traz o ÚLTIMO; daqui dá para escolher qualquer
+ * A combinação de guardar com o campo vazio só traz o ÚLTIMO; daqui dá para escolher qualquer
  * um. Mostra o mais novo primeiro, mas devolve ao `onPick` o índice na ordem
  * guardada (0 = o mais antigo), que é o que o `takeStash` espera.
  */

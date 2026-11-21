@@ -25,6 +25,7 @@ import { useTerminalStatesSync } from './useTerminalStatesSync'
 import { useUsageShortcut } from './useUsageShortcut'
 import { useTriageSync } from './useTriageSync'
 import { useZenShortcut } from './useZenShortcut'
+import { useShortcutLabel } from './shortcuts/active'
 import { AccessLocked } from './components/AccessLocked'
 import './access-hours.css'
 
@@ -59,17 +60,18 @@ function FileViewerGate() {
 
 /**
  * O atalho e a saída do modo Zen. Só monta com o app liberado: na tela de login o
- * Alt+Z não tem moldura para esconder. O botão é estático (sem animação: a
+ * atalho do Zen não tem moldura para esconder. O botão é estático (sem animação: a
  * interface precisa andar sem GPU) e serve a quem não lembra a tecla e ao celular.
  */
 function ZenControls() {
   const { t } = useTranslation()
   useZenShortcut()
+  const atalho = useShortcutLabel('view.zen')
   const zen = useStore((s) => s.zen)
   const toggleZen = useStore((s) => s.toggleZen)
   if (!zen) return null
   return (
-    <button type="button" className="ghost zen-exit" title={t('zen.hint')} onClick={toggleZen}>
+    <button type="button" className="ghost zen-exit" title={atalho === null ? t('zen.hintNoKey') : t('zen.hint', { combo: atalho })} onClick={toggleZen}>
       {t('zen.exit')}
     </button>
   )

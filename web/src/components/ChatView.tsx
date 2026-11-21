@@ -339,9 +339,9 @@ export function ChatView() {
   }, [activeLocalId])
   useEffect(() => () => closeFind(), [])
 
-  // Ctrl+F (⌘+F): a busca do Claudinei com o foco no chat, no campo de
-  // mensagem ou em nada; nos outros lugares, e com a barra já aberta, a do
-  // navegador (ver shouldOpenFind).
+  // A combinação de buscar (Ctrl+F, ⌘F no Mac, por padrão): a busca do Claudinei
+  // com o foco no chat, no campo de mensagem ou em nada; nos outros lugares, e
+  // com a barra já aberta, a do navegador (ver shouldOpenFind).
   useEffect(() => {
     if (!activeLocalId) return
     const onKey = (e: KeyboardEvent) => {

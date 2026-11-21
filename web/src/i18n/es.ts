@@ -203,7 +203,10 @@ export const es: typeof en = {
     noEngineInstalled: 'Ningún motor de esta lista está instalado', noEngineEdit: 'editar',
   },
   chat: {
-    sendHint: 'Enter en el campo · Ctrl+Enter desde cualquier punto de la pantalla · Alt+Enter lo pone en la cola',
+    // o título do Enviar junta, com ' · ', só as partes que têm atalho
+    sendHintEnter: 'Enter en el campo',
+    sendHintAnywhere: '{{combo}} desde cualquier punto de la pantalla',
+    sendHintQueue: '{{combo}} lo pone en la cola',
     select: 'Selecciona una sesión.', openInTerminal: 'Abrir en la terminal', backToTerminal: 'Volver a la terminal',
     sharedPath: 'carpeta compartida',
     sharedPathTitle: 'Otro terminal apunta a esta misma carpeta. Las conversaciones son separadas; los archivos, no.',
@@ -381,7 +384,7 @@ export const es: typeof en = {
   },
   mic: {
     start: 'Grabar audio',
-    shortcut: 'Ctrl+Espacio: toca para iniciar o detener, mantén para hablar',
+    shortcut: '{{combo}}: toca para iniciar o detener, mantén para hablar',
     stop: 'Detener grabación',
     transcribing: 'transcribiendo…',
     errPermission: 'Permite el micrófono para grabar.',
@@ -509,8 +512,10 @@ export const es: typeof en = {
     cardMarker: 'Objetivo: turno {{turns}}/{{max}} · {{status}}',
   },
   stash: {
-    button: '{{count}} prompt guardado. Ctrl+S guarda lo que está en el campo; con el campo vacío, trae el último.',
-    button_other: '{{count}} prompts guardados. Ctrl+S guarda lo que está en el campo; con el campo vacío, trae el último.',
+    button: '{{count}} prompt guardado. {{combo}} guarda lo que está en el campo; con el campo vacío, trae el último.',
+    button_other: '{{count}} prompts guardados. {{combo}} guarda lo que está en el campo; con el campo vacío, trae el último.',
+    buttonNoKey: '{{count}} prompt guardado.',
+    buttonNoKey_other: '{{count}} prompts guardados.',
     menu: 'Prompts guardados',
     attachments: '{{count}} adjunto', attachments_other: '{{count}} adjuntos',
     missing: 'ya no disponible',
@@ -534,7 +539,7 @@ export const es: typeof en = {
     orphanLabel: 'Edición del mensaje que salió de la cola',
     requeue: 'Volver a ponerlo en la cola', discard: 'Descartar',
   },
-  zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
+  zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. {{combo}} lo activa y desactiva.', hintNoKey: 'Modo Zen: solo la conversación y el campo.' },
   shortcuts: {
     keySpace: 'Espacio',
     labels: {

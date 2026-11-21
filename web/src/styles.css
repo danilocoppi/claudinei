@@ -1197,8 +1197,11 @@ button.usage-page__row--link:hover { filter: none; background: var(--surface-str
 /* O `display` do cabeçalho mora aqui, e não no style inline do ChatView, para o
    `.app.zen .chat-header` ter a palavra final. */
 .chat-header { display: flex; }
-/* O nome do terminal tem prioridade sobre o selo do ramo: cede menos e nunca some. */
-.chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 6ch; flex-shrink: 0.2; }
+/* O nome do terminal tem prioridade sobre o selo do ramo: cede menos e nunca some.
+   O piso é o menor entre 6ch e o próprio nome (nome curto não alarga nem empurra
+   os selos); `min(6ch, max-content)` é inválido, daí o `calc-size`. Sem suporte a
+   ele, fica o 6ch da declaração anterior. */
+.chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 6ch; min-width: calc-size(max-content, min(size, 6ch)); flex-shrink: 0.2; }
 /* Discreto de propósito: é orientação, não alerta — a pasta compartilhada foi
    pedida pelo operador. */
 .chat-header__shared { font-size: 11px; color: var(--text-dim); white-space: nowrap; }

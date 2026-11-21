@@ -37,7 +37,12 @@ describe('selo do ramo no cabeçalho do chat', () => {
 
   it('o nome do terminal não encolhe a zero e cede menos que o selo', () => {
     const nome = regra('.chat-header__project strong')
-    expect(nome).toMatch(/min-width:\s*6ch/)
+    // O piso é o menor entre 6ch e o próprio nome: nome curto (2-3 letras) não
+    // alarga nem empurra os selos. `min(6ch, max-content)` é CSS inválido (palavra
+    // de conteúdo não entra em min()); o `calc-size` faz isso, e a última
+    // declaração de min-width é a que vale.
+    const mins = [...nome.matchAll(/min-width:\s*([^;]+)/g)].map((m) => m[1].trim())
+    expect(mins.at(-1)).toBe('calc-size(max-content, min(size, 6ch))')
     const shrink = Number(/flex-shrink:\s*([\d.]+)/.exec(nome)?.[1] ?? '1')
     expect(shrink).toBeLessThan(1)
   })

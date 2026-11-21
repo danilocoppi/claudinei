@@ -25,6 +25,8 @@ export const SNAPSHOT_LIMITS = {
 export interface UntrackedEntry { path: string; size: number; mtimeMs: number }
 
 export interface Snapshot {
+  /** O `n` da ref: o pedido, ou o seguinte livre se outra instância já usou aquele. */
+  n: number
   ref: string
   commit: string
   /** Commit do HEAD do operador; null em repositório sem commit. */
@@ -52,6 +54,10 @@ const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null']
 // dividido, preso a um sharedindex.* que o git do operador expira.
 const OWN_INDEX_CONFIG = [...NO_HOOKS, '-c', 'core.splitIndex=false']
 const LSTAT_BATCH = 256
+// O "valor antigo" zero do update-ref: a ref não pode existir (só-criação).
+const ZERO_OID = '0000000000000000000000000000000000000000'
+// Tentativas de achar um `n` livre quando outra instância usa o mesmo repositório.
+const REF_TRIES = 5
 
 export function refName(key: string, n: number): string {
   return `${REF_PREFIX}${key}/${n}`
@@ -281,10 +287,7 @@ export async function takeSnapshot(
   // 5. Tree, commit sem pai e a ref oculta. Submódulo entra como o commit
   // apontado (é o que o add faz com um gitlink).
   const tree = (await ownGit(['write-tree'])).stdout.toString('utf8').trim()
-  const commit = (await git(top, ['commit-tree', '--no-gpg-sign', '-m', `claudinei ${n}`, tree]))
-    .stdout.toString('utf8').trim()
-  const ref = refName(repo.key, n)
-  await git(top, [...NO_HOOKS, '-c', 'core.logAllRefUpdates=false', 'update-ref', ref, commit])
+  const { n: used, ref, commit } = await createRef(repo, n, tree)
 
   // 6. HEAD e branch do operador. Repo sem commit: os dois null; HEAD destacado: branch null.
   const headRes = await git(top, ['rev-parse', '-q', '--verify', 'HEAD^{commit}'], { allowFail: true })
@@ -295,7 +298,38 @@ export async function takeSnapshot(
     branch = b.code === 0 ? b.stdout.toString('utf8').trim() || null : null
   }
 
-  return { ref, commit, head, branch, mode, big, listing: mode === 'limited' ? untracked : null }
+  return { n: used, ref, commit, head, branch, mode, big, listing: mode === 'limited' ? untracked : null }
+}
+
+/**
+ * Grava o commit do retrato na ref `n`, só se ela ainda não existe: duas
+ * instâncias do Claudinei no mesmo repositório têm cada uma o seu banco e o
+ * seu `n`, e nunca sobrescrevem a ref uma da outra. Ref já existente: passa
+ * para depois da maior ref do repositório e tenta de novo.
+ */
+async function createRef(repo: RepoInfo, n: number, tree: string): Promise<{ n: number; ref: string; commit: string }> {
+  let at = n
+  for (let i = 0; i < REF_TRIES; i++) {
+    const commit = (await git(repo.top, ['commit-tree', '--no-gpg-sign', '-m', `claudinei ${at}`, tree]))
+      .stdout.toString('utf8').trim()
+    const ref = refName(repo.key, at)
+    const res = await git(repo.top, [...NO_HOOKS, '-c', 'core.logAllRefUpdates=false', 'update-ref', ref, commit, ZERO_OID], { allowFail: true })
+    if (res.code === 0) return { n: at, ref, commit }
+    at = Math.max(at, await maxRefN(repo)) + 1
+  }
+  throw new Error(`as refs ${REF_PREFIX}${repo.key}/ já existem até o ${at - 1} (outra instância do Claudinei neste repositório?)`)
+}
+
+/** O maior `n` entre as refs do retrato do repositório (0 se não há). */
+async function maxRefN(repo: RepoInfo): Promise<number> {
+  const prefix = `${REF_PREFIX}${repo.key}/`
+  const out = (await git(repo.top, ['for-each-ref', '--format=%(refname)', prefix])).stdout.toString('utf8')
+  let max = 0
+  for (const line of out.split('\n')) {
+    const n = Number(line.slice(prefix.length))
+    if (line.startsWith(prefix) && Number.isSafeInteger(n) && n > max) max = n
+  }
+  return max
 }
 
 // Só as refs do retrato: `refs/claudinei/` seguido de partes simples, sem `..`.
@@ -305,10 +339,27 @@ function isOurRef(ref: string): boolean {
   return OUR_REF.test(ref) && !ref.includes('..') && !ref.endsWith('.lock') && !ref.endsWith('.')
 }
 
-/** Apaga refs do retrato numa transação só. Qualquer ref fora de refs/claudinei/ recusa tudo. */
-export async function deleteRefs(repo: RepoInfo, refs: string[]): Promise<void> {
-  const bad = refs.find(r => !isOurRef(r))
+/**
+ * Apaga refs do retrato, cada uma só se ainda aponta para o commit que esta
+ * instância gravou: a ref que outra instância do Claudinei pôs no mesmo nome
+ * fica. Numa transação só, com o valor antigo conferido pelo git; se ela cai
+ * (alguém mexeu entre a leitura e a escrita), uma por uma. Qualquer ref fora
+ * de refs/claudinei/ recusa tudo.
+ */
+export async function deleteRefs(repo: RepoInfo, refs: Array<{ ref: string; commit: string }>): Promise<void> {
+  const bad = refs.find(r => !isOurRef(r.ref) || !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(r.commit))
   if (bad !== undefined) throw new Error(`ref fora de ${REF_PREFIX}: ${JSON.stringify(bad)}`)
   if (!refs.length) return
-  await git(repo.top, [...NO_HOOKS, 'update-ref', '--stdin'], { input: refs.map(r => `delete ${r}\n`).join('') })
+  const out = (await git(repo.top, ['for-each-ref', '--format=%(objectname) %(refname)', REF_PREFIX])).stdout.toString('utf8')
+  const current = new Map<string, string>()
+  for (const line of out.split('\n')) {
+    const at = line.indexOf(' ')
+    if (at > 0) current.set(line.slice(at + 1), line.slice(0, at))
+  }
+  const mine = refs.filter(r => current.get(r.ref) === r.commit)
+  if (!mine.length) return
+  const res = await git(repo.top, [...NO_HOOKS, 'update-ref', '--stdin'],
+    { input: mine.map(r => `delete ${r.ref} ${r.commit}\n`).join(''), allowFail: true })
+  if (res.code === 0) return
+  for (const r of mine) await git(repo.top, [...NO_HOOKS, 'update-ref', '-d', r.ref, r.commit], { allowFail: true })
 }

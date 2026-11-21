@@ -233,7 +233,7 @@ describe('takeSnapshot: o git do operador fica intocado', () => {
     const s1 = await takeSnapshot(repoInfo, 1)
     const s2 = await takeSnapshot(repoInfo, 2)
     expect(existsSync(marker)).toBe(false)
-    await deleteRefs(repoInfo, [s1.ref, s2.ref])
+    await deleteRefs(repoInfo, [s1, s2].map(s => ({ ref: s.ref, commit: s.commit })))
     expect(existsSync(marker)).toBe(false)
     expect(withoutOurs(gitDirPrint(repoInfo.gitDir))).toEqual(printBefore)
   })
@@ -566,10 +566,44 @@ describe('refs ocultas', () => {
     const repoInfo = await info(r.dir)
     const s1 = await takeSnapshot(repoInfo, 1)
     const s2 = await takeSnapshot(repoInfo, 2)
-    await deleteRefs(repoInfo, [s1.ref, refName(repoInfo.key, 99)])
+    await deleteRefs(repoInfo, [{ ref: s1.ref, commit: s1.commit }, { ref: refName(repoInfo.key, 99), commit: s1.commit }])
     await deleteRefs(repoInfo, [])
     const refs = r.run('for-each-ref', '--format=%(refname)').trim().split('\n').sort()
     expect(refs).toEqual([s2.ref, 'refs/heads/main'].sort())
+  })
+
+  it('marco não sobrescreve ref que já existe no mesmo n (outra instância): usa o n seguinte livre', async () => {
+    const r = repo({ 'a.txt': 'a\n' })
+    const repoInfo = await info(r.dir)
+    const head = r.run('rev-parse', 'HEAD').trim()
+    // Outra instância do Claudinei já gravou o 3, e também o 4 a 9.
+    r.run('update-ref', refName(repoInfo.key, 3), head)
+    const s = await takeSnapshot(repoInfo, 3)
+    expect(s.n).toBe(4)
+    expect(s.ref).toBe(refName(repoInfo.key, 4))
+    expect(r.run('rev-parse', refName(repoInfo.key, 3)).trim()).toBe(head)
+    expect(r.run('rev-parse', s.ref).trim()).toBe(s.commit)
+    for (let n = 5; n <= 9; n++) r.run('update-ref', refName(repoInfo.key, n), head)
+    const s2 = await takeSnapshot(repoInfo, 5)
+    expect(s2.n).toBe(10)
+    for (let n = 5; n <= 9; n++) expect(r.run('rev-parse', refName(repoInfo.key, n)).trim()).toBe(head)
+    // Sem conflito, o n pedido.
+    const s3 = await takeSnapshot(repoInfo, 20)
+    expect(s3.n).toBe(20)
+  })
+
+  it('deleteRefs só apaga a ref que ainda aponta para o commit gravado (a de outra instância fica)', async () => {
+    const r = repo({ 'a.txt': 'a\n' })
+    const repoInfo = await info(r.dir)
+    const s1 = await takeSnapshot(repoInfo, 1)
+    const s2 = await takeSnapshot(repoInfo, 2)
+    const head = r.run('rev-parse', 'HEAD').trim()
+    // A ref 1 passou a ser de outra instância (outro commit).
+    r.run('update-ref', s1.ref, head)
+    await deleteRefs(repoInfo, [{ ref: s1.ref, commit: s1.commit }, { ref: s2.ref, commit: s2.commit }])
+    const refs = r.run('for-each-ref', '--format=%(refname)', 'refs/claudinei/').trim().split('\n').filter(Boolean)
+    expect(refs).toEqual([s1.ref])
+    expect(r.run('rev-parse', s1.ref).trim()).toBe(head)
   })
 
   it('deleteRefs recusa ref fora de refs/claudinei/', async () => {
@@ -579,7 +613,7 @@ describe('refs ocultas', () => {
     const before = r.run('for-each-ref')
     for (const bad of ['refs/heads/main', 'HEAD', 'refs/claudinei', 'refs/claudinei/../heads/main',
       `refs/claudinei/${repoInfo.key}/1\ndelete refs/heads/main`, 'refs/claudineix/a', 'refs/stash']) {
-      await expect(deleteRefs(repoInfo, [s.ref, bad])).rejects.toThrow()
+      await expect(deleteRefs(repoInfo, [{ ref: s.ref, commit: s.commit }, { ref: bad, commit: s.commit }])).rejects.toThrow()
     }
     // Recusa tudo de uma vez: nem a ref válida da lista foi apagada.
     expect(r.run('for-each-ref')).toBe(before)

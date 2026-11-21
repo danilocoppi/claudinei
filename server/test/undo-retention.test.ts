@@ -193,6 +193,28 @@ describe('retenção', () => {
     expect(store.nextMarkN(info1.key)).toBe(3)
   })
 
+  it('ref de outra instância no n seguinte: o marco pula para o livre e a retenção não apaga a ref alheia', async () => {
+    const r = repo()
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const key = (await resolver.get(r.dir))!.key
+    const head = runGit(r.dir, 'rev-parse', 'HEAD').trim()
+    // Outra instância, com outro banco, já gravou o 1.
+    runGit(r.dir, 'update-ref', `refs/claudinei/${key}/1`, head)
+    const t = tracker()
+    const t1 = await turn(t, A) // 2 e 3
+    const marks = marksOf()
+    expect(marks.map(m => m.n)).toEqual([2, 3])
+    expect(runGit(r.dir, 'rev-parse', `refs/claudinei/${key}/1`).trim()).toBe(head)
+    expect(store.nextMarkN(key)).toBe(4)
+    // A ref 2 vira de outra instância (sobrescrita por uma versão antiga): a retenção não a apaga.
+    runGit(r.dir, 'update-ref', marks[0].ref, head)
+    age(t1, 40)
+    expect(await retain()).toEqual({ turns: 1, marks: 1 })
+    expect(marksOf().map(m => m.n)).toEqual([3])
+    expect(refsOf(r.dir)).toEqual([`refs/claudinei/${key}/1`, marks[0].ref, marks[1].ref].sort())
+    expect(runGit(r.dir, 'rev-parse', marks[0].ref).trim()).toBe(head)
+  })
+
   it('excluir o terminal apaga os turnos e a retenção apaga as refs', async () => {
     const r = repo()
     const A = ctxOf(project(r.dir, 'A'), 'LA')

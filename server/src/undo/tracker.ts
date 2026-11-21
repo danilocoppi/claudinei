@@ -136,8 +136,9 @@ export function createTurnTracker(deps: {
     const n = store.nextMarkN(repo.key)
     const snap = await takeSnapshot(repo, n, { previousListing, limits: deps.snapshotLimits })
     const listingHash = snap.listing ? store.putListing(snap.listing) : null
+    // `snap.n`: o seguinte livre, se outra instância já tinha a ref `n`.
     const id = store.insertMark({
-      repoKey: repo.key, n, repoTop: repo.top, ref: snap.ref, commitSha: snap.commit, headSha: snap.head,
+      repoKey: repo.key, n: snap.n, repoTop: repo.top, ref: snap.ref, commitSha: snap.commit, headSha: snap.head,
       branch: snap.branch, mode: snap.mode, kind, active, big: snap.big, listingHash,
     })
     return { id, limited: snap.mode === 'limited' }

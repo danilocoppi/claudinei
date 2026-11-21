@@ -42,7 +42,7 @@ function sqliteTime(ms: number): string {
   return new Date(ms).toISOString().slice(0, 19).replace('T', ' ')
 }
 
-interface DoomedMark { id: number; repo_key: string; repo_top: string; ref: string }
+interface DoomedMark { id: number; repo_key: string; repo_top: string; ref: string; commit_sha: string }
 
 export async function runRetention(deps: RetentionDeps): Promise<{ turns: number; marks: number }> {
   const { db } = deps
@@ -62,7 +62,7 @@ export async function runRetention(deps: RetentionDeps): Promise<{ turns: number
     db.prepare(`DELETE FROM undo_runs WHERE NOT EXISTS (
         SELECT 1 FROM json_each(undo_runs.turn_ids) j JOIN undo_turns t ON t.id = j.value)`).run()
 
-    const doomed = db.prepare(`SELECT m.id, m.repo_key, m.repo_top, m.ref FROM undo_marks m
+    const doomed = db.prepare(`SELECT m.id, m.repo_key, m.repo_top, m.ref, m.commit_sha FROM undo_marks m
       WHERE m.n < (SELECT MAX(n) FROM undo_marks x WHERE x.repo_key = m.repo_key)
         AND m.id NOT IN (SELECT start_mark FROM undo_turns WHERE start_mark IS NOT NULL)
         AND m.id NOT IN (SELECT end_mark FROM undo_turns WHERE end_mark IS NOT NULL)
@@ -86,12 +86,13 @@ export async function runRetention(deps: RetentionDeps): Promise<{ turns: number
 
   // As refs, por repositório. Repositório que sumiu ou mudou de lugar: as refs
   // ficam (não há onde apagar), o banco já está limpo.
-  const byRepo = new Map<string, { key: string; top: string; refs: string[] }>()
+  const byRepo = new Map<string, { key: string; top: string; refs: Array<{ ref: string; commit: string }> }>()
   for (const m of marks) {
     const k = `${m.repo_key}\0${m.repo_top}`
     const group = byRepo.get(k) ?? { key: m.repo_key, top: m.repo_top, refs: [] }
     // Só as refs deste repositório; o deleteRefs ainda recusa qualquer uma fora de refs/claudinei/.
-    if (m.ref.startsWith(`refs/claudinei/${m.repo_key}/`)) group.refs.push(m.ref)
+    // Com o commit gravado: a ref que outra instância pôs no mesmo nome fica.
+    if (m.ref.startsWith(`refs/claudinei/${m.repo_key}/`)) group.refs.push({ ref: m.ref, commit: m.commit_sha })
     byRepo.set(k, group)
   }
   for (const { key, top, refs } of byRepo.values()) {

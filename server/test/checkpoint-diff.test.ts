@@ -446,7 +446,7 @@ describe('commitExists', () => {
     const s2 = await takeSnapshot(repoInfo, 2)
     expect(await commitExists(repoInfo, s1.commit)).toBe(true)
     expect(await commitExists(repoInfo, s2.commit)).toBe(true)
-    await deleteRefs(repoInfo, [s1.ref])
+    await deleteRefs(repoInfo, [{ ref: s1.ref, commit: s1.commit }])
     // gc só no repositório temporário do teste.
     r.run('gc', '-q', '--prune=now')
     expect(await commitExists(repoInfo, s1.commit)).toBe(false)

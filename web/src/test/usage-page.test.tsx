@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { UsagePage } from '../components/UsagePage'
 import { UsageCard } from '../components/UsageCard'
-import { isUsageShortcut, useUsageShortcut } from '../useUsageShortcut'
+import { useUsageShortcut } from '../useUsageShortcut'
+import { matchShortcut } from '../shortcuts/active'
 import { useStore } from '../store'
 import App from '../App'
 
@@ -240,8 +241,8 @@ function Harness({ enabled }: { enabled: boolean }) {
 }
 
 describe('atalho Ctrl+U', () => {
-  it('isUsageShortcut: Ctrl+U sem outro modificador', () => {
-    const k = (init: KeyboardEventInit) => isUsageShortcut(new KeyboardEvent('keydown', init))
+  it('view.usage: Ctrl+U sem outro modificador', () => {
+    const k = (init: KeyboardEventInit) => matchShortcut(new KeyboardEvent('keydown', init), 'view.usage')
     expect(k({ key: 'u', ctrlKey: true })).toBe(true)
     expect(k({ key: 'U', ctrlKey: true })).toBe(true)
     expect(k({ key: 'u', code: 'KeyU', ctrlKey: true })).toBe(true)

@@ -1,4 +1,7 @@
 import type { ShortcutScope } from './shortcuts/registry'
+import type { KeyLike } from './shortcuts/combo'
+// Ciclo só de funções (active.ts usa o inScope daqui): nada roda ao carregar.
+import { matchShortcut } from './shortcuts/active'
 
 /**
  * Um campo de digitação que não é o do chat. Com o foco nele, os atalhos globais
@@ -19,15 +22,14 @@ export function isTerminalTarget(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest('.xterm')
 }
 
-/** Foco num modal (o `.modal-overlay` dos modais do app ou um diálogo) ou no terminal interativo. */
-function inModalOrTerminal(target: EventTarget | null): boolean {
-  return target instanceof Element
-    && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"], .xterm, [data-terminal]')
-}
-
 /** Foco num modal: o `.modal-overlay` dos modais do app ou um diálogo. */
 function inModal(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"]')
+}
+
+/** Foco num modal ou no terminal interativo (o `.xterm` ou o `[data-terminal]` que o envolve). */
+function inModalOrTerminal(target: EventTarget | null): boolean {
+  return inModal(target) || (target instanceof Element && !!target.closest('.xterm, [data-terminal]'))
 }
 
 /** O foco está no campo de mensagem (sem campo montado, nunca). */
@@ -67,18 +69,17 @@ export function inScope(scope: ShortcutScope, target: EventTarget | null, chatIn
 }
 
 /**
- * Ctrl+F (⌘+F) abre a busca do Claudinei? Só com o foco no chat, no campo de
- * mensagem (`chatInput`: o campo faz parte do chat, exceção ao isForeignField)
- * ou em nada. Em outro campo de texto, num modal, no editor de arquivo ou no
- * terminal interativo, o atalho é do navegador. Com a barra já aberta, também:
- * o segundo Ctrl+F cai na busca do navegador.
+ * O atalho da busca (`chat.find`, Mod+F por padrão) abre a busca do Claudinei?
+ * Só com o foco no chat, no campo de mensagem (`chatInput`: o campo faz parte do
+ * chat, exceção ao isForeignField) ou em nada — o escopo `conversation`. Em outro
+ * campo de texto, num modal, no editor de arquivo ou no terminal interativo, a
+ * tecla é do navegador. Com a barra já aberta, também: o segundo aperto cai na
+ * busca do navegador.
  */
 export function shouldOpenFind(
-  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'target'>,
+  e: KeyLike & Pick<KeyboardEvent, 'target'>,
   chatInput: HTMLElement | null,
   barOpen: boolean,
 ): boolean {
-  if (e.key.toLowerCase() !== 'f' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return false
-  if (barOpen) return false
-  return inScope('conversation', e.target, chatInput)
+  return !barOpen && matchShortcut(e, 'chat.find') && inScope('conversation', e.target, chatInput)
 }

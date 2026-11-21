@@ -15,6 +15,7 @@ import { useStore } from '../store'
 import { applyTriage } from '../triageActions'
 import { snoozeUntil } from '../triageSections'
 import { DEFAULT_APPEARANCE } from '../appearance'
+import { simulateMac } from './mac'
 import type { EngineMeta, Project, SessionInfo, TriageItem } from '../types'
 
 const CLAUDE: EngineMeta = {
@@ -254,6 +255,7 @@ describe('triagem pelo menu do cartão', () => {
     await settle()
     act(() => { vi.advanceTimersByTime(5_000) })
     expect(toast()).toBeNull()
+    simulateMac()
     expect(ctrlZ(document.body, { metaKey: true })).toBe(true)
     await settle()
     expect(patches).toHaveLength(3)

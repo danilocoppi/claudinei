@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { inScope, shouldOpenFind } from '../keyboard'
+import { simulateMac } from './mac'
 import type { ShortcutScope } from '../shortcuts/registry'
 
 /**
@@ -40,9 +41,11 @@ describe('shouldOpenFind', () => {
     expect(shouldOpenFind(tecla(el('no-chat')), campo, false)).toBe(true)
     expect(shouldOpenFind(tecla(document.body), campo, false)).toBe(true)
     expect(shouldOpenFind(tecla(null), campo, false)).toBe(true)
-    // ⌘+F no Mac e F maiúsculo (Caps Lock) também.
-    expect(shouldOpenFind(tecla(document.body, { metaKey: true }), campo, false)).toBe(true)
+    // F maiúsculo (Caps Lock) também; e ⌘+F no Mac.
     expect(shouldOpenFind(tecla(document.body, { ctrlKey: true }, 'F'), campo, false)).toBe(true)
+    const desfazerMac = simulateMac()
+    expect(shouldOpenFind(tecla(document.body, { metaKey: true }), campo, false)).toBe(true)
+    desfazerMac()
 
     // Fica o do navegador: outro campo, modal (inclusive num botão dele), editor, terminal.
     expect(shouldOpenFind(tecla(el('busca-lateral')), campo, false)).toBe(false)

@@ -1,32 +1,20 @@
 import { useEffect } from 'react'
-import { isForeignField } from './keyboard'
 import { useStore } from './store'
-
-const LATIN_LETTER = /^\p{Script=Latin}$/u
-
-/**
- * Ctrl+U, sem Alt, Meta nem Shift. Vale a letra da tecla; a posição (`code` 'KeyU') só entra
- * quando a tecla não dá letra latina (cirílico, grego…). Num layout latino como o Dvorak,
- * a posição do U dá 'g', e Ctrl+G é do navegador (buscar o próximo), não desta página.
- */
-export function isUsageShortcut(e: KeyboardEvent): boolean {
-  if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return false
-  if (e.key === 'u' || e.key === 'U') return true
-  return e.code === 'KeyU' && !LATIN_LETTER.test(e.key)
-}
+import { inShortcutScope, matchShortcut } from './shortcuts/active'
 
 /**
- * Ctrl+U abre a página de uso, na mesma regra do Ctrl+Espaço: com o foco num
- * campo de texto o atalho é desse campo — inclusive o terminal, cujo xterm
- * recebe as teclas num textarea — e aqui nada acontece. Fora disso, o atalho
- * vence o "ver código-fonte" do navegador.
+ * O atalho do uso (`view.usage`, Mod+U por padrão) abre a página de uso, só
+ * fora de campos de texto (o escopo do registro): com o foco num campo o atalho
+ * é desse campo — inclusive o terminal, cujo xterm recebe as teclas num
+ * textarea — e aqui nada acontece. Fora disso, o atalho vence o "ver
+ * código-fonte" do navegador. Só para administrador: quem chama decide.
  */
 export function useUsageShortcut(enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!isUsageShortcut(e) || e.isComposing) return
-      if (isForeignField(e.target, null)) return
+      if (!matchShortcut(e, 'view.usage')) return
+      if (!inShortcutScope('view.usage', e.target, null)) return
       e.preventDefault()
       useStore.getState().openUsage()
     }

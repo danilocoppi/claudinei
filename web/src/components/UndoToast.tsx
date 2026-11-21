@@ -1,18 +1,20 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { isForeignField } from '../keyboard'
+import { inShortcutScope, matchShortcut } from '../shortcuts/active'
 import { dismissTriageError, undoTriage } from '../triageActions'
 
 /**
- * O aviso da última ação de triagem ("Alpha assentado · Desfazer") e o `Ctrl+Z`
- * (ou `Cmd+Z`) que faz o mesmo que o botão, enquanto a ação é desfazível (5 s;
- * o prazo mora em `triageActions.ts`). No celular, sem teclado, o botão é a porta.
+ * O aviso da última ação de triagem ("Alpha assentado · Desfazer") e o atalho
+ * do desfazer (`triage.undo`, Mod+Z por padrão: Ctrl+Z, ou ⌘Z no Mac) que faz o
+ * mesmo que o botão, enquanto a ação é desfazível (5 s; o prazo mora em
+ * `triageActions.ts`). No celular, sem teclado, o botão é a porta.
  *
- * O atalho é de quem tem o foco: num campo (o chat, a busca, a textarea do
- * terminal) o `Ctrl+Z` desfaz o texto, não a triagem; dentro de um modal, mesmo
- * num botão, também não: a triagem está atrás dele, fora da vista. Um listener
- * só, montado com o App, que sem desfazer pendente sai na primeira linha.
+ * O atalho é de quem tem o foco (o escopo do registro, fora de campos e de
+ * modais): num campo (o chat, a busca, a textarea do terminal) o Ctrl+Z desfaz
+ * o texto, não a triagem; dentro de um modal, mesmo num botão, também não: a
+ * triagem está atrás dele, fora da vista. Um listener só, montado com o App,
+ * que sem desfazer pendente sai cedo.
  *
  * O mesmo canto mostra o aviso de falha de uma ação de triagem, venha ela da
  * lateral larga, do trilho ou do menu do título do chat: é o único lugar sempre na
@@ -20,10 +22,6 @@ import { dismissTriageError, undoTriage } from '../triageActions'
  *
  * Estático, sem animação nem transição: a interface precisa andar sem GPU.
  */
-/** O foco está dentro de um modal (o `.modal-overlay` dos modais do app, ou um `role="dialog"`)? */
-const inModal = (target: EventTarget | null): boolean =>
-  target instanceof Element && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"]')
-
 export function UndoToast() {
   const { t } = useTranslation()
   const undo = useStore((s) => s.undo)
@@ -31,9 +29,9 @@ export function UndoToast() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return
+      if (!matchShortcut(e, 'triage.undo')) return
       const u = useStore.getState().undo
-      if (!u || Date.now() >= u.expiresAt || e.defaultPrevented || isForeignField(e.target, null) || inModal(e.target)) return
+      if (!u || Date.now() >= u.expiresAt || e.defaultPrevented || !inShortcutScope('triage.undo', e.target, null)) return
       e.preventDefault()
       void undoTriage()
     }

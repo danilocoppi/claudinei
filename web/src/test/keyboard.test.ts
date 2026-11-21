@@ -129,13 +129,13 @@ describe('inScope', () => {
     for (const id of ['no-dialogo', 'no-dialogo-fundo', 'no-modal-aria', 'so-aria-modal', 'no-overlay']) {
       expect(inScope('page', el(id), campo), id).toBe(false)
     }
-    // O campo de mensagem continua valendo sempre.
-    expect(inScope('page', campo, campo)).toBe(true)
+    // Com um modal aberto, nem o campo de mensagem (o Shift+Tab leva o foco até ele).
+    expect(inScope('page', campo, campo)).toBe(false)
   })
 
   // Vários modais não puxam o foco para dentro (o ConfirmDialog, por exemplo): o
   // foco fica no botão que o abriu ou cai no body. Com um modal aberto na página,
-  // a tecla é dele, mesmo com o foco fora; só o campo de mensagem escapa.
+  // a tecla é dele, mesmo com o foco fora; no escopo page, nem o campo de mensagem escapa.
   describe('com um modal aberto na página e o foco fora dele', () => {
     const PAGINA = `
       <div class="chat-main">
@@ -159,7 +159,9 @@ describe('inScope', () => {
             expect(inScope(scope, t, campo), `${scope} em ${alvo}`).toBe(false)
           }
         }
-        expect(inScope('page', campo, campo)).toBe(true)
+        // Com um modal aberto, nem o campo de mensagem envia (o Shift+Tab leva o foco
+        // para fora do diálogo, e o envio sairia por trás dele).
+        expect(inScope('page', campo, campo)).toBe(false)
         expect(inScope('conversation', campo, campo)).toBe(true)
         // Os escopos que não excluem modal não mudam.
         expect(inScope('outsideFields', document.body, campo)).toBe(true)

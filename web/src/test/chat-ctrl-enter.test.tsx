@@ -80,6 +80,26 @@ describe('Ctrl+Enter envia de qualquer ponto da tela', () => {
   })
 })
 
+describe('com um modal aberto na página', () => {
+  it('nem o Enter nem o Ctrl+Enter no campo enviam por trás do diálogo (o Shift+Tab leva o foco para o campo)', () => {
+    const send = renderInput()
+    const modal = document.createElement('div')
+    modal.innerHTML = '<div class="undo-dialog" role="dialog" aria-modal="true"><button>ok</button></div>'
+    document.body.appendChild(modal)
+    try {
+      fireEvent.change(campo(), { target: { value: 'oi' } })
+      fireEvent.keyDown(campo(), { key: 'Enter', code: 'Enter' })
+      ctrlEnter(campo())
+      fireEvent.keyDown(campo(), { key: 'Enter', code: 'Enter', altKey: true })
+      expect(enviados(send)).toEqual([])
+      expect(campo().value).toBe('oi')
+    } finally { modal.remove() }
+    // Fechado o modal, o Enter volta a enviar.
+    fireEvent.keyDown(campo(), { key: 'Enter', code: 'Enter' })
+    expect(enviados(send)).toHaveLength(1)
+  })
+})
+
 describe('enviar enquanto dita', () => {
   const gravar = async () => {
     fireEvent.click(mic())

@@ -237,8 +237,11 @@ describe('gravar', () => {
     // Fora da gravação, as mesmas teclas voltam a agir (os ouvintes estão montados).
     tecla('z', 'KeyZ', { altKey: true }, campo)
     expect(useStore.getState().zen).toBe(true)
+    // O microfone é do escopo da página: com o painel (modal) aberto, nem do campo
+    // ele liga — a regra que impede o envio por trás de um diálogo.
     tecla(' ', 'Space', { ctrlKey: true }, campo)
-    await waitFor(() => expect(startMicCapture).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 0))
+    expect(startMicCapture).not.toHaveBeenCalled()
   })
 
   it('tecla não aceita avisa e continua gravando', () => {

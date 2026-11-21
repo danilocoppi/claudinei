@@ -17,6 +17,7 @@ import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
 import { inShortcutScope, isSendKey, matchShortcut, useShortcutLabel } from '../shortcuts/active'
+import { modalOpen } from '../keyboard'
 import { isLargePaste, pasteFileName } from '../paste'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
@@ -664,6 +665,8 @@ export function ChatInput({
             if (e.key === 'Escape' && session?.status === 'working') { e.preventDefault(); stopTurn(); return }
             // A combinação da fila: para a fila, em qualquer motor. Com upload em
             // andamento o send ignora (o texto ainda teria token sem caminho), como o Enter.
+            // Com um modal aberto (o foco chegou aqui pelo Tab), o campo não envia nem enfileira.
+            if (modalOpen(e.target)) return
             if (matchShortcut(e, 'chat.queue')) { e.preventDefault(); submit(true); return }
             // A combinação de enviar ou o Enter puro (ver `isSendKey`). Com a fila
             // em outra tecla, o Alt+Enter antigo não manda a mensagem na hora sem querer.

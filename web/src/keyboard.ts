@@ -28,7 +28,7 @@ export function isTerminalTarget(target: EventTarget | null): boolean {
  * não conta: o menu de menção de arquivo é um diálogo não modal, preso ao campo,
  * e contá-lo fecharia a página enquanto ele está aberto.
  */
-function modalOpen(target: EventTarget | null): boolean {
+export function modalOpen(target: EventTarget | null = null): boolean {
   const doc = target instanceof Node ? target.ownerDocument ?? document : document
   return doc.querySelector('.modal-overlay, [aria-modal="true"]') !== null
 }
@@ -61,7 +61,10 @@ function isChatInput(target: EventTarget | null, chatInput: HTMLElement | null):
  * campo continua valendo.
  */
 function inPage(target: EventTarget | null, chatInput: HTMLElement | null): boolean {
-  return isChatInput(target, chatInput) || (!isForeignField(target, chatInput) && !inModal(target))
+  // Nem o campo de mensagem vale com um modal aberto: o diálogo não prende o foco
+  // e o Shift+Tab o leva ao campo, de onde o envio sairia por trás dele.
+  if (isChatInput(target, chatInput)) return !modalOpen(target)
+  return !isForeignField(target, chatInput) && !inModal(target)
 }
 
 /** Como a página, e fora de modal e do terminal: a regra de sempre da busca. */

@@ -8,6 +8,7 @@ import { CodexRpc, CodexRpcError } from './codex-rpc.js'
 import { codexItemEvents, tokenNumber, usageTotals, type CodexUsage } from './codex-items.js'
 import { latestThreadForCwd, sessionsRoot } from './rollout.js'
 import { loadInstructions } from '../../hermes/instructions.js'
+import { codexForkParams } from '../../branch/engine-args.js'
 import type { HermesOptions } from '../../claude/session.js'
 
 /** O token de serviço do Hermes: do arquivo 0600 quando houver (é o que o servidor reescreve no revoke-all). */
@@ -57,7 +58,8 @@ export class CodexSession extends EventEmitter implements EngineSession {
   start(): void {
     if (!this.sessionId && this.opts.continueLatest) this.sessionId = latestThreadForCwd(sessionsRoot(), this.opts.projectPath) ?? undefined
     // Resume recupera a medição persistida sem gastar um turno do modelo.
-    if (this.sessionId) void this.ensureReady().then(() => {
+    // A cópia (forkFrom) também abre na partida: o id dela sai antes de qualquer mensagem.
+    if (this.sessionId || this.opts.forkFrom) void this.ensureReady().then(() => {
       if (this.status === 'starting') this.setStatus('idle')
     }).catch((err) => this.fail(err))
     else this.setStatus('idle')
@@ -94,7 +96,9 @@ export class CodexSession extends EventEmitter implements EngineSession {
         config: this.effort ? { model_reasoning_effort: this.effort } : {},
         ...(resumed ? { threadId: this.sessionId, excludeTurns: true } : {}),
       }
-      const response = resumed ? await this.resumeWhenFree(params) : await this.rpc.request('thread/start', params)
+      const forkFrom = this.opts.forkFrom
+      const response = forkFrom ? await this.rpc.request('thread/fork', codexForkParams(params, { ...this.opts, forkFrom }))
+        : resumed ? await this.resumeWhenFree(params) : await this.rpc.request('thread/start', params)
       if (!response?.thread?.id) throw new Error('codex: thread sem identificador')
       this.sessionId = response.thread.id
       this.configuredModel ??= response.model

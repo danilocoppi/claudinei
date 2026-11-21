@@ -44,6 +44,10 @@ export const claudeEngine: Engine = {
       hermes: opts.hermes,
       claudeBin: opts.bin ?? process.env.CLAUDINEI_CLAUDE_BIN ?? 'claude',
       extraArgsOverride: opts.extraArgsOverride,
+      forkFrom: opts.forkFrom,
+      sessionId: opts.sessionId,
+      readOnly: opts.readOnly,
+      ephemeral: opts.ephemeral,
     })
   },
 

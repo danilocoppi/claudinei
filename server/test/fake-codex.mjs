@@ -19,6 +19,8 @@ const answerSteer = (text) => {
 }
 // developerInstructions da thread (Claudinei passa a regra do terminal errado por aqui).
 let developerInstructions = null
+// Params do último thread/fork (o turno __fork_params__ os devolve).
+let forkParams = null
 createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params: p } = JSON.parse(line)
   if (method === 'initialize') reply(id, { userAgent: 'fake' })
@@ -36,6 +38,18 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     developerInstructions = p.developerInstructions ?? null
     reply(id, { thread: { id: threadId }, model: p.model ?? 'default-model' })
     if (method === 'thread/resume') { total = 900000; context = 120000; usage() }
+  } else if (method === 'thread/fork') {
+    // Como a CLI 0.159: fork efêmero de conversa paginada exige excludeTurns.
+    if (p.ephemeral && !p.excludeTurns) {
+      out({ id, error: { code: -32600, message: 'ephemeral paginated thread/fork requires `excludeTurns: true`' } }); return
+    }
+    if (process.argv.includes('--fork-refuse')) {
+      out({ id, error: { code: -32600, message: `cannot fork thread ${p.threadId}` } }); return
+    }
+    forkParams = p
+    threadId = 'FORK-' + p.threadId
+    developerInstructions = p.developerInstructions ?? null
+    reply(id, { thread: { id: threadId, path: p.ephemeral ? null : '/tmp/fake-rollout' }, model: p.model ?? 'default-model' })
   } else if (method === 'turn/start') {
     const text = p.input[0].text
     if (text === '__crash__') { process.exit(1); return }
@@ -47,6 +61,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     out({ method: 'thread/tokenUsage/updated', params: { threadId: 'CHILD', tokenUsage: { total: counts(9999999), last: counts(999999), modelContextWindow: 1 } } })
     const answer = text === '__options__' ? JSON.stringify({ model: p.model, effort: p.effort })
       : text === '__instructions__' ? JSON.stringify(developerInstructions)
+      : text === '__fork_params__' ? JSON.stringify(forkParams)
       : `echo:${text}`
     notify('item/agentMessage/delta', { delta: answer })
     notify('item/completed', { item: { id: 'answer', type: 'agentMessage', text: answer } })

@@ -73,6 +73,8 @@ export interface UndoServiceDeps {
   takeMark(repo: RepoInfo, kind: MarkKind): Promise<number>
   /** Fim da escrita (bem ou mal): a Task 10 liga ao cutucão do árbitro. */
   onWriteEnd?(repoTop: string): void
+  /** Teto de bytes de cada versão de um arquivo (padrão RESTORE_MAX_BYTES); acima, o arquivo vai a `too_big`. Testes. */
+  restoreMaxBytes?: number
   log?(m: string): void
 }
 
@@ -348,10 +350,24 @@ export function createUndoService(deps: UndoServiceDeps) {
     const items: RestoreItem[] = restorable.map(c => ({
       path: c.path, before: states.get(c.before)!.get(c.path) ?? null, after: states.get(c.after)!.get(c.path) ?? null,
     }))
-    const plan = await planRestore(repo, items)
+    const planned = await planRestore(repo, items, { maxBytes: deps.restoreMaxBytes })
+    // Grande demais para ler: aparece entre os que não dá para desfazer, sem derrubar o resto.
+    const fits = planned.map(p => !p.tooBig)
+    for (let i = 0; i < planned.length; i++) {
+      if (fits[i]) continue
+      const { change } = restorable[i]
+      notUndoable.push({
+        path: change.path, status: 'too_big', added: 0, removed: 0, binary: change.binary,
+        ...(planned[i].size !== undefined ? { size: planned[i].size } : {}),
+      })
+    }
+    sortPaths(notUndoable)
+    const plan = planned.filter((_, i) => fits[i])
+    const kept = restorable.filter((_, i) => fits[i])
+    const keptItems = items.filter((_, i) => fits[i])
 
     const entries = new Map<string, Entry>()
-    const files: PreviewFile[] = restorable.map((c, i) => {
+    const files: PreviewFile[] = kept.map((c, i) => {
       const p = plan[i]
       // Mesmo arquivo mexido por outro terminal na janela do turno: conflito (spec).
       const verdict = c.overlapped && p.verdict === 'revert' ? 'conflict' : p.verdict
@@ -365,7 +381,7 @@ export function createUndoService(deps: UndoServiceDeps) {
         ...(p.sinceTurn !== undefined ? { sinceTurn: p.sinceTurn } : {}),
         ...(p.sinceTurnTruncated ? { sinceTurnTruncated: true } : {}),
       }
-      entries.set(c.path, { file, plan: p, item: items[i] })
+      entries.set(c.path, { file, plan: p, item: keptItems[i] })
       return file
     })
 
@@ -532,7 +548,7 @@ export function createUndoService(deps: UndoServiceDeps) {
       }
       const entries = [...computed.entries.values()]
       const expected = Object.fromEntries(entries.map(e => [e.item.path, e.plan.nowDigest]))
-      const prepared = await prepareRestore(repo, entries.map(e => e.item), decisions, expected)
+      const prepared = await prepareRestore(repo, entries.map(e => e.item), decisions, expected, { maxBytes: deps.restoreMaxBytes })
 
       // Seção síncrona: nenhum evento do Node entre as reconferências e a escrita.
       const late = syncBlocker(repo)

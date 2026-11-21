@@ -53,6 +53,24 @@ export interface RestorePlanItem {
   sinceTurn?: string
   /** O sinceTurn foi cortado no teto. */
   sinceTurnTruncated?: boolean
+  /**
+   * Antes, depois ou agora passa do teto de bytes: não dá para comparar nem
+   * desfazer (o serviço o põe entre os `too_big`). `size`: o do disco, quando
+   * foi ele que passou.
+   */
+  tooBig?: true
+  size?: number
+}
+
+/** Teto de bytes de cada versão de um arquivo que o desfazer lê (o mesmo maxBuffer padrão do git()). */
+export const RESTORE_MAX_BYTES = 64 * 1024 * 1024
+export interface RestoreOptions { maxBytes?: number }
+
+/** Uma das versões do arquivo passa do teto. */
+class TooBigError extends Error {
+  constructor(path: string, readonly size?: number) {
+    super(`arquivo grande demais para desfazer: ${JSON.stringify(path)}`)
+  }
 }
 
 /** Interno: o que applyPrepared faz com um arquivo. */
@@ -131,7 +149,7 @@ function lstatOrNull(full: string) {
  * código serve à prévia e à reconferência dentro de applyPrepared, então os
  * dois digests nunca divergem por diferença de leitura.
  */
-function readNow(top: string, segs: string[]): NowState {
+function readNow(top: string, segs: string[], maxBytes = Infinity): NowState {
   let dir = top
   for (const seg of segs.slice(0, -1)) {
     dir = join(dir, seg)
@@ -145,6 +163,7 @@ function readNow(top: string, segs: string[]): NowState {
   if (st.isSymbolicLink()) return { kind: 'link', target: readlinkSync(full, { encoding: 'buffer' }) }
   if (st.isDirectory()) return { kind: 'dir' }
   if (!st.isFile()) return { kind: 'other' }
+  if (st.size > maxBytes) throw new TooBigError(segs.join('/'), st.size)
   // O git só olha o bit de execução do dono.
   return { kind: 'file', bytes: readFileSync(full), exec: (st.mode & 0o100) !== 0 }
 }
@@ -167,13 +186,18 @@ function nowDigest(now: NowState): string | null {
 interface Side { mode: BlobState['mode']; bytes: Buffer }
 
 /** Bytes de um blob como o checkout os poria no disco. */
-async function readSide(repo: RepoInfo, path: string, state: BlobState | null): Promise<Side | null> {
+async function readSide(repo: RepoInfo, path: string, state: BlobState | null, maxBytes: number): Promise<Side | null> {
   if (state === null) return null
   const args = state.mode === LINK
     ? ['cat-file', 'blob', state.sha]
     : ['cat-file', '--filters', `--path=${path}`, state.sha]
-  const res = await git(repo.top, args)
-  return { mode: state.mode, bytes: res.stdout }
+  try {
+    const res = await git(repo.top, args, { maxBuffer: maxBytes })
+    return { mode: state.mode, bytes: res.stdout }
+  } catch (e) {
+    if (e instanceof GitError && e.overflow) throw new TooBigError(path)
+    throw e
+  }
 }
 
 function sideDigest(side: Side | null): string | null {
@@ -285,9 +309,12 @@ interface Analysis {
   verdict: RestoreVerdict
 }
 
-async function analyze(repo: RepoInfo, item: RestoreItem, segs: string[]): Promise<Analysis> {
-  const [before, after] = await Promise.all([readSide(repo, item.path, item.before), readSide(repo, item.path, item.after)])
-  const now = readNow(repo.top, segs)
+async function analyze(repo: RepoInfo, item: RestoreItem, segs: string[], maxBytes: number): Promise<Analysis> {
+  // O "agora" primeiro: o lstat diz o tamanho do disco sem ler os lados.
+  const now = readNow(repo.top, segs, maxBytes)
+  const [before, after] = await Promise.all([
+    readSide(repo, item.path, item.before, maxBytes), readSide(repo, item.path, item.after, maxBytes),
+  ])
   const digest = nowDigest(now)
   // `already` primeiro: com antes = depois (nada a desfazer), não há o que escrever.
   const verdict: RestoreVerdict = digest === sideDigest(before) ? 'already'
@@ -320,10 +347,21 @@ async function mapLimit<T, R>(list: T[], limit: number, fn: (item: T, i: number)
 }
 
 /** A prévia: veredito, merge possível, digest do "agora" e o que mudou desde o turno. */
-export async function planRestore(repo: RepoInfo, items: RestoreItem[]): Promise<RestorePlanItem[]> {
+export async function planRestore(repo: RepoInfo, items: RestoreItem[], opts: RestoreOptions = {}): Promise<RestorePlanItem[]> {
   const segsList = validate(items)
+  const maxBytes = opts.maxBytes ?? RESTORE_MAX_BYTES
   return mapLimit(items, CONCURRENCY, async (item, i) => {
-    const a = await analyze(repo, item, segsList[i])
+    let a: Analysis
+    try {
+      a = await analyze(repo, item, segsList[i], maxBytes)
+    } catch (e) {
+      // Grande demais: só este arquivo fica de fora, os outros seguem.
+      if (!(e instanceof TooBigError)) throw e
+      return {
+        path: item.path, verdict: 'conflict', mergeable: false, nowDigest: 'too_big', tooBig: true,
+        ...(e.size !== undefined ? { size: e.size } : {}),
+      }
+    }
     const plan: RestorePlanItem = { path: item.path, verdict: a.verdict, mergeable: false, nowDigest: a.digest }
     if (a.verdict === 'conflict') {
       plan.mergeable = (await inverseMerge(a.now, a.after, a.before)) !== null
@@ -349,13 +387,22 @@ export async function planRestore(repo: RepoInfo, items: RestoreItem[]): Promise
  */
 export async function prepareRestore(
   repo: RepoInfo, items: RestoreItem[], decisions: Record<string, RestoreAction>, expected: Record<string, string | null>,
+  opts: RestoreOptions = {},
 ): Promise<PreparedRestore> {
   const segsList = validate(items)
+  const maxBytes = opts.maxBytes ?? RESTORE_MAX_BYTES
   for (const item of items) {
     if (!Object.prototype.hasOwnProperty.call(expected, item.path)) throw new Error(`sem o digest da prévia para ${JSON.stringify(item.path)}`)
   }
   const entries = await mapLimit(items, CONCURRENCY, async (item, i): Promise<PreparedEntry> => {
-    const a = await analyze(repo, item, segsList[i])
+    let a: Analysis
+    try {
+      a = await analyze(repo, item, segsList[i], maxBytes)
+    } catch (e) {
+      // Passou do teto depois da prévia: conta como mudado (a prévia nova o mostra entre os grandes).
+      if (!(e instanceof TooBigError)) throw e
+      return { path: item.path, segs: segsList[i], expected: expected[item.path], op: { kind: 'none' }, result: 'kept', stale: true }
+    }
     const base = { path: item.path, segs: a.segs, expected: expected[item.path] }
     if (a.digest !== expected[item.path]) return { ...base, op: { kind: 'none' }, result: 'kept', stale: true }
     const decision = Object.prototype.hasOwnProperty.call(decisions, item.path) ? decisions[item.path] : undefined

@@ -58,7 +58,7 @@ function repo(files: Record<string, string> = { 'a.txt': 'a\n', 'b.txt': 'b\n', 
   return r
 }
 
-function setup() {
+function setup(extra: { restoreMaxBytes?: number } = {}) {
   let service!: UndoService
   const tracker = createTurnTracker({
     store, resolver, queue,
@@ -77,6 +77,7 @@ function setup() {
     },
     onWriteEnd: top => writeEnds.push(top),
     log: () => {},
+    ...extra,
   })
   return { tracker, service }
 }
@@ -320,6 +321,23 @@ describe('desfazer', () => {
     const run = await service.apply([ta], { token: p.token, decisions: { 'a.txt': 'keep' } }, ADMIN)
     expect(run.files).toEqual(expect.arrayContaining([{ path: 'b.txt', result: 'reverted' }]))
     expect(read(r.dir, 'a.txt/dentro.txt')).toBe('x\n')
+  })
+
+  it('arquivo rastreado acima do teto vai para notUndoable como too_big, e o resto da prévia e do desfazer segue', async () => {
+    const r = repo()
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const { tracker: t, service } = setup({ restoreMaxBytes: 100 })
+    const ta = await turn(t, A, () => {
+      r.write('a.txt', 'mudou\n')
+      r.write('b.txt', 'z'.repeat(500) + '\n')
+    })
+    const p = await service.preview([ta], ADMIN)
+    expect(p.files.map(f => f.path)).toEqual(['a.txt'])
+    expect(p.notUndoable).toEqual([expect.objectContaining({ path: 'b.txt', status: 'too_big', size: 501 })])
+    const run = await service.apply([ta], { token: p.token, decisions: {} }, ADMIN)
+    expect(run.files).toEqual([{ path: 'a.txt', result: 'reverted' }])
+    expect(read(r.dir, 'a.txt')).toBe('a\n')
+    expect(read(r.dir, 'b.txt')).toBe('z'.repeat(500) + '\n')
   })
 
   it('token velho: 409 undo_changed sem escrever', async () => {

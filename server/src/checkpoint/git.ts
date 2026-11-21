@@ -17,6 +17,8 @@ export class GitError extends Error {
   code: number
   stderr: string
   args: string[]
+  /** A saída passou do `maxBuffer` (o git foi morto). */
+  overflow = false
   constructor(args: string[], code: number, stderr: string, detail?: string) {
     super(`git ${args.join(' ')} falhou (${code}): ${(detail ?? stderr).trim()}`)
     this.name = 'GitError'
@@ -183,7 +185,11 @@ export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise
       if (settled) return
       if (timedOut) return fail(timeoutError())
       const stderr = Buffer.concat(err).toString('utf8')
-      if (overflow) return fail(new GitError(args, -1, stderr, `saída acima de ${max} bytes`))
+      if (overflow) {
+        const e = new GitError(args, -1, stderr, `saída acima de ${max} bytes`)
+        e.overflow = true
+        return fail(e)
+      }
       if (cut) {
         // Morto no meio de uma linha: fica só até o último fim de linha.
         const all = Buffer.concat(out)

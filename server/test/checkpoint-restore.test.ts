@@ -487,6 +487,29 @@ describe('as três comparações e a escrita', () => {
   })
 })
 
+describe('arquivo grande demais', () => {
+  it('acima do teto (antes, depois ou agora) sai como tooBig sem derrubar os outros; o preparo o trata como mudado', async () => {
+    const r = repo({ 'a.txt': 'a\n', 'grande.txt': 'pequeno\n', 'cresce.txt': 'c\n' })
+    const repoInfo = await info(r.dir)
+    const s1 = await takeSnapshot(repoInfo, 1)
+    r.write('a.txt', 'a2\n')
+    r.write('grande.txt', 'x'.repeat(200) + '\n')
+    r.write('cresce.txt', 'c2\n')
+    const s2 = await takeSnapshot(repoInfo, 2)
+    const items = await itemsOf(repoInfo, s1, s2)
+    // Só o "agora" passa do teto: o arquivo cresceu depois do turno.
+    r.write('cresce.txt', 'y'.repeat(300) + '\n')
+    const plan = byPath(await planRestore(repoInfo, items, { maxBytes: 100 }))
+    expect(plan['a.txt']).toMatchObject({ verdict: 'revert' })
+    expect(plan['a.txt'].tooBig).toBeUndefined()
+    expect(plan['grande.txt'].tooBig).toBe(true)
+    expect(plan['cresce.txt'].tooBig).toBe(true)
+    // No preparo, o que passou do teto conta como mudado desde a prévia: nada escrito.
+    const prepared = await prepareRestore(repoInfo, items, {}, Object.fromEntries(Object.values(plan).map(p => [p.path, p.nowDigest])), { maxBytes: 100 })
+    expect(staleEntries(prepared).sort()).toEqual(['cresce.txt', 'grande.txt'])
+  })
+})
+
 describe('nunca escreve fora do topo', () => {
   it('recusa caminho absoluto, com .., vazio ou dentro de .git', async () => {
     const r = repo({ 'a.txt': 'a\n' })

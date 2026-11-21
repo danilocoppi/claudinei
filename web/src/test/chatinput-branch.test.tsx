@@ -123,6 +123,39 @@ describe('/side, /btw e /fork no campo', () => {
     expect(campo().value).toBe('')
   })
 
+  it('/side que falha devolve o texto ao campo vazio', async () => {
+    vi.mocked(openSide).mockRejectedValue(Object.assign(new Error('Ainda não há conversa para copiar'), { code: 'no_conversation' }))
+    useStore.setState({ activeLocalId: 'c1' })
+    abrir('c1')
+    digitar('/side por que quebrou?')
+    enter()
+    expect(campo().value).toBe('')
+    await waitFor(() => expect(campo().value).toBe('/side por que quebrou?'))
+  })
+
+  it('/fork que falha não sobrescreve o que o operador já digitou', async () => {
+    let falha!: (e: Error) => void
+    vi.mocked(forkTerminal).mockImplementation(() => new Promise((_r, rej) => { falha = rej }))
+    abrir('k1')
+    digitar('/fork Experimento')
+    enter()
+    expect(campo().value).toBe('')
+    digitar('outra coisa')
+    falha(new TypeError('Failed to fetch'))
+    await waitFor(() => expect(useStore.getState().chat.k1?.length).toBe(1))
+    expect(campo().value).toBe('outra coisa')
+  })
+
+  it('side_exists não devolve o texto (a coluna pergunta e o guarda)', async () => {
+    vi.mocked(openSide).mockRejectedValue(Object.assign(new Error('já existe'), { code: 'side_exists' }))
+    useStore.setState({ activeLocalId: 'c1' })
+    abrir('c1')
+    digitar('/side e agora?')
+    enter()
+    await waitFor(() => expect(useSideStore.getState().replaceAsk?.text).toBe('e agora?'))
+    expect(campo().value).toBe('')
+  })
+
   it('/sidebar segue como mensagem comum', () => {
     useStore.setState({ sessions: { c1: sess('c1', 'claude', 'idle') } })
     abrir('c1')

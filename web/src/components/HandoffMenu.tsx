@@ -15,7 +15,8 @@ import { formatLimitTime } from './UsageLimitNotice'
  * Lista os outros motores instalados da lista do terminal, cada um com o estado
  * e o que ele já tinha pendente (goal, fila, avisos de resultado). Trabalhando
  * ou no limite, o servidor recusa: ficam desabilitados. Ocioso tem a conversa
- * encerrada, então pede confirmação antes do POST. Deu certo, abre a aba do
+ * encerrada, e o goal ativo do destino fica pausado: os dois pedem confirmação
+ * antes do POST. Deu certo, abre a aba do
  * destino; deu errado, o erro fica no menu.
  *
  * Montado só com o menu aberto: as assinaturas de fila e estados do terminal
@@ -62,7 +63,8 @@ export function HandoffMenu({ projectId, from, anchorRef, onClose }: {
 
   const pick = (target: HandoffTarget) => {
     if (busy || target.state === 'working' || target.state === 'limited') return
-    if (target.state === 'idle') setConfirmFor(target)
+    // Ocioso tem a conversa encerrada; sem conversa, o goal ativo do destino fica pausado: os dois confirmam.
+    if (target.state === 'idle' || target.pending.goal) setConfirmFor(target)
     else void run(target)
   }
 
@@ -126,7 +128,8 @@ export function HandoffMenu({ projectId, from, anchorRef, onClose }: {
         <ConfirmDialog
           title={t('branch.handoff.confirmTitle', { engine: confirmFor.engine.label })}
           message={[
-            t('branch.handoff.confirmMsg', { engine: confirmFor.engine.label, from: fromLabel }),
+            t(confirmFor.state === 'idle' ? 'branch.handoff.confirmMsg' : 'branch.handoff.confirmNewMsg',
+              { engine: confirmFor.engine.label, from: fromLabel }),
             ...(confirmFor.pending.goal ? [t('branch.handoff.confirmGoal', { engine: confirmFor.engine.label })] : []),
           ].join('\n\n')}
           confirmLabel={t('branch.handoff.confirm')}

@@ -157,6 +157,18 @@ describe('cabeçalho', () => {
     expect(dot.className).not.toContain('status-dot--pulse')
   })
 
+  it('modo seed: "cópia pelas mensagens recentes" no lugar do "cópia até"', () => {
+    api()
+    put(info({ mode: 'seed', cutAt: new Date(2026, 10, 21, 9, 5).toISOString() }))
+    const { unmount } = render(<Coluna />)
+    expect(screen.getByText('cópia pelas mensagens recentes')).toBeTruthy()
+    expect(screen.queryByText(/cópia até/)).toBeNull()
+    unmount()
+    put(info({ mode: 'native', cutAt: null }))
+    render(<Coluna />)
+    expect(screen.queryByText('cópia pelas mensagens recentes')).toBeNull()
+  })
+
   it('sem corte, sem "cópia até"', () => {
     api()
     put(info({ cutAt: null }))
@@ -306,6 +318,37 @@ describe('Trazer de volta no campo da principal', () => {
     // O token vira o caminho no envio, como qualquer anexo do campo.
     fireEvent.click(screen.getAllByRole('button', { name: 'Enviar' })[0])
     expect(send).toHaveBeenCalledWith({ type: 'send_message', localId: 'a', text: `/ups/${nome}` })
+  })
+
+  it('Trazer de volta fica desligado durante o upload: clique duplo sobe uma vez só', async () => {
+    const fetch = api()
+    let solta!: () => void
+    const base = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (url, init) => {
+      if (String(url) === '/api/uploads') {
+        await new Promise<void>((r) => { solta = r })
+        const f = (init!.body as FormData).get('file') as File
+        return json({ path: `/ups/${f.name}`, name: f.name }, 201)
+      }
+      return base(url, init)
+    })
+    const longa = Array.from({ length: 101 }, (_, i) => `linha ${i + 1}`).join('\n')
+    put(info(), [user('o log'), agent(longa)])
+    render(
+      <WsContext.Provider value={{ send: vi.fn() }}>
+        <ChatInput localId="a" disabled={false} />
+        <Coluna />
+      </WsContext.Provider>,
+    )
+    const botao = () => screen.getByRole('button', { name: 'Trazer de volta' }) as HTMLButtonElement
+    fireEvent.click(botao())
+    fireEvent.click(botao())
+    await waitFor(() => expect(solta).toBeTypeOf('function'))
+    expect(botao().disabled).toBe(true)
+    await act(async () => { solta() })
+    await waitFor(() => expect(principal().value).toMatch(/^\[📎 lateral-\d{6}\.md\]$/))
+    expect(fetch.mock.calls.filter(([u]) => String(u) === '/api/uploads')).toHaveLength(1)
+    expect(botao().disabled).toBe(false)
   })
 
   it('o pedido de outro terminal não entra neste campo', async () => {

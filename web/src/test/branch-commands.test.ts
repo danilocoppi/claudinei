@@ -138,7 +138,8 @@ describe('runBranchCommand', () => {
 
   it('falha de rede vai ao chat, sem estourar', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
-    await expect(runBranchCommand({ kind: 'side', text: 'x' }, ctx)).resolves.toBeUndefined()
+    // Falhou: `false`, para o campo devolver o texto.
+    await expect(runBranchCommand({ kind: 'side', text: 'x' }, ctx)).resolves.toBe(false)
     expect(useStore.getState().chat.c1).toEqual([expect.objectContaining({ kind: 'command_output', text: 'Failed to fetch', isError: true })])
   })
 })

@@ -58,6 +58,21 @@ function blockToText(content: unknown): string {
 }
 
 /**
+ * Tira os `<system-reminder>` que o harness anexa no FIM do texto (e o espaço
+ * antes deles); os do meio ficam. Laço com `lastIndexOf` em vez de regex: a
+ * regex com `\s*` na frente era quadrática numa sequência longa de espaços.
+ */
+function semRemindersNoFim(text: string): string {
+  let t = text.trimEnd()
+  while (t.endsWith('</system-reminder>')) {
+    const ini = t.lastIndexOf('<system-reminder>')
+    if (ini < 0) break
+    t = t.slice(0, ini).trimEnd()
+  }
+  return t
+}
+
+/**
  * Mensagens "do usuário" no transcript nem sempre são texto digitado: slash
  * commands do terminal (<command-name>, <local-command-stdout>, caveat) e
  * injeções do harness (<task-notification>, <system-reminder>) chegam como
@@ -72,9 +87,7 @@ function classifyUserText(text: string): ChatItem[] {
   // `<command-name>`, caveat, stdout ou reminders, que não podem desviar o
   // pacote nem cortar o corpo. Só o reminder que o harness anexa no FIM sai.
   if (text.trimStart().startsWith(`${HANDOFF_PREFIX}:`)) {
-    const h = parseHandoffHeader(
-      text.trim().replace(/(?:\s*<system-reminder>(?:(?!<system-reminder>)[\s\S])*?<\/system-reminder>)+$/, ''),
-    )
+    const h = parseHandoffHeader(semRemindersNoFim(text.trim()))
     if (h) {
       return [{
         kind: 'claudinei_message', reason: 'handoff', text: h.body,

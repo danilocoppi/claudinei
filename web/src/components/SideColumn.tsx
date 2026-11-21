@@ -54,6 +54,8 @@ function SideColumnView({ projectId, engine, localId, side }: Props & { side: Si
   const attachments = useRef(new Map<string, string>())
   const [uploading, setUploading] = useState(0)
   const [sending, setSending] = useState(false)
+  /** Trazer de volta em curso (o upload da resposta longa): o botão fica desligado até terminar. */
+  const [bringing, setBringing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmClose, setConfirmClose] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -150,7 +152,9 @@ function SideColumnView({ projectId, engine, localId, side }: Props & { side: Si
                   onClick={() => (working ? setConfirmClose(true) : close())}>×</button>
         </div>
         <div className="side-col__meta">
-          {cut && <span>{t('branch.side.copyUntil', { time: cut })}</span>}
+          {info.mode === 'seed'
+            ? <span>{t('branch.side.seedMode')}</span>
+            : cut && <span>{t('branch.side.copyUntil', { time: cut })}</span>}
           <span className={`side-col__files side-col__files--${info.files}`}>{t(`branch.files.${info.files}`)}</span>
         </div>
       </header>
@@ -186,8 +190,15 @@ function SideColumnView({ projectId, engine, localId, side }: Props & { side: Si
                   disabled={fieldDisabled} onClick={() => fileRef.current?.click()}>📎</button>
           {working && <button className="ghost" onClick={stop}>{t('branch.side.stop')}</button>}
           <button className="ghost side-col__bring" title={t('branch.side.bringBackTitle')}
-                  disabled={working || !answer}
-                  onClick={() => { setError(null); bringBack(localId, items).catch((err: Error) => setError(err.message)) }}>
+                  disabled={working || !answer || bringing}
+                  onClick={() => {
+                    if (bringing) return
+                    setError(null)
+                    setBringing(true)
+                    bringBack(localId, items)
+                      .catch((err: Error) => setError(err.message))
+                      .finally(() => setBringing(false))
+                  }}>
             {t('branch.side.bringBack')}
           </button>
           <button className="side-col__send" disabled={fieldDisabled || sending || uploading > 0 || !text.trim()}

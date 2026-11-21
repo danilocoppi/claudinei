@@ -26,8 +26,9 @@ export function parseBranchCommand(text: string): BranchCommand | null {
  * Chama a rota do comando. Não lança: a recusa vai ao chat da principal como
  * saída de comando com erro, no idioma da tela. O `side_exists` é a exceção:
  * vira `replaceAsk`, e a coluna pergunta se fecha a lateral atual e abre outra.
+ * Devolve `false` quando o comando falhou (o campo devolve o texto digitado).
  */
-export async function runBranchCommand(cmd: BranchCommand, ctx: { localId: string; projectId: number; engine: string }): Promise<void> {
+export async function runBranchCommand(cmd: BranchCommand, ctx: { localId: string; projectId: number; engine: string }): Promise<boolean> {
   const { localId, projectId, engine } = ctx
   try {
     if (cmd.kind === 'side') {
@@ -35,7 +36,7 @@ export async function runBranchCommand(cmd: BranchCommand, ctx: { localId: strin
       // O `side_state` sai antes da resposta e costuma chegar primeiro, já mais
       // novo que ela. A resposta só entra quando o WebSocket não trouxe esta lateral.
       if (useSideStore.getState().sides[progressKey(projectId, engine)]?.info.id !== info.id) setSideInfo(info)
-      return
+      return true
     }
     const { project, session } = await forkTerminal(projectId, engine, cmd.name.trim() || undefined)
     const { projects, setProjects, openSession } = useStore.getState()
@@ -44,12 +45,15 @@ export async function runBranchCommand(cmd: BranchCommand, ctx: { localId: strin
     // O ramo nasce logo abaixo do original e empurra as posições seguintes: a
     // lista do servidor traz a ordem nova. Sem ela, ao menos o ramo já está na lista.
     fetchProjects().then((list) => useStore.getState().setProjects(list)).catch(() => {})
+    return true
   } catch (err) {
     const e = err as Error & { code?: string }
     if (cmd.kind === 'side' && e.code === 'side_exists') {
+      // O texto fica com a pergunta da coluna, não volta ao campo.
       useSideStore.setState({ replaceAsk: { projectId, engine, text: cmd.text } })
-      return
+      return true
     }
     useStore.getState().addLocalItem(localId, { kind: 'command_output', text: e.message, isError: true })
+    return false
   }
 }

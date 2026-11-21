@@ -273,7 +273,18 @@ export function ChatInput({
     // Sem balão otimista: a conversa lateral abre na coluna; o ramo, noutro terminal.
     const branchCmd = session ? parseBranchCommand(trimmed) : null
     if (branchCmd && session) {
-      void runBranchCommand(branchCmd, { localId, projectId: session.projectId, engine: session.engine })
+      const antes = { text, anexos: [...attachments.current] }
+      void runBranchCommand(branchCmd, { localId, projectId: session.projectId, engine: session.engine }).then((ok) => {
+        if (ok) return
+        // Falhou: o texto volta, só se o campo ainda estiver vazio (o que o
+        // operador digitou depois fica). Campo desmontado: vira o rascunho.
+        if (!vivo.current) {
+          if (!readDraft(localId).trim()) saveDraft(localId, antes.text)
+          return
+        }
+        for (const [tok, path] of antes.anexos) if (!attachments.current.has(tok)) attachments.current.set(tok, path)
+        setText((atual) => (atual.trim() ? atual : antes.text))
+      })
       setText('')
       histIdxRef.current = null
       setUploadError(null); setStashError(null)

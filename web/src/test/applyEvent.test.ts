@@ -491,6 +491,24 @@ describe('pacote de contexto da troca de motor ([Claudinei: context handoff])', 
     }])
   })
 
+  it('sequência longa de espaços não trava (sem backtracking quadrático)', () => {
+    const [, evt] = formatos[0]
+    const espacos = ' '.repeat(200_000)
+    const t0 = performance.now()
+    const [item] = applyEvent([], evt(`${PACOTE}\n\n=== request ===\ne agora?${espacos}x`) as never)
+    applyEvent([], evt(`${PACOTE}\n\n=== request ===\ne agora?${espacos}<system-reminder>r</system-reminder>${espacos}`) as never)
+    expect(performance.now() - t0).toBeLessThan(100)
+    expect(item).toMatchObject({ kind: 'claudinei_message', reason: 'handoff', request: `e agora?${espacos}x` })
+  })
+
+  it('vários reminders do harness no fim saem todos', () => {
+    const [, evt] = formatos[0]
+    const fim = '\n<system-reminder>um</system-reminder>\n\n  <system-reminder>dois</system-reminder>  \n'
+    expect(applyEvent([], evt(`${PACOTE}\n\n=== request ===\ne agora?${fim}`) as never)).toEqual([{
+      kind: 'claudinei_message', reason: 'handoff', engineLabel: 'Claude Code', messages: 2, tokens: 13, text: CORPO, request: 'e agora?',
+    }])
+  })
+
   it('o selo no meio da frase segue user_text', () => {
     const [, evt] = formatos[0]
     const text = `veja: ${PACOTE}`

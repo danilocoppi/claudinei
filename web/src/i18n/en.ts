@@ -630,6 +630,7 @@ export const en = {
     side: {
       title: 'Side conversation',
       copyUntil: 'copy up to {{time}}',
+      seedMode: 'copy from recent messages',
       close: 'Close the side conversation',
       closeWorkingTitle: 'Close the side conversation?',
       closeWorkingMsg: 'It is still working; the answer in progress will be lost.',
@@ -654,6 +655,7 @@ export const en = {
       footer: '{{engine}} stays open; stop it if you don\'t want both in the folder',
       confirmTitle: 'Continue in {{engine}}?',
       confirmMsg: 'The current {{engine}} conversation will be closed (it stays in the history), and a new one starts with the context from {{from}}.',
+      confirmNewMsg: 'A new {{engine}} conversation starts with the context from {{from}}.',
       confirmGoal: 'The {{engine}} goal stays paused until you resume it.',
       confirm: 'Continue',
       card_one: 'Context brought from {{engine}}: {{count}} message (~{{tokens}})',

@@ -229,6 +229,21 @@ describe('menu ⇄ na aba ativa', () => {
     await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(1, 'claude', 'codex'))
   })
 
+  it('sem conversa mas com goal ativo: confirma avisando que o goal será pausado', async () => {
+    useStore.setState({ terminalStates: { '1:codex': state('codex', { goal: goal('active') }) } })
+    const spy = vi.spyOn(branchApi, 'handoff').mockResolvedValue(sess('n1', 'codex', 'starting'))
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    fireEvent.click(item(openMenu(), 'Codex'))
+    expect(spy).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Continuar no Codex?' })).toBeTruthy()
+    expect(screen.getByText(/goal do Codex fica pausado/)).toBeTruthy()
+    // Não há conversa do destino a encerrar.
+    expect(screen.queryByText(/será encerrada/)).toBeNull()
+    expect(screen.getByText(/Uma conversa nova começa no Codex com o contexto do Claude Code/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(1, 'claude', 'codex'))
+  })
+
   it('cancelar a confirmação não chama a rota', () => {
     cenario()
     const spy = vi.spyOn(branchApi, 'handoff').mockResolvedValue(sess('n1', 'codex', 'starting'))

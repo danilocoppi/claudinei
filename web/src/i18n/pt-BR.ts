@@ -633,6 +633,7 @@ export const ptBR: typeof en = {
     side: {
       title: 'Conversa lateral',
       copyUntil: 'cópia até {{time}}',
+      seedMode: 'cópia pelas mensagens recentes',
       close: 'Fechar a conversa lateral',
       closeWorkingTitle: 'Fechar a conversa lateral?',
       closeWorkingMsg: 'Ela ainda está trabalhando; a resposta em curso se perde.',
@@ -657,6 +658,7 @@ export const ptBR: typeof en = {
       footer: 'o {{engine}} continua aberto; pare-o se não quiser os dois na pasta',
       confirmTitle: 'Continuar no {{engine}}?',
       confirmMsg: 'A conversa atual do {{engine}} será encerrada (fica no histórico), e uma nova começa com o contexto do {{from}}.',
+      confirmNewMsg: 'Uma conversa nova começa no {{engine}} com o contexto do {{from}}.',
       confirmGoal: 'O goal do {{engine}} fica pausado até você retomá-lo.',
       confirm: 'Continuar',
       card_one: 'Contexto trazido do {{engine}}: {{count}} mensagem (~{{tokens}})',

@@ -123,7 +123,7 @@
 3. **Dois `/side` ao mesmo tempo** (dois navegadores, ou um clique duplo). Só um abre; o segundo recebe `side_exists`, mesmo que o primeiro ainda esteja calculando o corte. A reserva é síncrona. Teste na Task 6.
 4. **Cópia nativa recusada.** O Claude com `--resume-session-at` inválido e o Codex com o fork recusado morrem antes do `init`:
    - na lateral, a pergunta sai de novo com o pacote, sem o operador redigitar;
-   - no ramo, a sessão revive em conversa nova e recebe o pacote como mensagem do Claudinei.
+   - no ramo, a sessão revive em conversa nova e recebe o pacote como mensagem do Claudinei. Se a recusa veio com uma mensagem do operador, ela é reenviada logo depois do pacote, sem ele redigitar.
 
    Nada fica em laço. Testes nas Tasks 6 e 8.
 5. **Troca de motor com o destino mudando.** Os casos:
@@ -583,7 +583,8 @@ export async function forkPreviewPage(db: Db, info: SessionInfo, projectPath: st
   1. `UPDATE sessions SET fork_source=NULL, claude_session_id=NULL`;
   2. monta o pacote da origem com `before: previewBefore`;
   3. `manager.revive(localId)` em conversa nova;
-  4. `sendAsClaudinei(localId, pacote)`.
+  4. `sendAsClaudinei(localId, pacote)`;
+  5. se a sessão morreu levando uma mensagem do operador (o texto que estava sendo enviado quando a cópia foi recusada), reenvia essa mensagem logo depois do pacote, como mensagem do operador, sem ele redigitar. Guarde o texto pendente no momento do `send` da sessão com `fork_source` (campo em memória, por sessão) para tê-lo aqui.
 
   Roda uma vez por sessão: sem `fork_source`, não repete.
 - **`forkPreviewPage`:** só age quando a sessão tem `fork_source` e a conversa própria ainda não existe. Lê a página da origem com `before = min(before ?? ∞, previewBefore)`, pela mesma `lastEventsOf`.
@@ -602,6 +603,7 @@ export async function forkPreviewPage(db: Db, info: SessionInfo, projectPath: st
   - `primeiro turno bom limpa fork_source`;
   - `prévia: o histórico do ramo antes do primeiro turno é o do original até o corte`;
   - `cópia recusada: revive em conversa nova e manda o pacote uma vez`;
+  - `cópia recusada na primeira mensagem do operador: depois do pacote, a mensagem dele é reenviada uma vez`;
   - `Kimi: conversa nova recebe o pacote como mensagem do Claudinei e nada vai à fila antes do fim desse turno`;
   - `os dois terminais passam a usar ownResume (pasta compartilhada)`.
 - [ ] **Step 2: Rodar e ver falhar.**

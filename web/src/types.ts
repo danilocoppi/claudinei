@@ -9,6 +9,10 @@ export interface Project {
   id: number; name: string; path: string; color: string; icon: string; favorite?: boolean; headsUp?: boolean; groupId?: number | null; sectorId?: number | null; sortOrder?: number
   /** Motores do terminal (ids, em ordem canônica); só eles ganham aba. Ver terminalEngines.ts. */
   engines?: string[]
+  /** Ramo (`/fork`): o terminal de onde veio a cópia; null quando não é ramo ou o original sumiu. */
+  forkedFrom?: number | null
+  /** ISO do corte da cópia do ramo ("cópia até HH:MM"); null quando o motor não diz. */
+  forkedCutAt?: string | null
 }
 
 export interface SessionInfo {

@@ -6,6 +6,7 @@ import { addToQueue, checkUploads, uploadFile } from '../api'
 import type { QueueVia } from '../types'
 import { SessionControls } from './SessionControls'
 import { GOAL_COMMAND, filterCommands } from '../slash'
+import { parseBranchCommand, runBranchCommand } from '../branch/commands'
 import { readDraft, saveDraft } from '../drafts'
 import { readStash, pushStash, takeStash, stashKey, type StashEntry } from '../stash'
 import { StashMenu } from './StashMenu'
@@ -247,6 +248,18 @@ export function ChatInput({
     }
 
     if (disabled) return
+    // `/side`, `/btw` e `/fork` são do Claudinei e nunca entram na fila nem no
+    // turno: a rota é chamada na hora, mesmo no meio do turno e com Alt+Enter.
+    // Sem balão otimista: a conversa lateral abre na coluna; o ramo, noutro terminal.
+    const branchCmd = session ? parseBranchCommand(trimmed) : null
+    if (branchCmd && session) {
+      void runBranchCommand(branchCmd, { localId, projectId: session.projectId, engine: session.engine })
+      setText('')
+      histIdxRef.current = null
+      setUploadError(null); setStashError(null)
+      attachments.current.clear()
+      return
+    }
     if (viaQueue || enterQueues) { enqueue(trimmed, viaQueue ? 'alt-enter' : 'enter-busy'); return }
     ws?.send({ type: 'send_message', localId, text: trimmed })
     // O `/goal` é do Claudinei: o servidor o intercepta antes do agente, e nada

@@ -357,6 +357,9 @@ export const es: typeof en = {
     redo: 'rehace la última edición deshecha',
     models: 'lista los modelos disponibles',
     goal: 'sigue turno tras turno hasta cumplir un objetivo (/goal <criterio>, resume, stop)',
+    side: 'abre una conversación lateral con la copia de esta, sin tocar la principal (/side <pregunta>)',
+    btw: 'lo mismo que /side: una pregunta aparte, en una copia de esta conversación',
+    fork: 'crea un terminal hermano con la copia de esta conversación (/fork <nombre>)',
   },
   interactionInfo: {
     title: 'Board & Tasks — colaboración entre agentes',
@@ -616,6 +619,14 @@ export const es: typeof en = {
     invalid_query: 'La búsqueda debe tener de {{min}} a {{max}} caracteres.',
     invalid_before: 'Posición no válida en el historial (before).',
     invalid_limit: 'limit debe ser un número entero de 1 a {{max}}.',
+    no_conversation: 'Todavía no hay conversación para copiar',
+    side_exists: 'Ya hay una conversación lateral abierta en este terminal.',
+    side_not_found: 'No hay ninguna conversación lateral abierta en este terminal.',
+    fork_admin_only: 'Solo un administrador puede crear terminales',
+    handoff_same_engine: 'El destino es el mismo motor de la conversación.',
+    handoff_engine_unavailable: 'El motor de destino no está disponible en este terminal.',
+    handoff_target_busy: 'El motor de destino está ocupado; inténtalo de nuevo en un momento.',
+    handoff_target_limited: 'El motor de destino está en su límite de uso.',
   },
 }
 export default es

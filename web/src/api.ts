@@ -7,7 +7,7 @@ const reportAccessRestriction = (status: number, error: unknown) => {
   if (status === 403 && error === 'access_hours_restricted') window.dispatchEvent(new Event('claudinei:access-restricted'))
 }
 
-async function req<T>(url: string, init?: RequestInit): Promise<T> {
+export async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = init?.body ? { 'Content-Type': 'application/json' } : undefined
   const res = await fetch(url, { headers, ...init })
   if (!res.ok) {

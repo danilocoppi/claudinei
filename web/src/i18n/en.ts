@@ -355,6 +355,9 @@ export const en = {
     redo: 'redo the last undone edit',
     models: 'list available models',
     goal: 'keeps going turn after turn until a goal is met (/goal <criterion>, resume, stop)',
+    side: 'opens a side conversation on a copy of this one, leaving the main one untouched (/side <question>)',
+    btw: 'same as /side: a question on the side, in a copy of this conversation',
+    fork: 'creates a sibling terminal with a copy of this conversation (/fork <name>)',
   },
   interactionInfo: {
     title: 'Board & Tasks — agent collaboration',
@@ -614,6 +617,14 @@ export const en = {
     invalid_query: 'The search must be {{min}} to {{max}} characters long.',
     invalid_before: 'Invalid position in the history (before).',
     invalid_limit: 'limit must be a whole number from 1 to {{max}}.',
+    no_conversation: 'There is no conversation to copy yet',
+    side_exists: 'This terminal already has a side conversation open.',
+    side_not_found: 'There is no side conversation open in this terminal.',
+    fork_admin_only: 'Only an administrator can create terminals',
+    handoff_same_engine: 'The target is the same engine as the conversation.',
+    handoff_engine_unavailable: 'The target engine is not available in this terminal.',
+    handoff_target_busy: 'The target engine is busy; try again in a moment.',
+    handoff_target_limited: 'The target engine is at its usage limit.',
   },
 }
 export default en

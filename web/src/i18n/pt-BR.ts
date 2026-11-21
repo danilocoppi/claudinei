@@ -358,6 +358,9 @@ export const ptBR: typeof en = {
     redo: 'refaz a última edição desfeita',
     models: 'lista os modelos disponíveis',
     goal: 'segue turno após turno até cumprir um objetivo (/goal <critério>, resume, stop)',
+    side: 'abre uma conversa lateral com a cópia desta, sem mexer na principal (/side <pergunta>)',
+    btw: 'o mesmo que /side: uma pergunta à parte, numa cópia desta conversa',
+    fork: 'cria um terminal irmão com a cópia desta conversa (/fork <nome>)',
   },
   interactionInfo: {
     title: 'Board & Tasks — colaboração entre agentes',
@@ -617,6 +620,14 @@ export const ptBR: typeof en = {
     invalid_query: 'A busca deve ter de {{min}} a {{max}} caracteres.',
     invalid_before: 'Posição inválida no histórico (before).',
     invalid_limit: 'limit deve ser um número inteiro de 1 a {{max}}.',
+    no_conversation: 'Ainda não há conversa para copiar',
+    side_exists: 'Já há uma conversa lateral aberta neste terminal.',
+    side_not_found: 'Não há conversa lateral aberta neste terminal.',
+    fork_admin_only: 'Só um administrador pode criar terminais',
+    handoff_same_engine: 'O destino é o mesmo motor da conversa.',
+    handoff_engine_unavailable: 'O motor de destino não está disponível neste terminal.',
+    handoff_target_busy: 'O motor de destino está ocupado; tente de novo daqui a pouco.',
+    handoff_target_limited: 'O motor de destino está no limite de uso.',
   },
 }
 export default ptBR

@@ -535,6 +535,17 @@ export const es: typeof en = {
     requeue: 'Volver a ponerlo en la cola', discard: 'Descartar',
   },
   zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
+  shortcuts: {
+    labels: {
+      send: 'Enviar', queue: 'Poner en la cola', voice: 'Micrófono', stash: 'Guardar borrador',
+      find: 'Buscar en la conversación', zen: 'Modo Zen', usage: 'Página de uso', undo: 'Deshacer de la clasificación',
+      enter: 'Enviar con Enter en el campo', newline: 'Salto de línea en el campo',
+      history: 'Historial de mensajes en el campo', pastePlain: 'Pegar como texto',
+      editorSave: 'Guardar en los editores de archivos', findNav: 'Siguiente y anterior en la barra de búsqueda',
+      escape: 'Detener el turno, cerrar menú, barra o visor', clipboard: 'Copiar, pegar, cortar y seleccionar todo',
+      undoText: 'Deshacer y rehacer el texto', macEdit: 'Edición de texto de macOS en los campos',
+    },
+  },
   fileViewer: {
     close: 'Cerrar', download: 'Descargar', noPreview: 'Sin vista previa disponible.',
     tooLarge: 'Archivo demasiado grande para vista previa — descárgalo para verlo.',

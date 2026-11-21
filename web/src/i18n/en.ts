@@ -533,6 +533,17 @@ export const en = {
     requeue: 'Queue it again', discard: 'Discard',
   },
   zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
+  shortcuts: {
+    labels: {
+      send: 'Send', queue: 'Add to queue', voice: 'Microphone', stash: 'Save draft',
+      find: 'Search the conversation', zen: 'Zen mode', usage: 'Usage page', undo: 'Undo triage',
+      enter: 'Send with Enter in the input', newline: 'New line in the input',
+      history: 'Message history in the input', pastePlain: 'Paste as plain text',
+      editorSave: 'Save in file editors', findNav: 'Next and previous in the search bar',
+      escape: 'Stop the turn, close menu, bar or viewer', clipboard: 'Copy, paste, cut and select all',
+      undoText: 'Undo and redo text', macEdit: 'macOS text editing in fields',
+    },
+  },
   fileViewer: {
     close: 'Close', download: 'Download', noPreview: 'No preview available.',
     tooLarge: 'File too large to preview — download it instead.',

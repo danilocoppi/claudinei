@@ -536,6 +536,17 @@ export const ptBR: typeof en = {
     requeue: 'Pôr na fila de novo', discard: 'Descartar',
   },
   zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. Alt+Z liga e desliga.' },
+  shortcuts: {
+    labels: {
+      send: 'Enviar', queue: 'Pôr na fila', voice: 'Microfone', stash: 'Guardar rascunho',
+      find: 'Buscar na conversa', zen: 'Modo Zen', usage: 'Página de uso', undo: 'Desfazer da triagem',
+      enter: 'Enviar com Enter no campo', newline: 'Quebrar linha no campo',
+      history: 'Histórico de mensagens no campo', pastePlain: 'Colar como texto',
+      editorSave: 'Salvar nos editores de arquivo', findNav: 'Próxima e anterior na barra de busca',
+      escape: 'Parar o turno, fechar menu, barra ou visualizador', clipboard: 'Copiar, colar, recortar e selecionar tudo',
+      undoText: 'Desfazer e refazer o texto', macEdit: 'Edição de texto do macOS nos campos',
+    },
+  },
   fileViewer: {
     close: 'Fechar', download: 'Baixar', noPreview: 'Sem prévia disponível.',
     tooLarge: 'Arquivo grande demais para prévia — baixe para ver o conteúdo.',

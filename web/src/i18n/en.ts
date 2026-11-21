@@ -626,5 +626,29 @@ export const en = {
     handoff_target_busy: 'The target engine is busy; try again in a moment.',
     handoff_target_limited: 'The target engine is at its usage limit.',
   },
+  branch: {
+    side: {
+      title: 'Side conversation',
+      copyUntil: 'copy up to {{time}}',
+      close: 'Close the side conversation',
+      closeWorkingTitle: 'Close the side conversation?',
+      closeWorkingMsg: 'It is still working; the answer in progress will be lost.',
+      closeConfirm: 'Close',
+      empty: 'The copy of the conversation is ready. Ask anything: the main conversation does not change.',
+      placeholder: 'Ask in the side conversation…',
+      attach: 'Attach file',
+      stop: 'Stop',
+      bringBack: 'Bring back',
+      bringBackTitle: 'Appends the last answer to the end of the main conversation field',
+      replaceTitle: 'Close the current side conversation and open another?',
+      replaceMsg: 'The current side conversation will be closed and a new copy of the main conversation will be opened.',
+      replaceConfirm: 'Open another',
+    },
+    files: {
+      read_only: 'Read only',
+      no_edit_tools: 'No editing tools — shell commands can still change files',
+      can_write: 'Can change files in the folder',
+    },
+  },
 }
 export default en

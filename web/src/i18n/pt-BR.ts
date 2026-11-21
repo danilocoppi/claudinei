@@ -629,5 +629,29 @@ export const ptBR: typeof en = {
     handoff_target_busy: 'O motor de destino está ocupado; tente de novo daqui a pouco.',
     handoff_target_limited: 'O motor de destino está no limite de uso.',
   },
+  branch: {
+    side: {
+      title: 'Conversa lateral',
+      copyUntil: 'cópia até {{time}}',
+      close: 'Fechar a conversa lateral',
+      closeWorkingTitle: 'Fechar a conversa lateral?',
+      closeWorkingMsg: 'Ela ainda está trabalhando; a resposta em curso se perde.',
+      closeConfirm: 'Fechar',
+      empty: 'A cópia da conversa está pronta. Pergunte o que quiser: a conversa principal não muda.',
+      placeholder: 'Pergunte na conversa lateral…',
+      attach: 'Anexar arquivo',
+      stop: 'Parar',
+      bringBack: 'Trazer de volta',
+      bringBackTitle: 'Acrescenta a última resposta ao fim do campo da conversa principal',
+      replaceTitle: 'Fechar a conversa lateral atual e abrir outra?',
+      replaceMsg: 'A conversa lateral atual será encerrada e uma nova cópia da conversa principal será aberta.',
+      replaceConfirm: 'Abrir outra',
+    },
+    files: {
+      read_only: 'Só leitura',
+      no_edit_tools: 'Sem ferramentas de edição — comandos de shell ainda podem alterar arquivos',
+      can_write: 'Pode alterar arquivos da pasta',
+    },
+  },
 }
 export default ptBR

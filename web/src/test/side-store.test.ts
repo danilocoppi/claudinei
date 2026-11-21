@@ -118,6 +118,85 @@ describe('useSideSync', () => {
     expect(result.current?.info.id).toBe('s2')
   })
 
+  it('evento da mesma lateral durante a leitura: a releitura entra e o evento fica por cima', async () => {
+    // A coluna tinha a pergunta; durante a queda do WebSocket a lateral
+    // respondeu "parte 1" (perdida). Na releitura, chega "parte 2" pelo WS
+    // antes da resposta do GET, que ainda não a tem.
+    applySideMessage({ type: 'side_state', projectId: 1, engine: 'claude', side: info({ status: 'working' }) })
+    applySideMessage({ type: 'side_event', projectId: 1, engine: 'claude', sideId: 's1', event: userEvt('pergunta') })
+    let solta!: (r: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { solta = r }))
+    const { result } = renderHook(() => useSideSync(1, 'claude'))
+    act(() => { applySideMessage({ type: 'side_event', projectId: 1, engine: 'claude', sideId: 's1', event: assistantEvt('parte 2') }) })
+    await act(async () => {
+      solta(json(200, { side: info({ status: 'working' }), events: [userEvt('pergunta'), assistantEvt('parte 1')] }))
+    })
+    expect(result.current?.items.map((i) => (i as { text: string }).text)).toEqual(['pergunta', 'parte 1', 'parte 2'])
+  })
+
+  it('evento que chegou pelo WS e também veio na releitura não se repete', async () => {
+    applySideMessage({ type: 'side_state', projectId: 1, engine: 'claude', side: info() })
+    applySideMessage({ type: 'side_event', projectId: 1, engine: 'claude', sideId: 's1', event: userEvt('pergunta') })
+    let solta!: (r: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { solta = r }))
+    const { result } = renderHook(() => useSideSync(1, 'claude'))
+    act(() => {
+      applySideMessage({ type: 'side_event', projectId: 1, engine: 'claude', sideId: 's1', event: assistantEvt('parte 2') })
+      applySideMessage({ type: 'side_event', projectId: 1, engine: 'claude', sideId: 's1', event: assistantEvt('parte 3') })
+    })
+    // O servidor leu depois de "parte 2" e antes de "parte 3".
+    await act(async () => {
+      solta(json(200, { side: info(), events: [userEvt('pergunta'), assistantEvt('parte 1'), assistantEvt('parte 2')] }))
+    })
+    expect(result.current?.items.map((i) => (i as { text: string }).text)).toEqual(['pergunta', 'parte 1', 'parte 2', 'parte 3'])
+  })
+
+  it('lateral que apareceu pelo WS durante a leitura (aberta na queda) recebe a releitura e os eventos', async () => {
+    let solta!: (r: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { solta = r }))
+    const { result } = renderHook(() => useSideSync(1, 'claude'))
+    act(() => {
+      applySideMessage({ type: 'side_state', projectId: 1, engine: 'claude', side: info({ status: 'working' }) })
+      applySideMessage({ type: 'side_event', projectId: 1, engine: 'claude', sideId: 's1', event: assistantEvt('parte 2') })
+    })
+    await act(async () => {
+      solta(json(200, { side: info({ status: 'idle' }), events: [userEvt('pergunta'), assistantEvt('parte 1')] }))
+    })
+    expect(result.current?.items.map((i) => (i as { text: string }).text)).toEqual(['pergunta', 'parte 1', 'parte 2'])
+    // O estado que o WebSocket trouxe durante a leitura vence o da resposta.
+    expect(result.current?.info.status).toBe('working')
+  })
+
+  it('a lateral trocou de id durante a leitura: a resposta da antiga é descartada', async () => {
+    applySideMessage({ type: 'side_state', projectId: 1, engine: 'claude', side: info() })
+    let solta!: (r: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { solta = r }))
+    const { result } = renderHook(() => useSideSync(1, 'claude'))
+    act(() => {
+      applySideMessage({ type: 'side_state', projectId: 1, engine: 'claude', side: info({ id: 's2' }) })
+      applySideMessage({ type: 'side_event', projectId: 1, engine: 'claude', sideId: 's2', event: userEvt('nova') })
+    })
+    await act(async () => { solta(json(200, { side: info(), events: [userEvt('velha')] })) })
+    expect(result.current?.info.id).toBe('s2')
+    expect(result.current?.items.map((i) => (i as { text: string }).text)).toEqual(['nova'])
+  })
+
+  it('a lateral fechou pelo WS durante a leitura: a resposta não a traz de volta', async () => {
+    applySideMessage({ type: 'side_state', projectId: 1, engine: 'claude', side: info() })
+    let solta!: (r: Response) => void
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((r) => { solta = r }))
+    const { result } = renderHook(() => useSideSync(1, 'claude'))
+    act(() => { applySideMessage({ type: 'side_state', projectId: 1, engine: 'claude', side: null }) })
+    await act(async () => { solta(json(200, { side: info(), events: [] })) })
+    expect(result.current).toBeUndefined()
+  })
+
+  it('sem motor (nenhuma sessão aberta) não lê', () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => json(200, { side: null, events: [] }))
+    renderHook(() => useSideSync(0, ''))
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('sem login não lê', () => {
     useStore.setState({ authStatus: 'login' })
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => json(200, { side: null, events: [] }))

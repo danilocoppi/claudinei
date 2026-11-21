@@ -7,6 +7,7 @@ import type { QueueVia } from '../types'
 import { SessionControls } from './SessionControls'
 import { GOAL_COMMAND, filterCommands } from '../slash'
 import { parseBranchCommand, runBranchCommand } from '../branch/commands'
+import { useSideStore } from '../branch/sideStore'
 import { readDraft, saveDraft } from '../drafts'
 import { readStash, pushStash, takeStash, stashKey, type StashEntry } from '../stash'
 import { StashMenu } from './StashMenu'
@@ -122,6 +123,25 @@ export function ChatInput({
       el?.setSelectionRange(el.value.length, el.value.length)
     })
   }, [editRequest?.seq])
+
+  // Trazer de volta (coluna da lateral): o texto entra no FIM do campo, depois
+  // do que já havia, e os anexos (`[token, caminho]`) passam a valer no envio. O
+  // pedido é consumido aqui; lido do store na hora, e não da closure, para o
+  // efeito dobrado do StrictMode não acrescentar duas vezes.
+  const appendSeq = useSideStore((s) => (s.appendRequest?.localId === localId ? s.appendRequest.seq : null))
+  useEffect(() => {
+    const req = useSideStore.getState().appendRequest
+    if (!req || req.localId !== localId) return
+    useSideStore.setState({ appendRequest: null })
+    for (const [tok, path] of req.attachments) attachments.current.set(tok, path)
+    setText((atual) => (atual.trim() ? `${atual.replace(/\s+$/, '')}\n\n${req.text}` : req.text))
+    histIdxRef.current = null
+    requestAnimationFrame(() => {
+      const el = areaRef.current
+      el?.focus()
+      el?.setSelectionRange(el.value.length, el.value.length)
+    })
+  }, [appendSeq, localId])
 
   // Auto-resize: cresce de 1 até 10 linhas conforme o conteúdo; passou disso, rola.
   //

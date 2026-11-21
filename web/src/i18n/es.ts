@@ -628,5 +628,29 @@ export const es: typeof en = {
     handoff_target_busy: 'El motor de destino está ocupado; inténtalo de nuevo en un momento.',
     handoff_target_limited: 'El motor de destino está en su límite de uso.',
   },
+  branch: {
+    side: {
+      title: 'Conversación lateral',
+      copyUntil: 'copia hasta {{time}}',
+      close: 'Cerrar la conversación lateral',
+      closeWorkingTitle: '¿Cerrar la conversación lateral?',
+      closeWorkingMsg: 'Todavía está trabajando; la respuesta en curso se pierde.',
+      closeConfirm: 'Cerrar',
+      empty: 'La copia de la conversación está lista. Pregunta lo que quieras: la conversación principal no cambia.',
+      placeholder: 'Pregunta en la conversación lateral…',
+      attach: 'Adjuntar archivo',
+      stop: 'Detener',
+      bringBack: 'Traer de vuelta',
+      bringBackTitle: 'Añade la última respuesta al final del campo de la conversación principal',
+      replaceTitle: '¿Cerrar la conversación lateral actual y abrir otra?',
+      replaceMsg: 'La conversación lateral actual se cerrará y se abrirá una nueva copia de la conversación principal.',
+      replaceConfirm: 'Abrir otra',
+    },
+    files: {
+      read_only: 'Solo lectura',
+      no_edit_tools: 'Sin herramientas de edición — los comandos de shell aún pueden cambiar archivos',
+      can_write: 'Puede cambiar archivos de la carpeta',
+    },
+  },
 }
 export default es

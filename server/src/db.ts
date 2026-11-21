@@ -393,6 +393,44 @@ export function openDb(path: string): Db {
   const queueCols = db.prepare('PRAGMA table_info(operator_queue)').all() as { name: string }[]
   if (!queueCols.some((c) => c.name === 'via')) db.exec(`ALTER TABLE operator_queue ADD COLUMN via TEXT NOT NULL DEFAULT 'alt-enter'`)
 
+  // Desfazer turno (ver undo/store.ts). Marcos: um retrato do git por linha,
+  // numerado por repositório (`refs/claudinei/<repo_key>/<n>`); `active` são os
+  // turnos ativos logo depois do marco. Listagens: os soltos de um marco
+  // limitado, JSON em gzip, deduplicado pelo sha1. Turnos, desfazeres e notas
+  // ("files reverted" a pôr na frente da próxima mensagem) são do terminal
+  // (projeto + motor) e somem com o projeto.
+  db.exec(`CREATE TABLE IF NOT EXISTS undo_marks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_key TEXT NOT NULL, n INTEGER NOT NULL, repo_top TEXT NOT NULL, ref TEXT NOT NULL,
+    commit_sha TEXT NOT NULL, head_sha TEXT, branch TEXT, mode TEXT NOT NULL, kind TEXT NOT NULL,
+    active TEXT NOT NULL DEFAULT '[]', big TEXT NOT NULL DEFAULT '[]', listing_hash TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (repo_key, n))`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_undo_marks_repo ON undo_marks(repo_key, n)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS undo_listings (hash TEXT PRIMARY KEY, data BLOB NOT NULL)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS undo_turns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    local_id TEXT NOT NULL,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    engine TEXT NOT NULL, born_session_id TEXT, conversation_id TEXT,
+    origin TEXT NOT NULL, text_key TEXT, mid_turn INTEGER NOT NULL DEFAULT 0, anchor TEXT,
+    repo_key TEXT, repo_top TEXT, start_mark INTEGER, end_mark INTEGER, end_kind TEXT,
+    snapshot TEXT NOT NULL, snapshot_error TEXT, limited INTEGER NOT NULL DEFAULT 0,
+    declared TEXT NOT NULL DEFAULT '[]', summary TEXT, rewound_at TEXT,
+    started_at TEXT DEFAULT (datetime('now')), ended_at TEXT)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_undo_turns_terminal ON undo_turns(project_id, engine, id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_undo_turns_local ON undo_turns(local_id, id)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS undo_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    engine TEXT NOT NULL, kind TEXT NOT NULL, turn_ids TEXT NOT NULL, repo_key TEXT NOT NULL,
+    pre_mark INTEGER, post_mark INTEGER, files TEXT NOT NULL, redo_of INTEGER, redone_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')))`)
+  db.exec(`CREATE TABLE IF NOT EXISTS undo_notes (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    engine TEXT NOT NULL, files TEXT NOT NULL,
+    PRIMARY KEY (project_id, engine))`)
+
   // Substitui o índice que vinha de brinde com o UNIQUE removido: a busca por
   // caminho continua existindo (é como se sabe que a pasta é compartilhada).
   // Recriado aqui a cada boot porque o DROP TABLE da migração leva os índices

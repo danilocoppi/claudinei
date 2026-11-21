@@ -14,6 +14,7 @@ import { RESTART_FAIL_TEXT, type LimitOrigin } from '../restart/terminal-state.j
 import type { SlotContext } from '../queue/operator-queue.js'
 import { usageLimitFailText } from '../limit/texts.js'
 import { forkPlanOf, parseForkSource, type ForkSource } from '../branch/fork-source.js'
+import type { TurnObserver, InputOrigin } from '../undo/types.js'
 
 /** A sessão sabe ser uma superfície remota (só a do Claude). */
 const isHeadsUpSurface = (s: unknown): s is HeadsUpSurface =>
@@ -158,6 +159,8 @@ interface Deps {
    * morte no encerramento NÃO chamam.
    */
   onNeedsOperator?: (projectId: number, reason: 'question' | 'failed' | 'dead') => void
+  /** Rastreador de turnos do desfazer: vê cada mensagem, status e evento. O que o onInput lança sobe a quem enviou. */
+  turnObserver?: TurnObserver
 }
 
 /**
@@ -342,6 +345,18 @@ export function createSessionManager(deps: Deps) {
   // Resolve a sessão pela engine (registry) — ou, em teste, pelo override sessionFactory.
   const makeSession = (engineId: EngineId, opts: EngineSessionOptions): EngineSession =>
     deps.sessionFactory ? deps.sessionFactory(opts) : getEngine(engineId).createSession(opts)
+  /** Todo envio (menos o /compact) passa pelo observador, que pode pôr uma nota na frente; o que ele lança sobe. */
+  const sendVia = (entry: { projectId: number; engine: EngineId }, localId: string, text: string, origin: InputOrigin, doSend: (t: string) => void): void =>
+    deps.turnObserver ? deps.turnObserver.onInput({ localId, projectId: entry.projectId, engine: entry.engine }, text, origin, doSend) : doSend(text)
+  /** O terminal dono de uma entrada viva (askAgent e dispatchTask escolhem a entrada, não o id). */
+  const idOf = (entry: object): string => [...live].find(([, e]) => e === entry)![0]
+  /**
+   * Sessões relançadas com o id de conversa segurado (relaunch com holdEngineId):
+   * até o primeiro result, o id novo não vai ao banco, ao project_threads nem à
+   * web. Se o processo morre antes, o banco fica com o id antigo (sem resume de
+   * id fantasma). Chave: localId; valor: a sessão que segura.
+   */
+  const heldEngineId = new Map<string, EngineSession>()
 
   /**
    * Ligado por beginShutdown, quando o serviço vai parar. A partir daí, sessão que
@@ -442,6 +457,7 @@ export function createSessionManager(deps: Deps) {
   }
 
   const persist = (localId: string, status: SessionStatus, engineSessionId: string | null) => {
+    if (heldEngineId.has(localId)) engineSessionId = null // o COALESCE mantém o antigo
     deps.db.prepare(
       `UPDATE sessions SET status=?, claude_session_id=COALESCE(?, claude_session_id), updated_at=datetime('now') WHERE local_id=?`,
     ).run(status, engineSessionId, localId)
@@ -459,7 +475,7 @@ export function createSessionManager(deps: Deps) {
   // está persistido no banco. Assim a UI conhece o id imediatamente e carrega
   // o histórico da conversa anterior (D4) sem esperar o operador digitar.
   const effectiveEngineSessionId = (localId: string, session: EngineSession): string | null => {
-    if (session.sessionId) return session.sessionId
+    if (session.sessionId && !heldEngineId.has(localId)) return session.sessionId
     const row = deps.db.prepare('SELECT claude_session_id FROM sessions WHERE local_id=?').get(localId) as any
     return row?.claude_session_id ?? null
   }
@@ -489,8 +505,9 @@ export function createSessionManager(deps: Deps) {
     try { deps.onSessionAvailable?.(projectId, { localId, engine }) } catch (err) { console.error('[manager] onSessionAvailable falhou', err) }
   }
 
-  const wire = (localId: string, projectId: number, engine: EngineId, session: EngineSession) => {
+  const wire = (localId: string, projectId: number, engine: EngineId, session: EngineSession, opts?: { holdEngineId?: boolean }) => {
     live.set(localId, { session, projectId, engine, origin: 'operator' })
+    if (opts?.holdEngineId) heldEngineId.set(localId, session); else heldEngineId.delete(localId)
     // Avisos do plugin "You should know" (heads-up.ts): só no Claude, e só com o
     // interruptor do terminal ligado — lido do banco na hora, para valer o atual.
     const surface = engine === 'claude' && isHeadsUpSurface(session) ? session : undefined
@@ -557,6 +574,7 @@ export function createSessionManager(deps: Deps) {
         else entryT.turnStartedAt = undefined
       }
       persist(localId, status, session.sessionId ?? null)
+      try { deps.turnObserver?.onStatus({ localId, projectId, engine }, status, { compaction: () => !!live.get(localId)?.compactTurn, engineSessionId: session.sessionId ?? null, shuttingDown }) } catch (err) { console.error('[manager] onStatus do desfazer falhou', err) }
       // A pergunta aberta vai ao banco porque o processo não sobrevive ao reinício:
       // é dela que o boot seguinte sabe que a interrupção esperava uma decisão.
       // No encerramento a coluna fica como está — o processo saindo zera a
@@ -589,6 +607,7 @@ export function createSessionManager(deps: Deps) {
         hadQuestion.delete(localId)
         interruptedTurn.delete(localId)
         try { deps.onSessionEnded?.(projectId, engine, localId) } catch (err) { console.error('[manager] onSessionEnded falhou', err) }
+        if (heldEngineId.get(localId) === session) heldEngineId.delete(localId)
       }
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => {
@@ -614,6 +633,9 @@ export function createSessionManager(deps: Deps) {
       }
     })
     session.on('event', (event) => {
+      try { deps.turnObserver?.onEvent({ localId, projectId, engine }, event) } catch (err) { console.error('[manager] onEvent do desfazer falhou', err) }
+      // O primeiro result do processo relançado: a conversa nova existe, o id vai ao banco e à web.
+      if (event.kind === 'result' && heldEngineId.get(localId) === session) { heldEngineId.delete(localId); persist(localId, session.status, session.sessionId ?? null); deps.broadcast(statusMsg()) }
       if (event.kind === 'system' && event.subtype === 'ui_invalidate') { live.get(localId)?.headsUpCtl?.invalidate(); return }
       if (event.kind === 'init' && surface && headsUpWanted()) void setHeadsUp(true).catch(() => {})
       if (event.kind === 'init') {
@@ -636,7 +658,7 @@ export function createSessionManager(deps: Deps) {
         // no fim do turno, deixando "Open in terminal" desabilitado no meio.
         if (event.sessionId) {
           persist(localId, session.status, event.sessionId)
-          deps.broadcast(statusMsg({ engineSessionId: event.sessionId }))
+          deps.broadcast(statusMsg({ engineSessionId: heldEngineId.has(localId) ? undefined : event.sessionId }))
         }
       }
       if (event.kind === 'result' && event.tokens) {
@@ -788,7 +810,7 @@ export function createSessionManager(deps: Deps) {
       projectId: row.project_id,
       engine: (row.engine ?? DEFAULT_ENGINE_ID) as EngineId,
       status: (liveEntry?.session.status ?? row.status) as SessionStatus,
-      engineSessionId: liveEntry?.session.sessionId ?? row.claude_session_id,
+      engineSessionId: (heldEngineId.has(localId) ? undefined : liveEntry?.session.sessionId) ?? row.claude_session_id,
       updatedAt: row.updated_at,
       model: row.model ?? null,
       permissionMode: (row.permission_mode ?? 'bypassPermissions') as PermissionMode,
@@ -915,8 +937,7 @@ export function createSessionManager(deps: Deps) {
         if (!['idle', 'needs_attention'].includes(entry.session.status)) throw new UserError('wait_turn_to_compact', 'aguarde o turno terminar para compactar')
         entry.session.compact()
         entry.compactTurn = true
-      } else if (opts?.echo) entry.session.send(text, { echoToClients: true })
-      else entry.session.send(text)
+      } else sendVia(entry, localId, text, 'operator', (t) => opts?.echo ? entry.session.send(t, { echoToClients: true }) : entry.session.send(t))
       entry.origin = 'operator'
       // Só depois do envio aceito: mensagem recusada não conta como o operador agindo.
       try { deps.onOperatorMessage?.(entry.projectId, entry.engine, { queued: !!opts?.queued, localId, text }) } catch {}
@@ -929,7 +950,7 @@ export function createSessionManager(deps: Deps) {
     sendAsClaudinei(localId: string, text: string): void {
       const entry = live.get(localId)
       if (!entry) throw new UserError('session_not_active', `sessão ${localId} não está ativa`)
-      entry.session.send(text, { echoToClients: true })
+      sendVia(entry, localId, text, 'claudinei', (t) => entry.session.send(t, { echoToClients: true }))
       entry.origin = 'claudinei'
     },
 
@@ -1080,6 +1101,44 @@ export function createSessionManager(deps: Deps) {
       return infoOf(localId)!
     },
 
+    /** A sessão viva do terminal (o desfazer lê dela o motor e o id da conversa). */
+    liveSession(localId: string): EngineSession | undefined {
+      return live.get(localId)?.session
+    },
+
+    /**
+     * Para a sessão viva (se houver) e sobe outra no MESMO terminal, retomando
+     * `resumeSessionId` (null = conversa nova) com `extraArgs` no fim do argv. É
+     * como o desfazer volta a conversa do Claude. `holdEngineId`: o id novo só
+     * chega ao banco e à web no primeiro result (veja heldEngineId).
+     */
+    async relaunch(localId: string, opts: { resumeSessionId: string | null; extraArgs?: string[]; holdEngineId?: boolean }): Promise<SessionInfo> {
+      const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
+      if (!row) throw new UserError('session_not_found', `sessão ${localId} não existe`)
+      if (row.status === 'in_terminal') throw new UserError('session_open_in_terminal', `sessão ${localId} está aberta no terminal`)
+      const project = deps.db.prepare('SELECT * FROM projects WHERE id=?').get(row.project_id) as any
+      if (!project) throw new UserError('session_project_gone', 'projeto da sessão não existe mais')
+      // O id vai como argv: mesma defesa do resolveResume.
+      if (opts.resumeSessionId && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(opts.resumeSessionId)) throw new Error('id de sessão inválido')
+      const engine = (row.engine ?? DEFAULT_ENGINE_ID) as EngineId
+      const cur = live.get(localId)
+      if (cur) {
+        await cur.session.stop()
+        live.delete(localId)
+      }
+      wire(localId, row.project_id, engine, makeSession(engine, {
+        projectPath: project.path,
+        resumeSessionId: opts.resumeSessionId ?? undefined,
+        continueLatest: false,
+        permissionMode: (row.permission_mode ?? 'bypassPermissions') as PermissionMode,
+        model: row.model ?? undefined,
+        effort: row.effort ?? undefined,
+        hermes: deps.hermes ? { ...deps.hermes, projectId: row.project_id, engine } : undefined,
+        extraArgs: opts.extraArgs,
+      }), { holdEngineId: opts.holdEngineId })
+      return infoOf(localId)!
+    },
+
     async setSessionOptions(localId: string, opts: { model?: string; permissionMode?: PermissionMode; effort?: string }): Promise<SessionInfo> {
       const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
       if (!row) throw new UserError('session_not_found', `sessão ${localId} não existe`)
@@ -1197,6 +1256,7 @@ export function createSessionManager(deps: Deps) {
       // Persiste o id recuperado (COALESCE não sobrescreve com null): uma sessão que
       // retomou via fallback passa a conhecer o próprio thread nas próximas aberturas.
       persist(localId, 'in_terminal', resumeId)
+      try { deps.turnObserver?.onInteractive({ localId, projectId: row.project_id, engine: engineId }, 'open') } catch (err) { console.error('[manager] onInteractive do desfazer falhou', err) }
       // Sem pendingQuestion aqui de propósito: `stop()` acima só resolve depois do
       // 'close' do processo, e o handler desse 'close' já zera `this.pending` ANTES
       // de resolver (session.ts) — e `live.delete` já tirou a sessão do mapa. Não
@@ -1249,6 +1309,7 @@ export function createSessionManager(deps: Deps) {
               // permanente — os outros pontos só mostravam conversa alheia.
               const nextId = latest ?? resumeId
               persist(localId, 'stopped', nextId)
+              try { deps.turnObserver?.onInteractive({ localId, projectId: row.project_id, engine: engineId }, 'close') } catch (err) { console.error('[manager] onInteractive do desfazer falhou', err) }
               // Sem pendingQuestion aqui: a entrada já saiu de `live` antes do
               // terminal sequer abrir (acima) — não existe sessão viva, única
               // fonte da pendência, neste ponto.
@@ -1265,6 +1326,7 @@ export function createSessionManager(deps: Deps) {
         })
       } catch (err) {
         persist(localId, 'stopped', null)
+        try { deps.turnObserver?.onInteractive({ localId, projectId: row.project_id, engine: engineId }, 'close') } catch (e) { console.error('[manager] onInteractive do desfazer falhou', e) }
         // Mesmo motivo do broadcast acima: a entrada já saiu de `live` antes do
         // launcher ser sequer chamado — sem sessão viva não há pendência.
         deps.broadcast({
@@ -1324,7 +1386,7 @@ export function createSessionManager(deps: Deps) {
      * livre for de um terminal recusado, falha na hora com o motivo.
      */
     askAgent(toProjectId: number, fromLabel: string, question: string, timeoutMs = 120_000, opts?: Pick<TaskTarget, 'accept'>): Promise<string> {
-      let target: { session: EngineSession; projectId: number; origin: LimitOrigin } | undefined
+      let target: { session: EngineSession; projectId: number; engine: EngineId; origin: LimitOrigin } | undefined
       let anyActive = false
       let held = false
       for (const [, entry] of live) {
@@ -1349,8 +1411,9 @@ export function createSessionManager(deps: Deps) {
 
       const waited = waitForResult(session, timeoutMs, turnCtx)
       try {
-        session.send(`[Question from agent of ${fromLabel}]: ${question}`)
+        sendVia(target, idOf(target), `[Question from agent of ${fromLabel}]: ${question}`, 'task', (t) => session.send(t))
       } catch (err) {
+        waited.catch(() => {}) // envio recusado (ex.: undo_writing): ninguém espera mais este turno, e a recusa tardia derrubaria o processo
         return Promise.reject(err as Error)
       }
       target.origin = 'task'
@@ -1368,8 +1431,9 @@ export function createSessionManager(deps: Deps) {
       if (!entry) return Promise.reject(new Error(`sessão ${localId} não está ativa`))
       const waited = opts?.wait === false ? null : waitForResult(entry.session, opts?.timeoutMs ?? 1_800_000, turnCtx)
       try {
-        entry.session.send(text, { echoToClients: true })
+        sendVia(entry, localId, text, 'schedule', (t) => entry.session.send(t, { echoToClients: true }))
       } catch (err) {
+        waited?.catch(() => {}) // mesmo cuidado do askAgent
         return Promise.reject(err as Error)
       }
       entry.origin = 'schedule'
@@ -1401,7 +1465,7 @@ export function createSessionManager(deps: Deps) {
         // echoToClients: a UI não tem como saber desta mensagem sozinha (o CLI não
         // ecoa e ninguém a inseriu localmente) — sem isso a task só aparecia no
         // chat do terminal-alvo depois de um refresh.
-        session.send(`[Task from ${fromLabel}]: ${description}`, { echoToClients: true })
+        sendVia(target, idOf(target), `[Task from ${fromLabel}]: ${description}`, 'task', (t) => session.send(t, { echoToClients: true }))
       } catch (err) {
         cancel()
         onComplete('failed', (err as Error).message)

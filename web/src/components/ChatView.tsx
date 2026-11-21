@@ -39,8 +39,19 @@ import { TerminalMenu } from './TerminalMenu'
 import { ProgressButton, ProgressColumn } from './ProgressColumn'
 import { hhmm, SideColumn } from './SideColumn'
 import { useSideRead, useSideStore } from '../branch/sideStore'
+import { useUndoStore } from '../undo/undoStore'
+import { attachTurns, type TurnPlacement } from '../undo/attachTurns'
+import { TurnLine } from './undo/TurnLine'
+import { ChangesPanel, type PanelFocus } from './undo/ChangesPanel'
+import { UndoDialog, type UndoRequest } from './undo/UndoDialog'
+import { EditFromHereDialog, editTargetOf } from './undo/EditFromHereDialog'
+import type { RewindTarget, TurnDto } from '../../../shared/undo'
 
 const EMPTY_ITEMS: ChatItem[] = []
+const NO_LINES = new Map<number, TurnPlacement[]>()
+/** Desfazer/Refazer da linha do turno: a tela de prévia do turno, ou do último desfazer dele. */
+const undoRequestOf = (turn: TurnDto): UndoRequest => ({ turnIds: [turn.id] })
+const redoRequestOf = (turn: TurnDto): UndoRequest | null => (turn.lastRun ? { redoRunId: turn.lastRun.id } : null)
 /** Teclas que rolam a conversa com o foco nela. */
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 
@@ -198,7 +209,7 @@ export function ChatView() {
   const hasSide = useSideStore((s) => !!session && !!s.sides[progressKey(session.projectId, session.engine)])
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
-  const [editConfirm, setEditConfirm] = useState<string | null>(null)
+  const [editing, setEditing] = useState<{ localId: string; target: RewindTarget; text: string; key?: string; index: number } | null>(null)
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [following, setFollowing] = useState(true)
   const historyCursor = useStore((s) => activeLocalId ? s.historyCursor[activeLocalId] : undefined)
@@ -219,6 +230,40 @@ export function ChatView() {
   }, [])
 
   const nodes = useMemo(() => groupActions(items, session?.status === 'working'), [items, session?.status])
+
+  // Desfazer turno: os turnos do terminal ao abrir; a linha de cada um vai
+  // depois do último item do bloco dele. O cálculo só refaz quando a lista de
+  // itens ou de turnos troca (o texto do streaming mora fora de `items`).
+  const [undoPanel, setUndoPanel] = useState<PanelFocus | null>(null)
+  const [undoDialog, setUndoDialog] = useState<UndoRequest | null>(null)
+  const openUndo = useCallback((turn: TurnDto) => setUndoDialog(undoRequestOf(turn)), [])
+  const openRedo = useCallback((turn: TurnDto) => setUndoDialog(redoRequestOf(turn)), [])
+  // Lista vazia conta como nenhuma: a carga sem turnos não redesenha a conversa.
+  const undoTurns = useUndoStore((s) => {
+    const turns = activeLocalId ? s.byLocal[activeLocalId]?.turns : undefined
+    return turns && turns.length > 0 ? turns : undefined
+  })
+  const atStart = !!historyCursor?.atStart
+  useEffect(() => {
+    setUndoPanel(null)
+    setUndoDialog(null)
+    setEditing(null)
+    if (!activeLocalId) return
+    useUndoStore.getState().load(activeLocalId).catch((e) => console.warn('[undo] turnos não carregaram', e))
+  }, [activeLocalId])
+  const turnLines = useMemo(() => {
+    if (!undoTurns || undoTurns.length === 0) return NO_LINES
+    const byAfter = new Map<number, TurnPlacement[]>()
+    for (const p of attachTurns(items, undoTurns)) {
+      // Antes do primeiro item só com a conversa inteira carregada: senão o
+      // turno é de uma página antiga e a linha entra quando ela chegar.
+      if (p.afterIndex < 0 && !atStart) continue
+      const list = byAfter.get(p.afterIndex)
+      if (list) list.push(p)
+      else byAfter.set(p.afterIndex, [p])
+    }
+    return byAfter
+  }, [items, undoTurns, atStart])
   const firstItemIndex = useFirstItemIndex(activeLocalId ?? undefined, nodes)
 
   // D4: (re)carrega o histórico sempre que a sessão ativa tiver um engineSessionId
@@ -422,28 +467,45 @@ export function ChatView() {
     }
     return indices
   }, [items])
-  // Editar durante o turno é DESTRUTIVO (interrompe o que está rodando e
-  // recomeça da mensagem editada) — o operador pode achar que só vai corrigir
-  // uma mensagem enfileirada. Por isso pede confirmação antes.
-  // Estável entre renders (só muda com a sessão): é o que permite ao MessageBlock
-  // ser memoizado — uma closure nova por render furaria o memo em todos os
-  // blocos editáveis. O status é lido na hora, não capturado.
+  // Editar abre "editar a partir daqui" (o aviso de interrupção, com o agente
+  // trabalhando, fica dentro do diálogo). Estável entre renders (só muda com a
+  // sessão): é o que permite ao MessageBlock ser memoizado — uma closure nova
+  // por render furaria o memo em todos os blocos editáveis. O chat e os turnos
+  // são lidos na hora do clique, não capturados.
   const localId = session?.localId
-  const handleEdit = useCallback((text: string) => {
+  const handleEdit = useCallback((text: string, key?: string) => {
     if (!localId) return
-    const st = useStore.getState()
-    if (st.sessions[localId]?.status === 'working') { setEditConfirm(text); return }
-    st.requestEdit(localId, text)
+    const chat = useStore.getState().chat[localId] ?? EMPTY_ITEMS
+    // Pela chave; sem ela, a última mensagem do operador com o mesmo texto.
+    let index = key ? chat.findIndex((it) => it.key === key) : -1
+    for (let i = chat.length - 1; index < 0 && i >= 0; i--) {
+      const it = chat[i]
+      if (it.kind === 'user_text' && it.text === text) index = i
+    }
+    if (index < 0) return
+    const target = editTargetOf(chat, useUndoStore.getState().byLocal[localId]?.turns, index)
+    setEditing({ localId, target, text, key, index })
   }, [localId])
 
-  const renderNode = useCallback((_index: number, node: ChatNode) => (
-    <div className="chat-entry" data-key={nodeKey(node)}>
-      {node.kind === 'group'
-        ? <ActionGroup items={node.items} currentLocalId={localId!} />
-        : <MessageBlock item={node.item} currentLocalId={localId!}
-                        editable={editableIdx.has(node.index)} onEdit={handleEdit} />}
-    </div>
-  ), [localId, editableIdx, handleEdit])
+  // Sem git, a linha lê as ferramentas do bloco do turno; com git, não lê item nenhum.
+  const turnLinesAt = useCallback((at: number) => turnLines.get(at)?.map((p) => (
+    <TurnLine key={p.turn.id} turn={p.turn} onOpen={setUndoPanel} onUndo={openUndo} onRedo={openRedo}
+              items={p.turn.state === 'no_git' && p.itemIndex !== null ? items.slice(p.itemIndex, p.afterIndex + 1) : EMPTY_ITEMS} />
+  )), [turnLines, items, openUndo, openRedo])
+  const renderNode = useCallback((_index: number, node: ChatNode) => {
+    const first = node.kind === 'group' ? node.start : node.index
+    const last = node.kind === 'group' ? node.items[node.items.length - 1].index : node.index
+    return (
+      <div className="chat-entry" data-key={nodeKey(node)}>
+        {first === 0 && turnLinesAt(-1)}
+        {node.kind === 'group'
+          ? <ActionGroup items={node.items} currentLocalId={localId!} />
+          : <MessageBlock item={node.item} currentLocalId={localId!}
+                          editable={editableIdx.has(node.index)} onEdit={handleEdit} />}
+        {turnLinesAt(last)}
+      </div>
+    )
+  }, [localId, editableIdx, handleEdit, turnLinesAt])
 
   const edge: ListContext['edge'] = nodes.length === 0 ? null
     : historyCursor?.atStart ? 'start'
@@ -595,18 +657,16 @@ export function ChatView() {
         // local do ChatInput e vazariam (e seriam enviados) para a sessão errada.
         <ChatInput key={session.localId} localId={session.localId} disabled={session.status === 'dead' || session.status === 'stopped'} />
       )}
-      {editConfirm !== null && session && (
-        <ConfirmDialog
-          title={t('chat.editWorkingTitle')}
-          message={t('chat.editWorkingMsg')}
-          confirmLabel={t('chat.editWorkingConfirm')}
-          onConfirm={() => {
-            setEditConfirm(null)
-            ws?.send({ type: 'interrupt', localId: session.localId })
-            useStore.getState().requestEdit(session.localId, editConfirm)
-          }}
-          onClose={() => setEditConfirm(null)}
-        />
+      {editing?.localId === session.localId && (
+        <EditFromHereDialog localId={editing.localId} target={editing.target} initialText={editing.text}
+                            itemKey={editing.key} itemIndex={editing.index} onClose={() => setEditing(null)} />
+      )}
+      {undoPanel && <ChangesPanel localId={session.localId} focus={undoPanel} onClose={() => setUndoPanel(null)} onUndo={setUndoDialog} />}
+      {undoDialog && (
+        <UndoDialog request={undoDialog} onClose={() => setUndoDialog(null)} onDone={() => {
+          setUndoDialog(null)
+          useUndoStore.getState().load(session.localId).catch((e) => console.warn('[undo] turnos não carregaram', e))
+        }} />
       )}
       {handoffDialog && session && (
         <ConfirmDialog

@@ -6,12 +6,17 @@ let timer
 let steered = []
 const writerConflict = process.argv.find((a) => a.startsWith('--writer-conflict='))?.split('=')[1]
 let refusals = 0
+// Turnos da conversa em memória (thread/turns/list, thread/revert) e os pedidos de volta (test/calls).
+let turns = [], forks = 0
+const calls = []
+const pageSize = Number(process.argv.find((a) => a.startsWith('--page-size='))?.split('=')[1]) || 0
+const userItem = (text) => ({ type: 'userMessage', id: `u-${turn}-${Math.random().toString(36).slice(2, 8)}`, clientId: null, content: [{ type: 'text', text, text_elements: [] }] })
 const out = (msg) => process.stdout.write(JSON.stringify(msg) + '\n')
 const reply = (id, result) => out({ id, result })
 const notify = (method, params) => out({ method, params: { threadId, ...params } })
 const counts = (n) => ({ totalTokens: n, inputTokens: n - 10, cachedInputTokens: 0, outputTokens: 10, reasoningOutputTokens: 3 })
 const usage = () => notify('thread/tokenUsage/updated', { tokenUsage: { total: counts(total), last: counts(context), modelContextWindow: 400000 } })
-const started = () => { current = `turn-${++turn}`; notify('turn/started', { turn: { id: current, status: 'inProgress' } }); return current }
+const started = () => { current = `turn-${++turn}`; turns.push({ id: current, items: [] }); notify('turn/started', { turn: { id: current, status: 'inProgress' } }); return current }
 const completed = (status = 'completed', error) => { notify('turn/completed', { turn: { id: current, status, error } }); current = undefined }
 const answerSteer = (text) => {
   notify('item/completed', { item: { id: 'steered', type: 'agentMessage', text } })
@@ -23,6 +28,8 @@ let developerInstructions = null
 let forkParams = null
 // Params do último thread/start (o turno __start_params__ os devolve).
 let startParams = null
+// A sessão já abriu uma conversa (thread/start ou thread/resume)?
+let threadOpen = false
 createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params: p } = JSON.parse(line)
   if (method === 'initialize') reply(id, { userAgent: 'fake' })
@@ -38,10 +45,19 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     }
     if (p.threadId) threadId = p.threadId
     if (method === 'thread/start') startParams = p
+    threadOpen = true
     developerInstructions = p.developerInstructions ?? null
     reply(id, { thread: { id: threadId }, model: p.model ?? 'default-model' })
     if (method === 'thread/resume') { total = 900000; context = 120000; usage() }
+  } else if (method === 'thread/fork' && threadOpen) {
+    // Fork com a conversa já aberta (desfazer: volta a conversa quando o revert é recusado).
+    // Não troca a conversa desta sessão: o manager relança no id novo.
+    calls.push({ method, params: p })
+    // CLI 0.159.2: conversa paginada só aceita fork com excludeTurns.
+    if (!p.excludeTurns) { out({ id, error: { code: -32600, message: 'ephemeral paginated thread/fork requires `excludeTurns: true`' } }); return }
+    reply(id, { thread: { id: `FORK-${++forks}`, turns: [] }, model: 'default-model' })
   } else if (method === 'thread/fork') {
+    // Partida como cópia (ramificar: ramo ou lateral), no lugar do thread/start.
     // Como a CLI 0.159: fork efêmero de conversa paginada exige excludeTurns.
     if (p.ephemeral && !p.excludeTurns) {
       out({ id, error: { code: -32600, message: 'ephemeral paginated thread/fork requires `excludeTurns: true`' } }); return
@@ -51,12 +67,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     }
     forkParams = p
     threadId = 'FORK-' + p.threadId
+    threadOpen = true
     developerInstructions = p.developerInstructions ?? null
     reply(id, { thread: { id: threadId, path: p.ephemeral ? null : '/tmp/fake-rollout' }, model: p.model ?? 'default-model' })
   } else if (method === 'turn/start') {
     const text = p.input[0].text
     if (text === '__crash__') { process.exit(1); return }
     const tid = started()
+    turns.at(-1).items.push(userItem(text))
     reply(id, { turn: { id: tid } })
     if (text === '__hang__' || text === '__wait_for_steer__') return
     if (text === '__fail__') { completed('failed', { message: 'test turn failed' }); return }
@@ -87,6 +105,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     }
     const tid = current
     steered.push(p.input[0].text)
+    turns.find((t) => t.id === tid)?.items.push(userItem(p.input[0].text))
     const acknowledge = () => reply(id, { turnId: tid })
     if (process.argv.includes('--delayed-steer-ack')) {
       answerSteer(JSON.stringify(steered)); setTimeout(acknowledge, 60); return
@@ -108,5 +127,22 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     }, 80)
   } else if (method === 'turn/interrupt') {
     clearTimeout(timer); reply(id, {}); completed('interrupted')
-  } else if (method === 'test/pid') reply(id, { pid: process.pid })
+  } else if (method === 'thread/turns/list') {
+    calls.push({ method, params: p })
+    const desc = [...turns].reverse()
+    const start = p.cursor ? Number(p.cursor) : 0
+    const size = pageSize || p.limit || 20
+    const data = desc.slice(start, start + size).map((t) => ({ id: t.id, items: p.itemsView === 'full' ? t.items : [], itemsView: p.itemsView ?? 'summary', status: 'completed', error: null }))
+    reply(id, { data, nextCursor: start + size < desc.length ? String(start + size) : null, backwardsCursor: null })
+  } else if (method === 'thread/revert') {
+    calls.push({ method, params: p })
+    // Conversa do formato antigo: a CLI real recusa o revert.
+    if (process.argv.includes('--refuse-revert')) { out({ id, error: { code: -32600, message: 'thread/revert requires a paginated thread' } }); return }
+    const at = turns.findIndex((t) => t.id === p.beforeTurnId)
+    if (at < 0) { out({ id, error: { code: -32600, message: `turn ${p.beforeTurnId} not found` } }); return }
+    turns = turns.slice(0, at)
+    reply(id, { thread: { id: threadId, turns: [] }, turnsBackwardsCursor: null, itemsBackwardsCursor: null })
+    notify('thread/reverted', {})
+  } else if (method === 'test/calls') reply(id, calls)
+  else if (method === 'test/pid') reply(id, { pid: process.pid })
 })

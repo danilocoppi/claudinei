@@ -244,7 +244,11 @@ describe('a conversa numa lista virtual', () => {
   it('a sequência para quando o operador troca de terminal', async () => {
     preparar([acao(TOPO), acao(TOPO + 10), acao(TOPO + 20), ...conversa(100, TOPO + 30)])
     let responder = () => {}
-    vi.mocked(globalThis.fetch).mockImplementation((url) => new Promise((r) => { responder = () => r(sóAções(url)) }))
+    // Só o histórico fica pendente: os turnos do desfazer, que o terminal novo
+    // também pede ao abrir, não podem tomar o lugar do `responder`.
+    vi.mocked(globalThis.fetch).mockImplementation((url) => !String(url).includes('/history')
+      ? Promise.resolve(json([]))
+      : new Promise((r) => { responder = () => r(sóAções(url)) }))
     await montar()
     await rolar(0)
     expect(historyCalls()).toHaveLength(1)

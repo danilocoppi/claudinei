@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { applyEvent as applyEventComChave } from '../chat/applyEvent'
 import type { ChatItem, ClaudeEvent } from '../types'
+import { CONVERSATION_REWOUND_NOTE, filesRevertedNote, withNote } from '../../../shared/undo'
 
 /**
  * Aqui interessa o conteúdo dos itens; as chaves (`l<n>` vêm de um contador do
@@ -513,5 +514,38 @@ describe('pacote de contexto da troca de motor ([Claudinei: context handoff])', 
     const [, evt] = formatos[0]
     const text = `veja: ${PACOTE}`
     expect(applyEvent([], evt(text) as never)).toEqual([{ kind: 'user_text', text }])
+  })
+})
+
+describe('notas do desfazer na frente da mensagem ([Claudinei: files reverted] e [Claudinei: conversation rewound])', () => {
+  const evt = (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } }) as never
+  const FILES = filesRevertedNote(['src/a.ts', 'dir com espaço/b.ts'])
+
+  it('nota files reverted vira claudinei_message files_reverted e o user_text fica sem ela', () => {
+    expect(applyEvent([], evt(withNote(FILES, 'agora faça Y')))).toEqual([
+      { kind: 'claudinei_message', reason: 'files_reverted', text: FILES },
+      { kind: 'user_text', text: 'agora faça Y' },
+    ])
+  })
+
+  it('nota conversation rewound vira claudinei_message conversation_rewound e o user_text fica sem ela', () => {
+    expect(applyEvent([], evt(withNote(CONVERSATION_REWOUND_NOTE, 'texto editado')))).toEqual([
+      { kind: 'claudinei_message', reason: 'conversation_rewound', text: CONVERSATION_REWOUND_NOTE },
+      { kind: 'user_text', text: 'texto editado' },
+    ])
+  })
+
+  it('as duas notas juntas, na ordem, e a mensagem de tarefa por baixo segue task_message', () => {
+    const text = withNote(CONVERSATION_REWOUND_NOTE, withNote(FILES, '[Task from Outro]: faça Z'))
+    expect(applyEvent([], evt(`${text}<system-reminder>ruído</system-reminder>`))).toEqual([
+      { kind: 'claudinei_message', reason: 'conversation_rewound', text: CONVERSATION_REWOUND_NOTE },
+      { kind: 'claudinei_message', reason: 'files_reverted', text: FILES },
+      { kind: 'task_message', from: 'Outro', text: 'faça Z' },
+    ])
+  })
+
+  it('o prefixo no meio da frase segue user_text', () => {
+    const text = `olha: ${CONVERSATION_REWOUND_NOTE}\n\nnada`
+    expect(applyEvent([], evt(text))).toEqual([{ kind: 'user_text', text }])
   })
 })

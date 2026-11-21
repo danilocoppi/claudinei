@@ -45,6 +45,7 @@ export interface EngineSessionOptions {
   sessionId?: string
   /** Só o Kimi: data root próprio, no lugar do derivado da pasta do projeto. */
   dataRoot?: string
+  extraArgs?: string[] // Acrescentados ao argv montado (só o Claude; o desfazer volta a conversa com eles).
 }
 
 /** Uma sessão viva. EventEmitter: o manager assina 'status' e 'event' e chama start(). */

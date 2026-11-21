@@ -47,7 +47,7 @@ describe('CodexSession (App Server)', () => {
     expect(() => s.compact()).toThrow()
     await waitFor(() => s.status === 'needs_attention')
     expect(s.compactingSince).toBeUndefined()
-    expect(events.filter((e) => e.kind === 'system')).toEqual([expect.objectContaining({ subtype: 'compact_boundary', raw: { compact_metadata: { pre_tokens: 120000 } } })])
+    expect(events.filter((e) => e.kind === 'system' && e.subtype !== 'turn_started')).toEqual([expect.objectContaining({ subtype: 'compact_boundary', raw: { compact_metadata: { pre_tokens: 120000 } } })])
     expect(events.filter((e) => e.kind === 'result').at(-1)).toMatchObject({ subtype: 'compact', resultText: '' })
     expect(events.filter((e) => e.kind === 'context').at(-1)).toMatchObject({ contextTokens: 30000 })
     s.send('depois'); await waitFor(() => s.status === 'needs_attention')

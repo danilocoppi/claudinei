@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useStore } from './store'
 import { fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
 import { syncPrefs } from './prefsSync'
+import { applyUndoWsMessage } from './undo/undoStore'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
 import { applySideMessage } from './branch/sideStore'
@@ -132,7 +133,7 @@ export default function App() {
     if (authStatus !== 'ready') return
     const client = connectWs(
       // A conversa lateral tem store próprio (branch/sideStore.ts): o que é dela não segue.
-      (msg) => { if (applySideMessage(msg)) return; useStore.getState().applyWsMessage(msg) },
+      (msg) => { if (applySideMessage(msg)) return; useStore.getState().applyWsMessage(msg); applyUndoWsMessage(msg) },
       // RE-conexão: eventos perdidos na queda não são reenviados pelo servidor —
       // invalida os históricos carregados (o ChatView rebusca) e limpa streaming órfão.
       () => useStore.getState().resyncOnReconnect(),

@@ -43,7 +43,7 @@ import type { IconifyDeps } from './icons/iconify.js'
 import { createPrefsService } from './prefs.js'
 import { createSettingsService } from './settings.js'
 import { createSchedulesStore } from './schedules/store.js'
-import { createScheduler, type Scheduler } from './schedules/scheduler.js'
+import { createScheduler, UNDO_HELD_TEXT, type Scheduler } from './schedules/scheduler.js'
 import { registerStatic } from './static.js'
 import { registerTerminalStateRoutes } from './routes/terminals.js'
 import { createTerminalStateStore } from './restart/terminal-state.js'
@@ -57,6 +57,8 @@ import { createGoalService, type GoalService } from './goal/goal.js'
 import { getEngine } from './engine/index.js'
 import { createBranchService, type BranchService, type SideTestDeps } from './branch/service.js'
 import { registerBranchRoutes } from './routes/branch.js'
+import { createUndo, type Undo } from './undo/index.js'
+import { registerUndoRoutes } from './routes/undo.js'
 
 export interface AppDeps {
   config: Config
@@ -168,6 +170,12 @@ export interface AppDeps {
   onBranchReady?: (branch: BranchService) => void
   /** Sessões e corte da lateral. Injetável para o teste não abrir as CLIs nem ler o storage real. */
   branchTest?: SideTestDeps
+  /**
+   * Recebe o conjunto do desfazer turno: o `turnObserver` do manager lê a
+   * referência que index.ts preenche aqui, e a subida dele (`boot`) roda depois
+   * do listen, antes de religar as sessões.
+   */
+  onUndoReady?: (undo: Undo) => void
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -212,8 +220,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // terminal. O encerramento do serviço segura também: entregar agora mandaria
   // a mensagem a um processo que vai ser derrubado.
   const terminalState = createTerminalStateStore(deps.db)
+  // O desfazer turno: a escrita de um desfazer segura o terminal (o árbitro não
+  // entrega nada no repositório) e, no fim, cutuca o árbitro dos terminais dele.
+  let nextSendRef: NextSend | undefined
+  const undo = createUndo({
+    db: deps.db, manager: deps.manager, projects: createProjectsService(deps.db),
+    broadcast: (m) => deps.wsHub?.broadcast(m),
+    poke: (projectId, engine) => nextSendRef?.poke(projectId, engine),
+  })
+  registerUndoRoutes(app, { undo, manager: deps.manager, db: deps.db })
+  deps.onUndoReady?.(undo)
   const holds = (projectId: number, engine: string): boolean =>
-    deps.manager.isShuttingDown() || holdsForNotice(terminalState.get(projectId, engine))
+    deps.manager.isShuttingDown() || holdsForNotice(terminalState.get(projectId, engine)) || undo.holds(projectId, engine)
   registerHermesRoutes(app, {
     db: deps.db, manager: deps.manager, broadcast: deps.wsHub?.broadcast, goal: () => goal,
     canTake: (projectId, engine) => !holds(projectId, engine),
@@ -256,6 +274,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     liveLocalId,
   })
+  nextSendRef = nextSend
   registerOperatorQueueRoutes(app, { db: deps.db, queue, store: queueStore })
   deps.onQueueReady?.(queue)
   deps.onNextSendReady?.(nextSend)
@@ -282,7 +301,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // Só o reinício esperando e a janela do limite fechada (o encerramento já
     // para o laço e fecha as execuções na subida). O aviso do limite que ficou
     // depois da reabertura não segura: o turno bom do agendamento o tira.
-    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine)),
+    // A escrita de um desfazer também segura (R19): pulada sem contar falha, em
+    // vez de bater no `undo_writing` do rastreador e contar como erro.
+    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine))
+      || (undo.holds(projectId, engine) ? UNDO_HELD_TEXT : false),
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)

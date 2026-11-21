@@ -365,6 +365,8 @@ interface State {
   addLocalUserText(localId: string, text: string): void
   addLocalItem(localId: string, item: ChatItem): void
   requestEdit(localId: string, text: string): void
+  /** Editar a partir daqui: tira do chat local o item `index` e os seguintes (o histórico recarrega depois). */
+  truncateFrom(localId: string, index: number): void
   applyWsMessage(msg: any): void
   openSession(localId: string): void
   openTerminal(localId: string): void
@@ -673,6 +675,13 @@ export const useStore = create<State>((set, get) => ({
 
   requestEdit: (localId, text) =>
     set((s) => ({ editRequest: { localId, text, seq: (s.editRequest?.seq ?? 0) + 1 } })),
+
+  truncateFrom: (localId, index) =>
+    set((s) => {
+      const items = s.chat[localId]
+      if (!items || !Number.isInteger(index) || index < 0 || index >= items.length) return s
+      return { chat: { ...s.chat, [localId]: items.slice(0, index) } }
+    }),
 
   applyWsMessage: (msg) => {
     // Aviso do plugin: o que o servidor diz que está desenhado agora. Um cartão já

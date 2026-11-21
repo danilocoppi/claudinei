@@ -424,7 +424,9 @@ export function createRestartService(deps: {
 export type RestartService = ReturnType<typeof createRestartService>
 
 /**
- * O que roda depois do `listen`: primeiro a subida dos terminais, depois a do
+ * O que roda depois do `listen`: antes de tudo, a do desfazer turno (fecha como
+ * incertos os turnos que ficaram abertos, antes de qualquer sessão voltar e
+ * mandar eventos ao rastreador); então a subida dos terminais, depois a do
  * limite de uso, então a dos avisos de resultado de tarefa pendentes (que
  * esperam as retomadas: o terminal interrompido segura até a dele), por fim o
  * agendador, para que um agendamento não dispute a sessão com uma retomada. A
@@ -435,6 +437,7 @@ export type RestartService = ReturnType<typeof createRestartService>
  * falta fica desligado.
  */
 export async function startAfterListen(deps: {
+  undo?: { boot(): Promise<void> }
   restart: Pick<RestartService, 'boot'> | undefined
   limit?: Pick<UsageLimitService, 'boot'>
   taskWake?: { boot(): Promise<void> }
@@ -443,6 +446,11 @@ export async function startAfterListen(deps: {
   log?: (msg: string) => void
 }): Promise<void> {
   const log = deps.log ?? ((msg: string) => console.error(msg))
+  try {
+    await deps.undo?.boot()
+  } catch (err) {
+    log(`[desfazer] a subida do desfazer falhou: ${(err as Error)?.message ?? err}`)
+  }
   try {
     await deps.restart?.boot()
   } catch (err) {

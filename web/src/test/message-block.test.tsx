@@ -246,3 +246,19 @@ describe('resumo de compactação', () => {
     expect(container.innerHTML).toBe('')
   })
 })
+
+describe('notas do desfazer no chat', () => {
+  it('files_reverted e conversation_rewound viram uma linha discreta, com a nota em inglês no título', () => {
+    const { container } = render(<>
+      <MessageBlock item={{ kind: 'claudinei_message', reason: 'files_reverted', text: '[Claudinei: files reverted]: x' }} />
+      <MessageBlock item={{ kind: 'claudinei_message', reason: 'conversation_rewound', text: '[Claudinei: conversation rewound]: y' }} />
+    </>)
+    const lines = container.querySelectorAll('.msg-undo-note')
+    expect(lines).toHaveLength(2)
+    expect(lines[0].getAttribute('title')).toBe('[Claudinei: files reverted]: x')
+    expect(lines[0].textContent).toContain('arquivos de um turno anterior foram desfeitos')
+    expect(lines[1].textContent).toContain('a conversa voltou')
+    // Sem bolha do Claudinei.
+    expect(container.querySelector('.msg-bubble--claudinei')).toBeNull()
+  })
+})

@@ -36,9 +36,10 @@ export const MessageBlock = memo(function MessageBlock({ item, currentLocalId, e
   item: ChatItem
   currentLocalId?: string
   editable?: boolean
-  onEdit?: (text: string) => void
+  /** `key`: o item editado, para o "editar a partir daqui" achar a mensagem no chat. */
+  onEdit?: (text: string, key?: string) => void
 }) {
-  const edit = editable && onEdit && item.kind === 'user_text' ? () => onEdit(item.text) : undefined
+  const edit = editable && onEdit && item.kind === 'user_text' ? () => onEdit(item.text, item.key) : undefined
   // Ocorrência atual da busca (Ctrl+F): seletor estreito, só este booleano —
   // ir a outra ocorrência re-renderiza o bloco que perde e o que ganha a marca.
   const hit = useStore((s) => !!item.key && s.find?.currentKey === item.key)
@@ -537,6 +538,14 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
     case 'scheduled_message':
       return <ScheduledMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'claudinei_message':
+      // Notas do desfazer: uma linha discreta antes da mensagem; o texto em inglês, como o agente leu, fica no título.
+      if (item.reason === 'files_reverted' || item.reason === 'conversation_rewound') {
+        return (
+          <div className="msg-undo-note" title={item.text} style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: 12, margin: '8px 0' }}>
+            ↶ {item.reason === 'files_reverted' ? t('undo.noteFilesReverted') : t('undo.noteConversationRewound')}
+          </div>
+        )
+      }
       return <ClaudineiMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'tool_call':
       return <ToolCallCard item={item} currentLocalId={currentLocalId} />

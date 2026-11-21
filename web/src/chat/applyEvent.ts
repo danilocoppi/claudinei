@@ -1,4 +1,5 @@
 import { isCompactSummary } from './history'
+import { stripNotes } from '../../../shared/undo'
 import type { ChatItem, ClaudeEvent, ClaudineiTaskResult, ContentBlock } from '../types'
 import { HANDOFF_PREFIX, parseHandoffHeader } from '../branch/handoff'
 
@@ -114,11 +115,22 @@ function classifyUserText(text: string): ChatItem[] {
     return body ? [{ kind: 'command_output', text: body, ...(out[1] === 'stderr' ? { isError: true } : {}) }] : []
   }
 
+  // Notas do desfazer turno grudadas na frente da mensagem (`withNote` no
+  // servidor): cada uma vira uma linha própria antes da mensagem, que segue a
+  // classificação normal sem elas.
+  const cleaned = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+  const noted = stripNotes(cleaned)
+  if (noted.notes.length > 0) {
+    return [
+      ...noted.notes.map((n): ChatItem => ({ kind: 'claudinei_message', reason: n.kind, text: n.body })),
+      ...classifyUserText(noted.rest),
+    ]
+  }
+
   // Task de outro terminal: o backend a escreve no stdin do CLI como se fosse uma
   // mensagem digitada (manager.ts, dispatch_task), então no transcript ela é
   // indistinguível de texto do operador — o prefixo é o único sinal que sobrevive.
-  // O reminder é retirado antes para não grudar no fim do corpo.
-  const cleaned = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+  // O reminder é retirado antes (`cleaned`, acima) para não grudar no fim do corpo.
   const task = cleaned.match(/^\[Task from ([^\]]+)\]:\s*([\s\S]*)$/)
   if (task) return [{ kind: 'task_message', from: task[1].trim(), text: task[2].trim() }]
 

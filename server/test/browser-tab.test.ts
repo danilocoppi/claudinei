@@ -234,6 +234,15 @@ describe('TerminalTab: diálogos, downloads e seletor de arquivo', () => {
     expect(prompt.dismiss).not.toHaveBeenCalled()
   })
 
+  it('confirm com mensagem longa: state().dialog.message sai cortada em 500 caracteres, igual ao aviso', async () => {
+    const { page, tab } = await makeTab()
+    const long = 'x'.repeat(800)
+    page.emit('dialog', fakeDialog('confirm', long))
+    const cut = `${'x'.repeat(500)}…`
+    expect(tab.state().dialog?.message).toBe(cut)
+    expect(tab.takeAgentNotices()).toEqual([`dialog pending: confirm "${cut}"`])
+  })
+
   it('navegar com um confirm pendente o cancela antes', async () => {
     const { page, tab } = await makeTab()
     const confirm = fakeDialog('confirm', 'Sair?')
@@ -345,6 +354,35 @@ describe('TerminalTab: viewport, avisos e estado', () => {
     off()
     tab.pushNotice('n8', false)
     expect(changes).toHaveBeenCalledTimes(7)
+  })
+
+  it("cada aba tem o seu bastão: começa livre; a devolução vai aos avisos do agente e da coluna", async () => {
+    const { tab } = await makeTab()
+    const { tab: other } = await makeTab()
+    expect(tab.baton.state()).toEqual({ kind: 'free' })
+    tab.baton.operatorAct({ userId: 1, name: 'Ana' })
+    expect(other.baton.state()).toEqual({ kind: 'free' })
+    const changes = vi.fn()
+    tab.onState(changes)
+    tab.baton.release()
+    expect(tab.takeAgentNotices()).toEqual(['control returned to the agent'])
+    expect(tab.state().notices).toEqual(['control returned to the agent'])
+    expect(changes).toHaveBeenCalled()
+  })
+
+  it('fechar a aba encerra o relógio do bastão: nada é anotado depois', async () => {
+    vi.useFakeTimers()
+    try {
+      const { tab } = await makeTab()
+      tab.baton.operatorAct({ userId: 1, name: 'Ana' })
+      tab.baton.presence(1, false)
+      await tab.close('closed_by_user')
+      vi.advanceTimersByTime(60_000)
+      expect(tab.takeAgentNotices()).toEqual([])
+      expect(tab.baton.state().kind).toBe('operator')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('state() inicial: about:blank, 1280×800, sem diálogo, sandbox conforme o host', async () => {

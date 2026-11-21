@@ -202,7 +202,7 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
       reason = found.reason
       if (found.reason === 'env_missing') {
         // Instalar não resolve: a variável aponta um arquivo que não existe.
-        throw new BrowserUnavailableError('browser_not_installed', `${TEXTS.NOT_INSTALLED} (CLAUDINEI_CHROMIUM=${found.expected} does not exist)`, `fix or unset CLAUDINEI_CHROMIUM (${found.expected})`)
+        throw new BrowserUnavailableError('browser_not_installed', `Browser not found: CLAUDINEI_CHROMIUM=${found.expected} does not exist; fix or unset it`, `fix or unset CLAUDINEI_CHROMIUM (${found.expected})`)
       }
       throw new BrowserUnavailableError('browser_not_installed', TEXTS.NOT_INSTALLED, INSTALL_COMMAND)
     }

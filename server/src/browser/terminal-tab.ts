@@ -6,6 +6,7 @@
 // Só `import type` do playwright-core: o pacote é carregado sob demanda no launch.
 import type { BrowserContext, Dialog, Download, FileChooser, Frame, Page } from 'playwright-core'
 import { allowedUrl, isChromiumErrorPage, normalizeAddress } from './url-policy.js'
+import { createBaton, type Baton } from './baton.js'
 import { TEXTS, type TabCloseReason, type TerminalKey } from './types.js'
 
 export type Actor = { kind: 'agent' } | { kind: 'operator'; userId: number | null; name: string }
@@ -23,6 +24,8 @@ export interface TabSnapshotState {
 export interface TerminalTab {
   readonly key: TerminalKey
   readonly context: BrowserContext
+  /** Quem pode mexer na página agora (agente ou operador). */
+  readonly baton: Baton
   page(): Page
   /** Hora da última ferramenta do agente nesta aba (a varredura de ociosidade lê). */
   lastAgentAt: number
@@ -123,6 +126,8 @@ export function createTerminalTab(o: {
    */
   let ownPage: Promise<Page | null> | null = null
   let recovering: Promise<Page> | null = null
+  // A devolução do bastão vai à coluna e à próxima ferramenta do agente.
+  const baton = createBaton({ onNotice: (text) => pushNotice(text, true) })
 
   function emit(): void {
     for (const fn of [...stateListeners]) {
@@ -209,7 +214,7 @@ export function createTerminalTab(o: {
       }
       // Um diálogo novo com outro pendente (não acontece na mesma página): o velho sai como "Cancelar".
       if (pending) void pending.dialog.dismiss().catch(() => {})
-      const info: PendingDialog = { id: ++dialogSeq, type, message: d.message() }
+      const info: PendingDialog = { id: ++dialogSeq, type, message }
       if (type === 'prompt') info.defaultValue = d.defaultValue()
       pending = { dialog: d, info }
       pushNotice(`dialog pending: ${type} "${message}"`, true)
@@ -315,6 +320,7 @@ export function createTerminalTab(o: {
   return {
     key: o.key,
     context,
+    baton,
     page: () => current,
     lastAgentAt: o.now(),
     isVisible: () => false,
@@ -333,6 +339,7 @@ export function createTerminalTab(o: {
         try { fn(reason) } catch { /* um ouvinte não impede os outros */ }
       }
       closeListeners.clear()
+      baton.dispose()
       context.off('page', onContextPage)
       detach()
       stateListeners.clear()

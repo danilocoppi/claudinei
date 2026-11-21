@@ -95,7 +95,9 @@ describe('BrowserHost: o processo', () => {
     expect(err).toBeInstanceOf(BrowserUnavailableError)
     expect((err as BrowserUnavailableError).code).toBe('browser_not_installed')
     expect((err as BrowserUnavailableError).hint).toBe('fix or unset CLAUDINEI_CHROMIUM (/nao/existe/chrome-claudinei)')
-    expect((err as Error).message).toContain('CLAUDINEI_CHROMIUM=/nao/existe/chrome-claudinei does not exist')
+    expect((err as Error).message).toBe('Browser not found: CLAUDINEI_CHROMIUM=/nao/existe/chrome-claudinei does not exist; fix or unset it')
+    // A mensagem não manda instalar: instalar não resolve a variável errada.
+    expect((err as Error).message).not.toContain('install')
     expect(fl.launches).toHaveLength(0)
   })
 

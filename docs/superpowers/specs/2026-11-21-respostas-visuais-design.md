@@ -59,14 +59,18 @@ como as demais do Hermes, sem `alwaysLoad`. O nome basta para o agente achá-las
 - **Montagem.** O documento sai como seria publicado: recursos embutidos, script de altura e a
   política de rede atual, num `<meta http-equiv="Content-Security-Policy">` no início do `<head>`. O
   meta não aceita `sandbox`; esse papel fica com o contexto descartável.
-- **Execução.** `BrowserHost.withIsolatedPage({ viewport: { width, height: 800 }, offline: false
-  })`, do 16 (`server/src/browser/host.ts`), com `setContent`. Espera o `load` mais 1,5 s, com teto
-  de 15 s. Se estourar, captura assim mesmo e avisa.
+- **Execução.** `BrowserHost.withIsolatedPage({ viewport: { width, height: 800 }, offline: false,
+  timeoutMs: 20_000, queueTimeoutMs: 30_000 })`, do 16 (`server/src/browser/host.ts`, contrato
+  fechado na spec do 16), com `setContent(html, { loadTimeoutMs: 10_000 })`. Com `{ loaded: true }`,
+  espera mais 1,5 s e captura; com `{ loaded: false }` (o `load` estourou), captura assim mesmo e
+  avisa no resultado.
 - **Resposta.** PNG da página inteira (cortado em 2000 px), altura do conteúdo, até 50 linhas de
   console (erros primeiro, inclusive bloqueios de CSP) e o caminho de uma cópia do PNG em
   `os.tmpdir()/claudinei-check/`, apagada em 30 min, para o motor que descartar imagem vinda de MCP
   (o plano confere quais a mostram).
-- **Limites.** Até 2 conferências simultâneas; a terceira espera 30 s e volta "busy, try again".
+- **Limites.** Até 2 páginas isoladas simultâneas, controladas pelo host do 16: a terceira espera
+  até 30 s na fila do host, que então lança `BrowserBusyError`; o `check_page` responde "busy, try
+  again". Sem semáforo próprio no 15.
   Navegador ausente ou com falha dá `isError` com o texto do host.
 
 ### Servidor: publicar (`server/src/pages/`, novo)
@@ -218,3 +222,11 @@ turno, como resultado de ferramenta, e a página não fala com o agente.
 - Tema e atalhos passados à página por `postMessage`; `allow-forms`; bibliotecas fixas servidas
   pelo próprio Claudinei no lugar de CDN; apagar uma página pela tela; teto de disco por terminal.
 - Páginas na conversa copiada (`/fork`, outro `conversation_id`); PNG do `check_page` como miniatura.
+
+## Decisões do coordenador (alinhamento com o 16)
+
+- O contrato do `host.ts` foi fechado na spec do 16 (commit `15e127a`): `setContent`/`goto` com
+  `loadTimeoutMs` que devolve `{ loaded }` sem lançar, `timeoutMs` contado só com a página aberta,
+  fila no host com `queueTimeoutMs` e `BrowserBusyError`. As linhas de Execução e Limites acima já
+  seguem esse contrato. O `check_page` é a última tarefa do plano do 15 e espera o sha do host do
+  16; até lá, testes contra um dublê dessa interface.

@@ -82,6 +82,19 @@ function semRemindersNoFim(text: string): string {
  * e/ou o texto real sem o ruído.
  */
 function classifyUserText(text: string): ChatItem[] {
+  // Notas do desfazer turno grudadas na frente da mensagem (`withNote` no
+  // servidor): saem do texto cru antes de qualquer teste, cada uma vira uma
+  // linha própria, e o resto segue a classificação normal sem elas. Vêm antes
+  // do pacote da ⇄ e do caveat: o pacote atrás da nota deixaria de começar
+  // com o selo, e o caveat citado no corpo dele apagaria a mensagem inteira.
+  const noted = stripNotes(text.trimStart())
+  if (noted.notes.length > 0) {
+    return [
+      ...noted.notes.map((n): ChatItem => ({ kind: 'claudinei_message', reason: n.kind, text: n.body })),
+      ...classifyUserText(noted.rest),
+    ]
+  }
+
   // Pacote de contexto da troca de motor (⇄): vira o cartão "Contexto trazido
   // do <Motor>", dobrado; o pedido do operador, quando vai junto, sai à parte.
   // Vem antes de tudo: o corpo é texto cru da conversa de origem e pode citar
@@ -115,17 +128,7 @@ function classifyUserText(text: string): ChatItem[] {
     return body ? [{ kind: 'command_output', text: body, ...(out[1] === 'stderr' ? { isError: true } : {}) }] : []
   }
 
-  // Notas do desfazer turno grudadas na frente da mensagem (`withNote` no
-  // servidor): cada uma vira uma linha própria antes da mensagem, que segue a
-  // classificação normal sem elas.
   const cleaned = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
-  const noted = stripNotes(cleaned)
-  if (noted.notes.length > 0) {
-    return [
-      ...noted.notes.map((n): ChatItem => ({ kind: 'claudinei_message', reason: n.kind, text: n.body })),
-      ...classifyUserText(noted.rest),
-    ]
-  }
 
   // Task de outro terminal: o backend a escreve no stdin do CLI como se fosse uma
   // mensagem digitada (manager.ts, dispatch_task), então no transcript ela é

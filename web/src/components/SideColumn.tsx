@@ -5,7 +5,7 @@ import { uploadFile } from '../api'
 import { dotClassOf } from '../engineSession'
 import type { SessionInfo } from '../types'
 import { closeSide, interruptSide, openSide, sendSide } from '../branch/api'
-import { dropSide, setSideInfo, useSideStore, type SideView } from '../branch/sideStore'
+import { dropSide, requestAppend, setSideInfo, useSideStore, type SideView } from '../branch/sideStore'
 import { bringBack, lastAnswer } from '../branch/bringBack'
 import { isSendKey } from '../shortcuts/active'
 import { MessageBlock } from './MessageBlock'
@@ -135,7 +135,12 @@ function SideColumnView({ projectId, engine, localId, side }: Props & { side: Si
         // O `side_state` da nova costuma chegar antes da resposta, e é mais novo que ela.
         if (useSideStore.getState().sides[progressKey(projectId, engine)]?.info.id !== opened.id) setSideInfo(opened)
       })
-      .catch((err: Error) => setError(err.message))
+      .catch((err: Error) => {
+        setError(err.message)
+        // A pergunta já saiu do campo principal: volta para lá, como comando, para
+        // o operador tentar de novo sem redigitar.
+        if (ask.text.trim()) requestAppend(localId, `/side ${ask.text}`)
+      })
   }
 
   return (

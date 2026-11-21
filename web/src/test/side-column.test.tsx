@@ -456,6 +456,21 @@ describe('replaceAsk', () => {
     expect(useSideStore.getState().replaceAsk).toBeNull()
   })
 
+  it('substituir recusado: a lateral atual fica e a pergunta volta ao campo de mensagem como /side', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if (String(url) === '/api/projects/1/side' && init?.method === 'POST') {
+        return json({ code: 'rewind_pending', error: 'espere a primeira resposta' }, 409)
+      }
+      return json({ side: null, events: [] })
+    })
+    put(info())
+    render(<Coluna />)
+    act(() => { useSideStore.setState({ replaceAsk: { projectId: 1, engine: 'claude', text: 'outra-pergunta' } }) })
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir outra' }))
+    await waitFor(() => expect(useSideStore.getState().appendRequest).toMatchObject({ localId: 'a', text: '/side outra-pergunta' }))
+    expect(useSideStore.getState().sides['1:claude']?.info.id).toBe(info().id)
+  })
+
   it('cancelar deixa a lateral atual', () => {
     const fetch = api()
     put(info())

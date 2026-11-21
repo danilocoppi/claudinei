@@ -299,6 +299,29 @@ describe('desfazer', () => {
     expect(writeEnds.length).toBe(1)
   })
 
+  it('conflito cujo "agora" virou pasta: keepOnly na prévia, e voltar mesmo assim é recusado', async () => {
+    const r = repo()
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const { tracker: t, service } = setup()
+    const ta = await turn(t, A, () => {
+      r.write('a.txt', 'mudou\n')
+      r.write('b.txt', 'mudou\n')
+    })
+    // Depois do turno, a.txt virou pasta.
+    rmSync(join(r.dir, 'a.txt'))
+    mkdirSync(join(r.dir, 'a.txt'))
+    r.write('a.txt/dentro.txt', 'x\n')
+    const p = await service.preview([ta], ADMIN)
+    const a = p.files.find(f => f.path === 'a.txt')!
+    expect(a).toMatchObject({ verdict: 'conflict', keepOnly: true, mergeable: false })
+    expect(p.files.find(f => f.path === 'b.txt')!.keepOnly).toBeUndefined()
+    await expect(service.apply([ta], { token: p.token, decisions: { 'a.txt': 'force' } }, ADMIN))
+      .rejects.toMatchObject({ code: 'undo_bad_decision' })
+    const run = await service.apply([ta], { token: p.token, decisions: { 'a.txt': 'keep' } }, ADMIN)
+    expect(run.files).toEqual(expect.arrayContaining([{ path: 'b.txt', result: 'reverted' }]))
+    expect(read(r.dir, 'a.txt/dentro.txt')).toBe('x\n')
+  })
+
   it('token velho: 409 undo_changed sem escrever', async () => {
     const r = repo()
     const A = ctxOf(project(r.dir, 'A'), 'LA')

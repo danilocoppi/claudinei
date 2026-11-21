@@ -136,7 +136,8 @@ function Conflict({ file, index, choice, onChoose }: {
   onChoose(c: ConflictChoice): void
 }) {
   const { t } = useTranslation()
-  const options: Array<[ConflictChoice, string]> = [
+  // O "agora" não é arquivo (pasta, bloqueado): o servidor só aceita manter.
+  const options: Array<[ConflictChoice, string]> = file.keepOnly ? [['keep', t('undo.dialog.keep')]] : [
     ...(file.mergeable ? [['merge', t('undo.dialog.merge')] as [ConflictChoice, string]] : []),
     ['force', t('undo.dialog.force')],
     ['keep', t('undo.dialog.keep')],

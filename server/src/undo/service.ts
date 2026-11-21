@@ -360,6 +360,8 @@ export function createUndoService(deps: UndoServiceDeps) {
         mergeable: verdict === 'conflict' && p.verdict === 'conflict' && p.mergeable,
         overlapped: c.overlapped,
         checked: verdict === 'revert' && c.class === 'own',
+        // O "agora" não é arquivo (pasta, bloqueado): só dá para manter.
+        ...(verdict === 'conflict' && NOT_A_FILE.has(p.nowDigest ?? '') ? { keepOnly: true as const } : {}),
         ...(p.sinceTurn !== undefined ? { sinceTurn: p.sinceTurn } : {}),
         ...(p.sinceTurnTruncated ? { sinceTurnTruncated: true } : {}),
       }

@@ -48,6 +48,8 @@ export interface PreviewFile {
   verdict: RestoreVerdict
   /** Só em conflict: "desfazer só as linhas do turno" aplica sem choque. */
   mergeable: boolean
+  /** Só em conflict: o "agora" não é arquivo (pasta, bloqueado); a única escolha é manter. */
+  keepOnly?: true
   overlapped: boolean
   /** Marcado de saída: só o `own` sem sobreposição que volta limpo. */
   checked: boolean

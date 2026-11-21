@@ -118,6 +118,24 @@ describe('UndoDialog', () => {
     expect(screen.queryByText(/Mais \d+ conflito/)).toBeNull()
   })
 
+  it('conflito cujo "agora" não é arquivo (keepOnly): só "manter como está"', async () => {
+    const spy = rotas({
+      '/api/undo/preview': preview({
+        files: [pf('a.ts'), pf('pasta', { verdict: 'conflict', mergeable: false, checked: false, keepOnly: true })],
+      }),
+      '/api/undo/apply': RUN,
+    })
+    render(<UndoDialog request={{ turnIds: [7] }} onClose={() => {}} onDone={() => {}} />)
+    expect(await screen.findByText('pasta')).toBeTruthy()
+    expect(screen.queryByLabelText('voltar ao antes mesmo assim (perde o que mudou depois)')).toBeNull()
+    expect(screen.queryByLabelText('desfazer só as linhas do turno')).toBeNull()
+    fireEvent.click(screen.getByLabelText('manter como está'))
+    expect(confirmar().disabled).toBe(false)
+    fireEvent.click(confirmar())
+    await waitFor(() => expect(calls(spy, '/api/undo/apply')).toHaveLength(1))
+    expect(calls(spy, '/api/undo/apply')[0].decisions).toEqual({ 'a.ts': 'revert', pasta: 'keep' })
+  })
+
   it('confirmar só liga com todos os conflitos escolhidos', async () => {
     const spy = rotas({
       '/api/undo/preview': preview({

@@ -1,15 +1,24 @@
 import { describe, it, expect } from 'vitest'
 import { applyEvent as applyEventComChave } from '../chat/applyEvent'
 import type { ChatItem, ClaudeEvent } from '../types'
-import { CONVERSATION_REWOUND_NOTE, filesRevertedNote, withNote } from '../../../shared/undo'
+import { CONVERSATION_REWOUND_NOTE, filesRevertedNote, turnKey, withNote } from '../../../shared/undo'
 
 /**
  * Aqui interessa o conteúdo dos itens; as chaves (`l<n>` vêm de um contador do
- * módulo) têm os testes delas em history-pages.test.ts.
+ * módulo) têm os testes delas em history-pages.test.ts. A `turnKey` do cartão
+ * da ⇄ tem os testes dela no fim do bloco do pacote e em undo-attach.test.ts.
  */
-const applyEvent = (items: ChatItem[], evt: ClaudeEvent): ChatItem[] => {
+const applyEventComTurnKey = (items: ChatItem[], evt: ClaudeEvent): ChatItem[] => {
   const out = applyEventComChave(items, evt)
   return out === items ? items : out.map(({ key: _key, ...it }) => it as ChatItem)
+}
+const applyEvent = (items: ChatItem[], evt: ClaudeEvent): ChatItem[] => {
+  const out = applyEventComTurnKey(items, evt)
+  return out === items ? items : out.map((it) => {
+    if (it.kind !== 'claudinei_message' || it.reason !== 'handoff') return it
+    const { turnKey: _turnKey, ...rest } = it
+    return rest
+  })
 }
 
 const assistantEvt = (content: object[], raw: unknown = {}): ClaudeEvent =>
@@ -508,6 +517,19 @@ describe('pacote de contexto da troca de motor ([Claudinei: context handoff])', 
     expect(applyEvent([], evt(`${PACOTE}\n\n=== request ===\ne agora?${fim}`) as never)).toEqual([{
       kind: 'claudinei_message', reason: 'handoff', engineLabel: 'Claude Code', messages: 2, tokens: 13, text: CORPO, request: 'e agora?',
     }])
+  })
+
+  // O servidor grava a chave do texto que mandou (o pacote inteiro, com o
+  // cabeçalho); o cartão guarda só o corpo, então leva a chave pronta.
+  it.each(formatos)('o cartão leva a turnKey do texto cru do pacote (%s)', (_nome, evt) => {
+    const enviado = `${PACOTE}\n\n=== request ===\ne agora?`
+    const [item] = applyEventComTurnKey([], evt(enviado) as never)
+    expect(item).toMatchObject({ reason: 'handoff', turnKey: turnKey(enviado) })
+    // Com a nota do desfazer na frente e o reminder do harness no fim: a mesma chave.
+    const comNota = withNote(CONVERSATION_REWOUND_NOTE, enviado)
+    const itens = applyEventComTurnKey([], evt(`${comNota}\n<system-reminder>do harness</system-reminder>`) as never)
+    expect(itens[1]).toMatchObject({ reason: 'handoff', turnKey: turnKey(comNota) })
+    expect(turnKey(comNota)).toBe(turnKey(enviado))
   })
 
   it('o selo no meio da frase segue user_text', () => {

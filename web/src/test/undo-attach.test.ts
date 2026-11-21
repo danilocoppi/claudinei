@@ -1,13 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { attachTurns, occurrenceOf } from '../undo/attachTurns'
-import { turnKey, type TurnDto } from '../../../shared/undo'
+import { CONVERSATION_REWOUND_NOTE, turnKey, withNote, type TurnDto } from '../../../shared/undo'
+import { applyEvent } from '../chat/applyEvent'
 
 // A turnKey espiada (mesmo comportamento) para contar quantas vezes o attachTurns a chama.
 vi.mock('../../../shared/undo', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../shared/undo')>()
   return { ...actual, turnKey: vi.fn(actual.turnKey) }
 })
-import type { ChatItem } from '../types'
+import type { ChatItem, ClaudeEvent } from '../types'
 
 let nextId = 1
 const turn = (key: string | null, over: Partial<TurnDto> = {}): TurnDto => ({
@@ -150,6 +151,43 @@ describe('attachTurns', () => {
     const a = turn('faça X')
     const i = turn('faça X', { origin: 'interactive' })
     expect(placed(items, [a, i])).toEqual([[a.id, 0, 3]])
+  })
+
+  describe('pacote da ⇄ (troca de motor)', () => {
+    // Saída do `buildHandoff` com o pedido do `withRequest` (server/src/branch/handoff.ts).
+    const PACOTE = '[Claudinei: context handoff]: This conversation continues one held with Claude Code in this same folder. Below are its 2 most recent messages, whole, oldest first (about 13 tokens). The full conversation is at /home/u/.claude/projects/-tmp-x/abc.jsonl; read it only if you need something older. If no request follows, reply with one short line confirming you have the context.\n\n=== operator ===\noi\n\n=== agent ===\nolá, tudo certo\n\n=== request ===\nfaça a'
+    const formatos = [
+      ['histórico (content em string)', (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } })],
+      ['eco ao vivo (content em lista)', (text: string) => ({ kind: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, raw: {} })],
+    ] as const
+    const montar = (primeira: string, evt: (text: string) => object): ChatItem[] => {
+      let items: ChatItem[] = []
+      items = applyEvent(items, evt(primeira) as ClaudeEvent)
+      items = applyEvent(items, { kind: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'feito a' }] }, raw: {} } as ClaudeEvent)
+      items = applyEvent(items, evt('agora b') as ClaudeEvent)
+      items = applyEvent(items, { kind: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'feito b' }] }, raw: {} } as ClaudeEvent)
+      return items
+    }
+
+    it.each(formatos)('a linha do turno 1 fica depois do cartão do pacote (%s)', (_nome, evt) => {
+      const items = montar(PACOTE, evt)
+      expect(items.map(it => it.kind)).toEqual(['claudinei_message', 'assistant_text', 'user_text', 'assistant_text'])
+      // O servidor calcula a chave do texto cru que mandou (`sendAsClaudinei`).
+      const t1 = turn(PACOTE, { origin: 'claudinei' })
+      const t2 = turn('agora b')
+      expect(placed(items, [t1, t2])).toEqual([[t1.id, 0, 1], [t2.id, 2, 3]])
+      expect(occurrenceOf(items, 0)).toEqual({ key: t1.key, occurrence: 0 })
+    })
+
+    it.each(formatos)('com a nota do desfazer na frente do pacote, a chave é a mesma do servidor (%s)', (_nome, evt) => {
+      const enviado = withNote(CONVERSATION_REWOUND_NOTE, PACOTE)
+      const items = montar(enviado, evt)
+      expect(items.map(it => it.kind)).toEqual(['claudinei_message', 'claudinei_message', 'assistant_text', 'user_text', 'assistant_text'])
+      // `turnKey(final)` no tracker: o texto com a nota, que a própria chave tira.
+      const t1 = turn(enviado, { origin: 'claudinei' })
+      const t2 = turn('agora b')
+      expect(placed(items, [t1, t2])).toEqual([[t1.id, 1, 2], [t2.id, 3, 4]])
+    })
   })
 
   it('ordena os turnos pelo id mesmo se vierem fora de ordem', () => {

@@ -1,5 +1,5 @@
 import { isCompactSummary } from './history'
-import { stripNotes } from '../../../shared/undo'
+import { stripNotes, turnKey } from '../../../shared/undo'
 import type { ChatItem, ClaudeEvent, ClaudineiTaskResult, ContentBlock } from '../types'
 import { HANDOFF_PREFIX, parseHandoffHeader } from '../branch/handoff'
 
@@ -101,12 +101,19 @@ function classifyUserText(text: string): ChatItem[] {
   // `<command-name>`, caveat, stdout ou reminders, que não podem desviar o
   // pacote nem cortar o corpo. Só o reminder que o harness anexa no FIM sai.
   if (text.trimStart().startsWith(`${HANDOFF_PREFIX}:`)) {
-    const h = parseHandoffHeader(semRemindersNoFim(text.trim()))
+    const cru = semRemindersNoFim(text.trim())
+    const h = parseHandoffHeader(cru)
     if (h) {
       return [{
         kind: 'claudinei_message', reason: 'handoff', text: h.body,
         engineLabel: h.engineLabel, messages: h.messages, tokens: h.tokens,
         ...(h.request !== undefined ? { request: h.request } : {}),
+        // O tracker do servidor grava a chave do texto que mandou: o pacote
+        // inteiro (selo e cabeçalho), com as notas que a `turnKey` tira e sem
+        // os reminders que o harness anexa depois. O cartão guarda só o corpo:
+        // guarda-se a chave pronta (até 300 caracteres), não o texto cru, que
+        // dobraria o pacote na memória.
+        turnKey: turnKey(cru),
       }]
     }
   }

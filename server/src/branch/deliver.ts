@@ -34,15 +34,32 @@ import { UserError } from '../user-error.js'
  *   operador, que cutuca o árbitro);
  * - o terminal que termina durante a espera (fechado, apagado, morto) não
  *   espera o limite: o texto sai na hora (ver `ended`); o desligamento também;
- * - desistência ou envio que falha por outro motivo: as mensagens do operador
- *   voltam à fila gravada dele (`requeue`, pausada, para ele decidir), e o
- *   pacote (ou a mensagem que a fila não aceita) vai ao chat do terminal como
- *   `message_error` (o mesmo aviso de "mensagem pendente" do Codex), para o
- *   operador copiar e mandar de novo. Nunca some em silêncio.
+ * - desistência ou envio que falha por outro motivo: tudo o que não saiu (o
+ *   pacote e as mensagens do operador, na ordem) volta à fila gravada do
+ *   operador (`requeue`, pausada, para ele decidir: sobrevive ao reinício), e
+ *   um aviso no chat diz quantas voltaram e por quê. Se a fila não aceita
+ *   (terminal apagado), cada texto vai ao chat como `message_error`, para o
+ *   operador copiar. Nunca some em silêncio. Os avisos levam `i18nKey` e
+ *   `i18nParams` além do texto em português: a web mostra na língua dela.
  */
 
 /** Quanto a entrega espera o desfazer soltar o terminal antes de desistir (e o intervalo entre as conferências). */
 export const DELIVERY_LIMIT_MS = 2 * 60_000
+
+/** Chave e parâmetros do aviso para a web traduzir (`branch.notice.*`); o texto em português fica de reserva. */
+export interface NoticeI18n { key: string; params?: Record<string, string | number> }
+
+/** Por que a entrega desistiu: os motivos fixos têm código (a web traduz); o erro do motor vai como veio. */
+type DropReason = 'undo_held' | 'not_active' | 'ended' | 'shutdown' | { error: string }
+const REASON_PT: Record<Exclude<DropReason, { error: string }>, string> = {
+  undo_held: 'o desfazer segurou o terminal por tempo demais',
+  not_active: 'o terminal não está ativo',
+  ended: 'o terminal foi encerrado',
+  shutdown: 'o Claudinei foi encerrado',
+}
+const reasonPt = (r: DropReason): string => (typeof r === 'string' ? REASON_PT[r] : r.error)
+/** Parâmetros do motivo: `reasonCode` quando é fixo (a web traduz), senão o texto do erro. */
+const reasonParams = (r: DropReason): Record<string, string> => (typeof r === 'string' ? { reasonCode: r, reason: REASON_PT[r] } : { reason: r.error })
 
 /** Um texto a entregar: o pacote vai como mensagem do Claudinei; as do operador, como dele (com eco). */
 export interface DeliveryItem { text: string; as: 'claudinei' | 'operator' }
@@ -55,7 +72,7 @@ export interface BranchDelivery {
   /** A sessão terminou (fechada, apagada ou morta; o relaunch da volta não chega aqui): o que esperava sai na hora. */
   ended(localId: string): void
   /** Mostra um aviso no chat do terminal (o pacote que não pôde ser montado, por exemplo). */
-  notice(localId: string, message: string): void
+  notice(localId: string, message: string, i18n?: NoticeI18n): void
   /** Encerramento: o que ainda esperava vai à fila do operador e ao chat; solta os relógios. */
   dispose(): void
 }
@@ -101,40 +118,44 @@ export function createBranchDelivery(deps: {
   const waiting = new Map<string, Waiting>()
   const statusOf = (localId: string): string => deps.manager.get(localId)?.status ?? ''
 
-  const notice = (localId: string, message: string): void => {
+  const notice = (localId: string, message: string, i18n?: NoticeI18n): void => {
     try {
-      deps.broadcast({ type: 'session_event', localId, event: { kind: 'system', subtype: 'message_error', raw: { message } } })
+      const raw = i18n ? { message, i18nKey: i18n.key, i18nParams: i18n.params ?? {} } : { message }
+      deps.broadcast({ type: 'session_event', localId, event: { kind: 'system', subtype: 'message_error', raw } })
     } catch (err) {
       log(`aviso a ${localId} falhou: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
   /** O texto que não saiu, no chat do terminal, com o motivo. */
-  const surface = (localId: string, items: DeliveryItem[], reason: string): void => {
+  const surface = (localId: string, items: DeliveryItem[], reason: DropReason): void => {
     for (const it of items) {
-      log(`mensagem não entregue a ${localId}: ${reason}`)
-      notice(localId, `Mensagem não entregue (${reason}). Copie o texto abaixo e mande de novo se precisar:\n\n${it.text}`)
+      log(`mensagem não entregue a ${localId}: ${reasonPt(reason)}`)
+      notice(localId, `Mensagem não entregue (${reasonPt(reason)}). Copie o texto abaixo e mande de novo se precisar:\n\n${it.text}`,
+        { key: 'branch.notice.undelivered', params: { ...reasonParams(reason), text: it.text } })
     }
   }
 
   /**
-   * Desiste do que não saiu: as mensagens do operador voltam à fila gravada
-   * dele (sobrevivem ao reinício e ele decide quando mandar); o pacote, e as
-   * mensagens que a fila não aceitou, vão ao chat.
+   * Desiste do que não saiu: tudo volta, na ordem, à fila gravada do operador
+   * (sobrevive ao reinício e ele decide quando mandar; o pacote sai de lá como
+   * mensagem dele, e o agente o lê igual), com um aviso no chat. Se a fila não
+   * aceita, cada texto vai ao chat para o operador copiar.
    */
-  const drop = (localId: string, projectId: number, engine: string, items: DeliveryItem[], reason: string): void => {
-    let rest = items
-    const ops = items.filter((it) => it.as === 'operator').map((it) => it.text)
-    if (ops.length > 0 && deps.requeue) {
+  const drop = (localId: string, projectId: number, engine: string, items: DeliveryItem[], reason: DropReason): void => {
+    if (items.length === 0) return
+    if (deps.requeue) {
       try {
-        deps.requeue(projectId, engine, ops)
-        log(`${ops.length} mensagem(ns) do operador de volta à fila de ${projectId}/${engine}: ${reason}`)
-        rest = items.filter((it) => it.as !== 'operator')
+        deps.requeue(projectId, engine, items.map((it) => it.text))
+        log(`${items.length} mensagem(ns) de volta à fila de ${projectId}/${engine}: ${reasonPt(reason)}`)
+        notice(localId, `${items.length === 1 ? 'Uma mensagem não foi entregue' : `${items.length} mensagens não foram entregues`} (${reasonPt(reason)}) e ${items.length === 1 ? 'voltou' : 'voltaram'} à fila deste terminal, pausada: confira e retome quando quiser.`,
+          { key: 'branch.notice.requeued', params: { ...reasonParams(reason), count: items.length } })
+        return
       } catch (err) {
         log(`a fila de ${projectId}/${engine} não aceitou de volta: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
-    surface(localId, rest, reason)
+    surface(localId, items, reason)
   }
 
   const forget = (localId: string): Waiting | undefined => {
@@ -169,7 +190,7 @@ export function createBranchDelivery(deps: {
     if (deps.holds(w.projectId, w.engine)) {
       if (w.heldSeen) {
         forget(localId)
-        drop(localId, w.projectId, w.engine, w.items, 'o desfazer segurou o terminal por tempo demais')
+        drop(localId, w.projectId, w.engine, w.items, 'undo_held')
         return
       }
       w.heldSeen = true
@@ -181,7 +202,7 @@ export function createBranchDelivery(deps: {
     if (!ACTIVE.has(status)) {
       // Fora do ar sem o aviso do fim (não deveria acontecer): não espera para sempre.
       forget(localId)
-      drop(localId, w.projectId, w.engine, w.items, 'o terminal não está ativo')
+      drop(localId, w.projectId, w.engine, w.items, 'not_active')
       return
     }
     // Arma antes de cutucar: a oferta, no mesmo passo, esquece a espera (e o
@@ -217,7 +238,7 @@ export function createBranchDelivery(deps: {
         else deps.manager.send(localId, it.text, { echo: true })
       } catch (err) {
         if (isHold(err)) park(localId, projectId, engine, rest, true)
-        else drop(localId, projectId, engine, rest, err instanceof Error ? err.message : String(err))
+        else drop(localId, projectId, engine, rest, { error: err instanceof Error ? err.message : String(err) })
         return i > 0
       }
     }
@@ -232,7 +253,7 @@ export function createBranchDelivery(deps: {
       if (w) { w.items.push(...items); return }
       // A sessão não está de pé (o revive da cópia recusada falhou): não há o que esperar.
       if (!ACTIVE.has(statusOf(localId))) {
-        drop(localId, projectId, engine, [...items], 'o terminal não está ativo')
+        drop(localId, projectId, engine, [...items], 'not_active')
         return
       }
       if (deps.holds(projectId, engine)) { park(localId, projectId, engine, [...items], true); return }
@@ -252,7 +273,7 @@ export function createBranchDelivery(deps: {
 
     ended(localId) {
       const w = forget(localId)
-      if (w) drop(localId, w.projectId, w.engine, w.items, 'o terminal foi encerrado')
+      if (w) drop(localId, w.projectId, w.engine, w.items, 'ended')
     },
 
     notice,
@@ -261,7 +282,7 @@ export function createBranchDelivery(deps: {
       for (const localId of [...waiting.keys()]) {
         const w = forget(localId)!
         log(`encerrando com ${w.items.length} mensagem(ns) esperando em ${localId}`)
-        drop(localId, w.projectId, w.engine, w.items, 'o Claudinei foi encerrado')
+        drop(localId, w.projectId, w.engine, w.items, 'shutdown')
       }
     },
   }

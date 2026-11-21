@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useState, memo } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import i18next from 'i18next'
 import { useShallow } from 'zustand/react/shallow'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import type { Components } from 'react-markdown'
@@ -520,7 +521,7 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
         <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '2px 0 6px' }}>
           <div style={{ fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap', maxWidth: '70%',
                         color: item.isError ? 'var(--err)' : 'var(--text-dim)', fontStyle: 'italic' }}>
-            {item.text}
+            {commandOutputText(item)}
           </div>
         </div>
       )
@@ -735,4 +736,20 @@ function Thinking({ text, itemKey, currentLocalId }: { text: string; itemKey?: s
       )}
     </div>
   )
+}
+
+/**
+ * O texto de um `command_output`: com chave de tradução (aviso do ramificar), na
+ * língua da interface, com o motivo fixo (`reasonCode`) traduzido também; sem,
+ * o texto como veio. Chave que a interface não conhece: o texto do servidor.
+ */
+function commandOutputText(item: Extract<ChatItem, { kind: 'command_output' }>): string {
+  // Com os parâmetros: uma chave só com plural (`_one`/`_other`) existe para o count dado.
+  if (!item.i18n || !i18next.exists(item.i18n.key, item.i18n.params)) return item.text
+  // Chave dinâmica (vem do servidor): fora da tipagem das chaves conhecidas.
+  const tr = i18next.t as unknown as (key: string, opts?: Record<string, unknown>) => string
+  const { reasonCode, ...params } = item.i18n.params
+  const reason = typeof reasonCode === 'string' && i18next.exists(`branch.notice.reason.${reasonCode}`)
+    ? tr(`branch.notice.reason.${reasonCode}`) : params.reason
+  return tr(item.i18n.key, { ...params, reason, interpolation: { escapeValue: false } })
 }

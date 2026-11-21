@@ -148,7 +148,7 @@ describe('entrega do ramificar', () => {
     expect(sent.map((s) => s.text)).toEqual(['pacote', 'pergunta'])
   })
 
-  it('a trava que não solta até o limite: desiste; o pacote fica visível no chat e a mensagem do operador volta à fila gravada', () => {
+  it('a trava que não solta até o limite: desiste; o pacote e a mensagem do operador voltam, na ordem, à fila gravada, com um aviso no chat', () => {
     held = true
     d.deliver('L1', 7, 'kimi', [{ text: 'pacote grande', as: 'claudinei' }, { text: 'minha pergunta', as: 'operator' }])
     vi.advanceTimersByTime(DELIVERY_LIMIT_MS - 1)
@@ -158,8 +158,10 @@ describe('entrega do ramificar', () => {
     const erros = errosNoChat()
     expect(erros).toHaveLength(1)
     expect(erros[0].localId).toBe('L1')
-    expect(erros[0].event.raw.message).toContain('pacote grande')
-    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['minha pergunta'] }])
+    expect(erros[0].event.raw.message).toContain('2 mensagens não foram entregues')
+    expect(erros[0].event.raw.i18nKey).toBe('branch.notice.requeued')
+    expect(erros[0].event.raw.i18nParams).toEqual({ reasonCode: 'undo_held', reason: 'o desfazer segurou o terminal por tempo demais', count: 2 })
+    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pacote grande', 'minha pergunta'] }])
     // Desistiu: o cutucão seguinte não manda nada (nem repete).
     held = false
     expect(d.provider.offer(ctx)).toBe(false)
@@ -239,7 +241,8 @@ describe('entrega do ramificar', () => {
     vi.advanceTimersByTime(DELIVERY_LIMIT_MS)
     expect(poked).toHaveLength(1)
     d.ended('L1')
-    expect(errosNoChat().map((e) => e.event.raw.message)).toEqual([expect.stringContaining('pacote')])
+    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pacote'] }])
+    expect(errosNoChat().map((e) => e.event.raw.i18nParams?.reasonCode)).toEqual(['ended'])
     expect(vi.getTimerCount()).toBe(0)
     // Nova espera que também só cutucou: o desligamento a limpa.
     held = true
@@ -249,22 +252,21 @@ describe('entrega do ramificar', () => {
     expect(poked).toHaveLength(2)
     d.dispose()
     expect(vi.getTimerCount()).toBe(0)
-    expect(errosNoChat().map((e) => e.event.raw.message)).toEqual([
-      expect.stringContaining('pacote'),
-      expect.stringContaining('mais um'),
-    ])
+    expect(requeued.map((r) => r.texts)).toEqual([['pacote'], ['mais um']])
+    expect(errosNoChat().map((e) => e.event.raw.i18nParams?.reasonCode)).toEqual(['ended', 'shutdown'])
   })
 
-  it('envio que falha por outro motivo: o pacote vai na hora ao chat (não só ao log) e a mensagem do operador volta à fila', () => {
+  it('envio que falha por outro motivo: tudo volta na hora à fila (não só ao log), com o erro do motor no aviso', () => {
     failWith = new UserError('engine_error', 'o motor recusou')
     d.deliver('L1', 7, 'claude', [{ text: 'pacote', as: 'claudinei' }, { text: 'pergunta', as: 'operator' }])
     const erros = errosNoChat()
-    expect(erros.map((e) => e.event.raw.message)).toEqual([expect.stringContaining('pacote')])
+    expect(erros).toHaveLength(1)
     expect(erros[0].event.raw.message).toContain('o motor recusou')
-    expect(requeued).toEqual([{ projectId: 7, engine: 'claude', texts: ['pergunta'] }])
+    expect(erros[0].event.raw.i18nParams).toEqual({ reason: 'o motor recusou', count: 2 })
+    expect(requeued).toEqual([{ projectId: 7, engine: 'claude', texts: ['pacote', 'pergunta'] }])
   })
 
-  it('a fila não aceita de volta (terminal apagado): a mensagem do operador também vai ao chat', () => {
+  it('a fila não aceita de volta (terminal apagado): cada texto vai ao chat, para copiar', () => {
     requeueFails = true
     failWith = new UserError('engine_error', 'o motor recusou')
     d.deliver('L1', 7, 'claude', [{ text: 'pacote', as: 'claudinei' }, { text: 'pergunta', as: 'operator' }])
@@ -272,14 +274,16 @@ describe('entrega do ramificar', () => {
       expect.stringContaining('pacote'),
       expect.stringContaining('pergunta'),
     ])
+    expect(errosNoChat().map((e) => e.event.raw.i18nKey)).toEqual(['branch.notice.undelivered', 'branch.notice.undelivered'])
+    expect(errosNoChat()[0].event.raw.i18nParams).toEqual({ reason: 'o motor recusou', text: 'pacote' })
   })
 
-  it('sessão fora do ar na entrega (o revive falhou): não espera; o pacote vai ao chat e a mensagem à fila', () => {
+  it('sessão fora do ar na entrega (o revive falhou): não espera; tudo volta à fila', () => {
     status.set('L1', 'dead')
     held = true
     d.deliver('L1', 7, 'kimi', [{ text: 'pacote', as: 'claudinei' }, { text: 'pergunta', as: 'operator' }])
-    expect(errosNoChat().map((e) => e.event.raw.message)).toEqual([expect.stringContaining('pacote')])
-    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pergunta'] }])
+    expect(errosNoChat().map((e) => e.event.raw.i18nParams?.reasonCode)).toEqual(['not_active'])
+    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pacote', 'pergunta'] }])
     held = false
     expect(fimDoTurno()).toBe(false)
   })
@@ -312,8 +316,8 @@ describe('entrega do ramificar', () => {
     held = true
     d.deliver('L1', 7, 'kimi', [{ text: 'pacote', as: 'claudinei' }, { text: 'pergunta', as: 'operator' }])
     d.ended('L1')
-    expect(errosNoChat().map((e) => e.event.raw.message)).toEqual([expect.stringContaining('pacote')])
-    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pergunta'] }])
+    expect(errosNoChat()).toHaveLength(1)
+    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pacote', 'pergunta'] }])
     vi.advanceTimersByTime(DELIVERY_LIMIT_MS * 3)
     held = false
     expect(fimDoTurno()).toBe(false)
@@ -322,12 +326,12 @@ describe('entrega do ramificar', () => {
     expect(() => d.ended('L9')).not.toThrow()
   })
 
-  it('desligamento com espera: o pacote vai ao chat e a mensagem do operador volta à fila antes de limpar', () => {
+  it('desligamento com espera: tudo volta à fila gravada antes de limpar (sobrevive ao reinício)', () => {
     held = true
     d.deliver('L1', 7, 'kimi', [{ text: 'pacote', as: 'claudinei' }, { text: 'pergunta', as: 'operator' }])
     d.dispose()
-    expect(errosNoChat().map((e) => e.event.raw.message)).toEqual([expect.stringContaining('pacote')])
-    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pergunta'] }])
+    expect(errosNoChat().map((e) => e.event.raw.i18nParams?.reasonCode)).toEqual(['shutdown'])
+    expect(requeued).toEqual([{ projectId: 7, engine: 'kimi', texts: ['pacote', 'pergunta'] }])
     vi.advanceTimersByTime(DELIVERY_LIMIT_MS * 3)
     expect(errosNoChat()).toHaveLength(1)
   })

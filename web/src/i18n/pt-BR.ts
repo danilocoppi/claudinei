@@ -802,6 +802,18 @@ export const ptBR: typeof en = {
     handoff_target_limited: 'O motor de destino está no limite de uso.',
   },
   branch: {
+    notice: {
+      requeued_one: "Uma mensagem não foi entregue ({{reason}}) e voltou à fila deste terminal, pausada: confira e retome quando quiser.",
+      requeued_other: "{{count}} mensagens não foram entregues ({{reason}}) e voltaram à fila deste terminal, pausada: confira e retome quando quiser.",
+      undelivered: "Mensagem não entregue ({{reason}}). Copie o texto abaixo e mande de novo se precisar:\n\n{{text}}",
+      forkContextMissing: "A cópia da conversa original não foi feita e o contexto dela não pôde ser montado ({{error}}). O ramo seguiu numa conversa nova, sem esse contexto.",
+      reason: {
+        undo_held: "o desfazer segurou o terminal por tempo demais",
+        not_active: "o terminal não está ativo",
+        ended: "o terminal foi encerrado",
+        shutdown: "o Claudinei foi encerrado",
+      },
+    },
     side: {
       title: 'Conversa lateral',
       copyUntil: 'cópia até {{time}}',

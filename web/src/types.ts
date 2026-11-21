@@ -154,7 +154,8 @@ type ChatItemBody =
   /** Slash command digitado no terminal (ex.: /exit), registrado no transcript. */
   | { kind: 'local_command'; command: string; args?: string; fromSubagent?: boolean; parentId?: string }
   /** Saída (stdout/stderr) de um slash command local. */
-  | { kind: 'command_output'; text: string; isError?: boolean; fromSubagent?: boolean; parentId?: string }
+  /** `i18n`: aviso do servidor com chave de tradução (`branch.notice.*`); `text` é a reserva em português. */
+  | { kind: 'command_output'; text: string; isError?: boolean; i18n?: { key: string; params: Record<string, string | number> }; fromSubagent?: boolean; parentId?: string }
   /** Nota do sistema injetada no transcript (ex.: task-notification de tarefa em 2º plano). */
   | { kind: 'system_note'; text: string; fromSubagent?: boolean; parentId?: string }
   /**

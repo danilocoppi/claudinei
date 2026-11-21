@@ -196,7 +196,8 @@ export function createBranchService(deps: {
       console.error('[ramo] não reviveu a cópia recusada', err)
     }
     if (packError !== null) {
-      delivery.notice(localId, `A cópia da conversa original não foi feita e o contexto dela não pôde ser montado (${packError}). O ramo seguiu numa conversa nova, sem esse contexto.`)
+      delivery.notice(localId, `A cópia da conversa original não foi feita e o contexto dela não pôde ser montado (${packError}). O ramo seguiu numa conversa nova, sem esse contexto.`,
+        { key: 'branch.notice.forkContextMissing', params: { error: packError } })
     }
     deliver(localId, projectId, engine, [
       ...(pack ? [{ text: pack.text, as: 'claudinei' as const }] : []),

@@ -817,7 +817,7 @@ describe('cópia recusada', () => {
     expect(s2.writes.map((w) => w.text)).toEqual([fakePacks.opencode.text, 'minha pergunta'])
   })
 
-  it('o revive da cópia recusada falha (ramo fora do ar): a mensagem do operador volta à fila gravada, pausada, e o pacote vai ao chat do ramo', async () => {
+  it('o revive da cópia recusada falha (ramo fora do ar): o pacote e a mensagem do operador voltam à fila gravada, pausada, com um aviso no chat do ramo', async () => {
     doisTurnos(p1.path)
     startMain(p1, 'claude', SRC)
     const { project, session } = await forkOk(p1.id, { engine: 'claude' })
@@ -827,8 +827,13 @@ describe('cópia recusada', () => {
     created.at(-1)!.set('dead')
     await expect.poll(() => avisosNoChat(session.localId).length).toBe(1)
     expect(created).toHaveLength(n)
-    expect(avisosNoChat(session.localId)[0]).toContain(HANDOFF_PREFIX)
-    expect(filaDe(project.id, 'claude')).toEqual({ texts: ['minha pergunta'], paused: true })
+    expect(avisosNoChat(session.localId)[0]).toContain('voltaram à fila')
+    // O pacote e a mensagem voltam, na ordem, à fila gravada (sobrevivem ao reinício).
+    const fila = filaDe(project.id, 'claude')
+    expect(fila.paused).toBe(true)
+    expect(fila.texts).toHaveLength(2)
+    expect(fila.texts[0].startsWith(HANDOFF_PREFIX)).toBe(true)
+    expect(fila.texts[1]).toBe('minha pergunta')
   })
 
   it('a montagem do pacote da cópia recusada falha: o motivo aparece no chat do ramo, e a mensagem do operador segue', async () => {
@@ -868,7 +873,7 @@ describe('cópia recusada', () => {
     expect(s3.writes.map((w) => w.text.startsWith(HANDOFF_PREFIX) ? 'pacote' : w.text)).toEqual(['pacote', 'minha pergunta'])
   })
 
-  it('o ramo é fechado enquanto a entrega espera o desfazer: o pacote vai ao chat e a mensagem à fila na hora, sem esperar o limite', async () => {
+  it('o ramo é fechado enquanto a entrega espera o desfazer: o pacote e a mensagem voltam à fila na hora, sem esperar o limite', async () => {
     doisTurnos(p1.path)
     startMain(p1, 'claude', SRC)
     const { project, session } = await forkOk(p1.id, { engine: 'claude' })
@@ -881,8 +886,10 @@ describe('cópia recusada', () => {
     expect(created.at(-1)!.writes).toEqual([])
     expect(avisosNoChat(session.localId)).toEqual([])
     await manager.stop(session.localId)
-    expect(avisosNoChat(session.localId)).toEqual([expect.stringContaining(HANDOFF_PREFIX)])
-    expect(filaDe(project.id, 'claude')).toEqual({ texts: ['minha pergunta'], paused: true })
+    expect(avisosNoChat(session.localId)).toEqual([expect.stringContaining('voltaram à fila')])
+    const fila = filaDe(project.id, 'claude')
+    expect(fila.paused).toBe(true)
+    expect(fila.texts.map((t) => t.startsWith(HANDOFF_PREFIX) ? 'pacote' : t)).toEqual(['pacote', 'minha pergunta'])
   })
 
   it('OpenCode copiado no meio do turno: a cópia recusada manda o pacote guardado no /fork, não um refeito sem corte', async () => {

@@ -800,6 +800,18 @@ export const es: typeof en = {
     handoff_target_limited: 'El motor de destino está en su límite de uso.',
   },
   branch: {
+    notice: {
+      requeued_one: "Un mensaje no se entregó ({{reason}}) y volvió a la cola de esta terminal, en pausa: revísalo y reanuda cuando quieras.",
+      requeued_other: "{{count}} mensajes no se entregaron ({{reason}}) y volvieron a la cola de esta terminal, en pausa: revísalos y reanuda cuando quieras.",
+      undelivered: "Mensaje no entregado ({{reason}}). Copia el texto de abajo y envíalo de nuevo si lo necesitas:\n\n{{text}}",
+      forkContextMissing: "No se hizo la copia de la conversación original y no se pudo armar su contexto ({{error}}). La rama siguió en una conversación nueva, sin ese contexto.",
+      reason: {
+        undo_held: "el deshacer retuvo la terminal demasiado tiempo",
+        not_active: "la terminal no está activa",
+        ended: "la terminal se cerró",
+        shutdown: "Claudinei se apagó",
+      },
+    },
     side: {
       title: 'Conversación lateral',
       copyUntil: 'copia hasta {{time}}',

@@ -311,7 +311,10 @@ export function applyEventInto(list: ChatItem[], evt: ClaudeEvent, onOrphan?: On
     }
     case 'system': {
       if (evt.subtype === 'message_error' && typeof (evt.raw as any)?.message === 'string') {
-        list.push(keyed({ kind: 'command_output', text: (evt.raw as any).message, isError: true }))
+        const raw = evt.raw as { message: string; i18nKey?: unknown; i18nParams?: unknown }
+        const i18n = typeof raw.i18nKey === 'string' && raw.i18nParams && typeof raw.i18nParams === 'object'
+          ? { i18n: { key: raw.i18nKey, params: raw.i18nParams as Record<string, string | number> } } : {}
+        list.push(keyed({ kind: 'command_output', text: raw.message, isError: true, ...i18n }))
         return true
       }
       if (evt.subtype !== 'compact_boundary') return false

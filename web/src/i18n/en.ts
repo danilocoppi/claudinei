@@ -798,6 +798,18 @@ export const en = {
     handoff_target_limited: 'The target engine is at its usage limit.',
   },
   branch: {
+    notice: {
+      requeued_one: "A message was not delivered ({{reason}}) and went back to this terminal's queue, paused: check it and resume when you want.",
+      requeued_other: "{{count}} messages were not delivered ({{reason}}) and went back to this terminal's queue, paused: check them and resume when you want.",
+      undelivered: "Message not delivered ({{reason}}). Copy the text below and send it again if you need to:\n\n{{text}}",
+      forkContextMissing: "The copy of the original conversation was not made and its context could not be built ({{error}}). The branch went on in a new conversation, without that context.",
+      reason: {
+        undo_held: "the undo held the terminal for too long",
+        not_active: "the terminal is not active",
+        ended: "the terminal was closed",
+        shutdown: "Claudinei shut down",
+      },
+    },
     side: {
       title: 'Side conversation',
       copyUntil: 'copy up to {{time}}',

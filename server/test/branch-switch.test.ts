@@ -648,10 +648,13 @@ describe('pendências do destino', () => {
     expect(created).toHaveLength(2)
     expect(created[1].writes).toEqual([])
     expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
-    // O pacote não some no log: vai ao chat da conversa nova, para o operador copiar.
+    // O pacote não some no log: volta à fila gravada do destino (pausada), com um aviso no chat.
     const erro = broadcasts.find((b) => b.type === 'session_event' && b.localId === info.localId && b.event?.subtype === 'message_error')
-    expect(erro?.event.raw.message).toContain(HANDOFF_PREFIX)
-    expect(erro?.event.raw.message).toContain('pergunta dois')
+    expect(erro?.event.raw.i18nKey).toBe('branch.notice.requeued')
+    const fila = db.prepare('SELECT text FROM operator_queue WHERE project_id=? AND engine=? ORDER BY position, id').all(p1.id, 'codex') as Array<{ text: string }>
+    expect(fila).toHaveLength(1)
+    expect(fila[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
+    expect(fila[0].text).toContain('pergunta dois')
   })
 
   it('fila do destino sai só depois do turno do pacote', async () => {

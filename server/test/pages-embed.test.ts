@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { embedLocalResources } from '../src/pages/embed.js'
@@ -34,6 +34,8 @@ beforeAll(() => {
   writeFileSync(join(root, 'fora/b.png'), PNG)
   symlinkSync(join(root, 'fora/b.png'), join(proj, 'img/link.png'))
 })
+
+afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 const embed = (html: string, baseDir = proj) => embedLocalResources(html, { baseDir, projectRoot: proj })
 
@@ -181,5 +183,109 @@ describe('embedLocalResources — atributos', () => {
   it('valor com ">" entre aspas não corta a tag', () => {
     const r = embed('<img title="a > b" src="img/a.png">')
     expect(r.html).toBe(`<img title="a > b" src="${pngUrl}">`)
+  })
+})
+
+describe('embedLocalResources — tipo do arquivo', () => {
+  it('<script src> e <link stylesheet> só embutem JS e CSS: .env e .txt ficam como estão e entram em missing', () => {
+    writeFileSync(join(proj, '.env'), 'TOKEN=s3cr3t')
+    writeFileSync(join(proj, 'notas.txt'), 'segredo')
+    const html = '<script src=".env"></script><link rel=stylesheet href=".env"><img src=".env">' +
+      '<script src="notas.txt"></script><link rel="stylesheet" href="notas.txt">' +
+      '<script src="css/s.css"></script><link rel="stylesheet" href="js/app.js">'
+    const r = embed(html)
+    expect(r.html).toBe(html)
+    expect(r.html).not.toContain('s3cr3t')
+    expect(r.embedded).toEqual([])
+    expect(r.missing).toEqual(['.env', 'notas.txt', 'css/s.css', 'js/app.js'])
+  })
+
+  it('.mjs entra como script', () => {
+    writeFileSync(join(proj, 'js/m.mjs'), 'export const a = 1')
+    expect(embed('<script type="module" src="js/m.mjs"></script>').html).toBe('<script type="module">export const a = 1</script>')
+  })
+
+  it('BOM no começo do CSS e do JS não entra no documento', () => {
+    writeFileSync(join(proj, 'css/bom.css'), '\uFEFF.a{color:red}')
+    writeFileSync(join(proj, 'js/bom.js'), '\uFEFFconsole.log(2)')
+    const r = embed('<link rel="stylesheet" href="css/bom.css"><script src="js/bom.js"></script>')
+    expect(r.html).toBe('<style>.a{color:red}</style><script>console.log(2)</script>')
+    expect(r.embedded).toEqual([
+      { ref: 'css/bom.css', bytes: Buffer.byteLength('.a{color:red}') },
+      { ref: 'js/bom.js', bytes: Buffer.byteLength('console.log(2)') },
+    ])
+  })
+})
+
+describe('embedLocalResources — teto por arquivo', () => {
+  const LIMITE = 524_288
+
+  it('arquivo acima do teto da página não é lido: fica como está e entra em missing', () => {
+    writeFileSync(join(proj, 'img/grande.png'), Buffer.alloc(LIMITE + 1, 1))
+    writeFileSync(join(proj, 'css/grande.css'), 'a'.repeat(LIMITE + 1))
+    writeFileSync(join(proj, 'js/grande.js'), 'a'.repeat(LIMITE + 1))
+    const html = '<img src="img/grande.png"><link rel="stylesheet" href="css/grande.css"><script src="js/grande.js"></script>' +
+      '<style>.a{background:url(img/grande.png)}</style>'
+    const r = embed(html)
+    // Comparação por tamanho: o diff de um data: URL de 700 KB não cabe no relatório.
+    expect(r.html.length).toBe(html.length)
+    expect(r.embedded).toEqual([])
+    expect(r.missing).toEqual(['img/grande.png', 'css/grande.css', 'js/grande.js'])
+  })
+
+  it('arquivo com exatamente o teto ainda entra', () => {
+    writeFileSync(join(proj, 'img/no-limite.png'), Buffer.alloc(LIMITE, 1))
+    const r = embed('<img src="img/no-limite.png">')
+    expect(r.missing).toEqual([])
+    expect(r.embedded).toHaveLength(1)
+  })
+})
+
+describe('embedLocalResources — tags', () => {
+  it('<style-box> e <script-x> são elementos comuns, não blocos de CSS e JS', () => {
+    const r = embed('<style-box><img src="img/a.png"></style-box><style>.a{}</style>' +
+      '<script-x><img src="img/a.png"></script-x><script>1</script>')
+    expect(r.html).toBe(`<style-box><img src="${pngUrl}"></style-box><style>.a{}</style>` +
+      `<script-x><img src="${pngUrl}"></script-x><script>1</script>`)
+  })
+
+  it('"<" fora de aspas encerra uma tag que não fechou', () => {
+    const r = embed('<a <img src="img/a.png">')
+    expect(r.html).toBe(`<a <img src="${pngUrl}">`)
+  })
+
+  it('comentário é pulado inteiro e ">" entre aspas não corta a tag', () => {
+    const r = embed('<p title="x>y"><img src="img/a.png"><!-- <img src="img/a.png"> --><img src="img/a.png">')
+    expect(r.html).toBe(`<p title="x>y"><img src="${pngUrl}"><!-- <img src="img/a.png"> --><img src="${pngUrl}">`)
+  })
+})
+
+/**
+ * Entrada hostil não pode travar o laço de eventos: tudo que não fecha
+ * (comentário, bloco, tag, aspas, url()) é visto uma vez só, não a cada `<`.
+ * Antes, 512 KB de `<a b` levavam ~40 s.
+ */
+describe('embedLocalResources — tempo em entrada hostil', () => {
+  const TAM = 512 * 1024
+  const rep = (s: string) => s.repeat(Math.ceil(TAM / s.length)).slice(0, TAM)
+  const casos: Array<[string, string]> = [
+    ['<style> sem fechamento', rep('<style>')],
+    ['<script> sem fechamento', rep('<script>')],
+    ['<!-- sem fechamento', rep('<!--')],
+    ['<a " repetido', rep('<a "')],
+    ['<a b sem >', rep('<a b')],
+    ['<a seguido de espaços', '<a' + ' '.repeat(TAM - 3) + '>'],
+    ['url( seguido de espaços em <style>', '<style>a{b:url(' + ' '.repeat(TAM - 30) + '</style>'],
+    ['url( seguido de espaços em style=', '<a style="url(' + ' '.repeat(TAM - 30) + '">'],
+    ["<a ' e <a \" alternados", rep(`<a '<a "`)],
+    ['url(" repetido em <style>', '<style>' + rep('a{b:url("') + '</style>'],
+  ]
+  it.each(casos)('%s: 512 KB em menos de 1 s', (_nome, html) => {
+    const t = performance.now()
+    const r = embed(html)
+    const ms = performance.now() - t
+    console.log(`[tempo] ${_nome}: ${ms.toFixed(1)} ms`)
+    expect(r.html).toBe(html)
+    expect(ms).toBeLessThan(1000)
   })
 })

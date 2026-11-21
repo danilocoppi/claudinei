@@ -80,7 +80,17 @@ function fimQueCabe(s: string, maxChars: number, maxBytes: number): string {
  * peças viram mensagens. O `collectHandoff` guarda só as peças entre as
  * páginas, nunca os eventos com o `raw` inteiro.
  */
-type Piece = { t: 'operator' | 'summary' | 'line'; text: string }
+type Piece = {
+  /**
+   * `line`: uma linha do agente (as seguidas viram uma mensagem). `agent`: uma
+   * mensagem inteira do agente, vinda de um pacote recebido. `turn`: marca
+   * sem texto do começo de um turno do operador (o pacote recebido sem pedido).
+   */
+  t: 'operator' | 'summary' | 'line' | 'agent' | 'turn'
+  text: string
+  /** Veio de dentro de um pacote recebido: não abre turno, e o resumo dele não corta a conversa. */
+  embutido?: boolean
+}
 
 interface RawFlags {
   isMeta?: unknown; isSynthetic?: unknown; isCompactSummary?: unknown
@@ -116,11 +126,69 @@ function injetado(evt: AgentEvent & { kind: 'user' }): boolean {
   return !!(evt.fromEngine || raw?.isMeta || raw?.isSynthetic)
 }
 
+/** Marca que a CLI grava quando o operador interrompe o turno: não é texto dele. */
+const INTERRUPCAO = /^\[Request interrupted/
+
 /** O texto do operador neste evento, como a tela mostra; '' se não houver. */
 function textoDoOperador(evt: AgentEvent): string {
   if (evt.kind !== 'user' || deSubagente(evt) || isCompactionSummary(evt) || injetado(evt)) return ''
-  return textosDoUser(evt).map(visibleUserText).filter(Boolean).join('\n')
+  return textosDoUser(evt).map(visibleUserText).filter((t) => t && !INTERRUPCAO.test(t)).join('\n')
 }
+
+const REQUEST_TAG = '=== request ==='
+const ROLE_OF_TAG = new Map<string, HandoffMessage['role']>(
+  (Object.entries(TAG) as Array<[HandoffMessage['role'], string]>).map(([role, tag]) => [tag, role]),
+)
+
+/**
+ * Um pacote recebido (texto do operador que começa com `HANDOFF_PREFIX`) vira
+ * as mensagens do corpo dele, na ordem, e o `=== request ===`, se houver, vira
+ * mensagem do operador. Sem isso, o pacote seguinte o contaria como uma
+ * mensagem enorme do operador, que não cabe, e sobraria só a confirmação.
+ * O pedido é o que vem depois do ÚLTIMO `=== request ===` (como na web). Fora
+ * do formato, null (o texto fica como mensagem do operador).
+ */
+function desdobrarPacote(texto: string): Piece[] | null {
+  if (!texto.startsWith(`${HANDOFF_PREFIX}:`)) return null
+  const ini = texto.indexOf('\n\n')
+  if (ini < 0) return null
+  let corpo = texto.slice(ini + 2)
+  let pedido: string | null = null
+  const sep = corpo.lastIndexOf(`\n\n${REQUEST_TAG}`)
+  const fimDaTag = sep + 2 + REQUEST_TAG.length
+  if (sep >= 0 && (fimDaTag === corpo.length || corpo[fimDaTag] === '\n')) {
+    pedido = corpo.slice(fimDaTag + 1).trim()
+    corpo = corpo.slice(0, sep)
+  }
+  // Um bloco começa numa linha que é só a tag, no início do corpo ou depois de
+  // uma linha em branco (o separador entre blocos).
+  const linhas = corpo.split('\n')
+  const blocos: Array<{ role: HandoffMessage['role']; linhas: string[] }> = []
+  for (let i = 0; i < linhas.length; i++) {
+    const role = ROLE_OF_TAG.get(linhas[i])
+    if (role && (i === 0 || linhas[i - 1] === '')) {
+      const anterior = blocos.at(-1)
+      if (anterior && anterior.linhas.at(-1) === '') anterior.linhas.pop()
+      blocos.push({ role, linhas: [] })
+      continue
+    }
+    if (!blocos.length) return null
+    blocos.at(-1)!.linhas.push(linhas[i])
+  }
+  if (!blocos.length) return null
+  const out: Piece[] = blocos.map((b) => ({ t: b.role, text: b.linhas.join('\n'), embutido: true }))
+  out.push(pedido ? { t: 'operator', text: pedido } : { t: 'turn', text: '' })
+  return out
+}
+
+/** As peças do texto do operador: o pacote recebido desdobrado, ou o texto. */
+const pecasDoOperador = (texto: string): Piece[] => desdobrarPacote(texto) ?? [{ t: 'operator', text: texto }]
+
+/** Peça que abre um turno do operador (as de dentro de um pacote recebido não abrem). */
+const abreTurno = (p: Piece) => p.t === 'turn' || (p.t === 'operator' && !p.embutido)
+
+/** O resumo da compactação desta conversa (o de dentro de um pacote recebido não conta). */
+const cortaNoResumo = (p: Piece) => p.t === 'summary' && !p.embutido
 
 /** Saída da ferramenta como texto (mesma regra da tela). */
 function saidaDaFerramenta(content: unknown): string {
@@ -165,7 +233,7 @@ function piecesOf(events: AgentEvent[]): Piece[] {
       if (saida) out.push({ t: 'line', text: `  ← ${cortar(saida, TOOL_RESULT_MAX)}` })
     }
     const texto = textoDoOperador(evt)
-    if (texto) out.push({ t: 'operator', text: texto })
+    if (texto) out.push(...pecasDoOperador(texto))
   }
   return out
 }
@@ -173,7 +241,7 @@ function piecesOf(events: AgentEvent[]): Piece[] {
 /** Peças → mensagens, a partir do resumo da compactação mais recente. */
 function assemble(pieces: Piece[]): HandoffMessage[] {
   let ini = 0
-  for (let i = pieces.length - 1; i >= 0; i--) if (pieces[i].t === 'summary') { ini = i; break }
+  for (let i = pieces.length - 1; i >= 0; i--) if (cortaNoResumo(pieces[i])) { ini = i; break }
   const out: HandoffMessage[] = []
   let agente: string[] | null = null
   const fecha = () => { if (agente) out.push({ role: 'agent', text: agente.join('\n') }); agente = null }
@@ -181,6 +249,7 @@ function assemble(pieces: Piece[]): HandoffMessage[] {
     const p = pieces[i]
     if (p.t === 'line') { (agente ??= []).push(p.text); continue }
     fecha()
+    if (p.t === 'turn') continue
     out.push({ role: p.t, text: p.text })
   }
   fecha()
@@ -276,14 +345,14 @@ export async function collectHandoff(engine: Engine, projectPath: string, id: st
       // Tudo depois do último texto do operador é do turno em andamento; se a
       // página não tem nenhum, ela inteira é do turno e a leitura continua.
       let i = novas.length - 1
-      while (i >= 0 && novas[i].t !== 'operator') i--
+      while (i >= 0 && !abreTurno(novas[i])) i--
       if (i >= 0) { novas = novas.slice(0, i); aberto = false } else novas = []
     }
     pieces = novas.concat(pieces)
     const msgs = assemble(pieces)
     // Sem progresso (página que não recua) também encerra: nunca fica em laço.
     const semProgresso = before !== undefined && page.start >= before
-    if (page.atStart || semProgresso || msgs[0]?.role === 'summary') return buildHandoff(msgs, meta)
+    if (page.atStart || semProgresso || pieces.some(cortaNoResumo)) return buildHandoff(msgs, meta)
     if (!aberto) {
       // A mais antiga pode continuar na página anterior (agente entre páginas):
       // só vale encerrar se as outras já não cabem inteiras — aí ela ficaria de

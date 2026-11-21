@@ -237,6 +237,75 @@ describe('messagesOf', () => {
   })
 })
 
+describe('pacote recebido e interrupções (pacotes encadeados)', () => {
+  it('[Request interrupted…] não vira mensagem do operador', () => {
+    const msgs = messagesOf([
+      op('pergunta'),
+      ag(txt('começando')),
+      op('[Request interrupted by user]'),
+      opBlocks('[Request interrupted by user for tool use]'),
+      op('pergunta 2'),
+      ag(txt('ok')),
+    ])
+    expect(msgs).toEqual([
+      { role: 'operator', text: 'pergunta' },
+      { role: 'agent', text: 'começando' },
+      { role: 'operator', text: 'pergunta 2' },
+      { role: 'agent', text: 'ok' },
+    ])
+  })
+
+  it('um pacote recebido se desdobra nas mensagens dele; o request vira mensagem do operador', () => {
+    const original: HandoffMessage[] = [
+      { role: 'summary', text: 'resumo antigo' },
+      { role: 'operator', text: 'pergunta A\n\ncom parágrafo' },
+      { role: 'agent', text: 'resposta A\n→ Bash: ls' },
+    ]
+    const pacote = buildHandoff(original, { label: 'Claude', ref: '/x/conv.jsonl' })!
+    const msgs = messagesOf([
+      op(withRequest(pacote, 'continua daqui')),
+      ag(txt('continuando')),
+      op('mais uma'),
+      ag(txt('feito')),
+    ])
+    expect(msgs).toEqual([
+      ...original,
+      { role: 'operator', text: 'continua daqui' },
+      { role: 'agent', text: 'continuando' },
+      { role: 'operator', text: 'mais uma' },
+      { role: 'agent', text: 'feito' },
+    ])
+  })
+
+  it('ida e volta: o pacote do destino carrega o contexto da origem, não só a confirmação', async () => {
+    // Claude → Codex (pacote sem pedido) → de volta ao Claude.
+    const origem = messagesOf([op('pergunta 1'), ag(txt('resposta 1')), op('pergunta 2'), ag(txt('resposta 2'))])
+    const ida = buildHandoff(origem, { label: 'Claude', ref: '/c/conv.jsonl' })!
+    const destino = [op(ida.text), ag(txt('Contexto recebido.')), op('e agora?'), ag(txt('agora isto'))]
+    const volta = (await collectHandoff(fakeEngine(destino, { pageSize: 1 }), '/p', 'cdx', { working: false }))!
+    expect(volta.messages).toBe(7)
+    expect(volta.text).toContain('=== operator ===\npergunta 1\n\n=== agent ===\nresposta 1')
+    expect(volta.text).toContain('=== agent ===\nresposta 2\n\n=== agent ===\nContexto recebido.')
+    // O cabeçalho do pacote antigo não entra como texto.
+    expect(volta.text.split(HANDOFF_PREFIX)).toHaveLength(2)
+    // Com o destino trabalhando no turno do pacote: o contexto fica, a confirmação em curso sai.
+    const emCurso = (await collectHandoff(fakeEngine([op(ida.text), ag(txt('lendo…'))]), '/p', 'cdx', { working: true }))!
+    expect(emCurso.messages).toBe(4)
+    expect(emCurso.text).not.toContain('lendo')
+  })
+
+  it('resumo de dentro do pacote não descarta o que veio antes dele na conversa', () => {
+    const pacote = buildHandoff([{ role: 'summary', text: 'resumo' }, { role: 'operator', text: 'q' }], META)!
+    const msgs = messagesOf([op('antes'), ag(txt('r')), op(pacote.text)])
+    expect(msgs).toEqual([
+      { role: 'operator', text: 'antes' },
+      { role: 'agent', text: 'r' },
+      { role: 'summary', text: 'resumo' },
+      { role: 'operator', text: 'q' },
+    ])
+  })
+})
+
 describe('isCompactionSummary', () => {
   it('pela flag ou pelo preâmbulo', () => {
     expect(isCompactionSummary(op('qualquer coisa', { isCompactSummary: true }))).toBe(true)

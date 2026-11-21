@@ -115,7 +115,8 @@ const botao = (dlg: HTMLElement, name: string) => within(dlg).getByRole('button'
 
 describe('Editar a partir daqui', () => {
   it('Kimi/OpenCode: as duas opções desligadas com o motivo e Copiar para o campo funciona', async () => {
-    setup({ engine: 'kimi' })
+    // Com o agente trabalhando: copiar para o campo não interrompe (R24).
+    setup({ engine: 'kimi', status: 'working' })
     const off = { enabled: false, reason: 'engine_unsupported' as const, params: { engine: 'kimi' } }
     routes[OPTIONS] = opts({ engine: 'kimi', conversation: off, files: off })
     const send = abrir()
@@ -136,6 +137,17 @@ describe('Editar a partir daqui', () => {
     expect(screen.queryByRole('dialog', { name: 'Editar a partir daqui' })).toBeNull()
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(calls(REWIND)).toEqual([])
+  })
+
+  it('Kimi trabalhando: sem volta possível, o aviso de interrupção não aparece', async () => {
+    setup({ engine: 'kimi', status: 'working' })
+    const off = { enabled: false, reason: 'engine_unsupported' as const, params: { engine: 'kimi' } }
+    routes[OPTIONS] = opts({ engine: 'kimi', conversation: off, files: off })
+    abrir()
+    const dlg = await editar(1)
+    await within(dlg).findByText('O Kimi Code não deixa o Claudinei voltar a conversa.')
+    // O aviso é das duas voltas; com as duas desligadas, só resta copiar, que não interrompe.
+    expect(within(dlg).queryByText('Editar interrompe o turno em andamento.')).toBeNull()
   })
 
   it('OpenCode: o nome de exibição do motor', async () => {
@@ -338,6 +350,24 @@ describe('Editar a partir daqui', () => {
     expect(useStore.getState().editRequest).toMatchObject({ text: 'faça Y' })
   })
 
+  it('a conversa voltou mas o texto não saiu: o aviso e o texto no campo', async () => {
+    setup()
+    routes[OPTIONS] = opts()
+    routes[REWIND] = { conversationRewound: true, error: { code: 'rewind_failed', message: 'o envio falhou' } } satisfies RewindResultDto
+    abrir()
+    const dlg = await editar(1)
+    fireEvent.change(within(dlg).getByRole('textbox'), { target: { value: 'faça V' } })
+    await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
+    fireEvent.click(botao(dlg, 'Voltar só a conversa'))
+    expect(await within(dlg).findByText('A conversa voltou, mas o texto editado não saiu: o envio falhou. Ele ficou no campo.')).toBeTruthy()
+    expect(useStore.getState().editRequest).toMatchObject({ localId: 'a', text: 'faça V' })
+    // A conversa voltou: o corte do chat local vale, e fechar não recarrega o histórico.
+    expect(useStore.getState().chat.a.map(i => i.key)).toEqual(['k0', 'k1'])
+    fireEvent.click(within(dlg).getAllByRole('button', { name: 'Fechar' }).at(-1)!)
+    expect(screen.queryByRole('dialog', { name: 'Editar a partir daqui' })).toBeNull()
+    expect('a' in useStore.getState().historyLoadedFor).toBe(true)
+  })
+
   it('pedido recusado (409): o erro aparece e o histórico recarrega', async () => {
     setup()
     routes[OPTIONS] = opts()
@@ -361,11 +391,16 @@ describe('Editar a partir daqui', () => {
     ]
     const send = abrir()
     const dlg = await editar(1)
-    expect(within(dlg).getByText('Editar interrompe o turno em andamento.')).toBeTruthy()
+    const aviso = within(dlg).getByText('Editar interrompe o turno em andamento.')
     expect(screen.queryByText('Editar e interromper?')).toBeNull()
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
 
     await waitFor(() => expect(botao(dlg, 'Voltar a conversa e os arquivos').disabled).toBe(false))
+    // O aviso descreve as duas voltas, não o Copiar para o campo.
+    expect(aviso.id).not.toBe('')
+    expect(botao(dlg, 'Voltar só a conversa').getAttribute('aria-describedby')).toBe(aviso.id)
+    expect(botao(dlg, 'Voltar a conversa e os arquivos').getAttribute('aria-describedby')).toBe(aviso.id)
+    expect(botao(dlg, 'Copiar para o campo').hasAttribute('aria-describedby')).toBe(false)
     fireEvent.click(botao(dlg, 'Voltar a conversa e os arquivos'))
     // Sem prévia nas opções: o rewind sai sem token; o servidor interrompe e devolve a prévia.
     await waitFor(() => expect(calls(REWIND)).toHaveLength(1))

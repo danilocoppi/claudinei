@@ -1,16 +1,16 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type {
   Availability, RewindMode, RewindOptionsDto, RewindResultDto, RewindTarget, TurnDto, UndoPreview,
 } from '../../../../shared/undo'
-import type { ChatItem } from '../../types'
+import type { ChatItem, EngineMeta } from '../../types'
 import { useStore } from '../../store'
 import { useUndoStore } from '../../undo/undoStore'
 import { attachTurns, occurrenceOf } from '../../undo/attachTurns'
 import { changedPreview, fetchRewindOptions, rewind, type UndoDecision } from '../../undo/api'
 import { localizeServerError } from '../../serverErrors'
-import { WsContext } from '../../wsContext'
 import { UndoDialog } from './UndoDialog'
 import { useDialogKeys } from './useDialogKeys'
 import './undo.css'
@@ -47,6 +47,23 @@ type FilesStep = { preview: UndoPreview; changed: boolean; notice?: string }
 
 const errMessage = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
+type T = TFunction
+
+/**
+ * O motivo traduzido de uma opção desligada (null se ligada). `engine` é o
+ * motor das opções, para quando o motivo não traz o seu. Fora do componente
+ * para o `reloadPreview` usar com as opções novas, sem capturar o render.
+ */
+function reasonOf(t: T, engines: EngineMeta[], a: Availability, engine: string): string | null {
+  if (a.enabled || !a.reason) return null
+  if (a.reason === 'engine_unsupported') {
+    const id = a.params?.engine ?? engine
+    const name = engines.find((e) => e.id === id)?.label ?? (id ? id.charAt(0).toUpperCase() + id.slice(1) : '')
+    return t('undo.reason.engine_unsupported', { engine: name })
+  }
+  return t(`undo.reason.${a.reason}` as 'undo.reason.no_git')
+}
+
 /**
  * O erro da volta que não deu certo. `rewind_failed` é o motor recusando:
  * o texto dele diz mais que o genérico; os outros códigos têm tradução.
@@ -71,13 +88,13 @@ function reloadHistory(localId: string): void {
  * **Voltar só a conversa** e **Voltar a conversa e os arquivos** pedem ao
  * servidor (`rewind`), que corta a conversa no motor e manda o texto editado;
  * a segunda passa antes pela tela de desfazer em modo de escolha. **Copiar
- * para o campo** é o editar de antes: o texto vai ao campo do chat, sem envio.
+ * para o campo** é o editar de antes: o texto vai ao campo do chat, sem envio
+ * e sem interromper o agente (R24); só as duas voltas interrompem o turno.
  * As opções que o motor ou o retrato não permitem ficam desligadas com o
  * motivo. Modal simples, sem animação nem desfoque (sem GPU).
  */
 export function EditFromHereDialog({ localId, target, initialText, itemKey, itemIndex, onClose }: Props) {
   const { t } = useTranslation()
-  const ws = useContext(WsContext)
   const engines = useStore((s) => s.engines)
   const working = useStore((s) => s.sessions[localId]?.status === 'working')
   const [text, setText] = useState(initialText)
@@ -112,14 +129,7 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
     )
   }, [localId, target])
 
-  const engineName = (id: string) => engines.find((e) => e.id === id)?.label ?? (id ? id.charAt(0).toUpperCase() + id.slice(1) : '')
-  const reasonText = (a: Availability): string | null => {
-    if (a.enabled || !a.reason) return null
-    if (a.reason === 'engine_unsupported') {
-      return t('undo.reason.engine_unsupported', { engine: engineName(a.params?.engine ?? (opts.status === 'ok' ? opts.data.engine : '')) })
-    }
-    return t(`undo.reason.${a.reason}` as 'undo.reason.no_git')
-  }
+  const reasonText = (a: Availability) => reasonOf(t, engines, a, opts.status === 'ok' ? opts.data.engine : '')
 
   /** O chat local está cortado por uma volta que ainda não deu certo. */
   const cutRef = useRef(false)
@@ -210,15 +220,15 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
   const reloadPreview = useCallback(
     () => fetchRewindOptions(localId, target).then((o) => {
       if (o.files.preview) return o.files.preview
-      throw new Error(reasonText(o.conversation.enabled ? o.files : o.conversation) ?? t('serverErrors.rewind_unavailable'))
+      // Os motores lidos na hora: o motivo vem das opções novas, não das do render.
+      const why = reasonOf(t, useStore.getState().engines, o.conversation.enabled ? o.files : o.conversation, o.engine)
+      throw new Error(why ?? t('serverErrors.rewind_unavailable'))
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [localId, target],
+    [localId, target, t],
   )
 
+  // Só o texto vai ao campo: copiar não exige parar o turno (R24).
   const copy = () => {
-    // Como o editar de antes: com o agente trabalhando, interrompe o turno.
-    if (working) ws?.send({ type: 'interrupt', localId })
     useStore.getState().requestEdit(localId, text)
     close()
   }
@@ -235,6 +245,9 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
   const idle = !busy && finished === null
   const canConversation = idle && hasText && !!data?.conversation.enabled
   const canFiles = canConversation && !!data?.files.enabled
+  // O aviso é das duas voltas (só elas interrompem): some quando o motor não deixa nenhuma.
+  const warnId = useId()
+  const showWarn = working && !(data && !data.conversation.enabled)
 
   // Um motivo por opção desligada; o mesmo motivo para as duas aparece uma vez.
   const reasons: Array<[string, string]> = []
@@ -257,7 +270,6 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
               <button type="button" className="ghost undo-panel__close" aria-label={t('common.close')} onClick={close}>×</button>
             </header>
             <div className="undo-dialog__body">
-              {working && <p className="undo-dialog__warn">{t('chat.editWorkingMsg')}</p>}
               <textarea ref={textRef} className="undo-edit__text" aria-label={t('undo.edit.text')} rows={5}
                         value={text} readOnly={!idle} onChange={(e) => setText(e.target.value)} />
               {opts.status === 'loading' && <p className="undo-section__msg">{t('undo.panel.loading')}</p>}
@@ -266,6 +278,9 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
               {finished !== null && <p className="undo-dialog__warn" role="alert">{finished}</p>}
             </div>
             {error && <p className="undo-dialog__err" role="alert">{error}</p>}
+            {showWarn && finished === null && (
+              <p id={warnId} className="undo-dialog__warn undo-edit__warn">{t('chat.editWorkingMsg')}</p>
+            )}
             <footer className="undo-dialog__foot undo-edit__foot">
               {finished !== null ? (
                 <button type="button" onClick={close}>{t('common.close')}</button>
@@ -273,10 +288,11 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
                 <>
                   <button type="button" className="ghost" onClick={close}>{t('common.cancel')}</button>
                   <button type="button" className="ghost" disabled={!idle} onClick={copy}>{t('undo.edit.copy')}</button>
-                  <button type="button" disabled={!canConversation} onClick={() => { void send('conversation') }}>
+                  <button type="button" disabled={!canConversation} aria-describedby={showWarn ? warnId : undefined}
+                          onClick={() => { void send('conversation') }}>
                     {sending === 'conversation' ? t('undo.edit.sending') : t('undo.edit.conversation')}
                   </button>
-                  <button type="button" disabled={!canFiles} onClick={onFiles}>
+                  <button type="button" disabled={!canFiles} aria-describedby={showWarn ? warnId : undefined} onClick={onFiles}>
                     {sending === 'conversation_and_files' && !files ? t('undo.edit.sending') : t('undo.edit.conversationAndFiles')}
                   </button>
                 </>

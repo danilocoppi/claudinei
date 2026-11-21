@@ -35,7 +35,7 @@ describe('editar mensagem', () => {
     expect(await screen.findAllByLabelText('Editar esta mensagem')).toHaveLength(5) // m2..m6
   })
 
-  it('lápis durante working abre o diálogo com o aviso de interrupção; Copiar para o campo interrompe e registra o editRequest', async () => {
+  it('lápis durante working abre o diálogo com o aviso de interrupção; Copiar para o campo NÃO interrompe e registra o editRequest', async () => {
     const send = vi.fn()
     setup('working', [u('instrução errada')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
@@ -46,7 +46,8 @@ describe('editar mensagem', () => {
     expect(within(dlg).getByText('Editar interrompe o turno em andamento.')).toBeTruthy()
     expect(screen.queryByText('Editar e interromper?')).toBeNull()
     fireEvent.click(within(dlg).getByRole('button', { name: 'Copiar para o campo' }))
-    expect(send).toHaveBeenCalledWith({ type: 'interrupt', localId: 's1' })
+    // Copiar o texto não exige parar o turno (R24): só as duas voltas interrompem.
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(useStore.getState().editRequest).toMatchObject({ localId: 's1', text: 'instrução errada' })
   })
 

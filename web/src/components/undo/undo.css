@@ -169,3 +169,5 @@
 }
 .undo-edit__reason { margin: 2px 14px 4px; font-size: 12px; color: var(--text-dim); }
 .undo-edit__foot { flex-wrap: wrap; }
+/* Junto dos botões das duas voltas, à direita: o aviso é delas, não do Copiar. */
+.undo-edit__warn { margin: 4px 14px 8px auto; width: fit-content; max-width: calc(100% - 28px); }

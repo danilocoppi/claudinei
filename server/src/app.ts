@@ -59,6 +59,7 @@ import { createBranchService, type BranchService, type SideTestDeps } from './br
 import { registerBranchRoutes } from './routes/branch.js'
 import { createUndo, type Undo } from './undo/index.js'
 import { registerUndoRoutes } from './routes/undo.js'
+import { createPagesService, registerPageRoutes, type PagesService } from './pages/service.js'
 
 export interface AppDeps {
   config: Config
@@ -179,6 +180,8 @@ export interface AppDeps {
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
+  // Respostas visuais: nasce depois do desfazer (o turno aberto vem dele).
+  let pages: PagesService | undefined
   // O Fastify decide entre http e https no CONSTRUTOR, e tipa o servidor de forma
   // diferente em cada caso — daí os dois ramos e o cast. A API que usamos daqui
   // para baixo é idêntica nos dois (rotas, hooks, listen, server.address()).
@@ -251,6 +254,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
   const liveLocalId = (projectId: number, engine: string): string | null =>
     deps.manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))?.localId ?? null
+  // Respostas visuais (show_page): a conversa é a da sessão viva do terminal; o turno, o trecho aberto do desfazer.
+  pages = createPagesService({
+    db: deps.db, dir: deps.config.pagesDir, projects: createProjectsService(deps.db),
+    liveSession: (projectId, engine) => {
+      const s = deps.manager.list().find((x) => x.projectId === projectId && x.engine === engine && ACTIVE.has(x.status))
+      return s ? { localId: s.localId, engineSessionId: s.engineSessionId ?? null } : undefined
+    },
+    openTurn: (localId) => {
+      const turnId = undo.tracker.openSegment(localId)
+      return turnId === undefined ? undefined : { turnId, turnKey: undo.store.turn(turnId)?.textKey ?? null }
+    },
+    broadcast: (m) => deps.wsHub?.broadcast(m),
+  })
+  registerPageRoutes(app, { pages, manager: deps.manager, settings: createSettingsService(deps.db) })
   const queueStore = createOperatorQueueStore(deps.db)
   const queue = createOperatorQueueService({
     store: queueStore, manager: deps.manager,

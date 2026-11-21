@@ -11,6 +11,7 @@ import { UserError } from '../src/user-error.js'
 import { filesRevertedNote, turnKey, withNote } from '../../shared/undo.js'
 import type { AgentEvent } from '../src/engine/types.js'
 import { makeRepo, makeTempDir } from './helpers/git-repo.js'
+import { HANDOFF_PREFIX } from '../src/branch/handoff.js'
 
 let db: Db
 let store: UndoStore
@@ -361,6 +362,22 @@ describe('rastreador de turnos', () => {
     await t.idle()
     const [first] = store.terminalTurns(projectId, 'claude')
     expect(first.textKey).toBe('m1')
+  })
+
+  it('pacote da ⇄ sai sem a nota; ela espera a próxima mensagem', async () => {
+    const r = repo()
+    const projectId = project(r.dir)
+    store.addNote(projectId, 'claude', ['a.txt'])
+    const t = tracker()
+    const ctx = { localId: 'L1', projectId, engine: 'claude' }
+    const pacote = `${HANDOFF_PREFIX}: This conversation continues one held with Codex in this same folder.\n\n=== operator ===\noi`
+    const sent: string[] = []
+    send(t, ctx, pacote, 'claudinei', sent)
+    finish(t, ctx)
+    send(t, ctx, 'm2', 'operator', sent)
+    expect(sent).toEqual([pacote, withNote(filesRevertedNote(['a.txt']), 'm2')])
+    expect(store.takeNote(projectId, 'claude')).toBeNull()
+    await t.idle()
   })
 
   it('holdInput lança e a mensagem não sai', () => {

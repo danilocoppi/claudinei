@@ -1,5 +1,6 @@
 import type { AgentEvent } from './engine/types.js'
 import type { PositionedEvent } from './history-page.js'
+import { stripNotes } from '../../shared/undo.js'
 
 /**
  * Busca na conversa, sem índice: a rota lê uma fatia do arquivo da engine por
@@ -39,17 +40,48 @@ function toolOutputText(content: unknown): string {
 export const COMPACT_PREAMBLE = /^This session is being continued from a previous conversation/
 
 /**
- * O texto do usuário como a tela mostra (ver `classifyUserText` na web): o
- * aviso de comando local some inteiro, e os lembretes e notificações do
- * harness saem do corpo. Os cartões (tarefa, agendamento, Claudinei) mostram o
- * texto, então ficam.
+ * Selo do pacote de contexto da ⇄ (cópia em web/src/branch/handoff.ts). Mora
+ * aqui porque decide o que a tela mostra; branch/handoff.ts o reexporta.
  */
-export function visibleUserText(text: string): string {
+export const HANDOFF_PREFIX = '[Claudinei: context handoff]'
+
+/** Tira os lembretes que o harness anexa no FIM do texto (como `semRemindersNoFim` na web). */
+function semRemindersNoFim(text: string): string {
+  let t = text.trimEnd()
+  while (t.endsWith('</system-reminder>')) {
+    const ini = t.lastIndexOf('<system-reminder>')
+    if (ini < 0) break
+    t = t.slice(0, ini).trimEnd()
+  }
+  return t
+}
+
+/** O corpo (já sem as notas do desfazer) como a tela mostra. */
+function corpoVisivel(text: string): string {
+  // Pacote da ⇄: reconhecido antes do caveat. O corpo é texto cru da conversa
+  // de origem e pode citar caveat ou reminders; fica intacto, só o reminder
+  // do fim sai.
+  if (text.startsWith(`${HANDOFF_PREFIX}:`)) return semRemindersNoFim(text.trim())
+  // Caveat de comando local: a mensagem inteira some (a tela testa "contém",
+  // e a busca acompanha a tela).
   if (text.includes('<local-command-caveat>')) return ''
   return text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
     .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, '')
     .trim()
+}
+
+/**
+ * O texto do usuário como a tela mostra (ver `classifyUserText` na web): as
+ * notas do desfazer saem do texto cru antes de qualquer teste e voltam na
+ * frente do que sobra (a tela as mostra como linhas próprias); o pacote da ⇄
+ * fica inteiro; o aviso de comando local some inteiro; os lembretes e
+ * notificações do harness saem do corpo. Os cartões (tarefa, agendamento,
+ * Claudinei) mostram o texto, então ficam.
+ */
+export function visibleUserText(text: string): string {
+  const { notes, rest } = stripNotes(text.trimStart())
+  return [...notes.map((n) => n.body), corpoVisivel(rest)].filter(Boolean).join('\n\n')
 }
 
 /** Os textos pesquisáveis de um evento, na ordem em que aparecem nele. */

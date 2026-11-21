@@ -1,6 +1,7 @@
 import type { AgentEvent, Engine } from '../engine/types.js'
 import { readPage } from '../history-page.js'
-import { COMPACT_PREAMBLE, visibleUserText } from '../history-search.js'
+import { stripNotes } from '../../../shared/undo.js'
+import { COMPACT_PREAMBLE, HANDOFF_PREFIX, visibleUserText } from '../history-search.js'
 
 /**
  * Pacote de contexto: a conversa recente em texto, para quem não recebe a
@@ -10,7 +11,7 @@ import { COMPACT_PREAMBLE, visibleUserText } from '../history-search.js'
  * trazido do <Motor>").
  */
 
-export const HANDOFF_PREFIX = '[Claudinei: context handoff]'
+export { HANDOFF_PREFIX }
 /** ~16 mil tokens a 4 caracteres por token. Conta o texto todo, cabeçalho incluso. */
 export const HANDOFF_BUDGET_CHARS = 64_000
 /** Abaixo dos 120 KB por mensagem do Kimi e do OpenCode. Conta o texto todo em UTF-8. */
@@ -149,6 +150,9 @@ const ROLE_OF_TAG = new Map<string, HandoffMessage['role']>(
  * do formato, null (o texto fica como mensagem do operador).
  */
 function desdobrarPacote(texto: string): Piece[] | null {
+  // As notas do desfazer na frente do pacote saem antes de reconhecer o selo
+  // (o rastreador não as gruda no pacote, mas um texto antigo pode tê-las).
+  texto = stripNotes(texto).rest
   if (!texto.startsWith(`${HANDOFF_PREFIX}:`)) return null
   const ini = texto.indexOf('\n\n')
   if (ini < 0) return null

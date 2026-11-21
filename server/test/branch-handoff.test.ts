@@ -4,6 +4,7 @@ import {
   messagesOf, dropOpenTurn, isCompactionSummary, buildHandoff, withRequest, collectHandoff,
   type HandoffMessage,
 } from '../src/branch/handoff.js'
+import { CONVERSATION_REWOUND_NOTE, filesRevertedNote, withNote } from '../../shared/undo.js'
 import type { AgentEvent, Engine } from '../src/engine/types.js'
 import type { HistoryPageOptions, PositionedEvent } from '../src/history-page.js'
 
@@ -275,6 +276,41 @@ describe('pacote recebido e interrupções (pacotes encadeados)', () => {
       { role: 'operator', text: 'mais uma' },
       { role: 'agent', text: 'feito' },
     ])
+  })
+
+  it('nota do desfazer na frente do pacote recebido: sai, e o pacote se desdobra', () => {
+    const original: HandoffMessage[] = [
+      { role: 'operator', text: 'pergunta A' },
+      { role: 'agent', text: 'resposta A' },
+    ]
+    const pacote = withRequest(buildHandoff(original, META)!, 'continua')
+    for (const nota of [filesRevertedNote(['a.txt']), CONVERSATION_REWOUND_NOTE]) {
+      expect(messagesOf([op(withNote(nota, pacote)), ag(txt('ok'))])).toEqual([
+        ...original,
+        { role: 'operator', text: 'continua' },
+        { role: 'agent', text: 'ok' },
+      ])
+    }
+    // As duas notas juntas também saem.
+    const duas = withNote(CONVERSATION_REWOUND_NOTE, withNote(filesRevertedNote(['b.txt']), pacote))
+    expect(messagesOf([op(duas)])).toEqual([...original, { role: 'operator', text: 'continua' }])
+  })
+
+  it('pacote cujo corpo cita <local-command-caveat> continua desdobrado e com o corpo intacto, com ou sem nota', () => {
+    const original: HandoffMessage[] = [
+      { role: 'operator', text: 'o que é isto?' },
+      { role: 'agent', text: 'É o aviso <local-command-caveat>Caveat: x</local-command-caveat> do CLI.' },
+    ]
+    const pacote = buildHandoff(original, META)!.text
+    for (const texto of [pacote, withNote(filesRevertedNote(['a.txt']), pacote)]) {
+      expect(messagesOf([op(texto), ag(txt('ok'))])).toEqual([...original, { role: 'agent', text: 'ok' }])
+    }
+    // O pacote seguinte leva o corpo do anterior.
+    const seguinte = buildHandoff(messagesOf([op(withNote(CONVERSATION_REWOUND_NOTE, pacote)), ag(txt('ok'))]), META)!
+    expect(seguinte.text).toContain('=== agent ===\nÉ o aviso <local-command-caveat>Caveat: x</local-command-caveat> do CLI.')
+    // O texto de comando local de verdade (começa com o caveat) continua de fora.
+    expect(messagesOf([op('<local-command-caveat>Caveat: x</local-command-caveat>'), op('oi')]))
+      .toEqual([{ role: 'operator', text: 'oi' }])
   })
 
   it('ida e volta: o pacote do destino carrega o contexto da origem, não só a confirmação', async () => {

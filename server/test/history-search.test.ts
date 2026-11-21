@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildApp } from '../src/app.js'
+import { buildHandoff } from '../src/branch/handoff.js'
+import { CONVERSATION_REWOUND_NOTE, filesRevertedNote, withNote } from '../../shared/undo.js'
 import { openDb, type Db } from '../src/db.js'
 import { loadConfig } from '../src/config.js'
 import { createSessionManager } from '../src/claude/manager.js'
@@ -106,6 +108,22 @@ describe('searchableTexts', () => {
     const lembrete = usuario('pergunta real<system-reminder>segredo do harness</system-reminder>')
     expect(searchableTexts(lembrete, false)).toEqual([{ field: 'text', text: 'pergunta real' }])
     expect(searchableTexts(usuario('<local-command-caveat>ruído</local-command-caveat>'), false)).toEqual([])
+  })
+
+  it('pacote da ⇄ que cita <local-command-caveat> no corpo conta, com ou sem nota do desfazer na frente', () => {
+    const pacote = buildHandoff([
+      { role: 'operator', text: 'o que é isto?' },
+      { role: 'agent', text: 'É o aviso <local-command-caveat>Caveat: x</local-command-caveat> do AGULHA.' },
+    ], { label: 'Claude', ref: '/x/conv.jsonl' })!.text
+    for (const texto of [pacote, withNote(filesRevertedNote(['a.txt']), pacote), withNote(CONVERSATION_REWOUND_NOTE, pacote)]) {
+      const [t] = searchableTexts(usuario(texto), false)
+      expect(t.text).toContain(pacote)
+      expect(searchEvents(comPos([usuario(texto)]), 'agulha', false)).toHaveLength(1)
+    }
+    // O comando local de verdade começa com o caveat e continua de fora, com ou sem nota.
+    const caveat = '<local-command-caveat>Caveat: AGULHA</local-command-caveat>'
+    expect(searchEvents(comPos([usuario(caveat)]), 'agulha', false)).toEqual([])
+    expect(searchEvents(comPos([usuario(withNote(CONVERSATION_REWOUND_NOTE, caveat))]), 'agulha', false)).toEqual([])
   })
 
   it('hit de tool_result traz toolUseId', () => {

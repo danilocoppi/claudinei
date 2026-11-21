@@ -4,6 +4,7 @@ import { takeSnapshot, type SNAPSHOT_LIMITS } from '../checkpoint/snapshot.js'
 import type { RepoInfo, createRepoResolver } from '../checkpoint/repo.js'
 import type { createSerialQueue } from '../checkpoint/serial.js'
 import { filesRevertedNote, turnKey, withNote, type EndKind, type TurnOrigin } from '../../../shared/undo.js'
+import { HANDOFF_PREFIX } from '../history-search.js'
 import { declaredPaths } from './declared.js'
 import { errText, underTop } from './scope.js'
 import { SIDE_ACTIVE, type MarkKind, type TurnRow, type UndoStore } from './store.js'
@@ -374,7 +375,11 @@ export function createTurnTracker(deps: {
     onInput(ctx, text, origin, send) {
       deps.holdInput?.(ctx)
       let files: string[] | null = null
-      try { files = store.takeNote(ctx.projectId, ctx.engine) } catch (e) { log(`nota: ${errText(e)}`) }
+      // O pacote da ⇄ não leva a nota: grudada na frente, o selo deixaria de
+      // abrir o texto. Ela continua pendente para a próxima mensagem.
+      if (!text.startsWith(`${HANDOFF_PREFIX}:`)) {
+        try { files = store.takeNote(ctx.projectId, ctx.engine) } catch (e) { log(`nota: ${errText(e)}`) }
+      }
       const final = files?.length ? withNote(filesRevertedNote(files), text) : text
       try {
         send(final)

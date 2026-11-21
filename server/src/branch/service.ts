@@ -73,6 +73,19 @@ export function createBranchService(deps: {
    */
   const pending = new Map<string, string[]>()
 
+  /**
+   * Tira de `pending` as mensagens de um turno já encerrado (`sent`), mantendo
+   * as que o operador mandou depois dele (o `onOperatorMessage` só acrescenta
+   * no fim; se o começo já não é o do turno, alguém consumiu a lista antes).
+   */
+  const dropSent = (localId: string, sent: string[]): void => {
+    const now = pending.get(localId)
+    if (!now) return
+    const rest = sent.every((t, i) => now[i] === t) ? now.slice(sent.length) : now
+    if (rest.length > 0) pending.set(localId, rest)
+    else pending.delete(localId)
+  }
+
   type ForkRow = { local_id: string; claude_session_id: string | null; fork_source: string }
 
   /**
@@ -81,7 +94,9 @@ export function createBranchService(deps: {
    * O `fork_source` já saiu do banco: roda uma vez por sessão.
    */
   const recover = async (localId: string, projectPath: string, src: ForkSource, texts: string[]): Promise<void> => {
-    const pack = await collect(getEngine(src.engine), projectPath, src.sourceId, {
+    // O pacote guardado no `/fork` (OpenCode) é a cópia à risca até o comando;
+    // refazê-lo agora, sem corte, traria o turno em curso e o que veio depois.
+    const pack = src.seed ? { text: src.seed } : await collect(getEngine(src.engine), projectPath, src.sourceId, {
       working: false, ...(src.previewBefore !== null ? { before: src.previewBefore } : {}),
     }).catch((err) => { console.error('[ramo] pacote da cópia recusada falhou', err); return null })
     try {
@@ -117,13 +132,20 @@ export function createBranchService(deps: {
       if (rows.length === 0) return
       const path = projects.get(projectId)?.path
       for (const r of rows) {
-        // O turno acabou: as mensagens dele não estão mais "a caminho".
-        pending.delete(r.local_id)
         // A cópia gravada encerra o `fork_source`: o revive daqui em diante
         // retoma o ramo, em vez de copiar de novo por cima do que ele andou.
         if (path && forkCopyDone(getEngine(engine), path, r.claude_session_id)) {
           deps.db.prepare('UPDATE sessions SET fork_source=NULL WHERE local_id=?').run(r.local_id)
+          pending.delete(r.local_id)
+          continue
         }
+        // Sem a cópia, o turno acabou mas as mensagens dele só saem no passo
+        // seguinte do laço: a cópia recusada do Codex e do OpenCode emite o
+        // result de erro e, no mesmo passo síncrono, morre. O `onSessionDied`
+        // que vem logo depois ainda as encontra; numa sessão que sobrevive ao
+        // erro (o pacote grande do OpenCode), elas não voltam numa morte futura.
+        const ended = pending.get(r.local_id)
+        if (ended) setImmediate(() => dropSent(r.local_id, ended))
       }
     },
 
@@ -146,6 +168,12 @@ export function createBranchService(deps: {
       }
       // O id escolhido nunca virou conversa: sai junto, e o revive abre uma nova.
       deps.db.prepare('UPDATE sessions SET fork_source=NULL, claude_session_id=NULL WHERE local_id=?').run(r.local_id)
+      // Sai também da posse do terminal: na pasta compartilhada o revive procura
+      // "a conversa própria" ali, e o Codex não confere existência; o id do
+      // `thread/fork` sem rollout viraria `resume` de um thread fantasma.
+      if (r.claude_session_id) {
+        deps.db.prepare('DELETE FROM project_threads WHERE project_id=? AND engine=? AND thread_id=?').run(projectId, engine, r.claude_session_id)
+      }
       // Assíncrono de propósito: o handler de status ainda vai tirar a sessão
       // morta do `live`, e o revive tem de vir depois disso.
       void recover(r.local_id, path, src, texts).catch((err) => console.error('[ramo] cópia recusada', err))

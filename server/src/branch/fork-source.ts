@@ -97,24 +97,18 @@ export function forkPlanOf(src: ForkSource, projectPath: string): Pick<EngineSes
 
 /**
  * A cópia do ramo já está no storage do motor? É o que encerra o `fork_source`
- * (fim do primeiro turno) e o que separa a morte comum da cópia recusada.
- * Quem sabe conferir (o Claude: o transcript do id escolhido) confere; os
- * outros bastam com o id gravado (Codex: o `thread/fork` só devolve o id se
- * copiou; OpenCode: o id só sai no init do primeiro turno).
+ * (fim do primeiro turno), o que separa a morte comum da cópia recusada e o
+ * que tira a prévia do ar.
+ * - Claude: o transcript do id escolhido (`conversationExists`).
+ * - Codex: o rollout do id que o `thread/fork` devolveu (`transcriptRef`). Só
+ *   o id não basta: sem o arquivo, o revive tentaria `resume` de um thread que
+ *   não existe (o "id fantasma", que trava o chat com "No conversation found").
+ * - OpenCode e outros: basta o id gravado (o id só sai no init do primeiro turno).
  */
 export function forkCopyDone(engine: Engine, projectPath: string, id: string | null | undefined): boolean {
   if (!id || !SAFE_ID.test(id)) return false
-  return engine.conversationExists ? engine.conversationExists(projectPath, id) : true
-}
-
-/**
- * A conversa própria do ramo já tem o que mostrar? Como `forkCopyDone`, mais o
- * Codex conferido pelo rollout: com o id na mão e o arquivo ainda ausente, a
- * prévia segue mostrando o original em vez de uma conversa vazia.
- */
-function ownHistoryShown(engine: Engine, projectPath: string, id: string | null): boolean {
-  if (!forkCopyDone(engine, projectPath, id)) return false
-  if (engine.id === 'codex') return (engine.transcriptRef?.(projectPath, id!) ?? null) !== null
+  if (engine.conversationExists) return engine.conversationExists(projectPath, id)
+  if (engine.id === 'codex') return (engine.transcriptRef?.(projectPath, id) ?? null) !== null
   return true
 }
 
@@ -133,7 +127,7 @@ export async function forkPreviewPage(db: Db, info: SessionInfo, projectPath: st
   const src = parseForkSource(row?.fork_source)
   if (!src || src.engine !== info.engine || src.previewBefore === null) return null
   const engine = getEngine(info.engine)
-  if (ownHistoryShown(engine, projectPath, info.engineSessionId)) return null
+  if (forkCopyDone(engine, projectPath, info.engineSessionId)) return null
   const opts = { before: Math.min(before ?? Infinity, src.previewBefore), minItems: limit }
   let page: HistoryPage
   if (engine.id === 'codex') {

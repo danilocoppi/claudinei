@@ -37,6 +37,8 @@ const CODEX_FIX = join(__dirname, 'fixtures', 'branch', 'codex-rollout.jsonl')
 const SRC = '11111111-1111-4111-8111-111111111111'
 const CODEX_ID = '019f0000-0000-7000-8000-00000000c0de'
 const T2 = '019f0000-0000-7000-8000-0000000000t2'
+/** Id que o `thread/fork` devolve ao ramo do Codex. */
+const FORK_ID = '019f0000-0000-7000-8000-0000000f0f0f'
 const U = (n: number) => `aaaaaaaa-0000-4000-8000-00000000000${n}`
 
 /** Sessão falsa: grava o que recebe e deixa o teste mandar no status e nos eventos. */
@@ -587,6 +589,103 @@ describe('cópia recusada', () => {
     expect(created).toHaveLength(n + 1)
   })
 
+  it('Codex: thread/fork recusado com a mensagem do operador a caminho (result de erro e logo dead): o pacote sai e a mensagem é reenviada uma vez', async () => {
+    rollout('20', null, Date.now())
+    startMain(p1, 'codex', CODEX_ID)
+    const { session } = await forkOk(p1.id, { engine: 'codex' })
+    const s = created.at(-1)!
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    // Como o `fail` do Codex: `finish` emite o result de erro (e assenta), e só depois `dead`.
+    s.emit('event', { kind: 'result', subtype: 'error', isError: true, resultText: 'fork recusado', costUsd: 0, raw: {} })
+    s.set('needs_attention')
+    s.set('dead')
+    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length >= 2).toBe(true)
+    await tick()
+    const s2 = created.at(-1)!
+    expect(s2.opts.forkFrom).toBeUndefined()
+    expect(s2.opts.resumeSessionId).toBeUndefined()
+    expect(s2.writes).toHaveLength(2)
+    expect(s2.writes[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
+    expect(s2.writes[0].text).toContain('segunda resposta')
+    expect(s2.writes[1]).toEqual({ text: 'minha pergunta', echo: true })
+  })
+
+  it('OpenCode: o processo sai com erro na primeira mensagem (result de erro e logo dead): o pacote sai e a mensagem é reenviada uma vez', async () => {
+    fakeCuts.opencode = { cut: 'msg_9', at: null, previewBefore: 7 }
+    fakePacks.opencode = { text: `${HANDOFF_PREFIX}: pacote oc`, messages: 2, tokens: 10 }
+    startMain(p1, 'opencode', 'ses_src')
+    const { session } = await forkOk(p1.id, { engine: 'opencode' })
+    const s = created.at(-1)!
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    // Como o close do OpenCode: o result de erro e, no mesmo passo, `dead`.
+    s.emit('event', { kind: 'result', subtype: 'error', isError: true, resultText: 'exit 1', costUsd: 0, raw: {} })
+    s.set('dead')
+    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length >= 2).toBe(true)
+    await tick()
+    expect(created.at(-1)!.writes).toEqual([
+      { text: fakePacks.opencode.text, echo: true },
+      { text: 'minha pergunta', echo: true },
+    ])
+  })
+
+  it('OpenCode copiado no meio do turno: a cópia recusada manda o pacote guardado no /fork, não um refeito sem corte', async () => {
+    fakePacks.opencode = { text: `${HANDOFF_PREFIX}: pacote até o /fork`, messages: 2, tokens: 10 }
+    const main = startMain(p1, 'opencode', 'ses_src')
+    manager.send(main.localId, 'em curso')
+    fakeCuts.opencode = { cut: null, at: null, previewBefore: null }
+    const { session } = await forkOk(p1.id, { engine: 'opencode' })
+    const chamadas = collectCalls.length
+    // O original andou depois do /fork: um pacote refeito agora traria isso.
+    fakePacks.opencode = { text: `${HANDOFF_PREFIX}: com o turno em curso e o que veio depois`, messages: 4, tokens: 20 }
+    const n = created.length
+    created.at(-1)!.set('dead')
+    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length > 0).toBe(true)
+    await tick()
+    expect(created.at(-1)!.writes).toEqual([{ text: `${HANDOFF_PREFIX}: pacote até o /fork`, echo: true }])
+    expect(collectCalls).toHaveLength(chamadas)
+  })
+
+  it('Codex: o id do thread/fork sem rollout no disco não é cópia feita; morte antes do primeiro turno vira cópia recusada', async () => {
+    rollout('20', null, Date.now())
+    startMain(p1, 'codex', CODEX_ID)
+    const { session } = await forkOk(p1.id, { engine: 'codex' })
+    const s = created.at(-1)!
+    // O thread/fork devolveu o id, mas o rollout dele ainda não existe.
+    s.init(FORK_ID)
+    expect(rowOf(session.localId).claude_session_id).toBe(FORK_ID)
+    manager.send(session.localId, 'oi ramo')
+    s.result()
+    // Sem o arquivo, o fim do turno não encerra a cópia.
+    expect(rowOf(session.localId).fork_source).not.toBeNull()
+    await tick()
+    const n = created.length
+    s.set('dead')
+    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length > 0).toBe(true)
+    await tick()
+    const s2 = created.at(-1)!
+    // Nada de `resume` de um thread sem arquivo (o "id fantasma"): conversa nova com o pacote.
+    expect(s2.opts.resumeSessionId).toBeUndefined()
+    expect(s2.opts.forkFrom).toBeUndefined()
+    expect(s2.writes).toHaveLength(1)
+    expect(s2.writes[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
+    expect(rowOf(session.localId)).toMatchObject({ fork_source: null })
+  })
+
+  it('Codex: com o rollout do id do thread/fork no disco, o fim do turno encerra a cópia', async () => {
+    rollout('20', null, Date.now())
+    startMain(p1, 'codex', CODEX_ID)
+    const { session } = await forkOk(p1.id, { engine: 'codex' })
+    const s = created.at(-1)!
+    s.init(FORK_ID)
+    manager.send(session.localId, 'oi ramo')
+    const dir = join(process.env.CODEX_HOME!, 'sessions', '2026', '11', '20')
+    writeFileSync(join(dir, `rollout-2026-11-20T11-00-00-${FORK_ID}.jsonl`), '')
+    s.result()
+    expect(rowOf(session.localId).fork_source).toBeNull()
+  })
+
   it('OpenCode: result de erro sem init (pacote acima de 120 KB) é erro do turno, não cópia recusada', async () => {
     fakeCuts.opencode = { cut: 'msg_9', at: null, previewBefore: 7 }
     fakePacks.opencode = { text: `${HANDOFF_PREFIX}: pacote oc`, messages: 2, tokens: 10 }
@@ -598,7 +697,9 @@ describe('cópia recusada', () => {
     expect(manager.get(session.localId)!.status).toBe('idle')
     // Sem cópia ainda: a próxima mensagem tenta de novo.
     expect(rowOf(session.localId).fork_source).not.toBeNull()
-    // O turno acabou: a mensagem dele não volta numa morte posterior.
+    // O turno acabou: a mensagem dele não volta numa morte posterior (num
+    // passo seguinte do laço; a morte no mesmo passo do result é a recusa).
+    await tick()
     const n = created.length
     s.set('dead')
     await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length > 0).toBe(true)

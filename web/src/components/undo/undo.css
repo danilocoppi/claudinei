@@ -110,3 +110,52 @@
 .undo-diff__line--del { background: color-mix(in srgb, var(--err) 14%, transparent); }
 .undo-diff__line--hunk { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .undo-diff__line--meta { color: var(--text-dim); }
+
+/* Entrada com ação (Desfazer/Refazer) ao lado do rótulo */
+.undo-entry__head { display: flex; align-items: center; }
+.undo-entry__head .undo-entry__toggle { flex: 1; min-width: 0; }
+.undo-entry__action {
+  flex: none; margin-right: 12px;
+  background: none; border: 0; padding: 0; border-radius: 0;
+  color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: none; filter: none;
+}
+.undo-entry__action:hover { text-decoration: underline; filter: none; }
+.undo-entry__action:disabled { color: var(--text-dim); text-decoration: none; }
+.undo-panel:focus, .undo-dialog:focus { outline: none; }
+
+/* ── Tela de desfazer ── */
+.undo-dialog-backdrop { z-index: 51; }
+.undo-dialog {
+  display: flex; flex-direction: column;
+  width: min(760px, calc(100vw - 32px)); max-height: min(85vh, 900px);
+  background: var(--surface-solid); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.undo-dialog__body { flex: 1; min-height: 0; overflow: auto; padding: 8px 0; }
+.undo-dialog__warn {
+  margin: 4px 14px 8px; padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm);
+  color: var(--warn); font-size: 13px;
+}
+.undo-dialog__blocked { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 14px 8px; font-size: 13px; color: var(--warn); }
+.undo-dialog__blocked button { padding: 3px 10px; transition: none; }
+.undo-dialog__row { display: flex; align-items: center; gap: 8px; padding: 2px 12px; font-size: 12px; cursor: pointer; }
+.undo-dialog__row--plain { cursor: default; }
+.undo-dialog__check { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; }
+.undo-dialog__path { font-family: var(--font-code); font-size: 12px; overflow-wrap: anywhere; margin: 0; }
+.undo-dialog__link {
+  flex: none; background: none; border: 0; padding: 0; border-radius: 0;
+  color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: none; filter: none;
+}
+.undo-dialog__link:hover { text-decoration: underline; filter: none; }
+.undo-dialog__diff { margin: 4px 12px 8px 36px; }
+.undo-dialog__hint { margin: 4px 0; font-size: 12px; color: var(--text-dim); }
+.undo-dialog__conflict { margin: 4px 12px 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.undo-dialog__choices { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 13px; }
+.undo-dialog__choices label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.undo-dialog__err { margin: 6px 14px; color: var(--err); font-size: 13px; }
+.undo-dialog__foot { display: flex; justify-content: flex-end; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--border); }
+.undo-dialog__foot button { transition: none; }

@@ -41,12 +41,14 @@ import { useUndoStore } from '../undo/undoStore'
 import { attachTurns, type TurnPlacement } from '../undo/attachTurns'
 import { TurnLine } from './undo/TurnLine'
 import { ChangesPanel, type PanelFocus } from './undo/ChangesPanel'
+import { UndoDialog, type UndoRequest } from './undo/UndoDialog'
 import type { TurnDto } from '../../../shared/undo'
 
 const EMPTY_ITEMS: ChatItem[] = []
 const NO_LINES = new Map<number, TurnPlacement[]>()
-/** Desfazer/Refazer da linha do turno: a Task 16 troca este marcador pela tela de prévia. */
-const undoPending = (turn: TurnDto) => { console.info('[undo] desfazer/refazer do turno ainda sem tela', turn.id) }
+/** Desfazer/Refazer da linha do turno: a tela de prévia do turno, ou do último desfazer dele. */
+const undoRequestOf = (turn: TurnDto): UndoRequest => ({ turnIds: [turn.id] })
+const redoRequestOf = (turn: TurnDto): UndoRequest | null => (turn.lastRun ? { redoRunId: turn.lastRun.id } : null)
 /** Teclas que rolam a conversa com o foco nela. */
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
 
@@ -224,10 +226,18 @@ export function ChatView() {
   // depois do último item do bloco dele. O cálculo só refaz quando a lista de
   // itens ou de turnos troca (o texto do streaming mora fora de `items`).
   const [undoPanel, setUndoPanel] = useState<PanelFocus | null>(null)
-  const undoTurns = useUndoStore((s) => (activeLocalId ? s.byLocal[activeLocalId]?.turns : undefined))
+  const [undoDialog, setUndoDialog] = useState<UndoRequest | null>(null)
+  const openUndo = useCallback((turn: TurnDto) => setUndoDialog(undoRequestOf(turn)), [])
+  const openRedo = useCallback((turn: TurnDto) => setUndoDialog(redoRequestOf(turn)), [])
+  // Lista vazia conta como nenhuma: a carga sem turnos não redesenha a conversa.
+  const undoTurns = useUndoStore((s) => {
+    const turns = activeLocalId ? s.byLocal[activeLocalId]?.turns : undefined
+    return turns && turns.length > 0 ? turns : undefined
+  })
   const atStart = !!historyCursor?.atStart
   useEffect(() => {
     setUndoPanel(null)
+    setUndoDialog(null)
     if (!activeLocalId) return
     useUndoStore.getState().load(activeLocalId).catch((e) => console.warn('[undo] turnos não carregaram', e))
   }, [activeLocalId])
@@ -463,9 +473,9 @@ export function ChatView() {
 
   // Sem git, a linha lê as ferramentas do bloco do turno; com git, não lê item nenhum.
   const turnLinesAt = useCallback((at: number) => turnLines.get(at)?.map((p) => (
-    <TurnLine key={p.turn.id} turn={p.turn} onOpen={setUndoPanel} onUndo={undoPending} onRedo={undoPending}
+    <TurnLine key={p.turn.id} turn={p.turn} onOpen={setUndoPanel} onUndo={openUndo} onRedo={openRedo}
               items={p.turn.state === 'no_git' && p.itemIndex !== null ? items.slice(p.itemIndex, p.afterIndex + 1) : EMPTY_ITEMS} />
-  )), [turnLines, items])
+  )), [turnLines, items, openUndo, openRedo])
   const renderNode = useCallback((_index: number, node: ChatNode) => {
     const first = node.kind === 'group' ? node.start : node.index
     const last = node.kind === 'group' ? node.items[node.items.length - 1].index : node.index
@@ -637,7 +647,13 @@ export function ChatView() {
           onClose={() => setEditConfirm(null)}
         />
       )}
-      {undoPanel && <ChangesPanel localId={session.localId} focus={undoPanel} onClose={() => setUndoPanel(null)} />}
+      {undoPanel && <ChangesPanel localId={session.localId} focus={undoPanel} onClose={() => setUndoPanel(null)} onUndo={setUndoDialog} />}
+      {undoDialog && (
+        <UndoDialog request={undoDialog} onClose={() => setUndoDialog(null)} onDone={() => {
+          setUndoDialog(null)
+          useUndoStore.getState().load(session.localId).catch((e) => console.warn('[undo] turnos não carregaram', e))
+        }} />
+      )}
       {handoffDialog && session && (
         <ConfirmDialog
           title={t('chat.handoffTitle')}

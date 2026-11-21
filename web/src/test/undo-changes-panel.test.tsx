@@ -180,6 +180,63 @@ describe('ChangesPanel', () => {
   })
 })
 
+describe('ChangesPanel: Esc e Desfazer nas entradas', () => {
+  it('Esc no painel fecha sem chegar a quem escuta a janela; o foco entra e volta', async () => {
+    rotas({ '/api/undo/turns/7/files': { files: [], hiddenOutside: 0, warnings: [] } })
+    const antes = document.createElement('textarea')
+    document.body.appendChild(antes)
+    antes.focus()
+    const chegou: boolean[] = []
+    const ouvinte = (e: KeyboardEvent) => { if (e.key === 'Escape') chegou.push(e.defaultPrevented) }
+    window.addEventListener('keydown', ouvinte)
+    try {
+      const onClose = vi.fn()
+      const { unmount } = render(<ChangesPanel localId="a" focus={{ turnId: 7 }} onClose={onClose} />)
+      const dialog = screen.getByRole('dialog')
+      expect(document.activeElement).toBe(dialog)
+      await screen.findByText('Nenhum arquivo mudou.')
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+      // O Esc para no diálogo; se algum chegasse à janela, viria marcado.
+      expect(chegou).not.toContain(false)
+      unmount()
+      expect(document.activeElement).toBe(antes)
+    } finally {
+      window.removeEventListener('keydown', ouvinte)
+      antes.remove()
+    }
+  })
+
+  it('fora da conversa e terminal interativo têm Desfazer (ou Refazer) por turno', async () => {
+    useUndoStore.setState({
+      byLocal: {
+        a: {
+          git: true, turns: [turn(7)], outside: [turn(3), turn(4, { lastRun: { id: 9, redone: false } })],
+          interactive: [turn(5, { origin: 'interactive' }), turn(6, { origin: 'interactive', state: 'failed', summary: null })],
+          intervals: [],
+        },
+      },
+    })
+    rotas({ '/api/undo/turns/7/files': { files: [], hiddenOutside: 0, warnings: [] } })
+    const onUndo = vi.fn()
+    render(<ChangesPanel localId="a" focus={{ turnId: 7 }} onClose={() => {}} onUndo={onUndo} />)
+    const fora = screen.getByText('Fora da conversa atual').closest('section')!
+    const desfazerFora = fora.querySelectorAll<HTMLButtonElement>('button.undo-entry__action')
+    expect([...desfazerFora].map(b => b.textContent)).toEqual(['Desfazer', 'Refazer'])
+    fireEvent.click(desfazerFora[0])
+    expect(onUndo).toHaveBeenLastCalledWith({ turnIds: [3] })
+    fireEvent.click(desfazerFora[1])
+    expect(onUndo).toHaveBeenLastCalledWith({ redoRunId: 9 })
+
+    // O interativo sem ponto de restauração não tem a ação.
+    const interativo = screen.getByText('Feito no terminal interativo').closest('section')!
+    const desfazerInt = interativo.querySelectorAll<HTMLButtonElement>('button.undo-entry__action')
+    expect(desfazerInt).toHaveLength(1)
+    fireEvent.click(desfazerInt[0])
+    expect(onUndo).toHaveBeenLastCalledWith({ turnIds: [5] })
+  })
+})
+
 describe('UnifiedDiff', () => {
   it('binário e corte de 2000 linhas mostram o aviso', () => {
     const { rerender } = render(<UnifiedDiff diff={{ path: 'x.png', binary: true, sizeKb: 12, text: '', truncated: false }} />)
@@ -207,7 +264,7 @@ describe('estilos do desfazer', () => {
     for (const m of css.matchAll(/(?:^|[;{\s])((?:-webkit-)?(?:animation|transition|backdrop-filter)[\w-]*)\s*:\s*([^;}]*)/g)) {
       expect(m[2].trim(), `${m[1]} no undo.css`).toBe('none')
     }
-    for (const f of ['TurnLine.tsx', 'ChangesPanel.tsx', 'UnifiedDiff.tsx']) {
+    for (const f of ['TurnLine.tsx', 'ChangesPanel.tsx', 'UnifiedDiff.tsx', 'UndoDialog.tsx']) {
       const src = ler(f)
       expect(src, f).not.toMatch(/\b(animation|transition|backdropFilter|WebkitBackdropFilter)\s*:/)
       // As classes do vidro e do fundo dos modais trazem backdrop-filter.

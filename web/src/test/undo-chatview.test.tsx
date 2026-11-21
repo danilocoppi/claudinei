@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanup, screen, fireEvent } from '@testing-library/react'
+import { cleanup, screen, fireEvent, within, waitFor } from '@testing-library/react'
 import { renderComJanela as render } from './viewport'
 import { ChatView } from '../components/ChatView'
 import { WsContext } from '../wsContext'
@@ -71,5 +71,38 @@ describe('ChatView com as linhas do turno', () => {
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([u]) => String(u))).toContain('/api/undo/turns/1/files')
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('Desfazer da linha abre a tela de desfazer; ao terminar, recarrega os turnos', async () => {
+    const run = { id: 8, kind: 'undo', turnIds: [1], files: [{ path: 'a.ts', result: 'reverted' }], redone: false }
+    vi.mocked(globalThis.fetch).mockImplementation(async (url) => {
+      const u = String(url)
+      if (u.startsWith('/api/undo/terminals/a/turns')) return json(dto)
+      if (u === '/api/undo/preview') {
+        return json({ token: 't', turnIds: [1], blockedBy: null, branchChanged: null, files: [{ path: 'a.ts', class: 'own', verdict: 'revert', mergeable: false, overlapped: false, checked: true }], notUndoable: [], hiddenOutside: 0 })
+      }
+      if (u === '/api/undo/apply') return json(run)
+      return json([])
+    })
+    render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+    const linha = (await screen.findByText('3 arquivos')).closest<HTMLElement>('.undo-line')!
+    fireEvent.click(within(linha).getByText('Desfazer'))
+    const dialog = await screen.findByRole('dialog', { name: 'Desfazer as mudanças nos arquivos' })
+    await within(dialog).findByText('a.ts')
+    const turnsAntes = vi.mocked(globalThis.fetch).mock.calls.filter(([u]) => String(u).startsWith('/api/undo/terminals/a/turns')).length
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Desfazer' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    const chamadas = vi.mocked(globalThis.fetch).mock.calls
+    expect(chamadas.find(([u]) => String(u) === '/api/undo/apply')?.[1]?.body).toBe(JSON.stringify({ turnIds: [1], token: 't', decisions: { 'a.ts': 'revert' } }))
+    expect(chamadas.filter(([u]) => String(u).startsWith('/api/undo/terminals/a/turns')).length).toBe(turnsAntes + 1)
+  })
+
+  it('Refazer da linha abre a mesma tela com o último desfazer', async () => {
+    dto.turns[0] = { ...dto.turns[0], lastRun: { id: 6, redone: false } }
+    render(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
+    const linha = (await screen.findByText('3 arquivos')).closest<HTMLElement>('.undo-line')!
+    fireEvent.click(within(linha).getByText('Refazer'))
+    expect(await screen.findByRole('dialog', { name: 'Refazer as mudanças nos arquivos' })).toBeTruthy()
+    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.map(([u]) => String(u))).toContain('/api/undo/runs/6/redo/preview'))
   })
 })

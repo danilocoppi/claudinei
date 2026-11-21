@@ -8,6 +8,8 @@ import { useUndoStore } from '../../undo/undoStore'
 import type { DeclaredChange } from '../../undo/declared'
 import { DiffView } from '../DiffView'
 import { UnifiedDiff } from './UnifiedDiff'
+import type { UndoRequest } from './UndoDialog'
+import { useDialogKeys } from './useDialogKeys'
 import './undo.css'
 
 /** O que o painel abre em foco: um turno, um intervalo fora de turno ou as declarações (sem git). */
@@ -238,15 +240,45 @@ function SourceFiles({ localId, source, picked, onPick, title }: {
 }
 
 /** Uma entrada recolhida (turno ou intervalo): os arquivos só são buscados ao abrir. */
-function Entry({ label, children }: { label: string; children: () => ReactNode }) {
+function Entry({ label, action, children }: { label: string; action?: ReactNode; children: () => ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="undo-entry">
-      <button type="button" className="undo-entry__toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {label}
-      </button>
+      <div className="undo-entry__head">
+        <button type="button" className="undo-entry__toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {label}
+        </button>
+        {action}
+      </div>
       {open && children()}
     </div>
+  )
+}
+
+/**
+ * Desfazer (ou Refazer, se o último desfazer não foi refeito) de um turno das
+ * listas "Fora da conversa atual" e "Feito no terminal interativo", como na
+ * linha do turno: só com ponto de restauração e mudança dentro do projeto; o
+ * retrato atrasado fica desligado.
+ */
+function TurnAction({ turn, onUndo }: { turn: TurnDto; onUndo(request: UndoRequest): void }) {
+  const { t } = useTranslation()
+  const s = turn.summary
+  if ((turn.state !== 'ok' && turn.state !== 'late') || !s || s.files + s.uncertain === 0) return null
+  if (turn.lastRun && !turn.lastRun.redone) {
+    const runId = turn.lastRun.id
+    return (
+      <button type="button" className="undo-entry__action" onClick={() => onUndo({ redoRunId: runId })}>
+        {t('undo.line.redo')}
+      </button>
+    )
+  }
+  const late = turn.state === 'late'
+  return (
+    <button type="button" className="undo-entry__action" disabled={late} title={late ? t('undo.line.lateTitle') : undefined}
+            onClick={() => onUndo({ turnIds: [turn.id] })}>
+      {t('undo.line.undo')}
+    </button>
   )
 }
 
@@ -285,7 +317,13 @@ function notUndoableText(f: AttributedFile, t: TFunction): string {
  * simples, sem animação nem desfoque (sem GPU). Com `declared` (pasta sem
  * git) não há rede: os trechos das ferramentas vão direto para o diff.
  */
-export function ChangesPanel({ localId, focus, onClose }: { localId: string; focus: PanelFocus; onClose(): void }) {
+export function ChangesPanel({ localId, focus, onClose, onUndo }: {
+  localId: string
+  focus: PanelFocus
+  onClose(): void
+  /** Desfazer/Refazer dos turnos fora da conversa atual e do terminal interativo. */
+  onUndo?(request: UndoRequest): void
+}) {
   const { t, i18n } = useTranslation()
   const entry = useUndoStore((s) => s.byLocal[localId])
   const [picked, setPicked] = useState<Picked | null>(null)
@@ -293,13 +331,8 @@ export function ChangesPanel({ localId, focus, onClose }: { localId: string; foc
   const seq = useRef(0)
   useEffect(() => () => { seq.current++ }, [])
 
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const onKeyDown = useDialogKeys(dialogRef, onClose)
 
   const pickFile = useCallback((source: Source, file: AttributedFile) => {
     setPicked({ kind: 'file', source, file })
@@ -319,7 +352,7 @@ export function ChangesPanel({ localId, focus, onClose }: { localId: string; foc
   const lng = i18n.language
   const turnLabel = (turn: TurnDto) => t('undo.panel.turnEntry', { id: turn.id, at: fmtTime(turn.endedAt ?? turn.startedAt, lng) })
   const turnEntries = (turns: TurnDto[]) => turns.map((turn) => (
-    <Entry key={turn.id} label={turnLabel(turn)}>
+    <Entry key={turn.id} label={turnLabel(turn)} action={onUndo && <TurnAction turn={turn} onUndo={onUndo} />}>
       {() => <SourceFiles localId={localId} source={{ kind: 'turn', turnId: turn.id }} picked={picked} onPick={pickFile} />}
     </Entry>
   ))
@@ -389,7 +422,8 @@ export function ChangesPanel({ localId, focus, onClose }: { localId: string; foc
 
   return createPortal(
     <div className="undo-panel-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="undo-panel" role="dialog" aria-modal="true" aria-label={t('undo.panel.title')}>
+      <div className="undo-panel" role="dialog" aria-modal="true" aria-label={t('undo.panel.title')}
+           ref={dialogRef} tabIndex={-1} onKeyDown={onKeyDown}>
         <header className="undo-panel__head">
           <h3>{t('undo.panel.title')}</h3>
           <button type="button" className="ghost undo-panel__close" aria-label={t('common.close')} onClick={onClose}>×</button>

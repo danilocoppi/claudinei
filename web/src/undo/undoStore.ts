@@ -39,6 +39,19 @@ function upsertInto(entry: TerminalTurns, t: TurnDto): TerminalTurns {
   return { ...entry, [list]: next }
 }
 
+/**
+ * A resposta como o store espera: o chat ativo depende dela, e um corpo torto
+ * (lista, nulo, campo faltando) vira terminal sem turnos em vez de derrubar a carga.
+ */
+function normalizeTurns(d: unknown): TerminalTurns {
+  const o = d !== null && typeof d === 'object' && !Array.isArray(d) ? d as Partial<TerminalTurnsDto> : null
+  const list = <T>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : [])
+  return {
+    git: !!o && o.git !== false,
+    turns: list(o?.turns), outside: list(o?.outside), interactive: list(o?.interactive), intervals: list(o?.intervals),
+  }
+}
+
 const sameTerminal = (ref: TerminalRef | undefined, projectId: number, engine: string) =>
   !!ref && ref.projectId === projectId && ref.engine === engine
 
@@ -54,9 +67,9 @@ export const useUndoStore = create<UndoState>((set, get) => ({
     if (session) {
       set(s => ({ terminalOf: { ...s.terminalOf, [localId]: { projectId: session.projectId, engine: session.engine } } }))
     }
-    let dto: TerminalTurnsDto
+    let dto: TerminalTurns
     try {
-      dto = await fetchTerminalTurns(localId)
+      dto = normalizeTurns(await fetchTerminalTurns(localId))
     } catch (e) {
       // Uma carga mais nova assumiu: o erro desta não interessa mais.
       if (loadSeq[localId] !== seq) return
@@ -66,7 +79,7 @@ export const useUndoStore = create<UndoState>((set, get) => ({
     if (loadSeq[localId] !== seq) return
     const late = pendingTurns[localId] ?? []
     pendingTurns[localId] = undefined
-    let entry: TerminalTurns = { git: dto.git, turns: dto.turns, outside: dto.outside, interactive: dto.interactive, intervals: dto.intervals }
+    let entry: TerminalTurns = dto
     for (const t of late) entry = upsertInto(entry, t)
     set(s => {
       // Sem sessão conhecida, o terminal sai dos próprios turnos.

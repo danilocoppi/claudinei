@@ -29,6 +29,14 @@ describe('undoStore', () => {
     expect(useUndoStore.getState().byLocal.A?.turns.map(t => t.id)).toEqual([1])
   })
 
+  it('load com corpo torto (lista, nulo, campos faltando) fica vazio, sem erro', async () => {
+    for (const corpo of [[], null, 'x', { git: true, turns: 'nada' }]) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(okJson(corpo))
+      await expect(useUndoStore.getState().load('A')).resolves.toBeUndefined()
+      expect(useUndoStore.getState().byLocal.A).toEqual({ git: corpo !== null && typeof corpo === 'object' && !Array.isArray(corpo), turns: [], outside: [], interactive: [], intervals: [] })
+    }
+  })
+
   it('undo_turn insere e atualiza pelo id', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson(dto([turn(1), turn(3)])))
     await useUndoStore.getState().load('A')

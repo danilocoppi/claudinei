@@ -826,6 +826,17 @@ button.term-card__action--play:hover { color: var(--ok); }
 button.term-card__favorite.is-favorite, button.term-card__favorite.is-favorite:hover { color: var(--warn); }
 button.term-card__favorite:disabled { cursor: wait; }
 @media (hover: none) { .term-card__favorite { opacity: 1; } }
+/* Escondidas (fora do hover/foco), as ações do cartão não guardam lugar: com
+   opacity 0 elas ainda ocupavam ~66 px na linha do nome, e no cartão colapsado
+   com o 🎯 ou a marca do limite o nome virava "Pr…". Largura 0 e o gap (6 px)
+   devolvido; no hover voltam, e aí o nome é que encolhe. Sem transição de
+   largura (sem GPU). Em tela de toque continuam visíveis, como antes. */
+@media (hover: hover) {
+  .term-card:not(:hover):not(:focus-within) button.term-card__action--reveal,
+  .term-card:not(:hover):not(:focus-within) button.term-card__favorite:not(.is-favorite) {
+    width: 0; margin-left: -6px; overflow: hidden;
+  }
+}
 .sidebar__footer {
   border-radius: var(--radius-lg); padding: 10px 12px;
   background: var(--surface); border: 1px solid var(--border);

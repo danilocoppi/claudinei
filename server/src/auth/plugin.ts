@@ -98,6 +98,11 @@ const PREVIEW_PREFIX = '/api/files/preview/'
 const isPreviewRead = (method: string, path: string) =>
   method === 'GET' && path.startsWith(PREVIEW_PREFIX)
 
+/** A página visual servida no cartão: mesmo motivo, autorizada pelo token do caminho (pages/routes.ts). */
+const PAGE_VIEW_PREFIX = '/api/pages/view/'
+const isPageViewRead = (method: string, path: string) =>
+  method === 'GET' && path.startsWith(PAGE_VIEW_PREFIX)
+
 // Escopo do token de serviço: só as APIs que o hermes MCP consome
 // (list/ask/board em /api/hermes/*; dispatch/list_tasks em /api/orchestrator/*).
 const SERVICE_PREFIXES = ['/api/hermes/', '/api/orchestrator/']
@@ -249,7 +254,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
       }
     }
 
-    if (!guarded || PUBLIC.has(`${req.method} ${path}`) || isPreviewRead(req.method, path)) return
+    if (!guarded || PUBLIC.has(`${req.method} ${path}`) || isPreviewRead(req.method, path) || isPageViewRead(req.method, path)) return
     req.accessHoursGuarded = true
     if (!req.authUser) return reply.code(401).send({ error: 'unauthorized' })
     if (req.accessAllowed && !req.accessAllowed()) {

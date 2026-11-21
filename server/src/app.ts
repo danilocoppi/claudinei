@@ -267,7 +267,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     broadcast: (m) => deps.wsHub?.broadcast(m),
   })
-  registerPageRoutes(app, { pages, manager: deps.manager, settings: createSettingsService(deps.db) })
+  registerPageRoutes(app, { pages, manager: deps.manager, settings: createSettingsService(deps.db), network: () => 'cdn' })
   const queueStore = createOperatorQueueStore(deps.db)
   const queue = createOperatorQueueService({
     store: queueStore, manager: deps.manager,

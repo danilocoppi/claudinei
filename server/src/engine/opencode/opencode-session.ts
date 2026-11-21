@@ -8,6 +8,7 @@ import { buildRunArgs, buildResumeArgs, hermesConfigEnv } from './opencode-args.
 import { createOpenCodeTurnParser } from './opencode-parser.js'
 import { openCodeBranchArgs } from '../../branch/engine-args.js'
 import { withRequest } from '../../branch/handoff.js'
+import { withMarker } from '../../local-servers/marker.js'
 
 // Margem sob o MAX_ARG_STRLEN do Linux (131071 bytes por argumento do argv).
 const MAX_PROMPT_BYTES = 120_000
@@ -125,7 +126,8 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
     // O MCP hermes (colaboração entre agentes) é injetado via OPENCODE_CONFIG_CONTENT
     // no env — o `opencode run` não tem flag inline de MCP; a env é MESCLADA com a
     // config do usuário (não substitui). Só entra se a sessão recebeu `hermes`.
-    const env = { ...process.env, PKG_EXECPATH: '', ...hermesConfigEnv(this.opts.hermes) }
+    // O marcador do terminal também (sem ele, a chave do serviço sai).
+    const env = withMarker({ ...process.env, PKG_EXECPATH: '', ...hermesConfigEnv(this.opts.hermes) }, this.opts.terminalMarker)
     this.proc = spawn(bin, args, { cwd: this.opts.projectPath, stdio: ['ignore', 'pipe', 'pipe'], env })
     this.setStatus('working')
     let sawOutput = false

@@ -1,6 +1,7 @@
 import type { HermesOptions } from '../../claude/session.js'
 import { CODEX_EFFORTS } from '../../../../shared/codex-models.js'
 export { CODEX_EFFORTS } from '../../../../shared/codex-models.js'
+import { TERMINAL_MARKER_VAR } from '../../local-servers/marker.js'
 
 interface TurnArgs { model?: string; effort?: string; hermes?: HermesOptions }
 
@@ -50,7 +51,16 @@ export function buildResumeArgs(threadId: string, opts: TurnArgs): string[] {
   return ['exec', 'resume', threadId, ...FIXED, ...optionArgs(opts), '-']
 }
 
-/** App Server recebe o mesmo MCP Hermes (segredo só via arquivo). */
-export function buildAppServerArgs(opts: Pick<TurnArgs, 'hermes'>): string[] {
-  return ['app-server', ...optionArgs(opts)]
+/**
+ * App Server recebe o mesmo MCP Hermes (segredo só via arquivo). O marcador do
+ * terminal também entra no `shell_environment_policy.set`: vale mesmo com
+ * `inherit = "none"` no config do operador, e o filtro padrão (KEY, SECRET,
+ * TOKEN) não pega o nome.
+ */
+export function buildAppServerArgs(opts: Pick<TurnArgs, 'hermes'> & { terminalMarker?: string }): string[] {
+  const args = ['app-server', ...optionArgs(opts)]
+  if (opts.terminalMarker !== undefined) {
+    args.push('-c', `shell_environment_policy.set.${TERMINAL_MARKER_VAR}=${tomlStr(opts.terminalMarker)}`)
+  }
+  return args
 }

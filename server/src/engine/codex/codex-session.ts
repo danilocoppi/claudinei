@@ -10,6 +10,7 @@ import { latestThreadForCwd, sessionsRoot } from './rollout.js'
 import { loadInstructions } from '../../hermes/instructions.js'
 import { codexForkParams } from '../../branch/engine-args.js'
 import type { HermesOptions } from '../../claude/session.js'
+import { withMarker } from '../../local-servers/marker.js'
 
 /** O token de serviço do Hermes: do arquivo 0600 quando houver (é o que o servidor reescreve no revoke-all). */
 function hermesToken(h: HermesOptions): string | undefined {
@@ -70,8 +71,10 @@ export class CodexSession extends EventEmitter implements EngineSession {
     this.ready = (async () => {
       const bin = this.opts.binOverride ?? this.opts.bin ?? process.env.CLAUDINEI_CODEX_BIN ?? 'codex'
       this.rpc = new CodexRpc({
-        bin, args: this.opts.extraArgsOverride ?? buildAppServerArgs({ hermes: this.opts.hermes }),
+        bin, args: this.opts.extraArgsOverride ?? buildAppServerArgs({ hermes: this.opts.hermes, terminalMarker: this.opts.terminalMarker }),
         cwd: this.opts.projectPath,
+        // O marcador vai no env do app-server e, por garantia, no -c acima.
+        env: withMarker({ ...process.env, PKG_EXECPATH: '' }, this.opts.terminalMarker),
         notification: (method, p) => this.notification(method, p),
         failure: (err) => this.fail(err),
         stderr: (text) => { this.stderrTail = (this.stderrTail + text).slice(-16_384) },

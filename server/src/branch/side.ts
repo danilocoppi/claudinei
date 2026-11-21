@@ -9,6 +9,7 @@ import { UserError } from '../user-error.js'
 import { cutFor, type ExecLike } from './cut.js'
 import { collectHandoff, withRequest } from './handoff.js'
 import { kimiSideHome } from './engine-args.js'
+import { terminalMarker } from '../local-servers/marker.js'
 import {
   cleanupSideTrace, isTerminalConversationId, listSideThreads, recordSideThread, removeSideThread, setSideThreadId,
 } from './side-threads.js'
@@ -385,6 +386,8 @@ export function createSideService(deps: {
           ephemeral: true,
           ...(engine === 'claude' ? { sessionId: randomUUID() } : {}),
           ...(engine === 'kimi' ? { dataRoot: kimiSideHome(id) } : {}),
+          // A lateral leva o marcador do terminal: o que ela subir é dele.
+          terminalMarker: terminalMarker(projectId, engine),
         }
         // A limpeza só apaga caminho absoluto: um data root relativo ficaria para trás.
         if (side.base.dataRoot !== undefined && !isAbsolute(side.base.dataRoot)) {

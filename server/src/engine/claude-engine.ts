@@ -49,6 +49,7 @@ export const claudeEngine: Engine = {
       readOnly: opts.readOnly,
       ephemeral: opts.ephemeral,
       extraArgs: opts.extraArgs,
+      terminalMarker: opts.terminalMarker,
     })
   },
 

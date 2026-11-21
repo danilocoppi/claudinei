@@ -15,13 +15,15 @@ export class CodexRpc {
 
   constructor(opts: {
     bin: string; args: string[]; cwd: string
+    /** Ambiente do app-server; ausente = o do serviço com PKG_EXECPATH vazio. */
+    env?: NodeJS.ProcessEnv
     notification: (method: string, params: any) => void
     failure: (err: Error) => void
     stderr: (text: string) => void
   }) {
     const p = this.proc = spawn(opts.bin, opts.args, {
       cwd: opts.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-      env: { ...process.env, PKG_EXECPATH: '' },
+      env: opts.env ?? { ...process.env, PKG_EXECPATH: '' },
     })
     this.exited = new Promise((resolve) => p.once('close', resolve))
     const fail = (err: Error) => {

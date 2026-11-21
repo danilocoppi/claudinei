@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildExecArgs, buildResumeArgs } from '../src/engine/codex/codex-args.js'
+import { buildAppServerArgs, buildExecArgs, buildResumeArgs } from '../src/engine/codex/codex-args.js'
 
 describe('codex args', () => {
   it.each(['max', 'ultra'])('effort %s chega ao exec e ao resume', (effort) => {
@@ -69,5 +69,21 @@ describe('hermes com engine', () => {
     const { buildExecArgs } = await import('../src/engine/codex/codex-args.js')
     const args = buildExecArgs({ hermes: { command: 'node', args: ['/h.mjs'], apiUrl: 'http://h', projectId: 1, engine: 'codex' } })
     expect(args.join(' ')).toContain('mcp_servers.hermes.env.CLAUDINEI_ENGINE="codex"')
+  })
+})
+
+describe('codex app-server: marcador do terminal', () => {
+  it('com o marcador, põe CLAUDINEI_TERMINAL no shell_environment_policy.set', () => {
+    const a = buildAppServerArgs({ terminalMarker: '4:codex' })
+    const i = a.indexOf('shell_environment_policy.set.CLAUDINEI_TERMINAL="4:codex"')
+    expect(i).toBeGreaterThan(0)
+    expect(a[i - 1]).toBe('-c')
+  })
+  it('o valor passa pelo escaper do TOML', () => {
+    expect(buildAppServerArgs({ terminalMarker: 'a"b\\c' })).toContain('shell_environment_policy.set.CLAUDINEI_TERMINAL="a\\"b\\\\c"')
+  })
+  it('sem o marcador, nada de shell_environment_policy', () => {
+    expect(buildAppServerArgs({}).join(' ')).not.toContain('shell_environment_policy')
+    expect(buildAppServerArgs({}).join(' ')).not.toContain('CLAUDINEI_TERMINAL')
   })
 })

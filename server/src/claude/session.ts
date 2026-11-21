@@ -9,6 +9,7 @@ import { userEchoEvent } from '../engine/echo.js'
 import { PROGRESS_RULE } from '../hermes/instructions.js'
 import { rateLimitWindows } from '../usage.js'
 import { LIMIT_TEXT_RE } from '../limit/texts.js'
+import { withMarker } from '../local-servers/marker.js'
 
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'needs_attention' | 'stopped' | 'dead' | 'in_terminal'
 
@@ -68,6 +69,8 @@ export interface SessionOptions {
   controlTimeoutMs?: number
   /** Abre como cópia de outra conversa (`--resume <origem> --fork-session`). */
   forkFrom?: ForkFrom
+  /** Marcador do terminal no ambiente da CLI (`CLAUDINEI_TERMINAL`); ausente = sem a chave. */
+  terminalMarker?: string
   /** Id escolhido pelo Claudinei para a conversa (`--session-id`). */
   sessionId?: string
   /** Só leitura (conversa lateral): modo plano, sem ferramentas de escrita. */
@@ -232,7 +235,8 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       // que o valor se propague por essa cadeia (pkg só injeta quando
       // `env.PKG_EXECPATH === undefined`). Fora do binário (dev/testes), isto
       // não tem efeito nenhum (var ignorada).
-      env: { ...process.env, PKG_EXECPATH: '' },
+      // O marcador do terminal vai junto: o Bash do Claude herda o ambiente da CLI.
+      env: withMarker({ ...process.env, PKG_EXECPATH: '' }, this.opts.terminalMarker),
     })
     const feed = createLineParser((evt) => this.handleEvent(evt))
     this.proc.stdout.on('data', feed)

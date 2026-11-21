@@ -15,6 +15,7 @@ import type { SlotContext } from '../queue/operator-queue.js'
 import { usageLimitFailText } from '../limit/texts.js'
 import { forkPlanOf, parseForkSource, type ForkSource } from '../branch/fork-source.js'
 import type { TurnObserver, InputOrigin } from '../undo/types.js'
+import { TERMINAL_MARKER_VAR, terminalMarker } from '../local-servers/marker.js'
 
 /** A sessão sabe ser uma superfície remota (só a do Claude). */
 const isHeadsUpSurface = (s: unknown): s is HeadsUpSurface =>
@@ -920,6 +921,7 @@ export function createSessionManager(deps: Deps) {
         model,
         effort: opts?.effort,
         hermes: deps.hermes ? { ...deps.hermes, projectId: project.id, engine } : undefined,
+        terminalMarker: terminalMarker(project.id, engine),
         ...forkPlan,
       })
       // O id vai no INSERT (e não só quando a engine anunciar): é o que faz o
@@ -1122,6 +1124,7 @@ export function createSessionManager(deps: Deps) {
         model: row.model ?? undefined,
         effort: row.effort ?? undefined,
         hermes: deps.hermes ? { ...deps.hermes, projectId: row.project_id, engine } : undefined,
+        terminalMarker: terminalMarker(row.project_id, engine),
         ...(forkSource ? forkPlanOf(forkSource, project.path) : {}),
       }))
       return infoOf(localId)!
@@ -1169,6 +1172,7 @@ export function createSessionManager(deps: Deps) {
         model: row.model ?? undefined,
         effort: row.effort ?? undefined,
         hermes: deps.hermes ? { ...deps.hermes, projectId: row.project_id, engine } : undefined,
+        terminalMarker: terminalMarker(row.project_id, engine),
         extraArgs: opts.extraArgs,
       }), { holdEngineId: opts.holdEngineId, awaitInit: opts.awaitInit })
       if (!cur) {
@@ -1331,7 +1335,8 @@ export function createSessionManager(deps: Deps) {
           cwd: project.path,
           file,
           args,
-          env,
+          // O env do pty é aditivo: o marcador do terminal sobrepõe o do serviço.
+          env: { ...env, [TERMINAL_MARKER_VAR]: terminalMarker(row.project_id, engineId) },
           // Heurística de atividade do TUI: broadcast efêmero (não persiste) — a
           // sidebar mostra "no terminal · processando/esperando você" ao vivo.
           onActivity: (activity) => {

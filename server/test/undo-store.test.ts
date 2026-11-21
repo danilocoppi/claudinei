@@ -91,6 +91,12 @@ describe('turnos', () => {
     expect(store.turn(b)!.midTurn).toBe(true)
   })
 
+  it('setRepo grava o repositório do turno aberto antes da resolução', () => {
+    const a = store.openTurn({ ...base, projectId })
+    store.setRepo(a, 'k2', '/repo2')
+    expect(store.turn(a)).toMatchObject({ repoKey: 'k2', repoTop: '/repo2' })
+  })
+
   it('setEnd com conversa nula mantém a que havia', () => {
     const a = store.openTurn({ ...base, projectId, conversationId: 'c0' })
     store.setEnd(a, null, 'dead', null)

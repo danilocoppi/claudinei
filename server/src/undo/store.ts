@@ -176,6 +176,7 @@ export function createUndoStore(db: Db) {
     setDeclared: db.prepare(`UPDATE undo_turns SET declared = ? WHERE id = ?`),
     setSummary: db.prepare(`UPDATE undo_turns SET summary = ? WHERE id = ?`),
     setSnapshot: db.prepare(`UPDATE undo_turns SET snapshot = ?, snapshot_error = ? WHERE id = ?`),
+    setRepo: db.prepare(`UPDATE undo_turns SET repo_key = ?, repo_top = ? WHERE id = ?`),
     openTurns: db.prepare(`SELECT * FROM undo_turns WHERE ended_at IS NULL ORDER BY id`),
     terminalTurns: db.prepare(`SELECT * FROM undo_turns WHERE project_id = ? AND engine = ? ORDER BY id`),
     markRewound: db.prepare(`UPDATE undo_turns SET rewound_at = datetime('now') WHERE id = ?`),
@@ -272,6 +273,8 @@ export function createUndoStore(db: Db) {
     addDeclared(id: number, paths: string[]): void { addDeclared(id, paths) },
     setSummary(id: number, s: TurnSummary): void { q.setSummary.run(JSON.stringify(s), id) },
     setSnapshot(id: number, s: SnapshotState, error?: string): void { q.setSnapshot.run(s, error ?? null, id) },
+    /** O repositório do turno aberto antes de a pasta ser resolvida. */
+    setRepo(id: number, repoKey: string, repoTop: string): void { q.setRepo.run(repoKey, repoTop, id) },
     /** Turnos sem fim registrado, em qualquer terminal. */
     openTurns(): TurnRow[] { return (q.openTurns.all() as TurnDb[]).map(toTurn) },
     /** Por id. */

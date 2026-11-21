@@ -483,6 +483,7 @@ export const en = {
     taskResultsWaiting: '{{count}} task result waiting', taskResultsWaiting_other: '{{count}} task results waiting',
   },
   taskResult: {
+    cardMarker: 'A delegated task finished; open the terminal or start it to deliver the result',
     done: 'Task #{{id}} sent to {{project}} finished.',
     failed: 'Task #{{id}} sent to {{project}} failed.',
     many: '{{count}} delegated tasks finished: {{ids}}.',

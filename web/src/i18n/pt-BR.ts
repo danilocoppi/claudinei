@@ -486,6 +486,7 @@ export const ptBR: typeof en = {
     taskResultsWaiting: '{{count}} resultado de tarefa esperando', taskResultsWaiting_other: '{{count}} resultados de tarefa esperando',
   },
   taskResult: {
+    cardMarker: 'Uma tarefa delegada terminou; abra o terminal ou ligue-o para entregar o resultado',
     done: 'A tarefa #{{id}} enviada a {{project}} terminou.',
     failed: 'A tarefa #{{id}} enviada a {{project}} falhou.',
     many: '{{count}} tarefas delegadas terminaram: {{ids}}.',

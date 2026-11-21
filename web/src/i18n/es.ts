@@ -485,6 +485,7 @@ export const es: typeof en = {
     taskResultsWaiting: '{{count}} resultado de tarea esperando', taskResultsWaiting_other: '{{count}} resultados de tareas esperando',
   },
   taskResult: {
+    cardMarker: 'Una tarea delegada terminó; abre la terminal o iníciala para entregar el resultado',
     done: 'La tarea #{{id}} enviada a {{project}} terminó.',
     failed: 'La tarea #{{id}} enviada a {{project}} falló.',
     many: '{{count}} tareas delegadas terminaron: {{ids}}.',

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { continueTaskResults, dismissTaskResults } from '../api'
 import { LIVE_STATUSES, sessionForEngine } from '../engineSession'
 import { progressKey, useStore } from '../store'
+import type { SessionInfo, TerminalState } from '../types'
 
 /**
  * Aviso "A tarefa terminou", logo acima do campo do chat, para o terminal da aba
@@ -91,3 +92,33 @@ export function TaskResultNotice({ projectId, engine }: { projectId: number; eng
     </div>
   )
 }
+
+/**
+ * Algum terminal do projeto (qualquer motor) tem resultado de tarefa delegada
+ * esperando por ele: a sessão desse motor está parada, ou o limite segura a
+ * entrega. Com a sessão viva e livre o Claudinei entrega sozinho e não marca.
+ */
+const hasPendingTaskResult = (states: Record<string, TerminalState>, sessions: Record<string, SessionInfo>, projectId: number): boolean =>
+  Object.values(states).some((st) => {
+    if (st.projectId !== projectId || (st.taskResults?.length ?? 0) === 0) return false
+    if (st.taskResultsHeld) return true
+    const status = sessionForEngine(projectId, st.engine, sessions)?.status
+    return status == null || !LIVE_STATUSES.has(status)
+  })
+
+/**
+ * Marca do cartão da lateral: o aviso "A tarefa terminou" só aparece com a aba
+ * do terminal aberta; aberta a página depois de o terminal parar, a marca diz em
+ * qual cartão procurar (o ▶ liga o terminal e entrega o resultado). Seletor
+ * booleano: a lateral só se redesenha quando a marca acende ou apaga.
+ * Estática, sem animação (a interface precisa andar sem GPU, AGENTS.md).
+ */
+export const TaskResultCardMarker = memo(function TaskResultCardMarker({ projectId }: { projectId: number }) {
+  const { t } = useTranslation()
+  const on = useStore((s) => hasPendingTaskResult(s.terminalStates, s.sessions, projectId))
+  if (!on) return null
+  return (
+    <span data-testid="task-result-marker" className="term-card__restart term-card__task" role="img"
+          aria-label={t('taskResult.cardMarker')} title={t('taskResult.cardMarker')}>↩</span>
+  )
+})

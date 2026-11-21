@@ -24,6 +24,7 @@ import { AppearancePanel } from './AppearancePanel'
 import { Icon } from './Icon'
 import { AgentFace, faceStateOf } from './AgentFace'
 import { InterruptedCardMarker } from './InterruptedNotice'
+import { TaskResultCardMarker } from './TaskResultNotice'
 import { UsageLimitCardMarker } from './UsageLimitNotice'
 import { MoreIcon, GearIcon, StarIcon, SearchIcon, BoltIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
@@ -513,6 +514,7 @@ export function Sidebar() {
           )}
           {isCollapsed && playButton}
           <InterruptedCardMarker projectId={p.id} />
+          <TaskResultCardMarker projectId={p.id} />
           {/* Colapsado não há linha de status: o selo do goal e a marca do limite
               sobem para cá, encolhendo antes do nome. */}
           {isCollapsed && <GoalCardMarker projectId={p.id} />}

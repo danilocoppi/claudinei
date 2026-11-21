@@ -36,7 +36,7 @@ function toolOutputText(content: unknown): string {
 }
 
 /** Preâmbulo fixo do resumo da compactação (cópia de `COMPACT_PREAMBLE` em web/src/chat/history.ts). */
-const COMPACT_PREAMBLE = /^This session is being continued from a previous conversation/
+export const COMPACT_PREAMBLE = /^This session is being continued from a previous conversation/
 
 /**
  * O texto do usuário como a tela mostra (ver `classifyUserText` na web): o
@@ -44,7 +44,7 @@ const COMPACT_PREAMBLE = /^This session is being continued from a previous conve
  * harness saem do corpo. Os cartões (tarefa, agendamento, Claudinei) mostram o
  * texto, então ficam.
  */
-function visibleUserText(text: string): string {
+export function visibleUserText(text: string): string {
   if (text.includes('<local-command-caveat>')) return ''
   return text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')

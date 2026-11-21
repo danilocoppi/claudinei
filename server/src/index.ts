@@ -41,7 +41,7 @@ if (process.argv.includes('--hermes')) {
   // enxerga o snapshot do pkg (só arquivo real) e o env só pega no arranque
   // do processo (ver server/src/pkg-runtime.ts, mecanismo provado por spike).
   // Fora do binário (dev/teste), isPackaged() é sempre false — no-op total.
-  const { isPackaged, ensureNativeCache, reexecIfNeeded } = await import('./pkg-runtime.js')
+  const { isPackaged, ensureNativeCache, reexecIfNeeded, installInspectorFallback } = await import('./pkg-runtime.js')
   if (isPackaged()) {
     const version = process.env.CLAUDINEI_VERSION ?? 'v1'
     // Caminho do snapshot p/ os assets — EMPÍRICO (T3, rodando o binário real):
@@ -69,6 +69,9 @@ if (process.argv.includes('--hermes')) {
     reexecIfNeeded(ldPath) // se re-exec, o processo atual sai aqui e não chega nos imports abaixo
     process.env.CLAUDINEI_PKG_NATIVE = nativeDir
     process.env.CLAUDINEI_PKG_WEB = webDir
+    // O Node do pkg vem sem `inspector`, e o playwright-core (navegador embutido)
+    // faz require("inspector") ao carregar: o desvio entra antes do primeiro require dele.
+    installInspectorFallback()
     // Empacotado: o mcp-config do hermes tem que chamar o PRÓPRIO binário (não há
     // `node` na máquina do usuário). process.execPath dentro de um binário pkg É o
     // caminho do próprio executável — já é o valor default de hermesCommand (T1);
@@ -83,6 +86,13 @@ if (process.argv.includes('--hermes')) {
     // herdaria o web/dist extraído do binário e serviria a SPA VELHA em dev.
     delete process.env.CLAUDINEI_PKG_WEB
     delete process.env.CLAUDINEI_PKG_NATIVE
+  }
+
+  // Conferência do navegador embutido (o binário empacotado acha o playwright-core
+  // e o Chromium?): sem banco, sem porta, sem migração. Imprime uma linha JSON e sai.
+  if (process.argv.includes('--browser-selftest')) {
+    const { browserSelfTest } = await import('./browser/selftest.js')
+    process.exit(await browserSelfTest(console.log))
   }
 
   // Imports pesados (nativos: better-sqlite3, node-pty, sherpa) só aqui dentro,
@@ -111,6 +121,7 @@ if (process.argv.includes('--hermes')) {
   const { createUsageIndexer } = await import('./usage-index/indexer.js')
   const { sessionsRoot } = await import('./engine/codex/rollout.js')
   const { observerOf } = await import('./undo/index.js')
+  const { createBrowserHost } = await import('./browser/host.js')
 
   migrateLegacyDataDir()
   const config = loadConfig()
@@ -120,6 +131,8 @@ if (process.argv.includes('--hermes')) {
   // Recalibra selfUrl considerando --port da CLI (loadConfig só viu env) — ver
   // resolveSelfUrl em config.ts (helper puro, testado em server/test/config.test.ts).
   config.selfUrl = resolveSelfUrl(config, cli, process.env)
+  // O Chromium do navegador embutido: um host só, aberto sob demanda (nada sobe aqui).
+  const browserHost = createBrowserHost({ log: (l) => console.log(`[navegador] ${l}`) })
   const db = openDb(config.dbPath)
   const auth = createAuthService({ db, secretPath: join(dirname(config.dbPath), 'jwt-secret') })
   // O guard de exposição roda DEPOIS do openDb: authConfigured depende de já
@@ -291,6 +304,7 @@ if (process.argv.includes('--hermes')) {
   }
   const app = await buildApp({
     config, db, manager, wsHub, terminalManager, speech, usage, extraUsage: [kimiUsage, codexMetadata], engineUsage, usageIndexer, auth,
+    browserHost,
     insecure: !!cli.insecure,
     behindProxy,
     https: https ?? undefined,
@@ -369,6 +383,8 @@ if (process.argv.includes('--hermes')) {
       await speech.stop()
       // Interrompe a passada na próxima fatia; o que já foi gravado fica coerente.
       await usageIndexer.stop()
+      // Fecha as abas e o Chromium antes de fechar o servidor.
+      await browserHost.shutdown()
       await app.close()
       process.exit(0)
     })

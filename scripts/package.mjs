@@ -17,8 +17,9 @@
 //   que o Node resolve NODE_PATH — cada entrada é testada como
 //   <entry>/<nome-do-pacote> diretamente, não <entry>/node_modules/<nome>).
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, cpSync, mkdirSync, rmSync, existsSync, writeFileSync, statSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { copyFileSync, cpSync, mkdirSync, rmSync, existsSync, writeFileSync, statSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, dirname, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
@@ -43,6 +44,10 @@ const EXTERNAL = [
   'node-pty',
   'sherpa-onnx-node',
   'sherpa-onnx-linux-x64',
+  // Navegador embutido: embutido no bundle ele quebra (procura o próprio
+  // package.json pelo __dirname); externo, vai para assets/native como os
+  // nativos e é achado pelo NODE_PATH. Carregado só sob demanda (host.ts).
+  'playwright-core',
 ]
 await build({
   entryPoints: [join(root, 'server', 'src', 'index.ts')],
@@ -77,6 +82,12 @@ const PRUNE = {
   'better-sqlite3': ['package.json', 'lib', 'build/Release/better_sqlite3.node'],
   'node-pty': ['package.json', 'lib', 'build/Release/pty.node'],
 }
+// O contrário do PRUNE: copia o pacote inteiro MENOS estas pastas. `lib/vite` do
+// playwright-core é o visualizador de traces, que o Claudinei não usa: o pacote
+// cai de 14 MB para ~10 MB e o navegador roda igual (ensaio da spec).
+const EXCLUDE = {
+  'playwright-core': ['lib/vite'],
+}
 // Prebuilts nativos OBRIGATÓRIOS: sem eles o binário sobe mas quebra em runtime
 // só quando algo tenta usar sqlite/pty/voz — um `.node` faltando aqui não pode
 // ser pulado em silêncio (era o bug: `if (existsSync(s)) cpSync(...)`, que
@@ -100,6 +111,12 @@ for (const pkg of EXTERNAL) {
   const src = nm(pkg)
   const dest = join(nativeDir, pkg)
   const keep = PRUNE[pkg]
+  const exclude = EXCLUDE[pkg]
+  if (exclude) {
+    const skip = exclude.map((p) => join(src, ...p.split('/')))
+    cpSync(src, dest, { recursive: true, filter: (p) => !skip.some((s) => p === s || p.startsWith(s + sep)) })
+    continue
+  }
   if (!keep) {
     if (REQUIRED_NATIVE[pkg] && !existsSync(join(src, REQUIRED_NATIVE[pkg]))) {
       failMissingPrebuilt(pkg, `esperava node_modules/${pkg}/${REQUIRED_NATIVE[pkg]}`)
@@ -159,6 +176,23 @@ const sha = (() => {
   catch { return 'nogit' }
 })()
 writeFileSync(join(assets, 'build-id'), `${sha}-${Date.now()}`)
+
+// O navegador embutido só aceita a revisão exata do chromium-headless-shell que o
+// playwright-core fixado espera, e nada é baixado sozinho. Só avisa: o binário
+// sai igual, e na máquina sem ela o navegador diz "não instalado".
+{
+  const pwDir = nm('playwright-core')
+  const { version } = JSON.parse(readFileSync(join(pwDir, 'package.json'), 'utf8'))
+  const { browsers } = JSON.parse(readFileSync(join(pwDir, 'browsers.json'), 'utf8'))
+  const rev = browsers.find((b) => b.name === 'chromium-headless-shell')?.revision
+  const base = process.env.PLAYWRIGHT_BROWSERS_PATH || join(homedir(), '.cache', 'ms-playwright')
+  if (!rev || !existsSync(join(base, `chromium_headless_shell-${rev}`))) {
+    console.warn(
+      `⚠ Chromium headless shell ${rev} ausente nesta máquina — o navegador embutido dirá "não instalado". ` +
+      `Rode: npx -y playwright-core@${version} install --no-remove chromium-headless-shell`,
+    )
+  }
+}
 
 console.log('▶ 4/4 @yao-pkg/pkg')
 mkdirSync(join(root, 'release'), { recursive: true })

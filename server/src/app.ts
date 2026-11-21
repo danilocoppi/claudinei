@@ -59,6 +59,7 @@ import { createBranchService, type BranchService, type SideTestDeps } from './br
 import { registerBranchRoutes } from './routes/branch.js'
 import { createUndo, type Undo } from './undo/index.js'
 import { registerUndoRoutes } from './routes/undo.js'
+import type { BrowserHost } from './browser/host.js'
 
 export interface AppDeps {
   config: Config
@@ -77,6 +78,8 @@ export interface AppDeps {
    * dele. Ausente (testes) → a rota continua lá, com o índice dado como parado.
    */
   usageIndexer?: Pick<UsageIndexer, 'status'>
+  /** Navegador do 16 (o Chromium do serviço); o 15 usa `withIsolatedPage`. */
+  browserHost?: BrowserHost
   /** Caminho absoluto de web/dist (SPA buildado). Se ausente, o static não é registrado. */
   webDist?: string
   /**

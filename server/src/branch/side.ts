@@ -9,7 +9,9 @@ import { UserError } from '../user-error.js'
 import { cutFor, type ExecLike } from './cut.js'
 import { collectHandoff, withRequest } from './handoff.js'
 import { kimiSideHome } from './engine-args.js'
-import { cleanupSideTrace, listSideThreads, recordSideThread, removeSideThread, setSideThreadId } from './side-threads.js'
+import {
+  cleanupSideTrace, isTerminalConversationId, listSideThreads, recordSideThread, removeSideThread, setSideThreadId,
+} from './side-threads.js'
 
 /**
  * Conversa lateral (`/side`, `/btw`): uma cópia descartável e só leitura da
@@ -112,6 +114,8 @@ export function createSideService(deps: {
   const makeSession = deps.makeSession ?? ((engine, opts) => getEngine(engine).createSession(opts))
   const cutFn = deps.cutFor ?? cutFor
   const collect = deps.collect ?? collectHandoff
+  // A limpeza nunca apaga um id que seja conversa de algum terminal.
+  const cleanupDeps = { ...deps.cleanup, isProtected: (id: string) => isTerminalConversationId(deps.db, id) }
 
   const noConversation = () => new UserError('no_conversation', 'Ainda não há conversa para copiar')
   const notFound = () => new UserError('side_not_found', 'não há conversa lateral aberta neste terminal')
@@ -164,9 +168,8 @@ export function createSideService(deps: {
     for (const e of held) pushEvent(side, e)
   }
 
-  /** O motor anuncia o id da lateral só no init: o OpenCode e o Codex recriado em `seed` gravam conversa. */
-  const tracksThreadId = (side: Side) =>
-    side.info.engine === 'opencode' || (side.info.engine === 'codex' && side.info.mode === 'seed')
+  /** O motor anuncia o id da lateral só no init: o OpenCode grava a conversa no storage dele. */
+  const tracksThreadId = (side: Side) => side.info.engine === 'opencode'
 
   const launch = (side: Side, opts: EngineSessionOptions) => {
     const session = makeSession(side.info.engine, opts)
@@ -177,7 +180,10 @@ export function createSideService(deps: {
       if (event.kind === 'init') {
         side.sawInit = true
         const tid = event.sessionId
-        if (tracksThreadId(side) && typeof tid === 'string' && SAFE_ID.test(tid) && tid !== side.threadId) {
+        // SEGURANÇA: o id da principal nunca vira o da lateral (o fechamento o
+        // apagaria). O `run --fork` pode anunciar primeiro o da origem.
+        if (tracksThreadId(side) && typeof tid === 'string' && SAFE_ID.test(tid) && tid !== side.threadId
+          && tid !== side.sourceId) {
           side.threadId = tid
           setSideThreadId(deps.db, side.info.id, tid)
         }
@@ -188,13 +194,17 @@ export function createSideService(deps: {
     session.on('status', (status: SessionStatus) => {
       if (side.session !== session || side.closed) return
       // Cópia nativa recusada: a sessão morreu antes do init (o Claude com
-      // `--resume-session-at` inválido, o Codex com o fork recusado). Recria uma
-      // vez em `seed`, com o pacote até o corte, e reenvia a pergunta.
-      if (status === 'dead' && !side.sawInit && side.info.mode === 'native' && !side.retried) {
+      // `--resume-session-at` inválido, o OpenCode). Recria uma vez em `seed`,
+      // com o pacote até o corte, e reenvia a pergunta. O Codex não: sem o fork
+      // efêmero ele abriria conversa persistente na pasta, que vazaria para a
+      // principal; morre com o erro na coluna.
+      if (status === 'dead' && !side.sawInit && side.info.mode === 'native' && !side.retried
+        && side.info.engine !== 'codex') {
         void retryAsSeed(side).catch((err) => console.error(`[lateral] falha ao recriar ${side.info.id} em seed`, err))
         return
       }
-      side.info.status = status
+      // A lateral não tem "não lida": o fim de turno volta a ociosa.
+      side.info.status = status === 'needs_attention' ? 'idle' : status
       if (status === 'dead') pushEvent(side, errorEvent(session.lastStderr || 'O processo do agente encerrou inesperadamente.'))
       publish(side)
     })
@@ -219,11 +229,6 @@ export function createSideService(deps: {
     if (side.closed) return
     // Sem pacote, a pergunta sai sozinha.
     side.seed = seed
-    if (side.info.engine === 'codex') {
-      // O Codex sem fork abre conversa persistente: anotada para ficar fora do
-      // "mais recente da pasta" enquanto a lateral existir.
-      recordSideThread(deps.db, { id: side.info.id, projectId: side.info.projectId, engine: 'codex', threadId: null })
-    }
     try {
       launch(side, side.base)
     } catch (err) {
@@ -253,7 +258,7 @@ export function createSideService(deps: {
       try { await side.session?.stop() } catch (err) { console.error(`[lateral] falha ao parar ${side.info.id}`, err) }
       // No encerramento só o processo para: a subida seguinte limpa pelo side_threads.
       if (opts.shutdown) return
-      await cleanupSideTrace({ id: side.info.id, engine: side.info.engine, threadId: side.threadId }, deps.cleanup)
+      await cleanupSideTrace({ id: side.info.id, engine: side.info.engine, threadId: side.threadId }, cleanupDeps)
       removeSideThread(deps.db, side.info.id)
     })()
     return side.closing
@@ -392,7 +397,7 @@ export function createSideService(deps: {
       const abertas = new Set([...sides.values()].map((s) => s.info.id))
       for (const row of listSideThreads(deps.db)) {
         if (abertas.has(row.id)) continue
-        await cleanupSideTrace(row, deps.cleanup)
+        await cleanupSideTrace(row, cleanupDeps)
         removeSideThread(deps.db, row.id)
       }
     },

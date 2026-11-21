@@ -48,6 +48,19 @@ export function sideThreadIds(db: Db, engine: string): ReadonlySet<string> {
   return new Set(rows.map((r) => r.thread_id))
 }
 
+/**
+ * O id é de uma conversa de terminal: está em `sessions.claude_session_id` ou em
+ * `project_threads.thread_id`, de qualquer projeto e motor. A limpeza da lateral
+ * nunca apaga um id assim (segunda camada contra apagar a conversa principal).
+ */
+export function isTerminalConversationId(db: Db, id: string): boolean {
+  if (!id) return false
+  return Boolean(
+    db.prepare('SELECT 1 FROM sessions WHERE claude_session_id=? LIMIT 1').get(id) ??
+    db.prepare('SELECT 1 FROM project_threads WHERE thread_id=? LIMIT 1').get(id),
+  )
+}
+
 // ---- limpeza ----------------------------------------------------------------
 //
 // SEGURANÇA: a limpeza apaga em ~/.claude, nos dados do OpenCode e nos homes do
@@ -78,6 +91,7 @@ async function apagar(path: string, recursive = false): Promise<void> {
 
 /**
  * Apaga o que a conversa lateral deixou no disco. Nunca lança: o erro vai ao log.
+ * Com `isProtected`, um id de conversa de terminal nunca é apagado.
  * - Claude: os rastros dos hooks do usuário com o id dela
  *   (`<cfg>/security/security_warnings_state_<id>.json` e `.lock`, e a pasta
  *   `<cfg>/session-env/<id>`). O transcript não existe (`--no-session-persistence`).
@@ -86,8 +100,15 @@ async function apagar(path: string, recursive = false): Promise<void> {
  * - Codex: nada (o fork efêmero não deixa rastro).
  */
 export async function cleanupSideTrace(r: { id: string; engine: string; threadId: string | null },
-  deps: { claudeConfigDir?: string; run?: ExecLike } = {}): Promise<void> {
+  deps: { claudeConfigDir?: string; run?: ExecLike; isProtected?: (id: string) => boolean } = {}): Promise<void> {
   try {
+    // O id que vai virar caminho ou argv: o da conversa no Claude e no OpenCode,
+    // o da lateral no Kimi (o data root). Protegido, nada se apaga.
+    const alvo = r.engine === 'kimi' ? r.id : r.threadId
+    if (alvo && deps.isProtected?.(alvo)) {
+      console.warn(`[lateral] id ${JSON.stringify(alvo)} é de uma conversa de terminal, nada apagado (${r.engine})`)
+      return
+    }
     switch (r.engine) {
       case 'claude': {
         const tid = r.threadId

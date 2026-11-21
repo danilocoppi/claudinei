@@ -358,12 +358,43 @@ describe('conversa lateral', () => {
 
   it('cópia recusada sem pergunta: o pacote espera a primeira mensagem', async () => {
     const svc = service()
-    await svc.open(project.id, 'codex', null)
+    await svc.open(project.id, 'claude', null)
     fakes[0].set('dead')
     await waitUntil(() => fakes.length === 2)
     expect(fakes[1].sends).toEqual([])
-    svc.send(project.id, 'codex', 'agora')
+    svc.send(project.id, 'claude', 'agora')
     expect(fakes[1].sends).toEqual([`${PACOTE}\n\n=== request ===\nagora`])
+  })
+
+  it('codex: cópia recusada vai a dead com o erro na coluna, sem recriar em seed', async () => {
+    // Recriado em seed, o Codex abriria conversa persistente na pasta (o rollout
+    // vazaria para a principal): a lateral morre com o erro visível.
+    let coletas = 0
+    const svc = service({ collect: async () => { coletas++; return pacote() } })
+    await svc.open(project.id, 'codex', 'pergunta')
+    fakes[0].lastStderr = 'thread/fork recusado'
+    fakes[0].set('dead') // antes do init
+    await flush()
+    await flush()
+    expect(fakes).toHaveLength(1)
+    expect(coletas).toBe(0)
+    const snap = svc.snapshot(project.id, 'codex')!
+    expect(snap.side).toMatchObject({ status: 'dead', mode: 'native' })
+    expect(snap.events.at(-1)).toMatchObject({ kind: 'result', isError: true, resultText: 'thread/fork recusado' })
+    expect(sideStates().at(-1).side.status).toBe('dead')
+    expect(listSideThreads(db)).toEqual([])
+    await svc.close(project.id, 'codex')
+    expect(runs).toEqual([])
+  })
+
+  it('fim de turno na lateral volta a idle (a lateral não tem "não lida")', async () => {
+    const svc = service()
+    await svc.open(project.id, 'claude', 'pergunta')
+    fakes[0].ev({ kind: 'result', subtype: 'success', isError: false, resultText: 'ok', costUsd: 0, raw: {} })
+    fakes[0].set('needs_attention')
+    expect(svc.snapshot(project.id, 'claude')!.side.status).toBe('idle')
+    expect(sideStates().at(-1).side.status).toBe('idle')
+    expect(sideStates().some((b) => b.side?.status === 'needs_attention')).toBe(false)
   })
 
   it('morte depois do init não recria', async () => {
@@ -395,6 +426,58 @@ describe('conversa lateral', () => {
     }
     expect(conta()).toEqual(antes)
     expect(listSideThreads(db)).toEqual([])
+  })
+
+  it('opencode: init com o id da principal não vira id da lateral nem leva ao delete da origem', async () => {
+    mainState = { ...mainState!, engineSessionId: 'ses_MAIN' }
+    const svc = service({ cutFor: async () => corte({ cut: 'msg_LAST', at: null }) })
+    await svc.open(project.id, 'opencode', 'oi')
+    // O `run --fork` anunciou primeiro o id da origem.
+    fakes[0].ev({ kind: 'init', sessionId: 'ses_MAIN', model: 'm', slashCommands: [], raw: {} })
+    expect(sideThreadIds(db, 'opencode').size).toBe(0)
+    await svc.close(project.id, 'opencode')
+    expect(runs).toEqual([])
+
+    // O id certo, depois do da origem, é aceito; o da origem nunca.
+    await svc.open(project.id, 'opencode', 'oi')
+    fakes[1].ev({ kind: 'init', sessionId: 'ses_MAIN', model: 'm', slashCommands: [], raw: {} })
+    fakes[1].ev({ kind: 'init', sessionId: 'ses_SIDE', model: 'm', slashCommands: [], raw: {} })
+    fakes[1].ev({ kind: 'init', sessionId: 'ses_MAIN', model: 'm', slashCommands: [], raw: {} })
+    expect(sideThreadIds(db, 'opencode')).toEqual(new Set(['ses_SIDE']))
+    await svc.close(project.id, 'opencode')
+    expect(runs).toEqual([[expect.any(String), ['session', 'delete', 'ses_SIDE']]])
+  })
+
+  it('fechar e bootCleanup não apagam id que seja conversa de terminal (sessions ou project_threads)', async () => {
+    const claudeMain = '77777777-7777-4777-8777-777777777777'
+    mkdirSync(join(tmp, 'projeto-2'))
+    const outroProjeto = createProjectsService(db).create({ name: 'P2', path: join(tmp, 'projeto-2') })
+    db.prepare(`INSERT INTO sessions (local_id, project_id, engine, status, claude_session_id) VALUES ('m1', ?, 'claude', 'stopped', ?)`)
+      .run(project.id, claudeMain)
+    db.prepare(`INSERT INTO project_threads (project_id, engine, thread_id, seq) VALUES (?, 'opencode', 'ses_PROT', 1)`).run(outroProjeto.id)
+    db.prepare(`INSERT INTO project_threads (project_id, engine, thread_id, seq) VALUES (?, 'kimi', 'kimi-prot', 1)`).run(outroProjeto.id)
+    mkdirSync(join(cfg, 'security'), { recursive: true })
+    writeFileSync(join(cfg, 'security', `security_warnings_state_${claudeMain}.json`), '{}')
+    mkdirSync(join(cfg, 'session-env', claudeMain), { recursive: true })
+    mkdirSync(join(kimiSideHome('kimi-prot'), 'sessions'), { recursive: true })
+    recordSideThread(db, { id: 'c1', projectId: project.id, engine: 'claude', threadId: claudeMain })
+    recordSideThread(db, { id: 'o1', projectId: project.id, engine: 'opencode', threadId: 'ses_PROT' })
+    recordSideThread(db, { id: 'kimi-prot', projectId: project.id, engine: 'kimi', threadId: null })
+
+    await service().bootCleanup()
+
+    expect(runs).toEqual([])
+    expect(existsSync(join(cfg, 'security', `security_warnings_state_${claudeMain}.json`))).toBe(true)
+    expect(existsSync(join(cfg, 'session-env', claudeMain))).toBe(true)
+    expect(existsSync(kimiSideHome('kimi-prot'))).toBe(true)
+
+    // No fechamento também: a lateral do OpenCode cujo init trouxe o id de outro terminal.
+    mainState = { ...mainState!, engineSessionId: 'ses_MAIN' }
+    const svc = service({ cutFor: async () => corte({ cut: 'msg_LAST', at: null }) })
+    await svc.open(project.id, 'opencode', 'oi')
+    fakes[0].ev({ kind: 'init', sessionId: 'ses_PROT', model: 'm', slashCommands: [], raw: {} })
+    await svc.close(project.id, 'opencode')
+    expect(runs).toEqual([])
   })
 
   it('foreignThreadIds e a prévia ignoram o id da lateral do OpenCode enquanto ela existe', async () => {
@@ -646,9 +729,44 @@ describe('cleanupSideTrace: só apaga o que é da lateral', () => {
 
   it('config dir ou raiz do Kimi relativos não apagam nada', async () => {
     const id = '66666666-6666-4666-8666-666666666666'
-    await expect(cleanupSideTrace({ id: 'x', engine: 'claude', threadId: id }, { claudeConfigDir: 'relativo' })).resolves.toBeUndefined()
-    process.env.CLAUDINEI_KIMI_HOMES = ''
-    await expect(cleanupSideTrace({ id: 'abc', engine: 'kimi', threadId: null })).resolves.toBeUndefined()
+    // Os caminhos relativos existem de fato, sob um cwd temporário.
+    const cwdAntes = process.cwd()
+    const cwd = mkdtempSync(join(tmpdir(), 'branch-side-cwd-'))
+    process.chdir(cwd)
+    try {
+      mkdirSync(join('relativo', 'security'), { recursive: true })
+      writeFileSync(join('relativo', 'security', `security_warnings_state_${id}.json`), '{}')
+      writeFileSync(join('relativo', 'security', `security_warnings_state_${id}.lock`), '')
+      mkdirSync(join('relativo', 'session-env', id), { recursive: true })
+      mkdirSync(join('side-abc', 'sessions'), { recursive: true })
+      await expect(cleanupSideTrace({ id: 'x', engine: 'claude', threadId: id }, { claudeConfigDir: 'relativo' })).resolves.toBeUndefined()
+      process.env.CLAUDINEI_KIMI_HOMES = ''
+      await expect(cleanupSideTrace({ id: 'abc', engine: 'kimi', threadId: null })).resolves.toBeUndefined()
+      expect(existsSync(join(cwd, 'relativo', 'security', `security_warnings_state_${id}.json`))).toBe(true)
+      expect(existsSync(join(cwd, 'relativo', 'security', `security_warnings_state_${id}.lock`))).toBe(true)
+      expect(existsSync(join(cwd, 'relativo', 'session-env', id))).toBe(true)
+      expect(existsSync(join(cwd, 'side-abc', 'sessions'))).toBe(true)
+    } finally {
+      process.chdir(cwdAntes)
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('id protegido não chama o run nem apaga arquivos', async () => {
+    const id = '88888888-8888-4888-8888-888888888888'
+    mkdirSync(join(cfg, 'security'), { recursive: true })
+    writeFileSync(join(cfg, 'security', `security_warnings_state_${id}.json`), '{}')
+    mkdirSync(join(cfg, 'session-env', id), { recursive: true })
+    mkdirSync(join(kimiSideHome('kimi-x'), 'sessions'), { recursive: true })
+    const protegidos = new Set([id, 'ses_PROT', 'kimi-x'])
+    const isProtected = (x: string) => protegidos.has(x)
+    await cleanupSideTrace({ id: 'c', engine: 'claude', threadId: id }, { claudeConfigDir: cfg, run, isProtected })
+    await cleanupSideTrace({ id: 'o', engine: 'opencode', threadId: 'ses_PROT' }, { run, isProtected })
+    await cleanupSideTrace({ id: 'kimi-x', engine: 'kimi', threadId: null }, { run, isProtected })
+    expect(runs).toEqual([])
+    expect(existsSync(join(cfg, 'security', `security_warnings_state_${id}.json`))).toBe(true)
+    expect(existsSync(join(cfg, 'session-env', id))).toBe(true)
+    expect(existsSync(kimiSideHome('kimi-x'))).toBe(true)
   })
 
   it('codex: nada', async () => {

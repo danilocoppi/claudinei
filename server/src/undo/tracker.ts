@@ -443,8 +443,9 @@ export function createTurnTracker(deps: {
     /**
      * Na subida: todo turno aberto fecha já no banco com o fim `uncertain`
      * (R18: antes de qualquer sessão religar). O marco turn_end (um por
-     * repositório) vai para a fila sem a subida esperar por ele: um repositório
-     * travado não atrasa o boot. `marks()` diz quando os marcos terminaram.
+     * repositório) entra na fila na hora, sem a subida esperar por ele: um
+     * repositório travado não atrasa o boot. `bootMarks()` diz quando os
+     * marcos terminaram.
      */
     async boot(): Promise<void> {
       const mine = new Set([...open.values(), ...closing.values()].map(s => s.turnId))
@@ -460,27 +461,29 @@ export function createTurnTracker(deps: {
           endWithMark(t, null, null)
         }
       }
+      // Os trechos abertos na hora do pedido, como no request().
+      const segs = openNow()
       for (const group of byRepo.values()) {
         const { repoKey, repoTop } = group[0]
-        jobs.push((async () => {
+        // Na fila já, pela chave gravada, sem esperar a pasta resolver: em cada
+        // repositório, o marco da subida sai antes do turn_start de qualquer
+        // sessão religada logo depois. A pasta é conferida dentro da tarefa.
+        jobs.push(queue.run(repoKey!, async () => {
           const repo = await resolver.get(repoTop!).catch(() => null)
           if (!repo || repo.key !== repoKey) {
             for (const t of group) endWithMark(t, null, 'repositório não encontrado na subida')
             return
           }
-          const active = activeIds(repo.key, openNow())
-          await queue.run(repo.key, async () => {
-            let markId: number | null = null
-            let error: string | null = null
-            try {
-              markId = (await writeMark(repo, 'turn_end', active)).id
-            } catch (e) {
-              error = errText(e)
-              log(`marco da subida em ${repo.top} falhou: ${error}`)
-            }
-            for (const t of group) endWithMark(t, markId, error)
-          })
-        })())
+          let markId: number | null = null
+          let error: string | null = null
+          try {
+            markId = (await writeMark(repo, 'turn_end', activeIds(repo.key, segs))).id
+          } catch (e) {
+            error = errText(e)
+            log(`marco da subida em ${repo.top} falhou: ${error}`)
+          }
+          for (const t of group) endWithMark(t, markId, error)
+        }))
       }
       const all = Promise.all(jobs).then(() => {})
       track(all)

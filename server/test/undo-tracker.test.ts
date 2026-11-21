@@ -538,6 +538,32 @@ describe('rastreador de turnos', () => {
     expect(closed).toEqual([id])
   })
 
+  it('boot: o marco de fim da subida sai antes do turn_start de uma sessão que religou logo depois', async () => {
+    const r = repo()
+    const projectId = project(r.dir)
+    const t1 = tracker()
+    const ctx = { localId: 'L1', projectId, engine: 'claude' }
+    send(t1, ctx, 'faz')
+    const old = t1.openSegment('L1')!
+    await t1.idle()
+    resolver = createRepoResolver()
+    queue = createSerialQueue()
+    // Pasta já no cache: o turn_start da sessão religada vai à fila na hora.
+    await resolver.get(r.dir)
+    const t2 = tracker()
+    const booting = t2.boot()
+    send(t2, ctx, 'de novo')
+    const fresh = t2.openSegment('L1')!
+    await booting
+    await t2.bootMarks()
+    await t2.idle()
+    const end = store.mark(store.turn(old)!.endMark!)!
+    const start = store.mark(store.turn(fresh)!.startMark!)!
+    expect(end.kind).toBe('turn_end')
+    expect(start.kind).toBe('turn_start')
+    expect(start.n).toBeGreaterThan(end.n)
+  })
+
   it('boot: o turno incerto fica com a conversa da linha da sessão (ou a do nascimento)', async () => {
     const r = repo()
     const projectId = project(r.dir)

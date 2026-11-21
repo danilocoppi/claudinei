@@ -7,7 +7,7 @@ import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, A
 
 // Diretório de config do Claude (mesma regra do config.ts) — a engine resolve
 // sozinha, para readHistory/latestConversationId não dependerem do manager.
-function claudeConfigDir(): string {
+export function claudeConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
 }
 
@@ -43,6 +43,7 @@ export const claudeEngine: Engine = {
       hermes: opts.hermes,
       claudeBin: opts.bin ?? process.env.CLAUDINEI_CLAUDE_BIN ?? 'claude',
       extraArgsOverride: opts.extraArgsOverride,
+      extraArgs: opts.extraArgs,
     })
   },
 

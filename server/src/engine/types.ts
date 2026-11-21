@@ -24,6 +24,7 @@ export interface EngineSessionOptions {
   bin?: string
   /** Somente testes: substitui TODOS os args do processo (aponta para o fake). */
   extraArgsOverride?: string[]
+  extraArgs?: string[] // Acrescentados ao argv montado (só o Claude; o desfazer volta a conversa com eles).
 }
 
 /** Uma sessão viva. EventEmitter: o manager assina 'status' e 'event' e chama start(). */

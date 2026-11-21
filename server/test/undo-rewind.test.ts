@@ -374,6 +374,8 @@ describe('editar a partir daqui: execute', () => {
     expect(send).not.toHaveBeenCalled()
     expect(undo.store.turn(t1)!.rewoundAt).toBeNull()
     expect(undo.holds(p.id, 'claude')).toBe(false)
+    // A conversa ficou: a nota "files reverted" espera a próxima mensagem.
+    expect(undo.store.takeNote(p.id, 'claude')).toEqual(['a.txt'])
   })
 
   it('Claude que morre antes do primeiro result: os turnos do trecho continuam na conversa atual', async () => {

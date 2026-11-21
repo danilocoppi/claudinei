@@ -7,7 +7,7 @@ import type { UndoService } from './service.js'
 import type { TurnRow, UndoStore } from './store.js'
 import type { UndoCtx } from './types.js'
 import {
-  CONVERSATION_REWOUND_NOTE, turnKey, withNote, type Availability, type RestoreAction, type RewindMode,
+  CONVERSATION_REWOUND_NOTE, turnKey, withNote, type Availability, type RestoreAction, type RestoreResult, type RewindMode,
   type RewindOptionsDto, type RewindReason, type RewindResultDto, type RewindTarget, type UndoRunDto, type ViewerFull,
 } from '../../../shared/undo.js'
 
@@ -71,6 +71,8 @@ export interface RewindDeps {
 }
 
 const MODES = new Set<RewindMode>(['conversation', 'conversation_and_files'])
+/** Os resultados em que o arquivo foi escrito no disco (como no serviço do desfazer). */
+const WRITTEN = new Set<RestoreResult>(['reverted', 'merged', 'forced'])
 const off = (reason: RewindReason, params?: Record<string, string>): Availability =>
   ({ enabled: false, reason, ...(params ? { params } : {}) })
 const ON: Availability = { enabled: true }
@@ -318,6 +320,18 @@ export function createRewindService(deps: RewindDeps) {
           applied = await plan.adapter!.apply({ localId, projectPath: plan.projectPath, engineSessionId: plan.info.engineSessionId }, plan.cut!)
         } catch (e) {
           log(`voltar a conversa de ${localId}: ${errText(e)}`)
+          // Os arquivos voltaram sem nota (ela viria com a conversa voltada); a
+          // conversa ficou, então o agente precisa saber: a nota "files reverted"
+          // espera a próxima mensagem, com todos os caminhos escritos (o run
+          // gravado, não o filtrado para quem não é administrador).
+          if (run) {
+            try {
+              const files = (store.run(run.id)?.files ?? run.files).filter(f => WRITTEN.has(f.result)).map(f => f.path)
+              if (files.length) store.addNote(first.projectId, first.engine, files)
+            } catch (err) {
+              log(`nota dos arquivos desfeitos em ${localId}: ${errText(err)}`)
+            }
+          }
           return { conversationRewound: false, ...(run ? { run } : {}), error: errorOf(e) }
         }
 

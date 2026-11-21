@@ -2745,6 +2745,11 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   background: color-mix(in srgb, var(--err) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
 }
+.sc-msg--info {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
 .sc-msg__actions { display: flex; gap: 6px; }
 .sc-sep { height: 1px; margin: 10px 0 6px; background: var(--border); }
 .sc-row--fixed .sc-label { color: var(--text-dim); }

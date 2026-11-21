@@ -553,8 +553,8 @@ export const en = {
   shortcuts: {
     keySpace: 'Space',
     tabAppearance: 'Appearance', tabShortcuts: 'Shortcuts',
-    recording: 'Press the new combination… (Esc cancels)',
-    none: 'no shortcut', fixed: 'fixed', resetOne: 'Reset to default', clear: 'No shortcut',
+    recording: 'Recording…', recordingHint: 'Press the new combination (Esc cancels)',
+    none: 'no shortcut', fixed: 'fixed', resetOne: 'Reset to default', clear: 'Remove', clearHint: 'Leave this action without a shortcut',
     resetAll: 'Reset all to default',
     unsupported: 'Key not accepted: use letters, numbers, Enter, Space or F1–F12',
     conflict: 'Already the shortcut for {{label}}', swap: 'Swap',

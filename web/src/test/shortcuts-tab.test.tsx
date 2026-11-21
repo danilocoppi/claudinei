@@ -106,7 +106,7 @@ const gravar = (id: string, key: string, code: string, mods: object = {}, alvo: 
   fireEvent.click(combo(id))
   return tecla(key, code, mods, alvo)
 }
-const GRAVANDO = 'Aperte a nova combinação… (Esc cancela)'
+const GRAVANDO = 'Gravando…'
 const salvar = () => fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
 const cancelarPainel = () => fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
 
@@ -189,7 +189,9 @@ describe('gravar', () => {
     expect(tecla('Alt', 'AltLeft', { altKey: true })).toBe(false)
     expect(tecla('Shift', 'ShiftLeft', { altKey: true, shiftKey: true })).toBe(false)
     expect(combo('view.zen').textContent).toBe(GRAVANDO)
-    expect(msg('view.zen')).toBeNull()
+    // Só a instrução da gravação (no lugar do texto longo do botão), sem aviso de erro.
+    expect(msg('view.zen')?.textContent).toBe('Aperte a nova combinação (Esc cancela)')
+    expect(msg('view.zen')?.className).toContain('sc-msg--info')
     tecla('M', 'KeyM', { altKey: true, shiftKey: true })
     expect(combo('view.zen').textContent).toBe('Alt+Shift+M')
   })

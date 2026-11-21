@@ -555,8 +555,8 @@ export const es: typeof en = {
   shortcuts: {
     keySpace: 'Espacio',
     tabAppearance: 'Apariencia', tabShortcuts: 'Atajos',
-    recording: 'Pulsa la nueva combinación… (Esc cancela)',
-    none: 'sin atajo', fixed: 'fijo', resetOne: 'Volver al predeterminado', clear: 'Sin atajo',
+    recording: 'Grabando…', recordingHint: 'Pulsa la nueva combinación (Esc cancela)',
+    none: 'sin atajo', fixed: 'fijo', resetOne: 'Volver al predeterminado', clear: 'Quitar', clearHint: 'Dejar esta acción sin atajo',
     resetAll: 'Volver todos al predeterminado',
     unsupported: 'Tecla no aceptada: usa letras, números, Enter, Espacio o F1–F12',
     conflict: 'Ya es el atajo de {{label}}', swap: 'Intercambiar',

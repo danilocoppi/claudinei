@@ -556,8 +556,8 @@ export const ptBR: typeof en = {
   shortcuts: {
     keySpace: 'Espaço',
     tabAppearance: 'Aparência', tabShortcuts: 'Atalhos',
-    recording: 'Aperte a nova combinação… (Esc cancela)',
-    none: 'sem atalho', fixed: 'fixo', resetOne: 'Voltar ao padrão', clear: 'Sem atalho',
+    recording: 'Gravando…', recordingHint: 'Aperte a nova combinação (Esc cancela)',
+    none: 'sem atalho', fixed: 'fixo', resetOne: 'Voltar ao padrão', clear: 'Remover', clearHint: 'Deixar esta ação sem atalho',
     resetAll: 'Voltar todos ao padrão',
     unsupported: 'Tecla não aceita: use letras, números, Enter, Espaço ou F1–F12',
     conflict: 'Já é o atalho de {{label}}', swap: 'Trocar',

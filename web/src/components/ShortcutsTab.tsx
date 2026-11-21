@@ -17,7 +17,7 @@ const without = (o: Overrides, id: ShortcutId): Overrides =>
   Object.fromEntries(Object.entries(o).filter(([k]) => k !== id))
 
 /** `err`: recusa ou tecla não aceita; `warn` (amarelo): conflito, aviso da resolução ou do navegador. */
-interface RowMessage { tone: 'err' | 'warn'; text: string; conflict?: boolean }
+interface RowMessage { tone: 'info' | 'err' | 'warn'; text: string; conflict?: boolean }
 
 /**
  * A aba Atalhos do painel: os editáveis com a combinação que vale no RASCUNHO
@@ -161,6 +161,9 @@ export function ShortcutsTab({ draft, onChange, admin, mac }: {
       }
       return { tone: 'warn', text: t('shortcuts.conflict', { label: labelOf(flash.owner) }), conflict: true }
     }
+    // Gravando: o botão diz só "Gravando…"; a instrução fica nesta linha, para o
+    // texto longo não empurrar os botões para a linha de baixo.
+    if (recording === id) return { tone: 'info', text: t('shortcuts.recordingHint') }
     const n = notices[id]
     if (n?.reverted && n.unbound) {
       return { tone: 'warn', text: t('shortcuts.noticeBoth', { why: why(id, n.reverted, draft[id]), label: labelOf(n.unbound) }) }
@@ -195,6 +198,7 @@ export function ShortcutsTab({ draft, onChange, admin, mac }: {
                 )}
                 {current !== null && (
                   <button type="button" className="ghost sc-mini" data-testid={`sc-clear-${e.id}`}
+                          title={t('shortcuts.clearHint')}
                           onClick={() => commit({ ...draft, [e.id]: null })}>
                     {t('shortcuts.clear')}
                   </button>

@@ -387,6 +387,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // As mensagens do operador que o ramificar não conseguiu entregar voltam à
     // fila gravada dele, pausada (ver deliver.ts).
     requeue: (projectId, engine, texts) => { queue.restore(projectId, engine, texts) },
+    // No limite da espera, com a sessão livre, a entrega cutuca o árbitro (que
+    // respeita os avisos e a compactação pendente) em vez de mandar direto.
+    poke: (projectId, engine) => nextSend.poke(projectId, engine),
   })
   nextSend.register(branch.nextSendProvider)
   branchRef = branch

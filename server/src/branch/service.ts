@@ -79,6 +79,11 @@ export function createBranchService(deps: {
    * terminal não existe mais: aí elas vão ao chat.
    */
   requeue?: (projectId: number, engine: string, texts: string[]) => void
+  /**
+   * Cutuca o árbitro do próximo envio do terminal: no limite da espera, com a
+   * sessão livre, a entrega passa por ele em vez de mandar direto (ver deliver.ts).
+   */
+  poke?: (projectId: number, engine: string) => void
   side?: SideTestDeps
 }): BranchService {
   const projects = createProjectsService(deps.db)
@@ -86,6 +91,7 @@ export function createBranchService(deps: {
     manager: deps.manager, broadcast: deps.broadcast,
     holds: (projectId, engine) => deps.holds?.(projectId, engine) ?? false,
     requeue: deps.requeue,
+    poke: (projectId, engine) => deps.poke?.(projectId, engine),
   })
   const deliver = delivery.deliver
 

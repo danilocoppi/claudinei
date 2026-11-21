@@ -16,6 +16,14 @@ let broadcasts: any[]
 /** O que voltou à fila gravada do operador (por terminal). */
 let requeued: Array<{ projectId: number; engine: string; texts: string[] }>
 let requeueFails: boolean
+/** Os cutucões no árbitro (o limite com a sessão livre não manda direto). */
+let poked: Array<{ projectId: number; engine: string }>
+/**
+ * O árbitro oferece o lugar 2 ao ser cutucado (sem aviso, encerramento nem
+ * compactação pendente segurando). Desligado, o cutucão não entrega nada.
+ */
+let arbiterOffers: boolean
+let pokeFails: boolean
 /** Status de cada sessão: o envio a põe em working (como o manager real). */
 let status: Map<string, string>
 let d: BranchDelivery
@@ -42,6 +50,11 @@ const make = (m: typeof manager | Record<string, unknown> = manager) => createBr
     if (requeueFails) throw new Error('terminal apagado')
     requeued.push({ projectId, engine, texts })
   },
+  poke: (projectId, engine) => {
+    poked.push({ projectId, engine })
+    if (pokeFails) throw new Error('árbitro quebrou')
+    if (arbiterOffers) d.provider.offer({ projectId, engine, localId: 'L1' })
+  },
 })
 
 const ctx = { projectId: 7, engine: 'kimi', localId: 'L1' }
@@ -58,6 +71,9 @@ beforeEach(() => {
   broadcasts = []
   requeued = []
   requeueFails = false
+  poked = []
+  arbiterOffers = false
+  pokeFails = false
   status = new Map([['L1', 'idle']])
   d = make()
 })
@@ -150,13 +166,93 @@ describe('entrega do ramificar', () => {
     expect(sent).toEqual([])
   })
 
-  it('a trava que solta sem cutucão: no limite, manda em vez de desistir', () => {
+  it('a trava que solta sem cutucão: no limite, não manda direto; cutuca o árbitro, que oferece o lugar 2', () => {
+    held = true
+    d.deliver('L1', 7, 'kimi', [{ text: 'pacote', as: 'claudinei' }])
+    held = false
+    arbiterOffers = true
+    vi.advanceTimersByTime(DELIVERY_LIMIT_MS)
+    expect(poked).toEqual([{ projectId: 7, engine: 'kimi' }])
+    expect(sent.map((s) => s.text)).toEqual(['pacote'])
+    expect(errosNoChat()).toEqual([])
+    // Entregue: nenhum relógio sobra nem cutuca de novo.
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(DELIVERY_LIMIT_MS * 3)
+    expect(poked).toHaveLength(1)
+  })
+
+  it('no limite, sessão livre e sem trava, mas o árbitro segura (aviso de limite de uso, compactação pendente, encerramento): não manda, cutuca e continua esperando', () => {
+    held = true
+    d.deliver('L1', 7, 'opencode', [{ text: 'pacote', as: 'claudinei' }, { text: 'pergunta', as: 'operator' }])
+    held = false
+    vi.advanceTimersByTime(DELIVERY_LIMIT_MS)
+    expect(sent).toEqual([])
+    expect(poked).toEqual([{ projectId: 7, engine: 'opencode' }])
+    // Um cutucão por limite, com um único relógio armado (sem laço quente nem vazamento).
+    expect(vi.getTimerCount()).toBe(1)
+    vi.advanceTimersByTime(DELIVERY_LIMIT_MS * 3)
+    expect(poked).toHaveLength(4)
+    expect(vi.getTimerCount()).toBe(1)
+    // Sem trava, não desiste: nada vai ao chat nem volta à fila.
+    expect(sent).toEqual([])
+    expect(errosNoChat()).toEqual([])
+    expect(requeued).toEqual([])
+    // O aviso saiu e o árbitro oferece o lugar 2: o texto sai (um por turno no OpenCode).
+    expect(fimDoTurno({ ...ctx, engine: 'opencode' })).toBe(true)
+    expect(sent.map((s) => s.text)).toEqual(['pacote'])
+    expect(fimDoTurno({ ...ctx, engine: 'opencode' })).toBe(true)
+    expect(sent.map((s) => s.text)).toEqual(['pacote', 'pergunta'])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('no limite, o cutucão que entrega só o primeiro (motor de um por turno): o resto volta à espera com um único relógio', () => {
+    held = true
+    d.deliver('L1', 7, 'kimi', [{ text: 'pacote', as: 'claudinei' }, { text: 'pergunta', as: 'operator' }])
+    held = false
+    arbiterOffers = true
+    vi.advanceTimersByTime(DELIVERY_LIMIT_MS)
+    expect(sent.map((s) => s.text)).toEqual(['pacote'])
+    expect(vi.getTimerCount()).toBe(1)
+    expect(fimDoTurno()).toBe(true)
+    expect(sent.map((s) => s.text)).toEqual(['pacote', 'pergunta'])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('no limite, o cutucão que quebra não perde o texto: continua esperando', () => {
+    held = true
+    d.deliver('L1', 7, 'kimi', [{ text: 'pacote', as: 'claudinei' }])
+    held = false
+    pokeFails = true
+    vi.advanceTimersByTime(DELIVERY_LIMIT_MS)
+    expect(poked).toHaveLength(1)
+    expect(sent).toEqual([])
+    expect(errosNoChat()).toEqual([])
+    expect(vi.getTimerCount()).toBe(1)
+    expect(fimDoTurno()).toBe(true)
+    expect(sent.map((s) => s.text)).toEqual(['pacote'])
+  })
+
+  it('no limite, o desligamento e o fim do terminal ainda limpam a espera que só cutucou', () => {
     held = true
     d.deliver('L1', 7, 'kimi', [{ text: 'pacote', as: 'claudinei' }])
     held = false
     vi.advanceTimersByTime(DELIVERY_LIMIT_MS)
-    expect(sent.map((s) => s.text)).toEqual(['pacote'])
-    expect(errosNoChat()).toEqual([])
+    expect(poked).toHaveLength(1)
+    d.ended('L1')
+    expect(errosNoChat().map((e) => e.event.raw.message)).toEqual([expect.stringContaining('pacote')])
+    expect(vi.getTimerCount()).toBe(0)
+    // Nova espera que também só cutucou: o desligamento a limpa.
+    held = true
+    d.deliver('L1', 7, 'kimi', [{ text: 'mais um', as: 'claudinei' }])
+    held = false
+    vi.advanceTimersByTime(DELIVERY_LIMIT_MS)
+    expect(poked).toHaveLength(2)
+    d.dispose()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(errosNoChat().map((e) => e.event.raw.message)).toEqual([
+      expect.stringContaining('pacote'),
+      expect.stringContaining('mais um'),
+    ])
   })
 
   it('envio que falha por outro motivo: o pacote vai na hora ao chat (não só ao log) e a mensagem do operador volta à fila', () => {
@@ -195,6 +291,8 @@ describe('entrega do ramificar', () => {
     status.set('L1', 'working') // outro turno começou (o operador, por exemplo)
     vi.advanceTimersByTime(DELIVERY_LIMIT_MS * 3)
     expect(sent).toEqual([])
+    // Ocupada: nem cutuca (o fim do turno já chama o árbitro).
+    expect(poked).toEqual([])
     expect(errosNoChat()).toEqual([])
     expect(fimDoTurno()).toBe(true)
     expect(sent.map((s) => s.text)).toEqual(['pacote'])

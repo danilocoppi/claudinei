@@ -21,11 +21,17 @@ import { UserError } from '../user-error.js'
  *   "turno em andamento"), sai um texto por turno: depois do primeiro envio
  *   aceito, o resto volta à espera e sai no fim do turno, pelo mesmo lugar 2
  *   (antes da fila do operador). Com a sessão trabalhando, nem o primeiro sai;
- * - no limite (`DELIVERY_LIMIT_MS`), sem trava e com a sessão livre, manda (um
- *   cutucão perdido); sem trava e com a sessão ocupada, continua esperando o fim
- *   do turno, sem prazo. Só desiste se a trava ainda segura: na espera que já
- *   começou por ela, no primeiro limite; na espera do fim do turno, só se a
- *   trava segura em dois limites seguidos;
+ * - no limite (`DELIVERY_LIMIT_MS`), sem trava e com a sessão livre (um cutucão
+ *   perdido), não manda direto: cutuca o árbitro, que só oferece o lugar 2 se
+ *   nada mais segura o terminal (o encerramento, o aviso do limite de uso ou do
+ *   trabalho interrompido, a auto-compactação pendente), e arma o relógio de
+ *   novo. Mandar direto passaria por cima desses avisos: no meio do limite de
+ *   uso, a mensagem falharia e seria consumida. Sem trava e com a sessão
+ *   ocupada, continua esperando o fim do turno, sem prazo. Só desiste se a
+ *   trava do desfazer ainda segura: na espera que já começou por ela, no
+ *   primeiro limite; na espera do fim do turno, só se a trava segura em dois
+ *   limites seguidos (o aviso do árbitro não faz desistir: ele sai pelo
+ *   operador, que cutuca o árbitro);
  * - o terminal que termina durante a espera (fechado, apagado, morto) não
  *   espera o limite: o texto sai na hora (ver `ended`); o desligamento também;
  * - desistência ou envio que falha por outro motivo: as mensagens do operador
@@ -82,6 +88,12 @@ export function createBranchDelivery(deps: {
    * vão ao chat como o pacote.
    */
   requeue?: (projectId: number, engine: string, texts: string[]) => void
+  /**
+   * Cutuca o árbitro do próximo envio do terminal (o `poke` dele). No limite,
+   * com a sessão livre e sem trava, a espera passa por ele em vez de mandar
+   * direto, para respeitar o que só o árbitro confere (ver o topo do arquivo).
+   */
+  poke: (projectId: number, engine: string) => void
   log?: (m: string) => void
 }): BranchDelivery {
   const log = deps.log ?? ((m: string) => console.error(`[ramo] ${m}`))
@@ -146,8 +158,10 @@ export function createBranchDelivery(deps: {
 
   /**
    * No limite: com a trava segurando (vista também na conferência anterior),
-   * desiste; sem trava, manda se a sessão está livre (cutucão perdido) e, se
-   * está ocupada, continua esperando o fim do turno (o lugar 2 oferece).
+   * desiste; sem trava e com a sessão livre (cutucão perdido), cutuca o árbitro
+   * (o lugar 2 recebe a vez se nenhum aviso segura) e continua esperando; com
+   * a sessão ocupada, continua esperando o fim do turno (o lugar 2 oferece).
+   * Um relógio por espera e um cutucão por limite: sem laço quente.
    */
   const expire = (localId: string): void => {
     const w = waiting.get(localId)
@@ -170,12 +184,16 @@ export function createBranchDelivery(deps: {
       drop(localId, w.projectId, w.engine, w.items, 'o terminal não está ativo')
       return
     }
-    if (FREE.has(status)) {
-      forget(localId)
-      send(localId, w.projectId, w.engine, w.items)
-      return
-    }
+    // Arma antes de cutucar: a oferta, no mesmo passo, esquece a espera (e o
+    // relógio) se entrega, ou a guarda de novo com relógio próprio.
     w.timer = arm(localId)
+    if (FREE.has(status)) {
+      try {
+        deps.poke(w.projectId, w.engine)
+      } catch (err) {
+        log(`cutucar o árbitro de ${w.projectId}/${w.engine} falhou: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
   }
 
   /**

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/db.js'
@@ -12,6 +12,11 @@ let dir: string
 beforeEach(() => {
   db = openDb(':memory:')
   dir = mkdtempSync(join(tmpdir(), 'claudinei-branch-'))
+})
+
+afterEach(() => {
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
 })
 
 const columns = (table: string) =>

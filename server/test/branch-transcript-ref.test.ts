@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { claudeEngine } from '../src/engine/claude-engine.js'
@@ -20,6 +20,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   for (const k of ENV_KEYS) {
+    rmSync(process.env[k]!, { recursive: true, force: true })
     if (backup[k] === undefined) delete process.env[k]; else process.env[k] = backup[k]
   }
 })

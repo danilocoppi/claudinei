@@ -102,14 +102,15 @@ export function resolveBindings(overrides: Overrides, opts: { mac: boolean; admi
 
   for (const id of pending) {
     const def = editableById(id).default
-    const owner = taken.get(canonicalCombo(def, mac) ?? '')
+    const defCanon = canonicalCombo(def, mac)!
+    const owner = taken.get(defCanon)
     if (owner) {
       notices[id] = { ...notices[id], unbound: owner }
       continue
     }
     // Padrão recusado aqui seria erro do registro (o teste dos padrões cobre): fica sem atalho.
     if (!checkCombo(id, def, mac).ok) continue
-    taken.set(canonicalCombo(def, mac)!, id)
+    taken.set(defCanon, id)
     resolved[id] = def
   }
 

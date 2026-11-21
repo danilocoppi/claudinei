@@ -97,7 +97,7 @@ export const FIXED: readonly FixedShortcut[] = [
   },
 ]
 
-export const SCOPE_PLACES: Record<ShortcutScope, Place[]> = {
+export const SCOPE_PLACES: Record<ShortcutScope, readonly Place[]> = {
   field: ['chatInput'],
   page: ['chatInput', 'outside'],
   conversation: ['chatInput', 'outside'],

@@ -360,6 +360,24 @@ describe('o terminal do ramo', () => {
     expect((await fork(p1.id, { engine: 'claude', name: 3 })).statusCode).toBe(400)
     expect((await fork(9999, { engine: 'claude' })).statusCode).toBe(404)
   })
+
+  it('sessão viva ainda sem id (conversa nova): no_conversation, sem copiar a conversa antiga do banco', async () => {
+    const VELHA = '22222222-2222-4222-8222-222222222222'
+    doisTurnos(p1.path, VELHA)
+    const velha = startMain(p1, 'claude', VELHA)
+    await manager.stop(velha.localId)
+    // Conversa nova de pé, ainda sem o init.
+    const nova = manager.start(p1, { engine: 'claude', continueLatest: false })
+    expect(manager.get(nova.localId)?.engineSessionId).toBeFalsy()
+    const antes = projects.list().length
+    const res = await fork(p1.id, { engine: 'claude' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('no_conversation')
+    expect(projects.list()).toHaveLength(antes)
+    // Sem sessão de pé, a mais recente do banco continua valendo.
+    await manager.stop(nova.localId)
+    await forkOk(p1.id, { engine: 'claude' })
+  })
 })
 
 describe('a sessão do ramo', () => {

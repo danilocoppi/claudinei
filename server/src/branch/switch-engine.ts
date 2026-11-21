@@ -7,6 +7,7 @@ import { getEngine, hasEngine } from '../engine/index.js'
 import { binAvailableCached } from '../engine/available.js'
 import { UserError } from '../user-error.js'
 import { collectHandoff, type Handoff } from './handoff.js'
+import type { PermissionMode } from '../claude/session.js'
 import { originOf, SAFE_ID } from './fork.js'
 
 /**
@@ -65,9 +66,11 @@ function checkTarget(deps: SwitchDeps, projectId: number, to: string): SessionIn
  * 5. encerra o destino ocioso (se o `stop` falha, nada é criado nem pausado);
  * 6. pausa por `operator` o goal ativo ou esperando do destino e descarta a
  *    retomada pendente dele (conversa nova não tem "Continuar");
- * 7. abre a conversa nova e manda o pacote como mensagem do Claudinei, no mesmo
- *    passo síncrono: o "livre" do início da sessão (microtask) já a encontra
- *    ocupada, e a fila e os avisos do destino só saem depois do turno do pacote.
+ * 7. abre a conversa nova (com o modelo, o esforço e a permissão da sessão do
+ *    destino, a de pé ou a mais recente do banco) e manda o pacote como
+ *    mensagem do Claudinei, no mesmo passo síncrono: o "livre" do início da
+ *    sessão (microtask) já a encontra ocupada, e a fila e os avisos do destino
+ *    só saem depois do turno do pacote.
  *    Se o envio do pacote lança, a sessão nova já existe: vai ao log e a troca
  *    responde com ela (o operador segue sem o contexto), como no `/fork`.
  */
@@ -97,6 +100,15 @@ export async function switchEngine(deps: SwitchDeps, req: { projectId: number; f
   if (!pack) throw noConversation()
 
   const target = checkTarget(deps, projectId, to)
+  // A conversa nova do destino herda o modelo, o esforço e a permissão da
+  // sessão dele: a de pé (encerrada logo abaixo) ou a mais recente do banco.
+  const row = target ? undefined : deps.db.prepare(
+    `SELECT model, effort, permission_mode FROM sessions WHERE project_id=? AND engine=?
+      ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
+  ).get(projectId, to) as { model: string | null; effort: string | null; permission_mode: string | null } | undefined
+  const prefs = target
+    ? { model: target.model, effort: target.effort, permissionMode: target.permissionMode }
+    : { model: row?.model ?? null, effort: row?.effort ?? null, permissionMode: row?.permission_mode ?? null }
   if (target) {
     // Se lança, a troca para aqui: nada foi criado nem pausado.
     await deps.manager.stop(target.localId)
@@ -115,7 +127,13 @@ export async function switchEngine(deps: SwitchDeps, req: { projectId: number; f
     console.error('[troca de motor] publicar o estado do destino falhou', err)
   }
 
-  const session = deps.manager.start(project, { engine: to, continueLatest: false })
+  const session = deps.manager.start(project, {
+    engine: to,
+    continueLatest: false,
+    ...(prefs.model ? { model: prefs.model } : {}),
+    ...(prefs.effort ? { effort: prefs.effort } : {}),
+    ...(prefs.permissionMode ? { permissionMode: prefs.permissionMode as PermissionMode } : {}),
+  })
   try {
     deps.manager.sendAsClaudinei(session.localId, pack.text)
   } catch (err) {

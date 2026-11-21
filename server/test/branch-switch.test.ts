@@ -277,6 +277,20 @@ describe('validação', () => {
     const r404 = await app.inject({ method: 'POST', url: '/api/projects/999/handoff', cookies: adminCookie, payload: { from: 'claude', to: 'codex' } })
     expect(r404.statusCode).toBe(404)
   })
+
+  it('origem com sessão viva ainda sem id (conversa nova): no_conversation, sem copiar a conversa antiga do banco', async () => {
+    doisTurnos(p1.path)
+    const velha = startLive('claude', SRC)
+    await manager.stop(velha.localId)
+    // Conversa nova de pé, ainda sem o init.
+    const nova = manager.start(projects.get(p1.id)!, { engine: 'claude', continueLatest: false })
+    expect(manager.get(nova.localId)?.engineSessionId).toBeFalsy()
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('no_conversation')
+    expect(collectCalls).toEqual([])
+    expect(created).toHaveLength(2)
+  })
 })
 
 describe('o destino', () => {
@@ -374,6 +388,26 @@ describe('o destino', () => {
     expect(nova.writes[0].text).toContain('=== operator ===\npergunta dois')
     expect(nova.writes[0].text).toContain('=== agent ===\nresposta dois')
     expect(collectCalls).toEqual([{ engine: 'claude', id: SRC, opts: { working: false } }])
+  })
+
+  it('o destino herda modelo, esforço e permissão da sessão dele (viva ou a mais recente do banco)', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    // Viva e encerrada pela troca.
+    const dest = manager.start(projects.get(p1.id)!, { engine: 'codex', model: 'gpt-x', effort: 'high', permissionMode: 'acceptEdits' })
+    created.at(-1)!.init(DEST_ID)
+    const r1 = await handoff({ from: 'claude', to: 'codex' })
+    expect(r1.statusCode, r1.body).toBe(201)
+    expect(manager.get(dest.localId)?.status).toBe('stopped')
+    expect(created.at(-1)!.opts).toMatchObject({ model: 'gpt-x', effort: 'high', permissionMode: 'acceptEdits' })
+    expect(r1.json()).toMatchObject({ model: 'gpt-x', effort: 'high', permissionMode: 'acceptEdits' })
+
+    // Sem sessão de pé: a mais recente do banco.
+    await manager.stop(r1.json().localId)
+    db.prepare(`UPDATE sessions SET model='gpt-y', effort='low', permission_mode='plan' WHERE local_id=?`).run(r1.json().localId)
+    const r2 = await handoff({ from: 'claude', to: 'codex' })
+    expect(r2.statusCode, r2.body).toBe(201)
+    expect(created.at(-1)!.opts).toMatchObject({ model: 'gpt-y', effort: 'low', permissionMode: 'plan' })
   })
 
   it('destino sem sessão de pé: abre direto, sem parar nada', async () => {

@@ -7,8 +7,11 @@ import { errorBody, fail, UserError } from '../user-error.js'
 import type { BranchService } from '../branch/service.js'
 import { canFork } from '../branch/fork.js'
 
-/** Recusas que são o estado do terminal, não falha: já há lateral, ou nada para copiar. */
-const CONFLICTS = new Set(['side_exists', 'no_conversation'])
+/**
+ * Recusas que são o estado do terminal, não falha: já há lateral, nada para
+ * copiar, ou o motor de destino da troca indisponível, trabalhando ou no limite.
+ */
+const CONFLICTS = new Set(['side_exists', 'no_conversation', 'handoff_engine_unavailable', 'handoff_target_busy', 'handoff_target_limited'])
 
 /** Status HTTP de um erro do serviço da lateral. */
 const statusOf = (err: unknown): number => {
@@ -25,7 +28,8 @@ const statusOf = (err: unknown): number => {
  * As mudanças vão às telas pelo próprio serviço, como `side_state` e
  * `side_event`, sempre com o `projectId` (o filtro por usuário do ws).
  *
- * E o ramo (`/fork`): cria o terminal irmão com a cópia da conversa.
+ * E o ramo (`/fork`): cria o terminal irmão com a cópia da conversa; e a troca
+ * de motor (⇄): continua a conversa noutro motor do mesmo terminal.
  */
 export function registerBranchRoutes(app: FastifyInstance, deps: { db: Db; branch: BranchService }) {
   const projects = createProjectsService(deps.db)
@@ -108,6 +112,25 @@ export function registerBranchRoutes(app: FastifyInstance, deps: { db: Db; branc
       return reply.code(201).send(r)
     } catch (err) {
       return reply.code(statusOf(err)).send(errorBody(err))
+    }
+  })
+
+  /**
+   * ⇄ Continuar noutro motor: o pacote da conversa de `from` abre uma conversa
+   * nova em `to` (o destino ocioso é encerrado antes). Responde com a sessão
+   * do destino.
+   */
+  app.post('/api/projects/:id/handoff', async (req, reply) => {
+    const b = body(req)
+    const t = target(req, reply, b.from)
+    if (!t) return
+    if (typeof b.to !== 'string' || !b.to) return reply.code(400).send({ error: 'to deve ser texto' })
+    try {
+      const session = await deps.branch.switchEngine({ projectId: t.projectId, from: t.engine, to: b.to })
+      return reply.code(201).send(session)
+    } catch (err) {
+      // O `stop` do destino que falha (sem código) é do servidor, não do pedido.
+      return reply.code(err instanceof UserError ? statusOf(err) : 500).send(errorBody(err))
     }
   })
 }

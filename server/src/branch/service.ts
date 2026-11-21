@@ -6,10 +6,12 @@ import type { SessionInfo } from '../claude/manager.js'
 import type { AuthUser } from '../auth/plugin.js'
 import { createProjectsService, type Project } from '../projects.js'
 import { getEngine } from '../engine/index.js'
+import { UserError } from '../user-error.js'
 import { createSideService, type SideMain, type SideService } from './side.js'
 import { forkTerminal } from './fork.js'
 import { forkCopyDone, parseForkSource, type ForkSource } from './fork-source.js'
 import { collectHandoff } from './handoff.js'
+import { switchEngine } from './switch-engine.js'
 
 /** Status em que a sessão está de pé (o mesmo ACTIVE do manager). */
 const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
@@ -18,8 +20,8 @@ const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 export type SideTestDeps = Pick<Parameters<typeof createSideService>[0], 'makeSession' | 'cutFor' | 'collect' | 'cleanup'>
 
 /**
- * Ramificar a conversa: a lateral (`/side`, `/btw`), o ramo (`/fork`, Task 8) e
- * a troca de motor (Task 9). Nasce no app, depois do goal; os ganchos do
+ * Ramificar a conversa: a lateral (`/side`, `/btw`), o ramo (`/fork`) e a troca
+ * de motor (⇄). Nasce no app, depois do goal; os ganchos do
  * manager (fim de turno, morte e fim da sessão) chegam pela referência que
  * index.ts guarda.
  */
@@ -27,6 +29,8 @@ export interface BranchService {
   side: SideService
   /** `/fork`: o terminal irmão com a cópia da conversa (ver fork.ts). */
   fork(req: { projectId: number; engine: string; name?: string; user?: AuthUser }): Promise<{ project: Project; session: SessionInfo }>
+  /** ⇄: abre uma conversa nova em `to` com o pacote da conversa de `from` (ver switch-engine.ts). */
+  switchEngine(req: { projectId: number; from: string; to: string }): Promise<SessionInfo>
   /** Mensagem do operador aceita pela sessão: a do ramo ainda sem cópia fica guardada até o fim do turno. */
   onOperatorMessage(projectId: number, engine: string, info: { localId?: string; text?: string }): void
   onTurnResult(projectId: number, engine: string): void
@@ -72,6 +76,13 @@ export function createBranchService(deps: {
    * do init), elas saem de novo depois do pacote, sem o operador redigitar.
    */
   const pending = new Map<string, string[]>()
+
+  /**
+   * Trocas em curso por terminal+motor de destino. A reserva é síncrona: um
+   * segundo pedido (outro navegador, clique duplo) chega enquanto o primeiro
+   * ainda monta o pacote e encontraria o destino "livre".
+   */
+  const switching = new Set<string>()
 
   /**
    * Tira de `pending` as mensagens de um turno já encerrado (`sent`), mantendo
@@ -123,6 +134,17 @@ export function createBranchService(deps: {
   return {
     side,
     fork: (req) => forkTerminal({ db: deps.db, manager: deps.manager, cutFor: deps.side?.cutFor, collect: deps.side?.collect }, req),
+
+    async switchEngine(req) {
+      const key = `${req.projectId}:${req.to}`
+      if (switching.has(key)) throw new UserError('handoff_target_busy', 'O motor de destino já está recebendo outra conversa')
+      switching.add(key)
+      try {
+        return await switchEngine({ db: deps.db, manager: deps.manager, store: deps.store, restart: deps.restart, collect: deps.side?.collect }, req)
+      } finally {
+        switching.delete(key)
+      }
+    },
 
     onOperatorMessage(_projectId, _engine, info) {
       if (!info.localId || typeof info.text !== 'string') return

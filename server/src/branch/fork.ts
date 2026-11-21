@@ -21,7 +21,7 @@ import type { ForkSource } from './fork-source.js'
 const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 
 /** Id de conversa aceito como origem: vira argv (`--resume <id>`) ou caminho. */
-const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+export const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
 /**
  * Nome do ramo: o dado (sem os espaços das pontas), mesmo que já exista; sem
@@ -53,7 +53,7 @@ export const canFork = (u: AuthUser | undefined): boolean => !u || (u.kind === '
 const noConversation = () => new UserError('no_conversation', 'Ainda não há conversa para copiar')
 
 /** As opções da sessão que o ramo herda: motor, modelo, esforço e modo de permissão. */
-interface Origin {
+export interface Origin {
   sourceId: string
   model: string | null
   effort: string | null
@@ -67,7 +67,7 @@ interface Origin {
  * terminal com conversa gravada. `working` vem sempre da viva: o turno em
  * curso fica de fora do corte, seja qual for a conversa.
  */
-function originOf(deps: ForkDeps, projectId: number, engine: string): Origin | null {
+export function originOf(deps: { db: Db; manager: Pick<SessionManager, 'list' | 'turnStartedAt'> }, projectId: number, engine: string): Origin | null {
   const live = deps.manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))
   const working = live?.status === 'working'
   const turnStartedAt = working ? deps.manager.turnStartedAt(live!.localId) : undefined

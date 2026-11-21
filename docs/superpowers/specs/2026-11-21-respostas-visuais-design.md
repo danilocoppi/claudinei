@@ -206,7 +206,7 @@ turno, como resultado de ferramenta, e a página não fala com o agente.
   Barreiras: `Origin: null` com 403 e `PUT` só do admin. Retenção: exclusão do terminal,
   `rewound_at` e varredura.
 - **Hermes.** Esquemas, erros, resultado com o id; `check_page` contra um dublê do `BrowserHost`
-  (meta CSP, corte em 2000 px, teto de 15 s, 2 simultâneas, cópia temporária, sem navegador).
+  (meta CSP, corte em 2000 px, prazos do contrato: 10 s para o `load` e 20 s com a página aberta, 2 simultâneas, cópia temporária, sem navegador).
 - **Web.** Âncora pela chamada (quatro motores, fora do grupo), âncora pelo turno, e só o menu
   quando não há âncora. Uma viva por vez, com carga automática só no evento ao vivo e descarga fora
   da tela (observer dublado). Altura limitada, com mensagem alheia ignorada. Token novo para tela
@@ -230,3 +230,10 @@ turno, como resultado de ferramenta, e a página não fala com o agente.
   fila no host com `queueTimeoutMs` e `BrowserBusyError`. As linhas de Execução e Limites acima já
   seguem esse contrato. O `check_page` é a última tarefa do plano do 15 e espera o sha do host do
   16; até lá, testes contra um dublê dessa interface.
+
+## Decisões da checagem do construtor
+
+- **As páginas acompanham a conversa depois de "Editar a partir daqui".** O desfazer troca o id da conversa (Claude: id novo; Codex: fork) e passa os turnos que ficaram para ele. As páginas desses turnos passam junto, no mesmo ponto em que o desfazer muda o rótulo dos turnos (no Claude, quando o primeiro turno da conversa nova fecha), com testes nos dois motores. As páginas do turno cortado continuam saindo.
+- **O cartão também busca a página pelo id.** Quando a chamada `show_page` traz um `pg_…` que não está na lista da conversa atual (ramo do `/fork`, conversa copiada, troca de id ainda não confirmada), o cartão pede a página pelo id. O servidor confere o acesso ao projeto dono da página: com acesso, mostra; sem acesso ou apagada, o cartão diz "Página indisponível". A lista por conversa continua sendo a fonte do cartão sem chamada visível (fim do turno no Codex).
+- **O `check_page` roda no servidor.** O hermes é um processo por sessão e só fala HTTP, então a ferramenta chama uma rota nova, `POST /api/hermes/pages/check` (token de serviço, mesmo teto de corpo das outras rotas do hermes ajustado para 512 KB de HTML). O servidor monta o documento, usa o `BrowserHost` único criado em `index.ts`, grava a cópia temporária do PNG e devolve PNG em base64, altura e console. Os testes da rota usam um dublê do host; os do hermes só conferem o repasse.
+- **Entrega única.** O 15 vai à `main` junto com o 16, pelo ramo de integração da onda D. A descrição do `show_page` pode citar o `check_page` desde o início.

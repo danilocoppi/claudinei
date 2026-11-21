@@ -553,7 +553,7 @@ describe('createRewindService (unidade)', () => {
       projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
       resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
     })
-    return { svc, locate, a, b, c }
+    return { svc, locate, store, a, b, c }
   }
   const admin = { isAdmin: true, projectIds: 'all' as const }
 
@@ -573,6 +573,42 @@ describe('createRewindService (unidade)', () => {
     const { svc, locate } = sameTextTurns()
     await svc.options('L', { text: 'continue', occurrence: 1 }, admin)
     expect(locate).toHaveBeenLastCalledWith(expect.anything(), 'continue', 1)
+  })
+
+  it('R23: turno interativo depois do alvo no mesmo terminal desliga as duas no Claude com anchor_not_found', async () => {
+    const { svc, locate, store, a, b } = sameTextTurns()
+    // O operador abriu o terminal interativo depois de B: o que digitou lá não virou turno.
+    const i = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'interactive' })
+    store.setEnd(i, null, 'stopped', null)
+    locate.mockClear()
+    const res = await svc.options('L', { turnId: b, text: 'continue', occurrence: 0 }, admin)
+    expect(res.conversation).toEqual({ enabled: false, reason: 'anchor_not_found' })
+    expect(res.files).toEqual({ enabled: false, reason: 'anchor_not_found' })
+    expect(locate).not.toHaveBeenCalled()
+    await expect(svc.execute('L', { target: { turnId: a, text: 'continue', occurrence: 0 }, mode: 'conversation', editedText: 'x' }, admin))
+      .rejects.toMatchObject({ code: 'rewind_unavailable', params: { reason: 'anchor_not_found' } })
+  })
+
+  it('R23: turno interativo antes do alvo não atrapalha', async () => {
+    const udb = openDb(':memory:')
+    const store = createUndoStore(udb)
+    const dir = makeTempDir('claudinei-rewind-unit-')
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    createProjectsService(udb).create({ name: 'P', path: dir })
+    const i = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'interactive' })
+    store.setEnd(i, null, 'stopped', null)
+    const t = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'operator', textKey: 'oi', conversationId: 'S1' })
+    store.setEnd(t, null, 'result', 'S1')
+    const locate = vi.fn<RewindAdapter['locate']>(async () => ({ kind: 'claude', parentUuid: null }))
+    const svc = createRewindService({
+      manager: { get: () => ({ localId: 'L', projectId: 1, engine: 'claude', status: 'idle', engineSessionId: 'S1' }) as any, interrupt: vi.fn(), send: vi.fn() },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { claude: { locate, apply: vi.fn(async () => ({})) } },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
+    })
+    const res = await svc.options('L', { turnId: t, text: 'oi', occurrence: 0 }, admin)
+    expect(res.conversation).toEqual({ enabled: true })
+    expect(locate).toHaveBeenCalledTimes(1)
   })
 
   it('codex com fork: os turnos que ficam passam ao id novo na hora', async () => {

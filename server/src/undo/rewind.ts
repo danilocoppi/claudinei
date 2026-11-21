@@ -186,6 +186,13 @@ export function createRewindService(deps: RewindDeps) {
     // Mensagem que entrou no meio do turno: o Codex só corta turnos inteiros, e
     // no Claude o corte ali não foi ensaiado (R20).
     if (turn?.midTurn) return both(off(info.engine === 'codex' ? 'codex_mid_turn' : 'claude_mid_turn'))
+    // R23: no Claude, o que se digitou no terminal interativo depois da mensagem
+    // não virou turno; a ocorrência do R22 sairia curta e o corte cairia na
+    // mensagem errada.
+    if (turn && info.engine === 'claude'
+      && store.terminalTurns(info.projectId, info.engine).some(t => t.origin === 'interactive' && t.id > turn.id)) {
+      return both(off('anchor_not_found'))
+    }
     let cut: ConversationCut | null = null
     try {
       cut = await plan.adapter.locate({ localId, projectPath: project.path, engineSessionId: info.engineSessionId, turn }, key, occurrence)

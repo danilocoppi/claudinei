@@ -236,7 +236,7 @@ if (process.argv.includes('--hermes')) {
       () => queue?.onSessionDied(projectId, engine),
       () => branch?.onSessionDied(projectId, engine)),
     // Parada ou morta: a lateral do terminal fecha junto (no encerramento o dispose já a tirou).
-    onSessionEnded: (projectId, engine) => branch?.onSessionEnded(projectId, engine),
+    onSessionEnded: (projectId, engine, localId) => branch?.onSessionEnded(projectId, engine, localId),
     onOperatorMessage: (projectId, engine, info) => both('mensagem do operador',
       () => restart?.onOperatorMessage(projectId, engine),
       () => limit?.onOperatorMessage(projectId, engine),

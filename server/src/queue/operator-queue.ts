@@ -128,6 +128,19 @@ export function createOperatorQueueStore(db: Db) {
       ).run(item.id, projectId, engine, frontPosition(projectId, engine), item.text, item.createdAt, item.via)
     },
 
+    /**
+     * Põe à frente, na ordem dada, mensagens do operador que não chegaram à
+     * sessão (ver `restore` do serviço). Não conta o teto de 20 nem confere o
+     * tamanho: a sessão já as tinha aceitado. Terminal apagado: lança (chave
+     * estrangeira).
+     */
+    putFirstTexts(projectId: number, engine: string, texts: string[], via: QueueVia): void {
+      db.transaction(() => {
+        const ins = db.prepare('INSERT INTO operator_queue (project_id, engine, position, text, via) VALUES (?, ?, ?, ?, ?)')
+        for (const text of [...texts].reverse()) ins.run(projectId, engine, frontPosition(projectId, engine), text, via)
+      })()
+    },
+
     moveToFront(id: number): void {
       db.transaction(() => {
         const t = terminalStmt.get(id) as { project_id: number; engine: string } | undefined
@@ -385,6 +398,20 @@ export function createOperatorQueueService(deps: {
           warn('[operator-queue] interromper para enviar falhou:', err instanceof Error ? err.message : err)
         })
       }
+      return emit(projectId, engine)
+    },
+
+    /**
+     * Mensagens do operador que o ramificar não conseguiu entregar (a sessão do
+     * ramo não voltou, o desfazer segurou o terminal por tempo demais, o
+     * terminal terminou na espera): voltam à frente da fila gravada, na ordem,
+     * como mensagens dele (`enter-busy`), com a fila pausada por erro. Ficam à
+     * vista e sobrevivem ao reinício; nada sai sem o operador retomar.
+     */
+    restore(projectId: number, engine: string, texts: string[]): QueueDto {
+      if (texts.length === 0) return dto(projectId, engine)
+      store.putFirstTexts(projectId, engine, texts, 'enter-busy')
+      store.setPaused(projectId, engine, 'error')
       return emit(projectId, engine)
     },
 

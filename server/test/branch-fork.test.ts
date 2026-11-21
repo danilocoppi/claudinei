@@ -49,10 +49,15 @@ class FakeSession extends EventEmitter implements EngineSession {
   sessionId?: string
   lastStderr = ''
   writes: Array<{ text: string; echo: boolean }> = []
+  /** Lido na criação: as sessões de um teste de Kimi ou OpenCode recusam como os motores reais. */
+  readonly refusesMidTurn = recusaNoTurno
   constructor(readonly opts: EngineSessionOptions) { super() }
   set(s: SessionStatus) { if (this.status !== s) { this.status = s; this.emit('status', s) } }
   start(): void { this.set('idle') }
   send(text: string, o?: { echoToClients?: boolean }): void {
+    // Kimi e OpenCode recusam mensagem no meio do turno (opencode-session.ts e
+    // kimi-session.ts); Claude e Codex a aceitam. Opção por teste (`recusaNoTurno`).
+    if (this.refusesMidTurn && this.status === 'working') throw new Error('turno em andamento')
     this.writes.push({ text, echo: !!o?.echoToClients })
     this.set('working')
   }
@@ -84,6 +89,12 @@ let undo: Undo | undefined
 /** O árbitro do próximo envio: o desfazer o cutuca quando solta a pasta. */
 let nextSend: NextSend | undefined
 let created: FakeSession[]
+/** As sessões falsas criadas daqui em diante recusam mensagem no meio do turno (Kimi, OpenCode). */
+let recusaNoTurno = false
+/** O que o servidor transmitiu às telas (os avisos `message_error` no chat do terminal). */
+let broadcasts: any[]
+/** A montagem do pacote falha (o storage do motor ilegível, por exemplo). */
+let collectError: Error | null
 /** Cada "livre" do manager, com o status da sessão na hora (o árbitro da fila só entrega se ela não está trabalhando). */
 let available: Array<{ localId?: string; status?: string }>
 let collectCalls: Array<{ engine: string; id: string; opts: { working: boolean; before?: number } }>
@@ -112,6 +123,9 @@ beforeEach(async () => {
   db = openDb(':memory:')
   auth = createAuthService({ db })
   created = []
+  recusaNoTurno = false
+  broadcasts = []
+  collectError = null
   available = []
   collectCalls = []
   fakeCuts = {}
@@ -124,13 +138,13 @@ beforeEach(async () => {
     // Como o index.ts: os ganchos chegam ao serviço pela referência.
     onTurnResult: (p, e) => branch?.onTurnResult(p, e),
     onSessionDied: (p, e) => branch?.onSessionDied(p, e),
-    onSessionEnded: (p, e) => branch?.onSessionEnded(p, e),
+    onSessionEnded: (p, e, l) => branch?.onSessionEnded(p, e, l),
     onOperatorMessage: (p, e, i) => branch?.onOperatorMessage(p, e, i),
     onSessionAvailable: (_p, ctx) => { available.push({ localId: ctx?.localId, status: ctx && manager.get(ctx.localId)?.status }) },
   })
   app = await buildApp({
     config: loadConfig({}), db, manager, auth,
-    wsHub: { broadcast: () => {}, register: () => {} } as never,
+    wsHub: { broadcast: (m: unknown) => { broadcasts.push(m) }, register: () => {} } as never,
     onBranchReady: (b) => { branch = b },
     onUndoReady: (u) => { undo = u },
     onNextSendReady: (n) => { nextSend = n },
@@ -139,6 +153,7 @@ beforeEach(async () => {
       cutFor: async (engine, path, id, opts) => engine in fakeCuts ? fakeCuts[engine] : realCutFor(engine, path, id, opts),
       collect: async (engine, path, id, opts) => {
         collectCalls.push({ engine: engine.id, id, opts })
+        if (collectError) throw collectError
         return engine.id in fakePacks ? fakePacks[engine.id] : collectHandoff(engine, path, id, opts)
       },
     },
@@ -241,6 +256,17 @@ function ramoSegueVivo(localId: string) {
   expect(() => manager.send(localId, 'e agora?')).not.toThrow()
   expect(s.writes.at(-1)).toEqual({ text: 'e agora?', echo: false })
 }
+
+/** Os avisos de mensagem não entregue (ou de contexto que faltou) no chat do terminal. */
+const avisosNoChat = (localId: string): string[] => broadcasts
+  .filter((b) => b?.type === 'session_event' && b.localId === localId && b.event?.subtype === 'message_error')
+  .map((b) => b.event.raw.message as string)
+
+/** A fila gravada do operador de um terminal. */
+const filaDe = (projectId: number, engine: string) => ({
+  texts: (db.prepare('SELECT text FROM operator_queue WHERE project_id=? AND engine=? ORDER BY position, id').all(projectId, engine) as Array<{ text: string }>).map((r) => r.text),
+  paused: (db.prepare('SELECT paused FROM operator_queue_state WHERE project_id=? AND engine=?').get(projectId, engine) as { paused: number } | undefined)?.paused === 1,
+})
 
 // ---------- testes ----------
 
@@ -737,24 +763,126 @@ describe('cópia recusada', () => {
     ramoSegueVivo(session.localId)
   })
 
-  it('OpenCode: o processo sai com erro na primeira mensagem (result de erro e logo dead): o pacote sai e a mensagem é reenviada uma vez', async () => {
+  it('OpenCode: o processo sai com erro na primeira mensagem (result de erro e logo dead): o pacote sai e a mensagem é reenviada uma vez, no turno seguinte', async () => {
+    recusaNoTurno = true // o OpenCode recusa mensagem com o turno em andamento
     fakeCuts.opencode = { cut: 'msg_9', at: null, previewBefore: 7 }
     fakePacks.opencode = { text: `${HANDOFF_PREFIX}: pacote oc`, messages: 2, tokens: 10 }
     startMain(p1, 'opencode', 'ses_src')
-    const { session } = await forkOk(p1.id, { engine: 'opencode' })
+    const { project, session } = await forkOk(p1.id, { engine: 'opencode' })
     const s = created.at(-1)!
     const n = created.length
     manager.send(session.localId, 'minha pergunta')
     // Como o close do OpenCode: o result de erro e, no mesmo passo, `dead`.
     s.emit('event', { kind: 'result', subtype: 'error', isError: true, resultText: 'exit 1', costUsd: 0, raw: {} })
     s.set('dead')
-    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length >= 2).toBe(true)
+    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length >= 1).toBe(true)
     await tick()
-    expect(created.at(-1)!.writes).toEqual([
+    const s2 = created.at(-1)!
+    // O pacote ocupa o turno: a mensagem espera o fim dele, sem se perder.
+    expect(s2.writes).toEqual([{ text: fakePacks.opencode.text, echo: true }])
+    expect(avisosNoChat(session.localId)).toEqual([])
+    s2.result()
+    // O fim do turno: o árbitro oferece o lugar 2, antes da fila.
+    nextSend!.poke(project.id, 'opencode')
+    expect(s2.writes).toEqual([
       { text: fakePacks.opencode.text, echo: true },
       { text: 'minha pergunta', echo: true },
     ])
+    expect(avisosNoChat(session.localId)).toEqual([])
+    s2.result()
     ramoSegueVivo(session.localId)
+  })
+
+  it('a cópia recusada usa o motor do terminal do ramo (não o gravado na fonte) para a entrega', async () => {
+    recusaNoTurno = true
+    fakeCuts.opencode = { cut: 'msg_9', at: null, previewBefore: 7 }
+    fakePacks.opencode = { text: `${HANDOFF_PREFIX}: pacote oc`, messages: 2, tokens: 10 }
+    startMain(p1, 'opencode', 'ses_src')
+    const { project, session } = await forkOk(p1.id, { engine: 'opencode' })
+    // A fonte diz outro motor (um que aceita mensagem no meio do turno); o pacote guardado não relê nada.
+    const fonte = JSON.parse(rowOf(session.localId).fork_source!)
+    db.prepare('UPDATE sessions SET fork_source=? WHERE local_id=?').run(JSON.stringify({ ...fonte, engine: 'claude' }), session.localId)
+    const s = created.at(-1)!
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    s.emit('event', { kind: 'result', subtype: 'error', isError: true, resultText: 'exit 1', costUsd: 0, raw: {} })
+    s.set('dead')
+    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length >= 1).toBe(true)
+    await tick()
+    const s2 = created.at(-1)!
+    expect(s2.writes).toHaveLength(1)
+    expect(filaDe(project.id, 'opencode').texts).toEqual([])
+    s2.result()
+    nextSend!.poke(project.id, 'opencode')
+    expect(s2.writes.map((w) => w.text)).toEqual([fakePacks.opencode.text, 'minha pergunta'])
+  })
+
+  it('o revive da cópia recusada falha (ramo fora do ar): a mensagem do operador volta à fila gravada, pausada, e o pacote vai ao chat do ramo', async () => {
+    doisTurnos(p1.path)
+    startMain(p1, 'claude', SRC)
+    const { project, session } = await forkOk(p1.id, { engine: 'claude' })
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    vi.spyOn(manager, 'revive').mockImplementation(() => { throw new Error('sem processo') })
+    created.at(-1)!.set('dead')
+    await expect.poll(() => avisosNoChat(session.localId).length).toBe(1)
+    expect(created).toHaveLength(n)
+    expect(avisosNoChat(session.localId)[0]).toContain(HANDOFF_PREFIX)
+    expect(filaDe(project.id, 'claude')).toEqual({ texts: ['minha pergunta'], paused: true })
+  })
+
+  it('a montagem do pacote da cópia recusada falha: o motivo aparece no chat do ramo, e a mensagem do operador segue', async () => {
+    doisTurnos(p1.path)
+    startMain(p1, 'claude', SRC)
+    const { session } = await forkOk(p1.id, { engine: 'claude' })
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    collectError = new Error('transcript ilegível')
+    created.at(-1)!.set('dead')
+    await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length >= 1).toBe(true)
+    await tick()
+    expect(created.at(-1)!.writes).toEqual([{ text: 'minha pergunta', echo: true }])
+    const avisos = avisosNoChat(session.localId)
+    expect(avisos).toHaveLength(1)
+    expect(avisos[0]).toContain('transcript ilegível')
+  })
+
+  it('a volta da conversa relança o ramo durante a espera: a espera não é descartada e sai depois da soltura', async () => {
+    doisTurnos(p1.path)
+    startMain(p1, 'claude', SRC)
+    const { project, session } = await forkOk(p1.id, { engine: 'claude' })
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    const segura = vi.spyOn(undo!, 'holds').mockImplementation((p) => p === project.id)
+    created.at(-1)!.set('dead')
+    await expect.poll(() => created.length).toBe(n + 1)
+    await tick()
+    // "Editar a partir daqui": o stop do relaunch não anuncia o fim da sessão.
+    await manager.relaunch(session.localId, { resumeSessionId: null })
+    expect(created).toHaveLength(n + 2)
+    expect(avisosNoChat(session.localId)).toEqual([])
+    expect(filaDe(project.id, 'claude').texts).toEqual([])
+    segura.mockReturnValue(false)
+    nextSend!.poke(project.id, 'claude')
+    const s3 = created.at(-1)!
+    expect(s3.writes.map((w) => w.text.startsWith(HANDOFF_PREFIX) ? 'pacote' : w.text)).toEqual(['pacote', 'minha pergunta'])
+  })
+
+  it('o ramo é fechado enquanto a entrega espera o desfazer: o pacote vai ao chat e a mensagem à fila na hora, sem esperar o limite', async () => {
+    doisTurnos(p1.path)
+    startMain(p1, 'claude', SRC)
+    const { project, session } = await forkOk(p1.id, { engine: 'claude' })
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    vi.spyOn(undo!, 'holds').mockImplementation((p) => p === project.id)
+    created.at(-1)!.set('dead')
+    await expect.poll(() => created.length).toBe(n + 1)
+    await tick()
+    expect(created.at(-1)!.writes).toEqual([])
+    expect(avisosNoChat(session.localId)).toEqual([])
+    await manager.stop(session.localId)
+    expect(avisosNoChat(session.localId)).toEqual([expect.stringContaining(HANDOFF_PREFIX)])
+    expect(filaDe(project.id, 'claude')).toEqual({ texts: ['minha pergunta'], paused: true })
   })
 
   it('OpenCode copiado no meio do turno: a cópia recusada manda o pacote guardado no /fork, não um refeito sem corte', async () => {
@@ -853,6 +981,7 @@ describe('cópia recusada', () => {
 
 describe('Kimi', () => {
   it('Kimi: conversa nova recebe o pacote como mensagem do Claudinei e nada vai à fila antes do fim desse turno', async () => {
+    recusaNoTurno = true
     fakePacks.kimi = { text: `${HANDOFF_PREFIX}: pacote kimi`, messages: 3, tokens: 100 }
     startMain(p1, 'kimi', 'kimi-conv-1')
     const { session } = await forkOk(p1.id, { engine: 'kimi' })
@@ -873,6 +1002,7 @@ describe('Kimi', () => {
   })
 
   it('Kimi com o desfazer segurando a pasta: o pacote espera a soltura e sai no cutucão, antes da fila do ramo', async () => {
+    recusaNoTurno = true
     fakePacks.kimi = { text: `${HANDOFF_PREFIX}: pacote kimi`, messages: 3, tokens: 100 }
     startMain(p1, 'kimi', 'kimi-conv-1')
     // Escrita do desfazer na pasta do original, que é a do ramo também.

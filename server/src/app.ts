@@ -384,6 +384,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // A ⇄ recusa o destino segurado; o pacote do /fork no Kimi e o da cópia
     // recusada esperam a soltura (o desfazer cutuca o árbitro ao soltar).
     holds: (projectId, engine) => undo.holds(projectId, engine),
+    // As mensagens do operador que o ramificar não conseguiu entregar voltam à
+    // fila gravada dele, pausada (ver deliver.ts).
+    requeue: (projectId, engine, texts) => { queue.restore(projectId, engine, texts) },
   })
   nextSend.register(branch.nextSendProvider)
   branchRef = branch

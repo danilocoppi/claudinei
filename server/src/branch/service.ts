@@ -37,7 +37,12 @@ export interface BranchService {
   onOperatorMessage(projectId: number, engine: string, info: { localId?: string; text?: string }): void
   onTurnResult(projectId: number, engine: string): void
   onSessionDied(projectId: number, engine: string): void
-  onSessionEnded(projectId: number, engine: string): void
+  /**
+   * A sessão saiu (fechada, apagada, morta; o relaunch da volta da conversa não
+   * chega aqui). Com `localId`, o que esperava para ser entregue a ela sai na
+   * hora (à fila do operador e ao chat), em vez de esperar o limite.
+   */
+  onSessionEnded(projectId: number, engine: string, localId?: string): void
   /**
    * O lugar 2 do árbitro do próximo envio: o pacote (e as mensagens da cópia
    * recusada) que esperou o desfazer soltar o terminal sai aqui (ver deliver.ts).
@@ -68,12 +73,19 @@ export function createBranchService(deps: {
    * espera a soltura (ver deliver.ts).
    */
   holds?: (projectId: number, engine: string) => boolean
+  /**
+   * Devolve à fila gravada do operador (na frente, pausada) as mensagens dele
+   * que o ramificar não conseguiu entregar (ver deliver.ts). Lança se o
+   * terminal não existe mais: aí elas vão ao chat.
+   */
+  requeue?: (projectId: number, engine: string, texts: string[]) => void
   side?: SideTestDeps
 }): BranchService {
   const projects = createProjectsService(deps.db)
   const delivery = createBranchDelivery({
     manager: deps.manager, broadcast: deps.broadcast,
     holds: (projectId, engine) => deps.holds?.(projectId, engine) ?? false,
+    requeue: deps.requeue,
   })
   const deliver = delivery.deliver
 
@@ -142,8 +154,18 @@ export function createBranchService(deps: {
    * O `fork_source` já saiu do banco: roda uma vez por sessão. Com o desfazer
    * segurando o terminal, os dois esperam a soltura; o que não sai vai ao chat
    * do ramo (ver deliver.ts).
+   *
+   * As mensagens do operador vieram do `onOperatorMessage`: a sessão já as
+   * tinha aceitado (digitadas, ou tiradas da fila dele, que já as apagou), e
+   * só existem aqui, na memória. Se o revive falha, a entrega segue assim
+   * mesmo: com o ramo de pé (o operador o reviveu nesse meio-tempo) elas saem;
+   * fora do ar, voltam à fila gravada do operador (pausada, à vista,
+   * sobrevivem ao reinício), e o pacote vai ao chat do ramo. O pacote que não
+   * pôde ser montado também avisa no chat, com o motivo.
+   * `engine` é o motor do terminal do ramo (a trava e a capacidade de mensagem
+   * no meio do turno são dele); o `src.engine` só lê a conversa de origem.
    */
-  const recover = async (localId: string, projectId: number, projectPath: string, src: ForkSource, texts: string[]): Promise<void> => {
+  const recover = async (localId: string, projectId: number, engine: string, projectPath: string, src: ForkSource, texts: string[]): Promise<void> => {
     // Chamado de dentro do handler de status da sessão morta, que ainda vai
     // tirá-la do `live` (e avisar o fim dela). Um revive síncrono aqui poria a
     // sessão nova no `live` antes desse `delete`, que a apagaria: o ramo ficaria
@@ -152,17 +174,25 @@ export function createBranchService(deps: {
     await new Promise<void>((resolve) => setImmediate(resolve))
     // O pacote guardado no `/fork` (OpenCode) é a cópia à risca até o comando;
     // refazê-lo agora, sem corte, traria o turno em curso e o que veio depois.
+    let packError: string | null = null
     const pack = src.seed ? { text: src.seed } : await collect(getEngine(src.engine), projectPath, src.sourceId, {
       working: false, ...(src.previewBefore !== null ? { before: src.previewBefore } : {}),
-    }).catch((err) => { console.error('[ramo] pacote da cópia recusada falhou', err); return null })
+    }).catch((err) => {
+      console.error('[ramo] pacote da cópia recusada falhou', err)
+      packError = err instanceof Error ? err.message : String(err)
+      return null
+    })
     try {
       deps.manager.revive(localId)
     } catch (err) {
-      // O operador já reviveu (ou parou) o ramo nesse meio-tempo: não insiste.
+      // O operador já reviveu (ou parou) o ramo nesse meio-tempo: não insiste
+      // no revive, mas não descarta nada (a entrega decide pelo estado da sessão).
       console.error('[ramo] não reviveu a cópia recusada', err)
-      return
     }
-    deliver(localId, projectId, src.engine, [
+    if (packError !== null) {
+      delivery.notice(localId, `A cópia da conversa original não foi feita e o contexto dela não pôde ser montado (${packError}). O ramo seguiu numa conversa nova, sem esse contexto.`)
+    }
+    deliver(localId, projectId, engine, [
       ...(pack ? [{ text: pack.text, as: 'claudinei' as const }] : []),
       ...texts.map((text) => ({ text, as: 'operator' as const })),
     ])
@@ -247,10 +277,13 @@ export function createBranchService(deps: {
       // Assíncrono de propósito: o handler de status ainda vai tirar a sessão
       // morta do `live`, e o revive tem de vir depois disso (o `recover` adia
       // para o passo seguinte do laço antes de tudo).
-      void recover(r.local_id, projectId, path, src, texts).catch((err) => console.error('[ramo] cópia recusada', err))
+      void recover(r.local_id, projectId, engine, path, src, texts).catch((err) => console.error('[ramo] cópia recusada', err))
     },
 
-    onSessionEnded(projectId, engine) { side.onSessionEnded(projectId, engine) },
+    onSessionEnded(projectId, engine, localId) {
+      side.onSessionEnded(projectId, engine)
+      if (localId) delivery.ended(localId)
+    },
     nextSendProvider: delivery.provider,
     bootCleanup: () => side.bootCleanup(),
     dispose: () => { delivery.dispose(); return side.dispose() },

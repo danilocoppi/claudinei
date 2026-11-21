@@ -179,6 +179,26 @@ describe('serviço da fila do operador', () => {
     for (const t of items) svc.add(project.id, engine, t)
   }
 
+  it('restore: mensagens do operador que não chegaram voltam à frente, na ordem, como dele, com a fila pausada; não contam o teto', () => {
+    queued('kimi', 'já na fila')
+    for (let i = 1; i < QUEUE_MAX; i++) svc.add(project.id, 'kimi', `m${i}`)
+    broadcasts = []
+    const dto = svc.restore(project.id, 'kimi', ['primeira', 'segunda'])
+    expect(texts('kimi').slice(0, 3)).toEqual(['primeira', 'segunda', 'já na fila'])
+    expect(texts('kimi')).toHaveLength(QUEUE_MAX + 2)
+    expect(dto.items[0].via).toBe('enter-busy')
+    expect(dto).toMatchObject({ paused: true, pauseReason: 'error' })
+    expect(broadcasts.filter((b) => b.type === 'operator_queue')).toHaveLength(1)
+    // Pausada: o "livre" seguinte não as manda sozinho; o operador decide.
+    mgr.status.set(LOCAL, 'idle')
+    expect(svc.offer(ctx('kimi'))).toBe(false)
+    expect(sends()).toEqual([])
+  })
+
+  it('restore em terminal apagado lança (quem chama mostra o texto no chat)', () => {
+    expect(() => svc.restore(9999, 'kimi', ['x'])).toThrow()
+  })
+
   it('offer entrega um e só um item', () => {
     queued('claude', 'a', 'b')
     mgr.status.set(LOCAL, 'idle')

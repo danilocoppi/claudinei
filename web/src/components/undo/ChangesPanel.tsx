@@ -5,6 +5,7 @@ import type { TFunction } from 'i18next'
 import type { AttributedFile, ChangedFilesDto, FileDiff, TurnDto } from '../../../../shared/undo'
 import { fetchIntervalDiff, fetchIntervalFiles, fetchTurnDiff, fetchTurnFiles } from '../../undo/api'
 import { useUndoStore } from '../../undo/undoStore'
+import { useStore } from '../../store'
 import type { DeclaredChange } from '../../undo/declared'
 import { DiffView } from '../DiffView'
 import { UnifiedDiff } from './UnifiedDiff'
@@ -305,6 +306,13 @@ function DeclaredView({ change }: { change: DeclaredChange }) {
   return <p className="undo-diff__note">{t('undo.diff.pathOnly')}</p>
 }
 
+/** O caminho declarado relativo à pasta do projeto, quando cai dentro dela; senão, como veio. */
+function relToProject(path: string, base: string | null): string {
+  if (!base) return path
+  const root = base.replace(/\/+$/, '')
+  return root && path.startsWith(`${root}/`) && path.length > root.length + 1 ? path.slice(root.length + 1) : path
+}
+
 function notUndoableText(f: AttributedFile, t: TFunction): string {
   if (f.status === 'too_big') return f.size !== undefined ? t('undo.diff.tooBig', { size: fmtSize(f.size) }) : t('undo.diff.tooBigNoSize')
   if (f.status === 'unsnapshotted') return t('undo.diff.unsnapshotted')
@@ -326,6 +334,16 @@ export function ChangesPanel({ localId, focus, onClose, onUndo }: {
 }) {
   const { t, i18n } = useTranslation()
   const entry = useUndoStore((s) => s.byLocal[localId])
+  // Sem git, os caminhos declarados vêm como a ferramenta mandou (em geral absolutos).
+  const projectPath = useStore((s) => {
+    const sess = s.sessions[localId]
+    return sess ? s.projects.find((p) => p.id === sess.projectId)?.path ?? null : null
+  })
+  const declared = 'declared' in focus ? focus.declared : null
+  const declaredRel = useMemo(
+    () => declared?.map((c) => ({ ...c, path: relToProject(c.path, projectPath) })) ?? null,
+    [declared, projectPath],
+  )
   const [picked, setPicked] = useState<Picked | null>(null)
   const [diff, setDiff] = useState<Loaded<FileDiff> | null>(null)
   const seq = useRef(0)
@@ -358,16 +376,16 @@ export function ChangesPanel({ localId, focus, onClose, onUndo }: {
   ))
 
   let left: ReactNode
-  if ('declared' in focus) {
+  if (declaredRel) {
     left = (
       <section className="undo-section" data-section="declared">
         <h4 className="undo-section__title">{t('undo.panel.declared')}</h4>
         <p className="undo-section__msg">{t('undo.line.noGit')}</p>
-        <FileTree items={focus.declared} selected={picked?.kind === 'declared' ? picked.change.path : null}
+        <FileTree items={declaredRel} selected={picked?.kind === 'declared' ? picked.change.path : null}
                   onPick={pickDeclared} meta={() => null} />
       </section>
     )
-  } else {
+  } else if (!('declared' in focus)) {
     const focusSource: Source = 'turnId' in focus
       ? { kind: 'turn', turnId: focus.turnId }
       : { kind: 'interval', from: focus.interval.from, to: focus.interval.to }
@@ -432,7 +450,8 @@ export function ChangesPanel({ localId, focus, onClose, onUndo }: {
           <nav className="undo-panel__left">{left}</nav>
           <div className="undo-panel__right">{right}</div>
         </div>
-        <footer className="undo-panel__help">{t('undo.panel.help')}</footer>
+        {/* As refs ocultas só existem com git. */}
+        {!declaredRel && <footer className="undo-panel__help">{t('undo.panel.help')}</footer>}
       </div>
     </div>,
     document.body,

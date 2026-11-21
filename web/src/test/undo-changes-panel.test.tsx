@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { ChangesPanel } from '../components/undo/ChangesPanel'
 import { UnifiedDiff } from '../components/undo/UnifiedDiff'
 import { useUndoStore } from '../undo/undoStore'
+import { useStore } from '../store'
 import type { AttributedFile, ChangedFilesDto, FileDiff, TurnDto } from '../../../shared/undo'
 
 const turn = (id: number, over: Partial<TurnDto> = {}): TurnDto => ({
@@ -166,6 +167,25 @@ describe('ChangesPanel', () => {
     fireEvent.click(screen.getByText('c.txt'))
     expect(screen.getByText('arquivo escrito inteiro (sem diff)')).toBeTruthy()
     expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('declarações sem git: sem o rodapé das refs ocultas e caminhos relativos à pasta do projeto', async () => {
+    useStore.setState({
+      projects: [{ id: 1, name: 'P', path: '/home/op/proj', color: '#fff', icon: '📁' }],
+      sessions: { a: { localId: 'a', projectId: 1, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } },
+    })
+    render(<ChangesPanel localId="a" onClose={() => {}} focus={{ declared: [
+      { path: '/home/op/proj/src/a.txt', kind: 'written' },
+      { path: '/home/op/projeto-irmao/b.txt', kind: 'written' },
+    ] }} />)
+    expect(screen.queryByText(/refs\/claudinei/)).toBeNull()
+    expect(screen.queryByText(/git push --mirror/)).toBeNull()
+    fireEvent.click(screen.getByText('a.txt'))
+    expect(screen.getByText('src/a.txt')).toBeTruthy()
+    expect(screen.queryByText('/home/op/proj/src/a.txt')).toBeNull()
+    // Fora da pasta do projeto: fica como veio.
+    fireEvent.click(screen.getByText('b.txt'))
+    expect(screen.getByText('/home/op/projeto-irmao/b.txt')).toBeTruthy()
   })
 
   it('rodapé de ajuda sobre as refs ocultas e Esc fecha', async () => {

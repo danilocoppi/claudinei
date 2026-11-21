@@ -301,7 +301,8 @@ describe('selo no cartão da lateral', () => {
     render(<Profiler id="lateral" onRender={() => { lateral++ }}><Sidebar /></Profiler>)
     const antesLateral = lateral
     act(() => useStore.getState().setTerminalState(estado({ projectId: 2, autostart: true })))
-    act(() => useStore.getState().setTerminalState(estado({ projectId: 2, taskResults: [{ id: 4, toProjectName: 'A', status: 'failed' }] })))
+    // (Resultado de tarefa num terminal parado acende a marca ↩: esse redesenha, de propósito.)
+    act(() => useStore.getState().setTerminalState(estado({ projectId: 2, autostart: true, autoResume: true })))
     act(() => useStore.getState().setTerminalState(comGoal({ turns: 2, evidence: 'y' })))
     expect(lateral, 'a lateral redesenhou por mudança de outro terminal').toBe(antesLateral)
   })

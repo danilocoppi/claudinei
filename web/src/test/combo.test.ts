@@ -112,6 +112,31 @@ describe('combo', () => {
     expect(matchCombo(ev({ key: '1', code: 'Numpad1', altKey: true }), 'Alt+1', true)).toBe(false)
   })
 
+  /**
+   * Alguns teclados virtuais mandam o evento sem `code`. O Option não muda o nome
+   * de Enter, Espaço e F1–F12, então esses valem pelo `key`; letra e dígito não,
+   * porque com Option o `key` é outro caractere ('Ω', '¡').
+   */
+  it('Option no Mac sem code: Enter, Espaço e F pelo nome; letra e dígito não', () => {
+    for (const code of ['', undefined, 'Unidentified']) {
+      expect(matchCombo(ev({ key: 'Enter', code, altKey: true }), 'Alt+Enter', true), String(code)).toBe(true)
+      expect(matchCombo(ev({ key: ' ', code, altKey: true }), 'Alt+Space', true), String(code)).toBe(true)
+      expect(matchCombo(ev({ key: 'F1', code, altKey: true }), 'Alt+F1', true), String(code)).toBe(true)
+      expect(matchCombo(ev({ key: 'F12', code, altKey: true, shiftKey: true }), 'Alt+Shift+F12', true), String(code)).toBe(true)
+      expect(matchCombo(ev({ key: 'z', code, altKey: true }), 'Alt+Z', true), String(code)).toBe(false)
+      expect(matchCombo(ev({ key: 'Ω', code, altKey: true }), 'Alt+Z', true), String(code)).toBe(false)
+      expect(matchCombo(ev({ key: '1', code, altKey: true }), 'Alt+1', true), String(code)).toBe(false)
+      // A gravação usa a mesma regra.
+      expect(comboFromEvent(ev({ key: 'Enter', code, altKey: true }), true), String(code)).toBe('Alt+Enter')
+      expect(comboFromEvent(ev({ key: ' ', code, altKey: true, metaKey: true }), true), String(code)).toBe('Mod+Alt+Space')
+      expect(comboFromEvent(ev({ key: 'F5', code, altKey: true }), true), String(code)).toBe('Alt+F5')
+      expect(comboFromEvent(ev({ key: 'Ω', code, altKey: true }), true), String(code)).toBeNull()
+      expect(comboFromEvent(ev({ key: '¡', code, altKey: true }), true), String(code)).toBeNull()
+    }
+    // Com code, a posição continua mandando: o nome não passa por cima dela.
+    expect(matchCombo(ev({ key: 'Enter', code: 'Comma', altKey: true }), 'Alt+Enter', true)).toBe(false)
+  })
+
   it('dígito pela posição', () => {
     expect(matchCombo(ev({ key: '!', code: 'Digit1', altKey: true }), 'Alt+1', false)).toBe(true)
     expect(matchCombo(ev({ key: 'é', code: 'Digit2', ctrlKey: true }), 'Mod+2', false)).toBe(true)

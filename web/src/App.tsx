@@ -147,7 +147,9 @@ export default function App() {
     // Lista enxuta de agendamentos: é ela que acende o ⏱ nos cartões da sidebar.
     fetchSchedules().then((s) => useStore.getState().setSchedules(s)).catch(() => {})
     // Reconcilia aparência e atalhos com o servidor: se ele discordar do cache, ele vence.
-    void syncPrefs()
+    // Rede fora já é tratada lá dentro; o que chega aqui é defeito (resposta 200 mal
+    // formada, erro ao aplicar) — vai para o console em vez de virar rejeição solta.
+    syncPrefs().catch((err) => console.error('[prefs] falha ao aplicar as preferências do servidor', err))
     // Pré-carrega a lista de slash commands (persistida no backend) para o
     // autocomplete do chat mostrar tudo já no primeiro `/`, sem esperar a 1ª msg.
     fetchSlashCommands().then((cmds) => useStore.getState().setSlashCommands(cmds)).catch(() => {})

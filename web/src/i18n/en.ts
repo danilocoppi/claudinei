@@ -552,6 +552,7 @@ export const en = {
     noticeUnbound: 'No shortcut: the default already belongs to {{label}}',
     noticeBoth: 'The choice doesn’t apply because {{why}}, and the default already belongs to {{label}}',
     saveFailed: 'Couldn’t save: {{error}}. The shortcuts stay as they were.',
+    saveFailedBoth: 'Couldn’t save: {{error}}. The appearance you chose is still applied here, but the shortcuts stay as they were.',
     why: {
       invalid: 'the combination isn’t accepted', needsModifier: 'it needs Ctrl, ⌘ or Alt',
       altGr: 'Ctrl+Alt is AltGr on some keyboards',

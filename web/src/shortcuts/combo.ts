@@ -107,9 +107,22 @@ function keyFromCode(code: string | undefined): string | null {
 }
 
 /**
+ * Enter, Espaço e F1–F12 pelo nome (`key`), ou null. É a volta do Mac com Option
+ * quando o evento chega sem `code` (alguns teclados virtuais): o Option não muda
+ * o nome dessas teclas, só o que letras e dígitos escrevem.
+ */
+function namedKeyFromKey(key: string): string | null {
+  if (key === 'Enter') return 'Enter'
+  if (key === ' ') return 'Space'
+  if (F_KEY.test(key)) return key
+  return null
+}
+
+/**
  * A tecla da gramática que o evento aperta, ou null.
  * - No Mac com Option, só a posição: o Option troca o que a tecla escreve
- *   (Option+Z dá 'Ω', Option+A dá 'å', Option+1 dá '¡').
+ *   (Option+Z dá 'Ω', Option+A dá 'å', Option+1 dá '¡'). Sem `code`, Enter,
+ *   Espaço e F1–F12 ainda valem pelo nome; letras e dígitos, não.
  * - Enter, Espaço e F1–F12 pelo nome; dígitos pela posição (`DigitN`), porque em
  *   alguns layouts o número só sai com Shift; o teclado numérico não conta.
  * - Letra latina pela própria letra (no Dvorak a posição do U dá 'g', e Ctrl+G
@@ -117,7 +130,10 @@ function keyFromCode(code: string | undefined): string | null {
  *   Pontuação e letra latina fora de A–Z (ç, ß) não valem.
  */
 function keyFromEvent(e: KeyLike, mac: boolean): string | null {
-  if (mac && e.altKey) return keyFromCode(e.code)
+  if (mac && e.altKey) {
+    if (e.code && e.code !== 'Unidentified') return keyFromCode(e.code)
+    return namedKeyFromKey(e.key)
+  }
   if (e.key === 'Enter') return 'Enter'
   if (e.code === 'Space' || e.key === ' ') return 'Space'
   if (F_KEY.test(e.key)) return e.key

@@ -68,9 +68,23 @@ describe('saneamento dos atalhos', () => {
   /** Como na aparência: o que não passa sai, e o resto continua valendo. */
   it('descarta id ou combinação fora do formato sem recusar o resto', () => {
     const out = sanitizeKeybindings({
-      'View.Zen': 'Alt+M', 'chat.send': 'Ctrl+Alt', 'chat.find': 'Mod+Shift+F', '__proto__': 'Alt+A', 'x': 3,
+      'View.Zen': 'Alt+M', 'chat.send': 'Ctrl+Alt', 'chat.find': 'Mod+Shift+F', 'x': 3,
     })
     expect(out).toEqual({ 'chat.find': 'Mod+Shift+F' })
+  })
+
+  /**
+   * Num literal, `'__proto__': …` troca o protótipo em vez de criar a chave — o
+   * saneamento nem a veria. É o JSON.parse (o corpo do PUT, a linha do banco)
+   * que cria `__proto__` como chave própria; essa tem de sair.
+   */
+  it('descarta a chave própria __proto__ vinda do JSON', () => {
+    const input = JSON.parse('{"__proto__":"Alt+A","view.zen":"Alt+M"}') as Record<string, unknown>
+    expect(Object.hasOwn(input, '__proto__')).toBe(true)
+    const out = sanitizeKeybindings(input)
+    expect(out).toEqual({ 'view.zen': 'Alt+M' })
+    expect(Object.hasOwn(out, '__proto__')).toBe(false)
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype)
   })
 
   it('guarda no máximo 64 entradas', () => {

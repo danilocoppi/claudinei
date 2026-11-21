@@ -91,6 +91,14 @@ export function ShortcutsTab({ draft, onChange, admin, mac }: {
   const recordRef = useRef(record)
   recordRef.current = record
 
+  /**
+   * A tecla que acabou de gravar, até ela subir. O ouvinte da gravação sai junto
+   * com a gravação, mas o keyup ainda vem depois — e no Firefox o keyup do Espaço
+   * "clica" o botão da combinação, que continua focado, e a gravação recomeçaria.
+   * Enquanto isto não é null, todo keyup é barrado; o da própria tecla encerra.
+   */
+  const swallowUp = useRef<{ key: string; code: string } | null>(null)
+
   // O ouvinte da gravação nasce e morre com ela.
   useEffect(() => {
     if (!recording) return
@@ -102,11 +110,37 @@ export function ShortcutsTab({ draft, onChange, admin, mac }: {
       const combo = comboFromEvent(e, mac)
       if (combo === 'modifier') return
       if (combo === null) { setFlash({ id: recording, kind: 'unsupported' }); return }
+      swallowUp.current = { key: e.key, code: e.code }
       recordRef.current(recording, combo)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [recording, mac])
+
+  // O keyup das teclas da gravação não chega a ninguém (nem ao botão focado).
+  // Outra tecla descendo, ou a janela perdendo o foco, encerra: a soltura se
+  // perdeu e o próximo keyup já é de outra coisa.
+  useEffect(() => {
+    const onUp = (e: KeyboardEvent) => {
+      const down = swallowUp.current
+      if (!down) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      if (down.code ? e.code === down.code : e.key === down.key) swallowUp.current = null
+    }
+    const forget = (e?: Event) => {
+      if (e instanceof KeyboardEvent && e.repeat) return
+      swallowUp.current = null
+    }
+    window.addEventListener('keyup', onUp, true)
+    window.addEventListener('keydown', forget, true)
+    window.addEventListener('blur', forget)
+    return () => {
+      window.removeEventListener('keyup', onUp, true)
+      window.removeEventListener('keydown', forget, true)
+      window.removeEventListener('blur', forget)
+    }
+  }, [])
 
   const startRecording = (id: ShortcutId) => {
     setFlash(null)
@@ -147,6 +181,7 @@ export function ShortcutsTab({ draft, onChange, admin, mac }: {
         const current = resolved[e.id]
         const isRecording = recording === e.id
         const message = messageOf(e.id)
+        const comboText = isRecording ? t('shortcuts.recording') : current === null ? t('shortcuts.none') : show(current)
         return (
           <div key={e.id} className="sc-row" data-testid={`sc-row-${e.id}`}>
             <div className="sc-row__main">
@@ -164,15 +199,17 @@ export function ShortcutsTab({ draft, onChange, admin, mac }: {
                     {t('shortcuts.clear')}
                   </button>
                 )}
+                {/* O nome acessível leva a ação: sem ele o leitor de tela diria só "Alt+Z". */}
                 <button type="button" data-testid={`sc-combo-${e.id}`} aria-pressed={isRecording}
+                        aria-label={`${labelOf(e.id)}: ${comboText}`}
                         className={`sc-combo${isRecording ? ' sc-combo--recording' : ''}${current === null && !isRecording ? ' sc-combo--none' : ''}`}
                         onClick={() => startRecording(e.id)}>
-                  {isRecording ? t('shortcuts.recording') : current === null ? t('shortcuts.none') : show(current)}
+                  {comboText}
                 </button>
               </div>
             </div>
             {message && (
-              <div data-testid={`sc-msg-${e.id}`} className={`sc-msg sc-msg--${message.tone}`}>
+              <div data-testid={`sc-msg-${e.id}`} role="status" className={`sc-msg sc-msg--${message.tone}`}>
                 <span>{message.text}</span>
                 {message.conflict && (
                   <span className="sc-msg__actions">

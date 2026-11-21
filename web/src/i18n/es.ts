@@ -554,6 +554,7 @@ export const es: typeof en = {
     noticeUnbound: 'Sin atajo: el predeterminado ya es de {{label}}',
     noticeBoth: 'La elección no vale porque {{why}}, y el predeterminado ya es de {{label}}',
     saveFailed: 'No se pudo guardar: {{error}}. Los atajos siguen como estaban.',
+    saveFailedBoth: 'No se pudo guardar: {{error}}. La apariencia elegida sigue aplicada aquí, pero los atajos siguen como estaban.',
     why: {
       invalid: 'la combinación no se acepta', needsModifier: 'necesita Ctrl, ⌘ o Alt',
       altGr: 'Ctrl+Alt es el AltGr de algunos teclados',

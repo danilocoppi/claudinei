@@ -112,9 +112,11 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
     } catch (err) {
       // Manter o visual escolhido: reverter porque a rede caiu seria pior que o
       // problema — a escolha continua na tela e no cache, só não foi guardada.
-      // Os atalhos não mudam: o rascunho fica na aba para tentar de novo.
+      // Os atalhos não mudam: o rascunho fica na aba para tentar de novo. Com os
+      // dois no mesmo PUT, a frase diz as duas coisas — a aparência ficou, os atalhos não.
       const msg = (err as Error).message
-      setError(kbChanged && !appearanceChanged ? t('shortcuts.saveFailed', { error: msg }) : t('appearance.saveFailed', { error: msg }))
+      const key = !kbChanged ? 'appearance.saveFailed' : appearanceChanged ? 'shortcuts.saveFailedBoth' : 'shortcuts.saveFailed'
+      setError(t(key, { error: msg }))
       setSaving(false)
     }
   }

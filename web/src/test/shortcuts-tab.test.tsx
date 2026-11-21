@@ -264,6 +264,57 @@ describe('gravar', () => {
     expect(combo('chat.send').textContent).toBe('Ctrl+K')
     expect(msg('chat.send')).toBeNull()
   })
+
+  /**
+   * O keyup vem depois que a gravação já parou de ouvir. No Firefox o keyup do
+   * Espaço "clica" o botão da combinação, ainda focado, e a gravação recomeçaria.
+   * O teste faz o papel do navegador: keyup não barrado vira clique.
+   */
+  it('o keyup da tecla gravada é barrado e não recomeça a gravação', () => {
+    stubFetch()
+    abrirAtalhos()
+    const botao = combo('view.zen')
+    botao.focus()
+    const soltar = (key: string, code: string, mods: object = {}) => {
+      const passou = fireEvent.keyUp(botao, { key, code, ...mods })
+      if (passou && key === ' ') fireEvent.click(botao)
+      return passou
+    }
+    fireEvent.click(botao)
+    tecla(' ', 'Space', { ctrlKey: true, shiftKey: true }, botao)
+    expect(botao.textContent).toBe('Ctrl+Shift+Espaço')
+    // Soltar o Ctrl antes: também barrado, e o Espaço ainda é esperado.
+    expect(soltar('Control', 'ControlLeft', { shiftKey: true })).toBe(false)
+    expect(soltar(' ', 'Space', { shiftKey: true })).toBe(false)
+    expect(botao.textContent).toBe('Ctrl+Shift+Espaço')
+    expect(botao.getAttribute('aria-pressed')).toBe('false')
+    // A tecla gravada subiu: o próximo keyup já segue normal.
+    expect(soltar('Shift', 'ShiftLeft')).toBe(true)
+
+    // Soltura perdida (outra tecla desceu antes): nada fica barrado para sempre.
+    fireEvent.click(botao)
+    tecla('m', 'KeyM', { altKey: true }, botao)
+    expect(botao.textContent).toBe('Alt+M')
+    tecla('a', 'KeyA', {}, botao)
+    expect(fireEvent.keyUp(botao, { key: 'm', code: 'KeyM' })).toBe(true)
+  })
+})
+
+describe('acessibilidade', () => {
+  it('o botão da combinação diz a ação, e o aviso da linha é anunciado', () => {
+    stubFetch()
+    abrirAtalhos()
+    expect(screen.getByRole('button', { name: 'Modo Zen: Alt+Z' })).toBe(combo('view.zen'))
+    expect(screen.getByRole('button', { name: 'Enviar: Ctrl+Enter' })).toBe(combo('chat.send'))
+    fireEvent.click(combo('view.zen'))
+    expect(screen.getByRole('button', { name: `Modo Zen: ${GRAVANDO}` })).toBe(combo('view.zen'))
+    tecla(',', 'Comma', { ctrlKey: true })
+    expect(msg('view.zen')?.getAttribute('role')).toBe('status')
+    expect(screen.getByRole('status').textContent).toContain('Tecla não aceita')
+    tecla('Escape', 'Escape')
+    fireEvent.click(screen.getByTestId('sc-clear-view.zen'))
+    expect(screen.getByRole('button', { name: 'Modo Zen: sem atalho' })).toBe(combo('view.zen'))
+  })
 })
 
 describe('conflitos e recusas', () => {
@@ -463,6 +514,24 @@ describe('salvar', () => {
     expect(combo('view.zen').textContent).toBe('Alt+M')
   })
 
+  /**
+   * Os dois no mesmo PUT e ele falha: a aparência continua aplicada (prévia ao
+   * vivo), os atalhos não. A frase precisa dizer as duas coisas.
+   */
+  it('falha com aparência e atalhos: o aviso diz que a aparência ficou e os atalhos não', async () => {
+    stubFetch({ failPut: true })
+    const onClose = abrirAtalhos()
+    gravar('view.zen', 'm', 'KeyM', { altKey: true })
+    fireEvent.click(screen.getByTestId('ap-tab-appearance'))
+    fireEvent.click(screen.getByTestId('theme-light-fun'))
+    salvar()
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Não foi possível guardar: rede fora. A aparência escolhida continua aplicada aqui, mas os atalhos continuam como estavam.')
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.documentElement.dataset.theme).toBe('light-fun')
+    expect(useStore.getState().keybindings.overrides).toEqual({})
+  })
+
   it('não administrador: Mod+U no Zen grava sem conflito', async () => {
     useStore.setState({ me: { setupRequired: false, id: 2, username: 'v', isAdmin: false } })
     useStore.getState().setKeybindings({})
@@ -494,6 +563,22 @@ describe('avisos e dicas', () => {
     abrirAtalhos()
     expect(combo('view.zen').textContent).toBe('sem atalho')
     expect(msg('view.zen')?.textContent).toBe('Sem atalho: o padrão já é de Enviar')
+  })
+
+  /**
+   * Resposta 200 mal formada do GET /api/prefs: o syncPrefs deixa o erro subir
+   * (é defeito, não rede fora) e o App registra no console em vez de deixar uma
+   * rejeição solta.
+   */
+  it('preferências mal formadas do servidor vão para o console, sem rejeição solta', async () => {
+    const spy = stubFetch()
+    const real = spy.getMockImplementation()!
+    spy.mockImplementation(async (url, init) =>
+      String(url).includes('/api/prefs') && !init?.method ? json(null) : real(url, init))
+    const erro = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<App />)
+    await waitFor(() => expect(erro).toHaveBeenCalledWith(
+      '[prefs] falha ao aplicar as preferências do servidor', expect.any(TypeError)))
   })
 
   it('a dica do Zen muda depois de Salvar', async () => {

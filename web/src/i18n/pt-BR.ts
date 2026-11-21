@@ -555,6 +555,7 @@ export const ptBR: typeof en = {
     noticeUnbound: 'Sem atalho: o padrão já é de {{label}}',
     noticeBoth: 'A escolha não vale porque {{why}}, e o padrão já é de {{label}}',
     saveFailed: 'Não foi possível guardar: {{error}}. Os atalhos continuam como estavam.',
+    saveFailedBoth: 'Não foi possível guardar: {{error}}. A aparência escolhida continua aplicada aqui, mas os atalhos continuam como estavam.',
     why: {
       invalid: 'a combinação não é aceita', needsModifier: 'precisa de Ctrl, ⌘ ou Alt',
       altGr: 'Ctrl+Alt é o AltGr de alguns teclados',

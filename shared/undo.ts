@@ -36,6 +36,48 @@ export type RestoreAction = 'revert' | 'merge' | 'force' | 'keep'
 /** `failed`: erro de E/S ao escrever aquele arquivo; os outros seguem. */
 export type RestoreResult = 'reverted' | 'merged' | 'forced' | 'kept' | 'already' | 'changed_since_preview' | 'failed'
 
+// ── Prévia e desfazer (server/src/undo/service.ts) ──
+
+/** Quem pede: o administrador vê tudo; os outros, só os projetos da lista. */
+export interface ViewerFull { isAdmin: boolean; projectIds: number[] | 'all' }
+
+export interface PreviewFile {
+  path: string
+  class: FileClass
+  /** O que a tela mostra: `overlapped` aparece sempre como `conflict`. */
+  verdict: RestoreVerdict
+  /** Só em conflict: "desfazer só as linhas do turno" aplica sem choque. */
+  mergeable: boolean
+  overlapped: boolean
+  /** Marcado de saída: só o `own` sem sobreposição que volta limpo. */
+  checked: boolean
+  /** conflict: o que mudou desde o turno (diff unificado, ≤ 2000 linhas). */
+  sinceTurn?: string
+  sinceTurnTruncated?: boolean
+}
+
+export interface UndoPreview {
+  /** sha1 dos caminhos e digests do "agora", em ordem; o apply recusa se mudou. */
+  token: string
+  turnIds: number[]
+  blockedBy: { kind: 'working' | 'in_terminal'; terminal: string | null } | null
+  branchChanged: { from: string | null; to: string | null } | null
+  /** own e uncertain; uncertain nasce desmarcado; overlapped vira conflict. */
+  files: PreviewFile[]
+  /** too_big, unsnapshotted e submodule: aparecem, sem desfazer. */
+  notUndoable: FileChange[]
+  hiddenOutside: number
+}
+
+export interface UndoRunDto {
+  id: number
+  kind: 'undo' | 'redo'
+  turnIds: number[]
+  /** `error` só em `failed`. */
+  files: Array<{ path: string; result: RestoreResult; error?: string }>
+  redone: boolean
+}
+
 // ── Turnos ──
 
 export type TurnOrigin = 'operator' | 'claudinei' | 'task' | 'schedule' | 'goal' | 'engine' | 'interactive'

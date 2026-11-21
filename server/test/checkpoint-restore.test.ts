@@ -364,6 +364,28 @@ describe('as três comparações e a escrita', () => {
     expect(read(r.dir, 'a.txt')).toBe('turno\n')
   })
 
+  it('erro de E/S num arquivo vira failed com a mensagem e os outros seguem (R11)', async () => {
+    const r = repo({ 'a.txt': 'antes\n', 'trava/b.txt': 'antes\n', 'c.txt': 'antes\n' })
+    const repoInfo = await info(r.dir)
+    const s1 = await takeSnapshot(repoInfo, 1)
+    r.write('a.txt', 'turno\n')
+    r.write('trava/b.txt', 'turno\n')
+    r.write('c.txt', 'turno\n')
+    const s2 = await takeSnapshot(repoInfo, 2)
+    const items = await itemsOf(repoInfo, s1, s2)
+    const plan = await planRestore(repoInfo, items)
+    const prepared = await prepareRestore(repoInfo, items, {}, expectedOf(plan))
+    // Pasta só de leitura: o arquivo temporário ao lado não pode ser criado.
+    chmodSync(join(r.dir, 'trava'), 0o555)
+    cleanups.push(() => chmodSync(join(r.dir, 'trava'), 0o755))
+    const res = applyPrepared(prepared)
+    expect(res.map(x => [x.path, x.result])).toEqual([['a.txt', 'reverted'], ['c.txt', 'reverted'], ['trava/b.txt', 'failed']])
+    expect(res[2].error).toMatch(/EACCES|permission/i)
+    expect(read(r.dir, 'a.txt')).toBe('antes\n')
+    expect(read(r.dir, 'c.txt')).toBe('antes\n')
+    expect(read(r.dir, 'trava/b.txt')).toBe('turno\n')
+  })
+
   it('autocrlf=true: arquivo com CRLF no disco conta como igual ao depois', async () => {
     const r = repo({ 'a.txt': 'um\ndois\n' })
     r.run('config', 'core.autocrlf', 'true')

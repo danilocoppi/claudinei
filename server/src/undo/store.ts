@@ -74,7 +74,8 @@ export interface NewTurn {
   snapshot?: SnapshotState
 }
 
-export interface RunFile { path: string; result: RestoreResult }
+/** `error`: a mensagem do erro de E/S, só em `failed`. */
+export interface RunFile { path: string; result: RestoreResult; error?: string }
 
 export interface RunRow {
   id: number

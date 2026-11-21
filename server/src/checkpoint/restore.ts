@@ -68,6 +68,8 @@ export interface PreparedEntry {
   stale: boolean
 }
 export interface PreparedRestore { repo: RepoInfo; entries: PreparedEntry[] }
+/** O que applyPrepared fez com cada arquivo; `error` só em `failed`. */
+export interface AppliedEntry { path: string; result: RestoreResult; error?: string }
 
 const HASH = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/
 const MODES = new Set(['100644', '100755', '120000'])
@@ -432,17 +434,22 @@ function writeLeaf(top: string, segs: string[], now: NowState, mode: BlobState['
  * escrita de cada arquivo não cabe nenhum evento do Node (nenhum envio, nenhum
  * outro desfazer). Para cada entrada, relê o "agora" e compara com o digest da
  * prévia; diferente dá `changed_since_preview` e o arquivo não é tocado.
- * Pasta vazia que sobra de um apagado fica. Erro de E/S no meio (permissão,
- * disco cheio) é lançado; o que veio antes já foi escrito.
+ * Pasta vazia que sobra de um apagado fica. Erro de E/S num arquivo
+ * (permissão, disco cheio) vira `failed` com a mensagem, e os outros seguem
+ * (R11): quem chama sabe exatamente o que foi escrito.
  */
-export function applyPrepared(p: PreparedRestore): Array<{ path: string; result: RestoreResult }> {
+export function applyPrepared(p: PreparedRestore): AppliedEntry[] {
   const top = p.repo.top
-  return p.entries.map(entry => {
+  return p.entries.map((entry): AppliedEntry => {
     if (entry.op.kind === 'none' && entry.result === 'kept' && !entry.stale) return { path: entry.path, result: 'kept' }
-    const now = readNow(top, entry.segs)
-    if (entry.stale || nowDigest(now) !== entry.expected) return { path: entry.path, result: 'changed_since_preview' }
-    if (entry.op.kind === 'write') writeLeaf(top, entry.segs, now, entry.op.mode, entry.op.bytes)
-    else if (entry.op.kind === 'delete' && (now.kind === 'file' || now.kind === 'link')) unlinkSync(join(top, ...entry.segs))
-    return { path: entry.path, result: entry.result }
+    try {
+      const now = readNow(top, entry.segs)
+      if (entry.stale || nowDigest(now) !== entry.expected) return { path: entry.path, result: 'changed_since_preview' }
+      if (entry.op.kind === 'write') writeLeaf(top, entry.segs, now, entry.op.mode, entry.op.bytes)
+      else if (entry.op.kind === 'delete' && (now.kind === 'file' || now.kind === 'link')) unlinkSync(join(top, ...entry.segs))
+      return { path: entry.path, result: entry.result }
+    } catch (e) {
+      return { path: entry.path, result: 'failed', error: (e instanceof Error ? e.message : String(e)) || 'erro de E/S' }
+    }
   })
 }

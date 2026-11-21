@@ -97,10 +97,12 @@ export type RewindMode = 'conversation' | 'conversation_and_files'
 /**
  * Por que uma das duas voltas está desligada. `claude_mid_turn`: a mensagem
  * entrou no meio do turno do Claude, e o corte ali não foi ensaiado (R20).
+ * `in_terminal`: a sessão está aberta no terminal interativo e não pode ser
+ * relançada.
  */
 export type RewindReason =
   | 'engine_unsupported' | 'codex_mid_turn' | 'claude_mid_turn' | 'anchor_not_found' | 'no_git' | 'no_snapshot'
-  | 'snapshot_late' | 'snapshot_lost' | 'no_session'
+  | 'snapshot_late' | 'snapshot_lost' | 'no_session' | 'in_terminal'
 
 export interface Availability { enabled: boolean; reason?: RewindReason; params?: Record<string, string> }
 

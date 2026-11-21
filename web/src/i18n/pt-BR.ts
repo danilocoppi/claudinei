@@ -583,6 +583,7 @@ export const ptBR: typeof en = {
       snapshot_late: 'O retrato de um turno deste trecho saiu atrasado: os arquivos não podem voltar.',
       snapshot_lost: 'O retrato de um turno deste trecho sumiu do repositório.',
       no_session: 'Este terminal não tem conversa para voltar.',
+      in_terminal: 'A sessão está aberta no terminal: feche-o para voltar a conversa.',
     },
     line: {
       files_one: '{{count}} arquivo', files_other: '{{count}} arquivos',

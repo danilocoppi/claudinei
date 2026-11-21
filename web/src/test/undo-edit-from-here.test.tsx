@@ -180,6 +180,22 @@ describe('Editar a partir daqui', () => {
     expect(await within(dlg).findByText('Esta mensagem entrou no meio de um turno do Claude, e voltar a partir dela não é seguro.')).toBeTruthy()
   })
 
+  it('sessão aberta no terminal: as duas desligadas com o motivo nas três línguas', async () => {
+    setup({ status: 'in_terminal' })
+    const off = { enabled: false, reason: 'in_terminal' as const }
+    routes[OPTIONS] = opts({ conversation: off, files: off })
+    abrir()
+    const dlg = await editar(1)
+    expect(await within(dlg).findByText('A sessão está aberta no terminal: feche-o para voltar a conversa.')).toBeTruthy()
+    expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(true)
+    expect(botao(dlg, 'Voltar a conversa e os arquivos').disabled).toBe(true)
+    for (const lng of ['en', 'es'] as const) {
+      await i18n.changeLanguage(lng)
+      expect(i18n.t('undo.reason.in_terminal')).not.toBe('undo.reason.in_terminal')
+    }
+    await i18n.changeLanguage('pt-BR')
+  })
+
   it('sem git: só a conversa ligada', async () => {
     setup()
     routes[OPTIONS] = opts({ files: { enabled: false, reason: 'no_git' } })

@@ -192,6 +192,8 @@ export function createRewindService(deps: RewindDeps) {
     const both = (a: Availability): Plan => ({ ...plan, conversation: a, files: a })
 
     if (!plan.adapter) return both(off('engine_unsupported', { engine: info.engine }))
+    // Aberta no terminal interativo, a sessão não pode ser relançada nem mexida.
+    if (info.status === 'in_terminal') return both(off('in_terminal'))
     // Mensagem que entrou no meio do turno: o Codex só corta turnos inteiros, e
     // no Claude o corte ali não foi ensaiado (R20).
     if (turn?.midTurn) return both(off(info.engine === 'codex' ? 'codex_mid_turn' : 'claude_mid_turn'))

@@ -582,6 +582,7 @@ export const es: typeof en = {
       snapshot_late: 'La instantánea de un turno de este tramo llegó tarde: los archivos no pueden volver.',
       snapshot_lost: 'La instantánea de un turno de este tramo desapareció del repositorio.',
       no_session: 'Este terminal no tiene conversación para volver atrás.',
+      in_terminal: 'La sesión está abierta en el terminal: ciérralo para volver atrás la conversación.',
     },
     line: {
       files_one: '{{count}} archivo', files_other: '{{count}} archivos',

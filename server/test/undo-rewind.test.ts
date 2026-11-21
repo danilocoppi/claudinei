@@ -225,6 +225,22 @@ describe('editar a partir daqui: opções', () => {
     expect(res.files).toEqual({ enabled: false, reason: 'claude_mid_turn' })
   })
 
+  it('options: terminal aberto no terminal interativo desliga as duas com in_terminal, e o rewind recusa sem relançar', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    db.prepare(`INSERT INTO sessions (local_id, claude_session_id, project_id, status, engine) VALUES ('LT', ?, ?, 'in_terminal', 'claude')`).run(SID, p.id)
+    const id = undo.store.openTurn({ localId: 'LT', projectId: p.id, engine: 'claude', origin: 'operator', textKey: 'oi', conversationId: SID })
+    undo.store.setEnd(id, null, 'result', SID)
+    const res = (await options('LT', { turnId: id, text: 'oi', occurrence: 0 })).json()
+    expect(res.conversation).toEqual({ enabled: false, reason: 'in_terminal' })
+    expect(res.files).toEqual({ enabled: false, reason: 'in_terminal' })
+    const relaunch = vi.spyOn(manager, 'relaunch')
+    const done = await rewind('LT', { target: { turnId: id, text: 'oi', occurrence: 0 }, mode: 'conversation', editedText: 'x' })
+    expect(done.statusCode).toBe(409)
+    expect(done.json()).toMatchObject({ code: 'rewind_unavailable', params: { reason: 'in_terminal' } })
+    expect(relaunch).not.toHaveBeenCalled()
+  })
+
   it('options: mensagem do Codex por turn/steer desliga as duas com codex_mid_turn', async () => {
     const r = repo()
     const p = project(r.dir)

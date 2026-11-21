@@ -580,6 +580,7 @@ export const en = {
       snapshot_late: 'The snapshot of a turn in this stretch was late: the files cannot go back.',
       snapshot_lost: 'The snapshot of a turn in this stretch is gone from the repository.',
       no_session: 'This terminal has no conversation to rewind.',
+      in_terminal: 'The session is open in the terminal: close it to rewind the conversation.',
     },
     line: {
       files_one: '{{count}} file', files_other: '{{count}} files',

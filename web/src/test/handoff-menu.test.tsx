@@ -217,6 +217,26 @@ describe('menu ⇄ na aba ativa', () => {
     expect(screen.queryByRole('heading')).toBeNull()
   })
 
+  it('pelo teclado: abre com o foco no primeiro destino livre, as setas andam só entre os livres, Enter escolhe', async () => {
+    useStore.setState({
+      sessions: { c1: sess('c1', 'claude', 'idle'), k1: sess('k1', 'kimi', 'working') },
+    })
+    const spy = vi.spyOn(branchApi, 'handoff').mockResolvedValue(sess('n1', 'opencode', 'starting'))
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    const menu = openMenu()
+    // Codex sem conversa (livre), Kimi trabalhando (desligado), OpenCode sem conversa (livre).
+    expect(document.activeElement).toBe(item(menu, 'Codex'))
+    expect(item(menu, 'Kimi Code').getAttribute('tabindex')).toBe('-1')
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(item(menu, 'OpenCode'))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(item(menu, 'Codex'))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(item(menu, 'OpenCode'))
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(1, 'claude', 'opencode'))
+  })
+
   it('ocioso pede confirmação antes do POST', async () => {
     cenario()
     const spy = vi.spyOn(branchApi, 'handoff').mockResolvedValue(sess('n1', 'codex', 'starting'))

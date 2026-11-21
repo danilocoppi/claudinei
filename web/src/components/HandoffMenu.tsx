@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
@@ -56,6 +56,22 @@ export function HandoffMenu({ projectId, from, anchorRef, onClose }: {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [menuOpen, busy, onClose])
 
+  // Teclado: o foco entra no primeiro destino livre ao abrir (e ao voltar da
+  // confirmação); as setas andam entre os livres, em volta. Enter/Espaço escolhem.
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (menuOpen) menuRef.current?.querySelector<HTMLElement>('[data-free]')?.focus({ preventScroll: true })
+  }, [menuOpen])
+  const onMenuKey = (e: ReactKeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const free = [...(menuRef.current?.querySelectorAll<HTMLElement>('[data-free]') ?? [])]
+    if (free.length === 0) return
+    e.preventDefault()
+    const i = free.indexOf(document.activeElement as HTMLElement)
+    const next = e.key === 'ArrowDown' ? (i + 1) % free.length : (i <= 0 ? free.length - 1 : i - 1)
+    free[next].focus({ preventScroll: true })
+  }
+
   const targets = handoffTargets({ projectId, from, engines, listed: listedOf(project), sessions, terminalStates, queues })
   const fromLabel = engines.find((e) => e.id === from)?.label ?? from
 
@@ -108,7 +124,7 @@ export function HandoffMenu({ projectId, from, anchorRef, onClose }: {
         // Mesmo padrão dos menus `.sess-pop`: o clique fora fecha, e nada anima.
         <div className="sess-pop__overlay" onClick={() => { if (!busy) onClose() }}>
           <ViewportPopover x={0} y={0} minWidth={260} anchorRef={anchorRef}>
-            <div role="menu" onClick={(e) => e.stopPropagation()}>
+            <div role="menu" ref={menuRef} onClick={(e) => e.stopPropagation()} onKeyDown={onMenuKey}>
               <div className="sess-pop__eyebrow">{t('branch.handoff.button')}</div>
               {targets.map((target) => {
                 const off = target.state === 'working' || target.state === 'limited'
@@ -118,8 +134,11 @@ export function HandoffMenu({ projectId, from, anchorRef, onClose }: {
                     key={target.engine.id}
                     className={`sess-pop__item handoff-target${off || busy ? ' sess-pop__item--disabled' : ''}`}
                     role="menuitem"
+                    tabIndex={off ? -1 : 0}
+                    data-free={off ? undefined : ''}
                     aria-disabled={off || busy || undefined}
                     onClick={() => pick(target)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(target) } }}
                   >
                     <EngineIcon icon={target.engine.icon} />
                     <div className="handoff-target__text">

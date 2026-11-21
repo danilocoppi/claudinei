@@ -566,6 +566,8 @@ button.engine-tab__swap {
 button.engine-tab__swap:hover { background: var(--surface-strong); color: var(--accent); opacity: 1; filter: none; }
 /* Destino do ⇄: nome, estado e pendências em linhas, à direita do ícone. */
 .handoff-target { align-items: flex-start; }
+/* Pelo teclado (setas e Tab): o destino em foco tem o mesmo fundo do hover. */
+.handoff-target:focus-visible { background: var(--surface-strong); outline: none; }
 .handoff-target__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .handoff-target__state { font-size: 11.5px; color: var(--text-dim); }
 .handoff-target__pending { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--warn); }

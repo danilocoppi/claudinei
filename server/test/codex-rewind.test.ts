@@ -39,7 +39,7 @@ function spyManager(session: CodexSession | undefined) {
   let live = session
   return {
     liveSession: vi.fn(() => live as any),
-    relaunch: vi.fn(async (_localId: string, _opts: { resumeSessionId: string | null; holdEngineId?: boolean }) => ({}) as any),
+    relaunch: vi.fn(async (_localId: string, _opts: { resumeSessionId: string | null; awaitInit?: boolean }) => ({}) as any),
     revive: vi.fn((_localId: string) => { live = session; session?.start(); return {} as any }),
     get: vi.fn((_localId: string) => ({ localId: 'L1', engine: 'codex' }) as any),
   }
@@ -189,8 +189,8 @@ describe('createCodexRewind', () => {
     const manager = spyManager(s)
     const out = await createCodexRewind({ manager }).apply(ctx, { kind: 'codex', beforeTurnId: 'turn-1', previousTurnId: null, midTurn: false })
     expect(out).toEqual({})
-    // O id da conversa nova fica segurado até o primeiro result (rewind_pending), como no Claude.
-    expect(manager.relaunch).toHaveBeenCalledWith('L1', { resumeSessionId: null, holdEngineId: true })
+    // Sem segurar o id (o init do Codex é real): só a recusa do ramificar espera o init.
+    expect(manager.relaunch).toHaveBeenCalledWith('L1', { resumeSessionId: null, awaitInit: true })
     expect((await callsOf(s)).some((c) => c.method === 'thread/fork')).toBe(false)
   })
 
@@ -251,39 +251,65 @@ describe('createCodexRewind', () => {
 })
 
 describe('volta do Codex com o manager de verdade', () => {
-  it('primeiro turno com revert recusado: a conversa nova fica segurada (rewind_pending) até o result do Codex', async () => {
+  /** Terminal do Codex numa conversa antiga (THREAD-OLD) com um turno; a conversa nova do App Server falso é THREAD-FAKE. */
+  async function setup() {
     const db = openDb(':memory:')
     const project = createProjectsService(db).create({ name: 'P1', path: tempRoot() })
     const mgr = createSessionManager({ db, broadcast: () => {}, sessionFactory: (opts) => mk(opts, ['--refuse-revert']) as any })
     const info = mgr.start(project, { engine: 'codex' })
-    // A conversa de antes da volta: THREAD-OLD (a conversa nova do App Server falso é THREAD-FAKE).
     await mgr.relaunch(info.localId, { resumeSessionId: 'THREAD-OLD' })
     await waitFor(() => mgr.get(info.localId)?.engineSessionId === 'THREAD-OLD' && mgr.get(info.localId)?.status === 'idle')
     mgr.send(info.localId, 'one')
     await waitFor(() => mgr.get(info.localId)?.status === 'needs_attention')
     const dbId = () => (db.prepare('SELECT claude_session_id FROM sessions WHERE local_id=?').get(info.localId) as any).claude_session_id
-
     const out = await createCodexRewind({ manager: mgr }).apply(
       { localId: info.localId, projectPath: project.path, engineSessionId: 'THREAD-OLD' },
       { kind: 'codex', beforeTurnId: 'turn-1', previousTurnId: null, midTurn: false },
     )
     expect(out).toEqual({})
-    expect(mgr.rewindPending(info.localId)).toBe(true)
-    expect(mgr.get(info.localId)?.engineSessionId).toBe('THREAD-OLD')
-
-    // O primeiro turno abre a conversa nova (init com o id novo): continua segurada.
-    // Lido no próprio init (o turno do App Server falso fecha logo em seguida).
-    const noInit: Array<{ id: string | undefined; db: string; pending: boolean; shown: string | null | undefined }> = []
-    mgr.liveSession(info.localId)!.on('event', (e: AgentEvent) => {
-      if (e.kind === 'init') noInit.push({ id: e.sessionId, db: dbId(), pending: mgr.rewindPending(info.localId), shown: mgr.get(info.localId)?.engineSessionId })
+    return { mgr, localId: info.localId, dbId }
+  }
+  /** O que o manager mostra no próprio init da conversa nova (o listener do teste roda depois do do manager). */
+  function watchInit(mgr: ReturnType<typeof createSessionManager>, localId: string, dbId: () => string) {
+    const seen: Array<{ id: string | undefined; db: string; pending: boolean; shown: string | null | undefined }> = []
+    mgr.liveSession(localId)!.on('event', (e: AgentEvent) => {
+      if (e.kind === 'init') seen.push({ id: e.sessionId, db: dbId(), pending: mgr.rewindPending(localId), shown: mgr.get(localId)?.engineSessionId })
     })
-    mgr.send(info.localId, 'editada')
+    return seen
+  }
+
+  it('primeiro turno com revert recusado: rewind_pending até o init, que já grava o id novo no banco', async () => {
+    const { mgr, localId, dbId } = await setup()
+    // Entre o relaunch e o init: o ramificar recusa (copiaria a conversa de antes da volta).
+    expect(mgr.rewindPending(localId)).toBe(true)
+    const noInit = watchInit(mgr, localId, dbId)
+    mgr.send(localId, 'editada')
     await waitFor(() => noInit.length > 0)
-    expect(noInit[0]).toEqual({ id: 'THREAD-FAKE', db: 'THREAD-OLD', pending: true, shown: 'THREAD-OLD' })
-    // O result do Codex solta pelo mesmo caminho do Claude: o id novo vai ao banco.
-    await waitFor(() => !mgr.rewindPending(info.localId))
+    // O id do init do Codex é real (thread/start confirmado): vai ao banco na hora e solta a recusa.
+    expect(noInit[0]).toEqual({ id: 'THREAD-FAKE', db: 'THREAD-FAKE', pending: false, shown: 'THREAD-FAKE' })
+    await waitFor(() => mgr.get(localId)?.status === 'needs_attention')
     expect(dbId()).toBe('THREAD-FAKE')
-    expect(mgr.get(info.localId)?.engineSessionId).toBe('THREAD-FAKE')
+    await mgr.stopAll()
+  })
+
+  it('parar antes do result deixa o banco com o id novo (o revive não desfaz a volta)', async () => {
+    const { mgr, localId, dbId } = await setup()
+    const noInit = watchInit(mgr, localId, dbId)
+    // O turno fica pendurado: o result nunca chega antes do stop.
+    mgr.send(localId, '__hang__')
+    await waitFor(() => noInit.length > 0)
+    await mgr.stop(localId)
+    expect(dbId()).toBe('THREAD-FAKE')
+    expect(mgr.rewindPending(localId)).toBe(false)
+    await mgr.stopAll()
+  })
+
+  it('a marca sai se a sessão relançada para antes do init', async () => {
+    const { mgr, localId, dbId } = await setup()
+    expect(mgr.rewindPending(localId)).toBe(true)
+    await mgr.stop(localId)
+    expect(mgr.rewindPending(localId)).toBe(false)
+    expect(dbId()).toBe('THREAD-OLD')
     await mgr.stopAll()
   })
 })

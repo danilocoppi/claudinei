@@ -357,6 +357,15 @@ export function createSessionManager(deps: Deps) {
    * id fantasma). Chave: localId; valor: a sessão que segura.
    */
   const heldEngineId = new Map<string, EngineSession>()
+  /**
+   * Sessões relançadas por uma volta da conversa que ainda não emitiram o init
+   * (relaunch com awaitInit; hoje, a conversa nova do Codex). Diferente do
+   * heldEngineId, NÃO segura a gravação: o id do init é real e vai ao banco na
+   * hora. Só marca a volta como pendente até lá, para o ramificar recusar em vez
+   * de copiar a conversa de antes da volta. Sai no init (com id) ou quando essa
+   * sessão morre/para. Chave: localId; valor: a sessão marcada.
+   */
+  const awaitingInit = new Map<string, EngineSession>()
 
   /**
    * Ligado por beginShutdown, quando o serviço vai parar. A partir daí, sessão que
@@ -505,9 +514,10 @@ export function createSessionManager(deps: Deps) {
     try { deps.onSessionAvailable?.(projectId, { localId, engine }) } catch (err) { console.error('[manager] onSessionAvailable falhou', err) }
   }
 
-  const wire = (localId: string, projectId: number, engine: EngineId, session: EngineSession, opts?: { holdEngineId?: boolean }) => {
+  const wire = (localId: string, projectId: number, engine: EngineId, session: EngineSession, opts?: { holdEngineId?: boolean; awaitInit?: boolean }) => {
     live.set(localId, { session, projectId, engine, origin: 'operator' })
     if (opts?.holdEngineId) heldEngineId.set(localId, session); else heldEngineId.delete(localId)
+    if (opts?.awaitInit) awaitingInit.set(localId, session); else awaitingInit.delete(localId)
     // Avisos do plugin "You should know" (heads-up.ts): só no Claude, e só com o
     // interruptor do terminal ligado — lido do banco na hora, para valer o atual.
     const surface = engine === 'claude' && isHeadsUpSurface(session) ? session : undefined
@@ -608,6 +618,7 @@ export function createSessionManager(deps: Deps) {
         interruptedTurn.delete(localId)
         try { deps.onSessionEnded?.(projectId, engine, localId) } catch (err) { console.error('[manager] onSessionEnded falhou', err) }
         if (heldEngineId.get(localId) === session) heldEngineId.delete(localId)
+        if (awaitingInit.get(localId) === session) awaitingInit.delete(localId)
       }
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => {
@@ -657,6 +668,8 @@ export function createSessionManager(deps: Deps) {
         // dispara mudança de status — sem isto o engineSessionId só chegaria à UI
         // no fim do turno, deixando "Open in terminal" desabilitado no meio.
         if (event.sessionId) {
+          // A conversa nova da volta existe: o ramificar já pode copiá-la.
+          if (awaitingInit.get(localId) === session) awaitingInit.delete(localId)
           persist(localId, session.status, event.sessionId)
           deps.broadcast(statusMsg({ engineSessionId: heldEngineId.has(localId) ? undefined : event.sessionId }))
         }
@@ -1108,12 +1121,13 @@ export function createSessionManager(deps: Deps) {
 
     /**
      * Volta da conversa pendente: o terminal foi relançado com o id segurado
-     * (holdEngineId) e o primeiro result ainda não chegou. Até lá o id que o
-     * manager mostra é o antigo, do banco; o ramificar (`/side`, `/fork`, ⇄)
-     * copiaria a conversa de antes da volta, então recusa com `rewind_pending`.
+     * (holdEngineId) e o primeiro result ainda não chegou, ou com awaitInit e o
+     * init ainda não chegou. Até lá o id que o manager mostra é o antigo, do
+     * banco; o ramificar (`/side`, `/fork`, ⇄) copiaria a conversa de antes da
+     * volta, então recusa com `rewind_pending`.
      */
     rewindPending(localId: string): boolean {
-      return heldEngineId.has(localId)
+      return heldEngineId.has(localId) || awaitingInit.has(localId)
     },
 
     /**
@@ -1121,8 +1135,10 @@ export function createSessionManager(deps: Deps) {
      * `resumeSessionId` (null = conversa nova) com `extraArgs` no fim do argv. É
      * como o desfazer volta a conversa do Claude. `holdEngineId`: o id novo só
      * chega ao banco e à web no primeiro result (veja heldEngineId).
+     * `awaitInit`: a volta fica pendente (rewindPending) até o init, sem segurar
+     * a gravação do id (veja awaitingInit).
      */
-    async relaunch(localId: string, opts: { resumeSessionId: string | null; extraArgs?: string[]; holdEngineId?: boolean }): Promise<SessionInfo> {
+    async relaunch(localId: string, opts: { resumeSessionId: string | null; extraArgs?: string[]; holdEngineId?: boolean; awaitInit?: boolean }): Promise<SessionInfo> {
       const row = deps.db.prepare('SELECT * FROM sessions WHERE local_id=?').get(localId) as any
       if (!row) throw new UserError('session_not_found', `sessão ${localId} não existe`)
       if (row.status === 'in_terminal') throw new UserError('session_open_in_terminal', `sessão ${localId} está aberta no terminal`)
@@ -1145,7 +1161,7 @@ export function createSessionManager(deps: Deps) {
         effort: row.effort ?? undefined,
         hermes: deps.hermes ? { ...deps.hermes, projectId: row.project_id, engine } : undefined,
         extraArgs: opts.extraArgs,
-      }), { holdEngineId: opts.holdEngineId })
+      }), { holdEngineId: opts.holdEngineId, awaitInit: opts.awaitInit })
       return infoOf(localId)!
     },
 

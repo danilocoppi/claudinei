@@ -45,7 +45,7 @@ export function createBranchService(deps: {
   manager: SessionManager
   broadcast: (m: object) => void
   store: TerminalStateStore
-  restart: Pick<RestartService, 'publish'>
+  restart: Pick<RestartService, 'publish' | 'dismiss'>
   side?: SideTestDeps
 }): BranchService {
   const projects = createProjectsService(deps.db)

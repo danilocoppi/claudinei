@@ -22,7 +22,7 @@ export interface SwitchDeps {
   db: Db
   manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'stop' | 'sendAsClaudinei' | 'turnStartedAt'>
   store: Pick<TerminalStateStore, 'get' | 'setGoalStatus'>
-  restart: Pick<RestartService, 'publish'>
+  restart: Pick<RestartService, 'publish' | 'dismiss'>
   collect?: typeof collectHandoff // testes
 }
 
@@ -37,12 +37,16 @@ function liveOf(deps: SwitchDeps, projectId: number, engine: string): SessionInf
 }
 
 /**
- * O destino aceita a troca: sem turno em curso e fora do limite de uso.
- * Devolve a sessão ociosa de pé (a encerrar), se houver.
+ * O destino aceita a troca: sem turno em curso, fora do terminal interativo e
+ * fora do limite de uso. Devolve a sessão ociosa de pé (a encerrar), se houver.
  */
 function checkTarget(deps: SwitchDeps, projectId: number, to: string): SessionInfo | undefined {
   const live = liveOf(deps, projectId, to)
-  if (live?.status === 'working') {
+  // Aberto no terminal interativo: o `manager.start` recusaria depois do pacote e da pausa do goal.
+  const inTerminal = deps.db.prepare(
+    `SELECT 1 FROM sessions WHERE project_id=? AND engine=? AND status='in_terminal' LIMIT 1`,
+  ).get(projectId, to)
+  if (live?.status === 'working' || inTerminal) {
     throw new UserError('handoff_target_busy', 'O motor de destino está trabalhando')
   }
   if (limitActive(deps.store.get(projectId, to))) {
@@ -59,10 +63,13 @@ function checkTarget(deps: SwitchDeps, projectId: number, to: string): SessionIn
  * 4. monta o pacote ANTES de mexer no destino; o destino é conferido de novo
  *    depois, porque pode ter começado a trabalhar enquanto o pacote era lido;
  * 5. encerra o destino ocioso (se o `stop` falha, nada é criado nem pausado);
- * 6. pausa por `operator` o goal ativo ou esperando do destino;
+ * 6. pausa por `operator` o goal ativo ou esperando do destino e descarta a
+ *    retomada pendente dele (conversa nova não tem "Continuar");
  * 7. abre a conversa nova e manda o pacote como mensagem do Claudinei, no mesmo
  *    passo síncrono: o "livre" do início da sessão (microtask) já a encontra
  *    ocupada, e a fila e os avisos do destino só saem depois do turno do pacote.
+ *    Se o envio do pacote lança, a sessão nova já existe: vai ao log e a troca
+ *    responde com ela (o operador segue sem o contexto), como no `/fork`.
  */
 export async function switchEngine(deps: SwitchDeps, req: { projectId: number; from: string; to: string }): Promise<SessionInfo> {
   const { projectId, from, to } = req
@@ -97,13 +104,22 @@ export async function switchEngine(deps: SwitchDeps, req: { projectId: number; f
     if (still && ACTIVE.has(still.status)) throw new UserError('handoff_target_busy', 'O motor de destino não encerrou a conversa')
   }
 
-  const goal = deps.store.get(projectId, to).goalStatus
-  if (goal === 'active' || goal === 'waiting') {
-    deps.store.setGoalStatus(projectId, to, 'paused', 'operator')
-    try { deps.restart.publish(projectId, to) } catch (err) { console.error('[troca de motor] publicar o goal pausado falhou', err) }
+  const state = deps.store.get(projectId, to)
+  const pauseGoal = state.goalStatus === 'active' || state.goalStatus === 'waiting'
+  if (pauseGoal) deps.store.setGoalStatus(projectId, to, 'paused', 'operator')
+  try {
+    // A marca do reinício sai (o `dismiss` também publica); sem marca, só a pausa do goal vai à tela.
+    if (state.interruptedAt != null) deps.restart.dismiss(projectId, to)
+    else if (pauseGoal) deps.restart.publish(projectId, to)
+  } catch (err) {
+    console.error('[troca de motor] publicar o estado do destino falhou', err)
   }
 
   const session = deps.manager.start(project, { engine: to, continueLatest: false })
-  deps.manager.sendAsClaudinei(session.localId, pack.text)
+  try {
+    deps.manager.sendAsClaudinei(session.localId, pack.text)
+  } catch (err) {
+    console.error('[troca de motor] o pacote não saiu', err)
+  }
   return deps.manager.get(session.localId) ?? session
 }

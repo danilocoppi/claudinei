@@ -45,11 +45,14 @@ class FakeSession extends EventEmitter implements EngineSession {
   slowStop = false
   /** `stop` que resolve sem encerrar a sessão. */
   stopNoop = false
+  /** `send` que lança (o envio do pacote falhando). */
+  sendFails = false
   stops = 0
   constructor(readonly opts: EngineSessionOptions) { super() }
   set(s: SessionStatus) { if (this.status !== s) { this.status = s; this.emit('status', s) } }
   start(): void { this.set('idle') }
   send(text: string, o?: { echoToClients?: boolean }): void {
+    if (this.sendFails) throw new Error('envio falhou')
     this.writes.push({ text, echo: !!o?.echoToClients })
     this.set('working')
   }
@@ -90,6 +93,8 @@ let broadcasts: any[]
 let collectCalls: Array<{ engine: string; id: string; opts: { working: boolean; before?: number } }>
 /** Roda no meio do `collect`, antes de ele devolver o pacote (o destino mudando entre o menu e a confirmação). */
 let duringCollect: (() => void) | undefined
+/** Roda em cada sessão falsa criada (o teste ajusta a sessão nova do destino). */
+let onCreate: ((s: FakeSession) => void) | undefined
 let projects: ReturnType<typeof createProjectsService>
 let p1: Project
 let adminCookie: Record<string, string>
@@ -122,6 +127,7 @@ beforeEach(async () => {
   broadcasts = []
   collectCalls = []
   duringCollect = undefined
+  onCreate = undefined
   branch = undefined
   let nextSend: NextSend | undefined
   let queue: OperatorQueueService | undefined
@@ -130,7 +136,7 @@ beforeEach(async () => {
   const both = (...calls: Array<() => void>) => { for (const c of calls) { try { c() } catch (err) { console.error(err) } } }
   manager = createSessionManager({
     db, broadcast: () => {},
-    sessionFactory: (opts) => { const s = new FakeSession(opts); created.push(s); return s },
+    sessionFactory: (opts) => { const s = new FakeSession(opts); created.push(s); onCreate?.(s); return s },
     // Como o index.ts: os ganchos chegam aos serviços pela referência.
     onSessionAvailable: (projectId, ctx) => { if (ctx && nextSend) nextSend.onSessionAvailable({ projectId, ...ctx }) },
     onTurnResult: (projectId, engine, info) => both(
@@ -310,6 +316,23 @@ describe('o destino', () => {
     expect(dest.s.writes.map((w) => w.text)).toEqual(['chegou agora'])
   })
 
+  it('destino aberto no terminal interativo: 409 handoff_target_busy antes de qualquer efeito', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    store.startGoal(p1.id, 'codex', 'objetivo do codex')
+    db.prepare(`INSERT INTO sessions (local_id, project_id, status, engine) VALUES ('no-terminal', ?, 'in_terminal', 'codex')`).run(p1.id)
+    const antes = sessionsCount()
+
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('handoff_target_busy')
+    // Nem o pacote é montado, nem o goal pausado, nem sessão criada.
+    expect(collectCalls).toHaveLength(0)
+    expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'active', goalPause: null })
+    expect(created).toHaveLength(1)
+    expect(sessionsCount()).toBe(antes)
+  })
+
   it('destino no limite: 409 handoff_target_limited', async () => {
     doisTurnos(p1.path)
     startLive('claude', SRC)
@@ -444,6 +467,39 @@ describe('pendências do destino', () => {
     expect((await handoff({ from: 'claude', to: 'codex' })).statusCode).toBe(201)
     expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
     expect(store.get(p1.id, 'claude')).toMatchObject({ goalStatus: 'active', goalPause: null })
+  })
+
+  it('retomada pendente do destino sai na troca: a conversa nova não tem Continuar', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    const dest = startLive('codex', DEST_ID)
+    await tick()
+    store.markInterrupted(p1.id, 'codex', dest.localId, null)
+    expect(store.get(p1.id, 'codex').interruptedAt).not.toBeNull()
+    broadcasts.length = 0
+
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode, res.body).toBe(201)
+    expect(store.get(p1.id, 'codex')).toMatchObject({ interruptedAt: null, interruptedLocalId: null })
+    // A tela sabe na hora: o Continuar some.
+    expect(broadcasts.some((b) => b.type === 'terminal_state' && b.state?.projectId === p1.id && b.state?.engine === 'codex'
+      && b.state?.interruption == null)).toBe(true)
+  })
+
+  it('envio do pacote que lança: responde com a sessão criada e o goal pausado', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    store.startGoal(p1.id, 'codex', 'objetivo do codex')
+    onCreate = (s) => { s.sendFails = true }
+
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode, res.body).toBe(201)
+    const info = res.json()
+    expect(info).toMatchObject({ projectId: p1.id, engine: 'codex' })
+    expect(manager.get(info.localId)).toBeDefined()
+    expect(created).toHaveLength(2)
+    expect(created[1].writes).toEqual([])
+    expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
   })
 
   it('fila do destino sai só depois do turno do pacote', async () => {

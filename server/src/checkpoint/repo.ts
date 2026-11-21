@@ -52,7 +52,9 @@ export function createRepoResolver(ttlMs = 60_000) {
   const cache = new Map<string, { value: RepoInfo | null; at: number }>()
   const pending = new Map<string, Promise<RepoInfo | null>>()
 
-  function get(path: string): Promise<RepoInfo | null> {
+  function get(dir: string): Promise<RepoInfo | null> {
+    // `/repo`, `/repo/` e `/repo/a/..` são a mesma entrada.
+    const path = resolve(dir)
     const hit = cache.get(path)
     if (hit && Date.now() - hit.at < ttlMs) return Promise.resolve(hit.value)
     const running = pending.get(path)
@@ -65,8 +67,8 @@ export function createRepoResolver(ttlMs = 60_000) {
     return job
   }
 
-  function peek(path: string): RepoInfo | null | undefined {
-    return cache.get(path)?.value
+  function peek(dir: string): RepoInfo | null | undefined {
+    return cache.get(resolve(dir))?.value
   }
 
   return { get, peek }

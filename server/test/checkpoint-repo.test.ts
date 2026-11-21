@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { realpathSync, rmSync } from 'node:fs'
+import { readFileSync, realpathSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { GitError, git, splitZ } from '../src/checkpoint/git.js'
 import { createRepoResolver, repoKeyOf, resolveRepo } from '../src/checkpoint/repo.js'
@@ -138,6 +138,43 @@ describe('git()', () => {
     expect((await git(r.dir, ['cat-file', '-p', 'HEAD:grande.txt'])).stdout.length).toBe(4096)
   })
 
+  it('GIT_CEILING_DIRECTORIES do operador é respeitado (é limite, não redirecionamento)', async () => {
+    const r = repo({ 'a/x.txt': 'x\n' })
+    const top = realpathSync(r.dir)
+    process.env.GIT_CEILING_DIRECTORIES = top
+    const env = (await git(r.dir, ['-c', 'alias.ambiente=!env', 'ambiente'])).stdout.toString().split('\n')
+    expect(env).toContain(`GIT_CEILING_DIRECTORIES=${top}`)
+    // De dentro de a/, o git não sobe até o topo, que é o teto.
+    expect((await git(join(top, 'a'), ['rev-parse', '--show-toplevel'], { allowFail: true })).code).not.toBe(0)
+  })
+
+  it('pathspecs literais: GIT_LITERAL_PATHSPECS=1 fixo, mesmo com GIT_GLOB_PATHSPECS herdado', async () => {
+    const r = repo({ '*.txt': 'estrela\n', 'b.txt': 'b\n' })
+    process.env.GIT_GLOB_PATHSPECS = '1'
+    const env = (await git(r.dir, ['-c', 'alias.ambiente=!env', 'ambiente'])).stdout.toString().split('\n')
+    expect(env).toContain('GIT_LITERAL_PATHSPECS=1')
+    expect(env.some(l => l.startsWith('GIT_GLOB_PATHSPECS='))).toBe(false)
+    expect(splitZ((await git(r.dir, ['ls-files', '-z', '--', '*.txt'])).stdout)).toEqual(['*.txt'])
+  })
+
+  it('timeoutMs mata o git (e o que ele abriu) e rejeita com GitError, mesmo com allowFail', async () => {
+    const r = repo()
+    const started = Date.now()
+    const pidFile = join(tempDir(), 'pid')
+    const alias = `alias.dorme=!echo $$ > '${pidFile}'; exec sleep 30`
+    const err = await git(r.dir, ['-c', alias, 'dorme'], { timeoutMs: 300, allowFail: true }).then(() => null, e => e)
+    expect(err).toBeInstanceOf(GitError)
+    expect(err.message).toMatch(/tempo/)
+    expect(Date.now() - started).toBeLessThan(5000)
+    // O neto (o sleep do alias) morreu junto.
+    const pid = Number(readFileSync(pidFile, 'utf8').trim())
+    expect(pid).toBeGreaterThan(0)
+    await new Promise(r => setTimeout(r, 100))
+    expect(() => process.kill(pid, 0)).toThrow()
+    // Sem estourar o tempo, segue normal.
+    expect((await git(r.dir, ['rev-parse', 'HEAD'], { timeoutMs: 10_000 })).code).toBe(0)
+  })
+
   it('pasta inexistente vira GitError', async () => {
     await expect(git(join(tempDir(), 'nao-existe'), ['status'], { allowFail: true })).rejects.toBeInstanceOf(GitError)
   })
@@ -176,6 +213,14 @@ describe('createRepoResolver', () => {
     expect(resolver.peek(plain)).toBeUndefined()
     expect(await resolver.get(plain)).toBeNull()
     expect(resolver.peek(plain)).toBeNull()
+  })
+
+  it('a chave do cache é o caminho normalizado', async () => {
+    const r = repo({ 'a/x.txt': 'x\n' })
+    const resolver = createRepoResolver()
+    const first = await resolver.get(r.dir + '/')
+    expect(resolver.peek(r.dir)).toBe(first)
+    expect(await resolver.get(join(r.dir, 'a', '..'))).toBe(first)
   })
 
   it('chamadas simultâneas na mesma pasta dividem a mesma resolução', async () => {

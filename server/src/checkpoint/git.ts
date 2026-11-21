@@ -7,8 +7,10 @@ import { spawn } from 'node:child_process'
  * process.env, sem nada que redirecione o git para outro repositório, índice ou
  * base de objetos (o servidor pode ter subido de dentro de um hook ou de um
  * terminal com GIT_DIR definido), e com os valores fixos das regras do desfazer:
- * sem locks opcionais, sem prompt de credencial, mensagens em C e autor e
- * committer Claudinei.
+ * sem locks opcionais, sem prompt de credencial, mensagens em C, pathspecs
+ * literais (um arquivo chamado `*.txt` ou `:(x)` é só um nome) e autor e
+ * committer Claudinei. GIT_CEILING_DIRECTORIES passa: é um limite que o
+ * operador pôs na busca do repositório, não um redirecionamento.
  */
 
 export class GitError extends Error {
@@ -35,18 +37,24 @@ export interface GitOptions {
   allowFail?: boolean
   /** Teto do stdout e do stderr, em bytes. Passou, o git é morto e vira GitError. */
   maxBuffer?: number
+  /** Tempo máximo, em ms. Passou, o git (e o que ele abriu) é morto e vira GitError. */
+  timeoutMs?: number
 }
 
 const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024
+const DEFAULT_TIMEOUT_MS = 60_000
+// Depois do SIGTERM (que deixa o git apagar os próprios .lock), quanto esperar até o SIGKILL.
+const KILL_GRACE_MS = 2_000
 
 // Herdadas do processo, apontariam o git para outro repositório, índice,
 // objetos ou refs, ou mudariam a leitura de pathspecs e da config.
 const SCRUBBED = new Set([
   'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_IMPLICIT_WORK_TREE',
   'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_QUARANTINE_PATH',
-  'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES', 'GIT_PREFIX',
+  'GIT_NAMESPACE', 'GIT_PREFIX',
   'GIT_SHALLOW_FILE', 'GIT_GRAFT_FILE', 'GIT_REPLACE_REF_BASE', 'GIT_NO_REPLACE_OBJECTS',
-  'GIT_LITERAL_PATHSPECS', 'GIT_GLOB_PATHSPECS', 'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS',
+  // Incompatíveis com o GIT_LITERAL_PATHSPECS fixo (o git recusa a combinação).
+  'GIT_GLOB_PATHSPECS', 'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS',
   'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_INTERNAL_SUPER_PREFIX',
 ])
 
@@ -55,6 +63,7 @@ const FIXED_ENV = {
   GIT_OPTIONAL_LOCKS: '0',
   GIT_TERMINAL_PROMPT: '0',
   LC_ALL: 'C',
+  GIT_LITERAL_PATHSPECS: '1',
   GIT_AUTHOR_NAME: 'Claudinei',
   GIT_AUTHOR_EMAIL: 'claudinei@localhost',
   GIT_COMMITTER_NAME: 'Claudinei',
@@ -74,19 +83,43 @@ function gitEnv(indexFile?: string): NodeJS.ProcessEnv {
 
 export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<GitResult> {
   const max = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   return new Promise((resolve, reject) => {
     let settled = false
-    const fail = (err: GitError): void => { if (!settled) { settled = true; reject(err) } }
-    const child = spawn('git', args, { cwd, env: gitEnv(opts.indexFile), stdio: ['pipe', 'pipe', 'pipe'] })
+    let timer: NodeJS.Timeout | undefined
+    let killTimer: NodeJS.Timeout | undefined
+    const done = (): void => {
+      settled = true
+      clearTimeout(timer)
+      clearTimeout(killTimer)
+    }
+    const fail = (err: GitError): void => { if (!settled) { done(); reject(err) } }
+    // Grupo de processos próprio: no tempo esgotado morre também o que o git
+    // abriu (alias, hook do fsmonitor), que senão seguraria os pipes abertos.
+    const child = spawn('git', args, { cwd, env: gitEnv(opts.indexFile), stdio: ['pipe', 'pipe', 'pipe'], detached: true })
+    const killGroup = (signal: NodeJS.Signals): void => {
+      if (child.pid === undefined) return
+      try { process.kill(-child.pid, signal) } catch { /* já saiu */ }
+    }
     const out: Buffer[] = []
     const err: Buffer[] = []
+    let timedOut = false
+    const timeoutError = (): GitError => new GitError(args, -1, Buffer.concat(err).toString('utf8'), `tempo esgotado (${timeoutMs} ms)`)
+    timer = setTimeout(() => {
+      timedOut = true
+      killGroup('SIGTERM')
+      killTimer = setTimeout(() => {
+        killGroup('SIGKILL')
+        fail(timeoutError())
+      }, KILL_GRACE_MS)
+    }, timeoutMs)
     let outBytes = 0
     let errBytes = 0
     let overflow = false
     const tooBig = (): void => {
       if (overflow) return
       overflow = true
-      child.kill('SIGKILL')
+      killGroup('SIGKILL')
     }
     child.stdout.on('data', (chunk: Buffer) => {
       outBytes += chunk.length
@@ -98,8 +131,17 @@ export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise
     })
     // Spawn que falha (git ausente, pasta inexistente) não tem código de saída.
     child.on('error', e => fail(new GitError(args, -1, '', e.message)))
+    // No tempo esgotado não espera o 'close': um neto fora do grupo pode
+    // segurar os pipes; basta o git ter saído.
+    child.on('exit', () => {
+      if (!timedOut) return
+      // O git já apagou os .lock dele; o que sobrou no grupo morre agora.
+      killGroup('SIGKILL')
+      fail(timeoutError())
+    })
     child.on('close', (code, signal) => {
       if (settled) return
+      if (timedOut) return fail(timeoutError())
       const stderr = Buffer.concat(err).toString('utf8')
       if (overflow) return fail(new GitError(args, -1, stderr, `saída acima de ${max} bytes`))
       // Morto por sinal: sem código, tratado como falha (-1).
@@ -107,7 +149,7 @@ export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise
       if (exit !== 0 && !opts.allowFail) {
         return fail(new GitError(args, exit, stderr, signal ? `${signal}: ${stderr}` : undefined))
       }
-      settled = true
+      done()
       resolve({ code: exit, stdout: Buffer.concat(out), stderr })
     })
     // O git pode sair antes de ler o stdin todo (EPIPE); o código de saída já diz o que houve.

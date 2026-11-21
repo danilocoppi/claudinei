@@ -93,6 +93,28 @@ describe('Codex: cópia nativa', () => {
     expect(params).not.toHaveProperty('lastTurnId')
   })
 
+  it('lateral recriada em seed (sem forkFrom): o thread/start continua só leitura', async () => {
+    const s = mk({ readOnly: true })
+    const events = eventsOf(s)
+    s.start()
+    s.send('__start_params__')
+    await waitFor(() => s.status === 'needs_attention')
+    const result = events.find((e) => e.kind === 'result')
+    const params = JSON.parse(result!.kind === 'result' ? result!.resultText : '{}')
+    expect(params).toMatchObject({ sandbox: 'read-only', cwd: '/tmp', approvalPolicy: 'never' })
+  })
+
+  it('sessão comum (sem readOnly): o thread/start mantém o sandbox de sempre', async () => {
+    const s = mk({})
+    const events = eventsOf(s)
+    s.start()
+    s.send('__start_params__')
+    await waitFor(() => s.status === 'needs_attention')
+    const result = events.find((e) => e.kind === 'result')
+    const params = JSON.parse(result!.kind === 'result' ? result!.resultText : '{}')
+    expect(params).toMatchObject({ sandbox: 'danger-full-access' })
+  })
+
   it('fake: fork efêmero sem excludeTurns é recusado como na CLI real', () => {
     const line = JSON.stringify({ id: 1, method: 'thread/fork', params: { threadId: 'SRC', ephemeral: true } }) + '\n'
     const r = spawnSync(process.execPath, [FAKE_CODEX], { input: line, encoding: 'utf8', timeout: 5000 })

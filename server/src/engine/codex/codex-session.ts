@@ -91,7 +91,7 @@ export class CodexSession extends EventEmitter implements EngineSession {
       const developerInstructions = rule && own ? `${own}\n\n${rule}` : rule
       const params = {
         ...(developerInstructions ? { developerInstructions } : {}),
-        cwd: this.opts.projectPath, approvalPolicy: 'never', sandbox: 'danger-full-access',
+        cwd: this.opts.projectPath, approvalPolicy: 'never', sandbox: this.opts.readOnly ? 'read-only' : 'danger-full-access',
         ...(this.model ? { model: this.model } : {}),
         config: this.effort ? { model_reasoning_effort: this.effort } : {},
         ...(resumed ? { threadId: this.sessionId, excludeTurns: true } : {}),

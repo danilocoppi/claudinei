@@ -21,6 +21,8 @@ const answerSteer = (text) => {
 let developerInstructions = null
 // Params do último thread/fork (o turno __fork_params__ os devolve).
 let forkParams = null
+// Params do último thread/start (o turno __start_params__ os devolve).
+let startParams = null
 createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params: p } = JSON.parse(line)
   if (method === 'initialize') reply(id, { userAgent: 'fake' })
@@ -35,6 +37,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       out({ id, error: { code: -32600, message: `no rollout found for thread id ${p.threadId}` } }); return
     }
     if (p.threadId) threadId = p.threadId
+    if (method === 'thread/start') startParams = p
     developerInstructions = p.developerInstructions ?? null
     reply(id, { thread: { id: threadId }, model: p.model ?? 'default-model' })
     if (method === 'thread/resume') { total = 900000; context = 120000; usage() }
@@ -62,6 +65,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     const answer = text === '__options__' ? JSON.stringify({ model: p.model, effort: p.effort })
       : text === '__instructions__' ? JSON.stringify(developerInstructions)
       : text === '__fork_params__' ? JSON.stringify(forkParams)
+      : text === '__start_params__' ? JSON.stringify(startParams)
       : `echo:${text}`
     notify('item/agentMessage/delta', { delta: answer })
     notify('item/completed', { item: { id: 'answer', type: 'agentMessage', text: answer } })

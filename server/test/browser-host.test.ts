@@ -89,6 +89,16 @@ describe('BrowserHost: o processo', () => {
     expect(host.status().state).toBe('unavailable')
   })
 
+  it('CLAUDINEI_CHROMIUM apontando arquivo ausente → browser_not_installed com a dica de corrigir a variável, não a de instalar', async () => {
+    process.env.CLAUDINEI_CHROMIUM = '/nao/existe/chrome-claudinei'
+    const err = await host.tab(KEY).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(BrowserUnavailableError)
+    expect((err as BrowserUnavailableError).code).toBe('browser_not_installed')
+    expect((err as BrowserUnavailableError).hint).toBe('fix or unset CLAUDINEI_CHROMIUM (/nao/existe/chrome-claudinei)')
+    expect((err as Error).message).toContain('CLAUDINEI_CHROMIUM=/nao/existe/chrome-claudinei does not exist')
+    expect(fl.launches).toHaveLength(0)
+  })
+
   it('fecha o processo 120 s depois de ficar sem abas e sem páginas isoladas', async () => {
     await host.tab(KEY)
     await host.closeTab(KEY)
@@ -294,6 +304,41 @@ describe('BrowserHost: abas dos terminais', () => {
     expect(fl.browsers[0].contexts[0].closed).toBe(true)
     expect(host.existingTab(KEY)).toBeUndefined()
     expect(host.status().tabs).toBe(0)
+  })
+
+  it('contexto da aba: viewport 1280×800, deviceScaleFactor 1, sem downloads e sem service workers; state() com sandbox', async () => {
+    const t = await host.tab(KEY)
+    expect(fl.browsers[0].contexts[0].options).toEqual({
+      viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, acceptDownloads: false, serviceWorkers: 'block',
+    })
+    expect(t.state()).toMatchObject({ url: 'about:blank', viewport: { width: 1280, height: 800 }, sandbox: true })
+  })
+
+  it('sem a sandbox, a aba diz sandbox false', async () => {
+    fl.failNext(new Error('No usable sandbox!'))
+    const t = await host.tab(KEY)
+    expect(t.state().sandbox).toBe(false)
+  })
+
+  it('o processo cai enquanto a aba abre: fecha o contexto, rejeita e não guarda a aba', async () => {
+    await host.withIsolatedPage(VIEW, async () => undefined) // sobe o processo
+    const b = fl.browsers[0]
+    let open!: () => void
+    b.pageGate = new Promise<void>((r) => { open = r })
+    const p = host.tab(KEY).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(0)
+    b.disconnect()
+    await vi.advanceTimersByTimeAsync(0)
+    open()
+    const err = await p
+    expect((err as Error).message).toBe('the browser closed while the tab was opening; try again')
+    expect(b.contexts.at(-1)?.closed).toBe(true)
+    expect(host.existingTab(KEY)).toBeUndefined()
+    expect(host.status()).toEqual({ state: 'closed', tabs: 0 })
+    // A próxima tab() sobe outro processo e funciona.
+    const t = await host.tab(KEY)
+    expect(fl.launches).toHaveLength(2)
+    expect(host.existingTab(KEY)).toBe(t)
   })
 
   it('a nona aba fecha a mais ociosa não visível (evicted); com as oito visíveis rejeita TooManyTabsError', async () => {

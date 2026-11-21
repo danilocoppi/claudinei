@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 // O pkg compila o código do Claudinei em bytecode: função passada ao `evaluate`
 // perde o texto ("Passed function is not well-serializable"). Nestas pastas, só string.
-const FN_ARG = /\.(evaluate|evaluateHandle|\$eval|\$\$eval|waitForFunction|addInitScript)\(\s*(async\b|function\b|\(|[A-Za-z_$][\w$]*\s*=>)/
+// O genérico de TS (`evaluate<number>(…)`) é aceito antes do parêntese.
+const FN_ARG = /\.(evaluate|evaluateHandle|\$eval|\$\$eval|waitForFunction|addInitScript)(<[^>()]*>)?\(\s*(async\b|function\b|\(|[A-Za-z_$][\w$]*\s*=>)/
 
 const src = fileURLToPath(new URL('../src/', import.meta.url))
 
@@ -25,6 +26,9 @@ describe('evaluate só com string', () => {
     expect(FN_ARG.test('page.evaluate(function () { return 1 })')).toBe(true)
     expect(FN_ARG.test('page.$eval(el => el.textContent)')).toBe(true)
     expect(FN_ARG.test('ctx.addInitScript(\n  () => {})')).toBe(true)
+    expect(FN_ARG.test('page.evaluate<number>(() => 1)')).toBe(true)
+    expect(FN_ARG.test('page.waitForFunction<boolean, string>(async (s) => !!s)')).toBe(true)
+    expect(FN_ARG.test("page.evaluate<string>('document.title')")).toBe(false)
     expect(FN_ARG.test("page.evaluate('1')")).toBe(false)
     expect(FN_ARG.test('page.evaluate(`document.title`)')).toBe(false)
   })

@@ -30,17 +30,48 @@ export function timeoutError(ms: number): Error {
   return err
 }
 
+/** O quadro principal do dublê: a aba compara por identidade com `page.mainFrame()`. */
+export class FakeFrame {
+  constructor(private readonly owner: FakePage) {}
+  url(): string { return this.owner.currentUrl }
+  page(): FakePage { return this.owner }
+  parentFrame(): null { return null }
+}
+
 export class FakePage extends Emitter {
   /** 'load': setContent/goto resolvem na hora; 'hang': ficam pendurados até `release()` ou o `timeout`. */
   navigation: 'load' | 'hang' = 'load'
   closed = false
-  url = 'about:blank'
+  currentUrl = 'about:blank'
+  titleText = ''
   content = ''
   evalResult: unknown = 0
+  viewport: { width: number; height: number } | null = null
   readonly evaluated: string[] = []
   readonly screenshots: Array<Record<string, unknown> | undefined> = []
-  readonly navigations: Array<{ kind: 'setContent' | 'goto'; arg: string; opts?: Record<string, unknown> }> = []
+  readonly navigations: Array<{ kind: 'setContent' | 'goto' | 'back' | 'forward' | 'reload'; arg: string; opts?: Record<string, unknown> }> = []
+  readonly viewports: Array<{ width: number; height: number }> = []
+  private readonly frame = new FakeFrame(this)
   private pending: Array<() => void> = []
+
+  url(): string { return this.currentUrl }
+  mainFrame(): FakeFrame { return this.frame }
+
+  /** O próximo `event`, ou TimeoutError depois de `timeout` ms. */
+  waitForEvent(event: string, opts?: { timeout?: number }): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.off(event, fn); reject(timeoutError(opts?.timeout ?? 30_000)) }, opts?.timeout ?? 30_000)
+      const fn = (arg?: unknown) => { clearTimeout(timer); this.off(event, fn); resolve(arg) }
+      this.on(event, fn)
+    })
+  }
+  title(): Promise<string> { return Promise.resolve(this.titleText) }
+
+  /** O quadro principal navegou (por link, script ou redirecionamento): emite 'framenavigated'. */
+  navigatedTo(url: string): void {
+    this.currentUrl = url
+    this.emit('framenavigated', this.frame)
+  }
 
   setContent(html: string, opts?: { timeout?: number; waitUntil?: string }): Promise<void> {
     this.content = html
@@ -49,10 +80,29 @@ export class FakePage extends Emitter {
   }
 
   goto(url: string, opts?: { timeout?: number; waitUntil?: string }): Promise<null> {
-    this.url = url
+    if (this.closed) return Promise.reject(new Error('Target page, context or browser has been closed'))
     this.navigations.push({ kind: 'goto', arg: url, opts })
+    this.navigatedTo(url)
+    return this.navigate(opts?.timeout).then(() => { this.emit('load'); return null })
+  }
+
+  goBack(opts?: { timeout?: number; waitUntil?: string }): Promise<null> { return this.historyOp('back', opts) }
+  goForward(opts?: { timeout?: number; waitUntil?: string }): Promise<null> { return this.historyOp('forward', opts) }
+  reload(opts?: { timeout?: number; waitUntil?: string }): Promise<null> { return this.historyOp('reload', opts) }
+
+  private historyOp(kind: 'back' | 'forward' | 'reload', opts?: { timeout?: number; waitUntil?: string }): Promise<null> {
+    if (this.closed) return Promise.reject(new Error('Target page, context or browser has been closed'))
+    this.navigations.push({ kind, arg: this.currentUrl, opts })
     return this.navigate(opts?.timeout).then(() => null)
   }
+
+  setViewportSize(size: { width: number; height: number }): Promise<void> {
+    this.viewport = size
+    this.viewports.push(size)
+    return Promise.resolve()
+  }
+
+  viewportSize(): { width: number; height: number } | null { return this.viewport }
 
   private navigate(timeout?: number): Promise<void> {
     if (this.navigation === 'load') return Promise.resolve()
@@ -79,8 +129,9 @@ export class FakePage extends Emitter {
   }
 
   close(): Promise<void> {
+    if (this.closed) return Promise.resolve()
     this.closed = true
-    this.emit('close')
+    this.emit('close', this)
     return Promise.resolve()
   }
 }
@@ -88,12 +139,30 @@ export class FakePage extends Emitter {
 export class FakeContext extends Emitter {
   closed = false
   readonly pages: FakePage[] = []
-  constructor(readonly options: Record<string, unknown> | undefined) { super() }
+  /** Com um portão, `newPage` só resolve quando ele abre (abertura de aba em curso). */
+  gate: Promise<void> | null
+  constructor(readonly options: Record<string, unknown> | undefined, gate: Promise<void> | null = null) {
+    super()
+    this.gate = gate
+  }
 
-  newPage(): Promise<FakePage> {
+  async newPage(): Promise<FakePage> {
+    if (this.gate) await this.gate
+    if (this.closed) throw new Error('Target page, context or browser has been closed')
     const page = new FakePage()
     this.pages.push(page)
-    return Promise.resolve(page)
+    // Como o Playwright: o evento 'page' sai antes de o newPage resolver.
+    this.emit('page', page)
+    return page
+  }
+
+  /** Uma janela nova aberta pela página (target=_blank, window.open), já na URL dela. */
+  openPopup(url: string): FakePage {
+    const page = new FakePage()
+    page.currentUrl = url
+    this.pages.push(page)
+    this.emit('page', page)
+    return page
   }
 
   async close(): Promise<void> {
@@ -108,10 +177,12 @@ export class FakeBrowser extends Emitter {
   closed = false
   connected = true
   readonly contexts: FakeContext[] = []
+  /** Passado aos contextos novos: segura o `newPage` deles até abrir. */
+  pageGate: Promise<void> | null = null
 
   newContext(options?: Record<string, unknown>): Promise<FakeContext> {
     if (!this.connected) return Promise.reject(new Error('Target page, context or browser has been closed'))
-    const ctx = new FakeContext(options)
+    const ctx = new FakeContext(options, this.pageGate)
     this.contexts.push(ctx)
     return Promise.resolve(ctx)
   }

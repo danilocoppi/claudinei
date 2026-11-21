@@ -10,7 +10,8 @@
 import { createRequire } from 'node:module'
 import type { Browser, BrowserContext, Page } from 'playwright-core'
 import { INSTALL_COMMAND, resolveChromium } from './chromium.js'
-import { createTerminalTab, type TerminalTab } from './terminal-tab.js'
+import { createTerminalTab, DEFAULT_VIEWPORT, type TerminalTab } from './terminal-tab.js'
+import { allowedUrl } from './url-policy.js'
 import { keyOf, TEXTS, TooManyTabsError, type LaunchFn, type TerminalKey } from './types.js'
 import { withMarker } from '../local-servers/marker.js'
 
@@ -66,7 +67,8 @@ const MAX_ISOLATED = 2
 const ISOLATED_TIMEOUT_MS = 20_000
 const LOAD_TIMEOUT_MS = 10_000
 const QUEUE_TIMEOUT_MS = 30_000
-const DEFAULT_VIEWPORT = { width: 1280, height: 800 }
+/** A subida travada não segura a vaga (nem quem espera por ela) além disto. */
+const LAUNCH_TIMEOUT_MS = 30_000
 const MAX_CONSOLE = 500
 
 /** Falha de subida que conta como "a sandbox não deu": sobe de novo sem ela. */
@@ -74,17 +76,6 @@ const SANDBOX_ERROR = /sandbox|namespace|setuid/i
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 const isTimeout = (err: unknown): boolean => err instanceof Error && err.name === 'TimeoutError'
-
-/** Esquemas aceitos no `PreviewPage.goto`: http:, https: e about:blank (exato). */
-function allowedPreviewUrl(raw: string): boolean {
-  if (raw === 'about:blank') return true
-  try {
-    const u = new URL(raw)
-    return u.protocol === 'http:' || u.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
 
 /**
  * Carrega o playwright-core por `require`, nunca por `import()`: o esbuild deixa o
@@ -101,7 +92,7 @@ function loadPlaywright(): typeof import('playwright-core') {
 /** O launch de verdade: carrega o playwright-core só aqui, depois do desvio do inspector. */
 const defaultLaunch: LaunchFn = async ({ executablePath, chromiumSandbox, env }) => {
   const { chromium } = loadPlaywright()
-  return chromium.launch({ executablePath, headless: true, chromiumSandbox, env })
+  return chromium.launch({ executablePath, headless: true, chromiumSandbox, env, timeout: LAUNCH_TIMEOUT_MS })
 }
 
 function previewOf(page: Page): PreviewPage {
@@ -125,7 +116,7 @@ function previewOf(page: Page): PreviewPage {
   return {
     setContent: (html, o) => untilLoad((timeout) => page.setContent(html, { waitUntil: 'load', timeout }), o?.loadTimeoutMs),
     goto: async (url, o) => {
-      if (!allowedPreviewUrl(url)) throw new Error(TEXTS.SCHEME_REFUSED)
+      if (!allowedUrl(url)) throw new Error(TEXTS.SCHEME_REFUSED)
       return untilLoad((timeout) => page.goto(url, { waitUntil: 'load', timeout }), o?.loadTimeoutMs)
     },
     screenshot: ({ fullPage }) => page.screenshot({ type: 'png', fullPage }),
@@ -210,7 +201,8 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
       state = 'unavailable'
       reason = found.reason
       if (found.reason === 'env_missing') {
-        throw new BrowserUnavailableError('browser_not_installed', `${TEXTS.NOT_INSTALLED} (CLAUDINEI_CHROMIUM=${found.expected} does not exist)`, INSTALL_COMMAND)
+        // Instalar não resolve: a variável aponta um arquivo que não existe.
+        throw new BrowserUnavailableError('browser_not_installed', `${TEXTS.NOT_INSTALLED} (CLAUDINEI_CHROMIUM=${found.expected} does not exist)`, `fix or unset CLAUDINEI_CHROMIUM (${found.expected})`)
       }
       throw new BrowserUnavailableError('browser_not_installed', TEXTS.NOT_INSTALLED, INSTALL_COMMAND)
     }
@@ -299,9 +291,14 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
     reserved++
     let context: BrowserContext | undefined
     try {
-      context = await b.newContext({ viewport: DEFAULT_VIEWPORT, deviceScaleFactor: 1, acceptDownloads: false })
+      // O viewport inicial: 1280×800 (a Task 9 passa a informar o último pedido de coluna).
+      const viewport = { ...DEFAULT_VIEWPORT }
+      context = await b.newContext({ viewport, deviceScaleFactor: 1, acceptDownloads: false, serviceWorkers: 'block' })
       const page = await context.newPage()
-      const tab = createTerminalTab({ key, context, page, now })
+      // O processo caiu ou foi fechado enquanto a aba abria: a aba nasceria órfã
+      // (o fechamento das abas desse processo já passou). Fecha e falha.
+      if (browser !== b) throw new Error('the browser closed while the tab was opening; try again')
+      const tab = createTerminalTab({ key, context, page, now, viewport, sandbox: !noSandbox })
       const k = keyOf(key)
       tabs.set(k, tab)
       tab.onClosed(() => {

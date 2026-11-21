@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildApp } from '../src/app.js'
@@ -12,6 +13,9 @@ import { COOKIE_NAME } from '../src/auth/plugin.js'
 import { createProjectsService } from '../src/projects.js'
 import { startAfterListen } from '../src/restart/boot.js'
 import type { NextSend } from '../src/queue/next-send.js'
+import type { Scheduler } from '../src/schedules/scheduler.js'
+import { createSchedulesStore } from '../src/schedules/store.js'
+import { runRetention } from '../src/undo/retention.js'
 import type { Undo } from '../src/undo/index.js'
 import { createUndoStore } from '../src/undo/store.js'
 import { createTurnTracker } from '../src/undo/tracker.js'
@@ -21,6 +25,12 @@ import type { UndoCtx } from '../src/undo/types.js'
 import type { AgentEvent } from '../src/engine/types.js'
 import { makeRepo, makeTempDir } from './helpers/git-repo.js'
 import '../src/engine/index.js'
+
+// A retenção real, contada: a subida do conjunto a roda uma vez.
+vi.mock('../src/undo/retention.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../src/undo/retention.js')>()
+  return { ...mod, runRetention: vi.fn(mod.runRetention) }
+})
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const FAKE = join(__dirname, 'fake-claude.mjs')
@@ -33,6 +43,7 @@ let manager: SessionManager
 let app: Awaited<ReturnType<typeof buildApp>>
 let undo: Undo
 let nextSend: NextSend | undefined
+let scheduler: Scheduler | undefined
 let adminCookie: Record<string, string>
 let anaCookie: Record<string, string>
 const cleanups: Array<() => void> = []
@@ -55,10 +66,10 @@ function session(projectId: number, localId: string, conversation: string | null
   return { localId, projectId, engine }
 }
 
-const info = (conversation = 'S1') => ({ compaction: () => false, engineSessionId: conversation, shuttingDown: false })
+const info = (conversation: string | null = 'S1') => ({ compaction: () => false, engineSessionId: conversation, shuttingDown: false })
 const result: AgentEvent = { kind: 'result', subtype: 'success', isError: false, resultText: '', costUsd: 0, raw: {} }
 
-async function turn(ctx: UndoCtx, work: () => void = () => {}, conversation = 'S1'): Promise<number> {
+async function turn(ctx: UndoCtx, work: () => void = () => {}, conversation: string | null = 'S1'): Promise<number> {
   const t = undo.tracker
   t.onInput(ctx, 'trabalha', 'operator', () => t.onStatus(ctx, 'working', info(conversation)))
   const id = t.openSegment(ctx.localId)!
@@ -78,10 +89,13 @@ beforeEach(async () => {
   auth = createAuthService({ db })
   manager = createSessionManager({ db, broadcast: () => {}, sessionFactory: fakeFactory })
   nextSend = undefined
+  scheduler = undefined
+  vi.mocked(runRetention).mockClear()
   app = await buildApp({
     config: loadConfig({}), db, manager, auth,
     onUndoReady: (u) => { undo = u },
     onNextSendReady: (n) => { nextSend = n },
+    onSchedulerReady: (s) => { scheduler = s },
   })
 })
 
@@ -127,6 +141,11 @@ describe('rotas do desfazer', () => {
     ] as const) {
       const res = await app.inject({ method, url, cookies: anaCookie, ...(payload ? { payload } : {}) })
       expect(res.statusCode, `${method} ${url}`).toBe(403)
+    }
+    // Um id alheio junto de um inexistente: 403, como o alheio sozinho (o acesso vem antes do 404).
+    for (const url of ['/api/undo/preview', '/api/undo/apply']) {
+      const mixed = await post(url, { turnIds: [99999, tb], token: 'x', decisions: {} }, anaCookie)
+      expect(mixed.statusCode, url).toBe(403)
     }
     // O admin vê.
     expect((await get(`/api/undo/turns/${tb}/files`)).statusCode).toBe(200)
@@ -226,6 +245,9 @@ describe('rotas do desfazer', () => {
     const A = session(a.id, 'LA', 'S2')
     const old = await turn(A, () => r.write('a.txt', '1\n'), 'S1')
     const cur = await turn(A, () => r.write('a.txt', '2\n'), 'S2')
+    // Sem conversa registrada (o motor não deu id): conta como da conversa atual (R2).
+    const nul = await turn(A, () => r.write('b.txt', 'sem conversa\n'), null)
+    expect(undo.store.turn(nul)!.conversationId).toBeNull()
     const rewound = await turn(A, () => r.write('a.txt', '3\n'), 'S2')
     undo.store.markRewound([rewound])
     undo.tracker.onInteractive(A, 'open')
@@ -242,7 +264,7 @@ describe('rotas do desfazer', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.git).toBe(true)
-    expect(body.turns.map((x: { id: number }) => x.id)).toEqual([cur, last])
+    expect(body.turns.map((x: { id: number }) => x.id)).toEqual([cur, nul, last])
     expect(body.outside.map((x: { id: number }) => x.id)).toEqual([old, rewound])
     expect(body.interactive.map((x: { id: number }) => x.id)).toEqual([inter])
     expect(body.turns[0].summary).toMatchObject({ files: 1 })
@@ -297,6 +319,23 @@ describe('ligação no servidor', () => {
     expect(store.turn(open)!.endMark).not.toBeNull()
   })
 
+  it('a subida do conjunto roda a retenção uma vez (o turno de 31 dias some)', async () => {
+    const r = repo()
+    const projects = createProjectsService(db)
+    const a = projects.create({ name: 'A', path: r.dir })
+    const A = session(a.id, 'LA')
+    const old = await turn(A, () => r.write('a.txt', 'velho\n'))
+    const kept = await turn(A, () => r.write('a.txt', 'novo\n'))
+    db.prepare(`UPDATE undo_turns SET ended_at = datetime('now', '-31 days') WHERE id = ?`).run(old)
+    expect(runRetention).not.toHaveBeenCalled()
+
+    await undo.boot()
+    await undo.idle()
+    expect(runRetention).toHaveBeenCalledTimes(1)
+    expect(undo.store.turn(old)).toBeUndefined()
+    expect(undo.store.turn(kept)).toBeDefined()
+  })
+
   it('holds do árbitro verdadeiro durante a escrita; o fim cutuca o terminal do repositório', async () => {
     const r = repo()
     const projects = createProjectsService(db)
@@ -327,6 +366,16 @@ describe('ligação no servidor', () => {
     const ask = await app.inject({ method: 'POST', url: '/api/hermes/ask', payload: { toProjectName: 'A', question: 'oi?' } })
     expect(ask.statusCode).toBe(400)
     expect(ask.json().error).toContain('notice open')
+    // O agendador também espera (R19): a execução é pulada sem contar falha, em vez
+    // de bater no `undo_writing` do rastreador e virar erro.
+    const schedDir = mkdtempSync(join(tmpdir(), 'claudinei-sched-'))
+    cleanups.push(() => rmSync(schedDir, { recursive: true, force: true }))
+    const sched = createSchedulesStore(db, { dir: schedDir })
+      .create(a.id, { name: 'Tarefa', task: 'faz algo', cadence: { kind: 'daily', at: '12:00' } })
+    await scheduler!.runNow(sched.id)
+    const [schedRun] = createSchedulesStore(db, { dir: schedDir }).listRuns(sched.id, 1)
+    expect(schedRun.status).toBe('skipped')
+    expect(createSchedulesStore(db, { dir: schedDir }).get(sched.id)!.consecutiveFailures).toBe(0)
     expect(poke).not.toHaveBeenCalled()
 
     release()

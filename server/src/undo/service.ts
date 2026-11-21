@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto'
-import { realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { Db } from '../db.js'
 import { git } from '../checkpoint/git.js'
 import type { RepoInfo, createRepoResolver } from '../checkpoint/repo.js'
 import type { createSerialQueue } from '../checkpoint/serial.js'
-import { changedFiles, commitExists, fileDiff } from '../checkpoint/diff.js'
+import { changedFiles, commitExists } from '../checkpoint/diff.js'
 import {
   applyPrepared, blobStatesAt, planRestore, prepareRestore, staleEntries, type BlobState, type RestoreItem,
   type RestorePlanItem,
@@ -13,6 +11,7 @@ import {
 import type { SessionManager } from '../claude/manager.js'
 import { UserError } from '../user-error.js'
 import { attributeTurn, markSide, summarize, UnattributableTurnError } from './attribution.js'
+import { changeDiff, errText, inProjectOf, NOT_UNDOABLE, NOWHERE, projectRelOf as relOfPath, underTop } from './scope.js'
 import type { MarkKind, MarkRow, RunFile, RunRow, TurnRow, UndoStore } from './store.js'
 import type { UndoCtx } from './types.js'
 import type {
@@ -78,15 +77,9 @@ export interface UndoServiceDeps {
 }
 
 const ACTIONS = new Set<RestoreAction>(['revert', 'merge', 'force', 'keep'])
-/** Sem retrato do conteúdo: aparecem na prévia, sem desfazer, e o diff vem vazio. */
-const NOT_UNDOABLE = new Set<FileChange['status']>(['too_big', 'unsnapshotted', 'submodule'])
 /** O "agora" não é arquivo nem link: só `keep` cabe. */
 const NOT_A_FILE = new Set(['dir', 'blocked', 'other'])
 const WRITTEN = new Set<RestoreResult>(['reverted', 'merged', 'forced'])
-/** Projeto fora do topo do repositório: nenhum caminho cai "dentro" dele. */
-const NOWHERE = '\0fora'
-
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)) || 'erro desconhecido'
 const sortPaths = <T extends { path: string }>(list: T[]): T[] =>
   list.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 
@@ -114,18 +107,6 @@ export function runDto(r: RunRow): UndoRunDto {
 export function insideRun(run: UndoRunDto, inProject: (path: string) => boolean): UndoRunDto {
   const files = run.files.filter(f => inProject(f.path))
   return { ...run, files, hiddenOutside: run.files.length - files.length }
-}
-
-/** O caminho absoluto cai dentro do topo (para pasta que o resolver ainda não viu). */
-function underTop(path: string, top: string): boolean {
-  const abs = resolve(path)
-  return abs === top || abs.startsWith(top + sep)
-}
-
-/** O caminho (relativo ao topo) cai na pasta do projeto; a mesma regra da atribuição. */
-function inProjectOf(projectRel: string): (path: string) => boolean {
-  if (!projectRel) return () => true
-  return path => path === projectRel || path.startsWith(`${projectRel}/`)
 }
 
 /** Os turnos resolvidos: o repositório, o terminal e a pasta do projeto dentro dele. */
@@ -167,12 +148,7 @@ export function createUndoService(deps: UndoServiceDeps) {
 
   async function projectRelOf(repo: RepoInfo, projectId: number): Promise<string> {
     const p = deps.projects.get(projectId)
-    if (!p) return NOWHERE
-    const real = await realpath(p.path).catch(() => resolve(p.path))
-    const rel = relative(repo.top, real)
-    if (!rel) return ''
-    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return NOWHERE
-    return sep === '/' ? rel : rel.split(sep).join('/')
+    return p ? relOfPath(repo, p.path) : NOWHERE
   }
 
   // ── Turnos e marcos ──
@@ -652,8 +628,7 @@ export function createUndoService(deps: UndoServiceDeps) {
       if (!seesAll(viewer) && !scope.inProject(path)) throw new UserError('forbidden_path', 'arquivo fora da pasta do projeto')
       const file = (await attribute(scope, 0)).find(f => f.path === path)
       if (!file) throw new UserError('undo_path_not_in_turn', 'arquivo fora do turno', { path })
-      if (NOT_UNDOABLE.has(file.status)) return { path, binary: false, text: '', truncated: false }
-      return fileDiff(scope.repo, scope.marks[0].start.commitSha, scope.marks[0].end.commitSha, path)
+      return changeDiff(scope.repo, file, scope.marks[0].start.commitSha, scope.marks[0].end.commitSha)
     },
 
     async preview(turnIds: number[], viewer: ViewerFull): Promise<UndoPreview> {

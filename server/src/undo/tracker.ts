@@ -5,6 +5,7 @@ import type { RepoInfo, createRepoResolver } from '../checkpoint/repo.js'
 import type { createSerialQueue } from '../checkpoint/serial.js'
 import { filesRevertedNote, turnKey, withNote, type EndKind, type TurnOrigin } from '../../../shared/undo.js'
 import { declaredPaths } from './declared.js'
+import { errText } from './scope.js'
 import type { MarkKind, TurnRow, UndoStore } from './store.js'
 import type { TurnObserver, UndoCtx } from './types.js'
 
@@ -50,8 +51,6 @@ const GOAL_PREFIX = '[Claudinei: goal'
 
 /** Adia para depois do tique de E/S atual: o git (`rev-parse`) nunca roda na pilha do envio. */
 const later = <T>(fn: () => Promise<T>): Promise<T> => new Promise<void>(res => setImmediate(res)).then(fn)
-
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)) || 'erro desconhecido'
 
 /** O resultado do motor como fim de turno. */
 function resultKind(subtype: string): EndKind {

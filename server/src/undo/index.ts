@@ -1,20 +1,19 @@
-import { realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type { Db } from '../db.js'
 import type { SessionManager } from '../claude/manager.js'
 import { git } from '../checkpoint/git.js'
 import { createRepoResolver, type RepoInfo } from '../checkpoint/repo.js'
 import { createSerialQueue } from '../checkpoint/serial.js'
-import { changedFiles, commitExists, fileDiff } from '../checkpoint/diff.js'
+import { changedFiles, commitExists } from '../checkpoint/diff.js'
 import { UserError } from '../user-error.js'
 import { listIntervals, markSide } from './attribution.js'
 import { runRetention } from './retention.js'
+import { changeDiff, errText, inProjectOf, projectRelOf, underTop } from './scope.js'
 import { createUndoService, turnDto } from './service.js'
 import { createUndoStore, type MarkRow, type TurnRow } from './store.js'
 import { createTurnTracker } from './tracker.js'
 import type { TurnObserver } from './types.js'
 import type {
-  AttributedFile, ChangedFilesDto, FileChange, FileDiff, IntervalDto, TerminalTurnsDto, ViewerFull,
+  AttributedFile, ChangedFilesDto, FileDiff, IntervalDto, TerminalTurnsDto, ViewerFull,
 } from '../../../shared/undo.js'
 
 /**
@@ -42,33 +41,7 @@ export function viewerCanSee(v: ViewerFull, projectId: number): boolean {
 
 /** Até quantos intervalos "entre turnos" a rota lista. */
 const INTERVALS_MAX = 50
-/** Sem retrato do conteúdo: o diff vem vazio (a tela mostra o selo). */
-const NOT_UNDOABLE = new Set<FileChange['status']>(['too_big', 'unsnapshotted', 'submodule'])
 const HASH = /^[0-9a-f]{40}([0-9a-f]{24})?$/
-/** Projeto fora do topo do repositório: nenhum caminho cai "dentro" dele. */
-const NOWHERE = '\0fora'
-
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)) || 'erro desconhecido'
-
-function underTop(path: string, top: string): boolean {
-  const abs = resolve(path)
-  return abs === top || abs.startsWith(top + sep)
-}
-
-function inProjectOf(projectRel: string): (path: string) => boolean {
-  if (projectRel === '') return () => true
-  return path => path === projectRel || path.startsWith(`${projectRel}/`)
-}
-
-/** A pasta do projeto relativa ao topo (caminho real), ou NOWHERE se cai fora. */
-async function projectRelOf(repo: RepoInfo, path: string): Promise<string> {
-  const real = await realpath(path).catch(() => resolve(path))
-  const rel = relative(repo.top, real)
-  if (!rel) return ''
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return NOWHERE
-  return sep === '/' ? rel : rel.split(sep).join('/')
-}
-
 /** Avisos dos marcos: `limited` se algum dos dois é limitado. */
 const markWarnings = (...marks: MarkRow[]): string[] => (marks.some(m => m.mode === 'limited') ? ['limited'] : [])
 
@@ -262,8 +235,7 @@ export function createUndo(deps: UndoDeps) {
       if (!viewer.isAdmin && !s.inProject(path)) throw new UserError('forbidden_path', 'arquivo fora da pasta do projeto')
       const file = s.changes.find(c => c.path === path)
       if (!file) throw new UserError('undo_path_not_in_turn', 'arquivo fora do intervalo', { path })
-      if (NOT_UNDOABLE.has(file.status)) return { path, binary: false, text: '', truncated: false }
-      return fileDiff(s.repo, s.from.commitSha, s.to.commitSha, path)
+      return changeDiff(s.repo, file, s.from.commitSha, s.to.commitSha)
     },
   }
 }

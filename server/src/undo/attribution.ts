@@ -1,6 +1,7 @@
 import { changedFiles, type MarkSide } from '../checkpoint/diff.js'
 import type { RepoInfo } from '../checkpoint/repo.js'
 import type { AttributedFile, FileChange, TurnSummary } from '../../../shared/undo.js'
+import { inProjectOf } from './scope.js'
 import type { MarkRow, TurnRow, UndoStore } from './store.js'
 
 /**
@@ -53,14 +54,6 @@ export function markSide(store: UndoStore, row: MarkRow): MarkSide {
     big: row.big,
     listing: row.mode === 'full' || !row.listingHash ? null : store.listing(row.listingHash),
   }
-}
-
-/** O caminho cai na pasta do projeto (`projectRel` relativo ao topo; vazio = o repositório inteiro). */
-function inProjectOf(projectRel: string): (path: string) => boolean {
-  let base = projectRel.replace(/\/+$/, '')
-  if (base.startsWith('./')) base = base.slice(2)
-  if (!base || base === '.') return () => true
-  return path => path === base || path.startsWith(`${base}/`)
 }
 
 function turnMarks(store: UndoStore, repo: RepoInfo, turn: TurnRow): { start: MarkRow; end: MarkRow } {

@@ -290,7 +290,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // Só o reinício esperando e a janela do limite fechada (o encerramento já
     // para o laço e fecha as execuções na subida). O aviso do limite que ficou
     // depois da reabertura não segura: o turno bom do agendamento o tira.
-    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine)),
+    // A escrita de um desfazer também segura (R19): pulada sem contar falha, em
+    // vez de bater no `undo_writing` do rastreador e contar como erro.
+    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine)) || undo.holds(projectId, engine),
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)

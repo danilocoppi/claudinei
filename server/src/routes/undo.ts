@@ -93,14 +93,18 @@ export function registerUndoRoutes(app: FastifyInstance, deps: { undo: Undo; man
       reply.code(400).send(fail('undo_no_turns', 'nenhum turno para desfazer'))
       return undefined
     }
-    const turns: TurnRow[] = []
-    for (const id of ids as number[]) {
-      const t = undo.store.turn(id)
-      if (!t) { reply.code(404).send(fail('undo_turn_not_found', `turno ${id} não encontrado`, { id })); return undefined }
-      turns.push(t)
+    // O acesso aos que existem vem antes do 404 dos que faltam: misturar um id
+    // alheio com um inexistente dá 403, como o alheio sozinho. Id que não existe
+    // não tem projeto, então dá 404 para todos (inclusive o administrador).
+    const turns = (ids as number[]).map(id => ({ id, t: undo.store.turn(id) }))
+    for (const { t } of turns) if (t && !requireProjectAccess(req, reply, t.projectId)) return undefined
+    const missing = turns.find(x => !x.t)
+    if (missing) {
+      reply.code(404).send(fail('undo_turn_not_found', `turno ${missing.id} não encontrado`, { id: missing.id }))
+      return undefined
     }
-    for (const t of turns) if (!requireProjectAccess(req, reply, t.projectId)) return undefined
-    if (turns.some(t => t.projectId !== turns[0].projectId || t.engine !== turns[0].engine)) {
+    const rows = turns.map(x => x.t!)
+    if (rows.some(t => t.projectId !== rows[0].projectId || t.engine !== rows[0].engine)) {
       reply.code(400).send(fail('undo_mixed_terminals', 'os turnos são de terminais diferentes'))
       return undefined
     }

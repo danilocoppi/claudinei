@@ -261,6 +261,67 @@ describe('editar a partir daqui: opções', () => {
     expect(res.conversation).toEqual({ enabled: false, reason: 'anchor_not_found' })
     expect(res.files).toEqual({ enabled: false, reason: 'anchor_not_found' })
   })
+
+  it('options: ramo do Claude antes do primeiro turno (a prévia é da origem) desliga as duas com fork_pending', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    // O `/fork` do Claude só copia a conversa no primeiro envio: o id escolhido
+    // ainda não tem transcript, e a prévia mostra as mensagens da origem.
+    const src = { engine: 'claude', sourceId: 'origem-1', cut: null, cutAt: null, previewBefore: 0, sessionId: 'ramo-1' }
+    db.prepare(`INSERT INTO sessions (local_id, claude_session_id, project_id, status, engine, fork_source) VALUES ('LF', 'ramo-1', ?, 'stopped', 'claude', ?)`)
+      .run(p.id, JSON.stringify(src))
+    const res = (await options('LF', { text: 'mensagem da origem', occurrence: 0 })).json()
+    expect(res.conversation).toEqual({ enabled: false, reason: 'fork_pending' })
+    expect(res.files).toEqual({ enabled: false, reason: 'fork_pending' })
+    const done = await rewind('LF', { target: { text: 'mensagem da origem', occurrence: 0 }, mode: 'conversation', editedText: 'x' })
+    expect(done.statusCode).toBe(409)
+    expect(done.json()).toMatchObject({ code: 'rewind_unavailable', params: { reason: 'fork_pending' } })
+  })
+
+  it('execute: ramo do Codex com fork_source pendente perde o fork_source depois da volta (o revive não refaz a cópia)', async () => {
+    const dir = makeTempDir('claudinei-rewind-codex-ramo-')
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    const p = project(dir)
+    const src = { engine: 'codex', sourceId: 'T-origem', cut: 'turn-1', cutAt: null, previewBefore: 0 }
+    db.prepare(`INSERT INTO sessions (local_id, claude_session_id, project_id, status, engine, fork_source) VALUES ('LR', 'T-ramo', ?, 'stopped', 'codex', ?)`)
+      .run(p.id, JSON.stringify(src))
+    const id = undo.store.openTurn({ localId: 'LR', projectId: p.id, engine: 'codex', origin: 'operator', textKey: 'dois', conversationId: 'T-ramo', anchor: 'turn-2' })
+    undo.store.setEnd(id, null, 'result', 'T-ramo')
+    // A sessão viva do Codex, falsa: o revert vai bem.
+    const revertConversation = vi.fn(async () => {})
+    vi.spyOn(manager, 'liveSession').mockReturnValue({
+      sessionId: 'T-ramo', status: 'idle', revertConversation, forkConversation: vi.fn(), listTurns: vi.fn(async () => []),
+    } as any)
+    vi.spyOn(manager, 'send').mockImplementation(() => {})
+    const res = await undo.rewind.execute('LR', { target: { turnId: id, text: 'dois', occurrence: 0 }, mode: 'conversation', editedText: 'dois editado' },
+      { isAdmin: true, projectIds: 'all' })
+    expect(res).toMatchObject({ conversationRewound: true })
+    expect(revertConversation).toHaveBeenCalledWith('turn-2')
+    const row = db.prepare('SELECT fork_source FROM sessions WHERE local_id=?').get('LR') as { fork_source: string | null }
+    expect(row.fork_source).toBeNull()
+  })
+
+  it('execute: volta recusada pelo motor mantém o fork_source do ramo', async () => {
+    const dir = makeTempDir('claudinei-rewind-codex-ramo-')
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    const p = project(dir)
+    const src = JSON.stringify({ engine: 'codex', sourceId: 'T-origem', cut: 'turn-1', cutAt: null, previewBefore: 0 })
+    db.prepare(`INSERT INTO sessions (local_id, claude_session_id, project_id, status, engine, fork_source) VALUES ('LR2', 'T-ramo', ?, 'stopped', 'codex', ?)`)
+      .run(p.id, src)
+    const id = undo.store.openTurn({ localId: 'LR2', projectId: p.id, engine: 'codex', origin: 'operator', textKey: 'dois', conversationId: 'T-ramo', anchor: 'turn-2' })
+    undo.store.setEnd(id, null, 'result', 'T-ramo')
+    vi.spyOn(manager, 'liveSession').mockReturnValue({
+      sessionId: 'T-ramo', status: 'idle', revertConversation: vi.fn(async () => { throw new Error('falha de rede') }),
+      forkConversation: vi.fn(), listTurns: vi.fn(async () => []),
+    } as any)
+    const send = vi.spyOn(manager, 'send').mockImplementation(() => {})
+    const res = await undo.rewind.execute('LR2', { target: { turnId: id, text: 'dois', occurrence: 0 }, mode: 'conversation', editedText: 'x' },
+      { isAdmin: true, projectIds: 'all' })
+    expect(res.conversationRewound).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+    const row = db.prepare('SELECT fork_source FROM sessions WHERE local_id=?').get('LR2') as { fork_source: string | null }
+    expect(row.fork_source).toBe(src)
+  })
 })
 
 describe('editar a partir daqui: execute', () => {
@@ -659,6 +720,27 @@ describe('createRewindService (unidade)', () => {
     expect(res.conversation).toEqual({ enabled: false, reason: 'anchor_not_found' })
     expect(res.files).toEqual({ enabled: false, reason: 'anchor_not_found' })
     expect(res.working).toBe(true)
+  })
+
+  it('ramo pendente: sem achar a mensagem, o motivo é fork_pending; achando, a volta segue ligada', async () => {
+    const store = createUndoStore(openDb(':memory:'))
+    const locate = vi.fn<RewindAdapter['locate']>(async () => null)
+    const pending = vi.fn(() => true)
+    const svc = createRewindService({
+      manager: { get: () => ({ localId: 'L', projectId: 1, engine: 'claude', status: 'idle', engineSessionId: 'R1' }) as any, interrupt: vi.fn(), send: vi.fn() },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { claude: { locate, apply: vi.fn(async () => ({})) } },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
+      fork: { pending, settled: vi.fn() },
+    })
+    const target = { text: 'oi', occurrence: 0 }
+    expect((await svc.options('L', target, admin)).conversation).toEqual({ enabled: false, reason: 'fork_pending' })
+    expect(pending).toHaveBeenCalledWith(expect.objectContaining({ localId: 'L' }), '/nao/existe')
+    pending.mockReturnValue(false)
+    expect((await svc.options('L', target, admin)).conversation).toEqual({ enabled: false, reason: 'anchor_not_found' })
+    locate.mockResolvedValue({ kind: 'claude', parentUuid: null })
+    pending.mockReturnValue(true)
+    expect((await svc.options('L', target, admin)).conversation).toEqual({ enabled: true })
   })
 
   /** O serviço com um adaptador do Claude espiado e três turnos "continue", o último no meio do turno. */

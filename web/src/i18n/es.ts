@@ -617,6 +617,7 @@ export const es: typeof en = {
       codex_mid_turn: 'Este mensaje entró en medio de un turno de Codex, y Codex solo vuelve turnos enteros.',
       claude_mid_turn: 'Este mensaje entró en medio de un turno de Claude, y volver desde él no es seguro.',
       anchor_not_found: 'No se pudo encontrar este mensaje en la conversación del agente.',
+      fork_pending: 'La rama todavía no respondió el primer mensaje.',
       no_git: 'Sin git en esta carpeta: los archivos no pueden volver.',
       no_snapshot: 'Este mensaje no tiene punto de restauración de los archivos.',
       snapshot_late: 'La instantánea de un turno de este tramo llegó tarde: los archivos no pueden volver.',

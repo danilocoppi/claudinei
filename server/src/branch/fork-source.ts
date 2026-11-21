@@ -141,3 +141,25 @@ export async function forkPreviewPage(db: Db, info: SessionInfo, projectPath: st
   }
   return lastEventsOf(page, limit)
 }
+
+/**
+ * O ramo ainda não tem a cópia própria: `fork_source` gravado, do mesmo motor,
+ * e a cópia fora do storage (`forkCopyDone`). No Claude é o ramo antes do
+ * primeiro turno, cuja prévia mostra as mensagens da origem; "Editar a partir
+ * daqui" numa delas não acha a mensagem na conversa do ramo (`fork_pending`).
+ */
+export function forkPending(db: Db, info: Pick<SessionInfo, 'localId' | 'engine' | 'engineSessionId'>, projectPath: string): boolean {
+  const row = db.prepare('SELECT fork_source FROM sessions WHERE local_id=?').get(info.localId) as { fork_source?: string | null } | undefined
+  const src = parseForkSource(row?.fork_source)
+  if (!src || src.engine !== info.engine) return false
+  return !forkCopyDone(getEngine(info.engine), projectPath, info.engineSessionId)
+}
+
+/**
+ * Encerra o `fork_source` do ramo. Depois de uma volta da conversa ("Editar a
+ * partir daqui"), o ramo já está noutra conversa (a revertida, ou a nova): o
+ * revive com o `fork_source` refaria a cópia da origem e desfaria a volta.
+ */
+export function clearForkSource(db: Db, localId: string): void {
+  db.prepare('UPDATE sessions SET fork_source=NULL WHERE local_id=? AND fork_source IS NOT NULL').run(localId)
+}

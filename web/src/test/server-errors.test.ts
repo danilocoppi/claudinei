@@ -115,7 +115,7 @@ describe('erros do desfazer turno', () => {
     'snapshot_check_failed', 'forbidden_path', 'redo_hidden_files', 'rewind_bad_request', 'rewind_busy', 'rewind_failed',
     'rewind_in_progress', 'rewind_turn_outside', 'rewind_turn_stuck', 'rewind_unavailable', 'no_session',
   ]
-  const reasons = ['engine_unsupported', 'codex_mid_turn', 'claude_mid_turn', 'anchor_not_found', 'no_git', 'no_snapshot', 'snapshot_late', 'snapshot_lost', 'no_session']
+  const reasons = ['engine_unsupported', 'codex_mid_turn', 'claude_mid_turn', 'anchor_not_found', 'fork_pending', 'no_git', 'no_snapshot', 'snapshot_late', 'snapshot_lost', 'no_session', 'in_terminal']
 
   it('têm tradução nas três línguas, e os motivos da volta também', async () => {
     for (const lang of ['en', 'es', 'pt-BR']) {

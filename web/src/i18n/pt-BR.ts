@@ -618,6 +618,7 @@ export const ptBR: typeof en = {
       codex_mid_turn: 'Esta mensagem entrou no meio de um turno do Codex, e o Codex só volta turnos inteiros.',
       claude_mid_turn: 'Esta mensagem entrou no meio de um turno do Claude, e voltar a partir dela não é seguro.',
       anchor_not_found: 'Não deu para achar esta mensagem na conversa do agente.',
+      fork_pending: 'O ramo ainda não respondeu a primeira mensagem.',
       no_git: 'Sem git nesta pasta: os arquivos não podem voltar.',
       no_snapshot: 'Esta mensagem não tem ponto de restauração dos arquivos.',
       snapshot_late: 'O retrato de um turno deste trecho saiu atrasado: os arquivos não podem voltar.',

@@ -12,6 +12,7 @@ import { createUndoService, turnDto } from './service.js'
 import { createRewindService } from './rewind.js'
 import { createClaudeRewind } from './rewind-claude.js'
 import { createCodexRewind } from './rewind-codex.js'
+import { clearForkSource, forkPending } from '../branch/fork-source.js'
 import { createUndoStore, type MarkRow, type TurnRow } from './store.js'
 import { createTurnTracker } from './tracker.js'
 import type { TurnObserver } from './types.js'
@@ -132,6 +133,10 @@ export function createUndo(deps: UndoDeps) {
     manager: deps.manager, store, undo: service, projects: deps.projects, resolver,
     adapters: { claude: createClaudeRewind({ manager: deps.manager }), codex: createCodexRewind({ manager: deps.manager }) },
     nextSend: () => (deps.poke ? { poke: deps.poke } : undefined),
+    fork: {
+      pending: (info, projectPath) => forkPending(deps.db, info, projectPath),
+      settled: (localId) => clearForkSource(deps.db, localId),
+    },
     log,
   })
 

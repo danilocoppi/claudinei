@@ -65,6 +65,15 @@ export interface RewindDeps {
   /** A pasta tem git (sem git, a volta dos arquivos fica desligada com `no_git`). */
   resolver: Pick<ReturnType<typeof createRepoResolver>, 'get'>
   nextSend: () => Pick<NextSend, 'poke'> | undefined
+  /**
+   * O ramo (`/fork`) ainda sem a cópia própria (`pending`), e o fim do
+   * `fork_source` depois de uma volta da conversa (`settled`). Ausente: nenhum
+   * terminal é ramo pendente.
+   */
+  fork?: {
+    pending(info: SessionInfo, projectPath: string): boolean
+    settled(localId: string): void
+  }
   /** Quanto esperar o turno interrompido terminar. Padrão: 15 s. */
   waitFreeMs?: number
   log?(m: string): void
@@ -238,7 +247,18 @@ export function createRewindService(deps: RewindDeps) {
       // Conversa ocupada sem âncora, transcript ilegível: a tela mostra o motivo, nunca 500.
       log(`achar a mensagem em ${localId}: ${errText(e)}`)
     }
-    if (!cut) return both(off(info.engineSessionId ? 'anchor_not_found' : 'no_session'))
+    if (!cut) {
+      // Ramo do Claude antes do primeiro turno: a prévia mostra as mensagens da
+      // origem, e a conversa do ramo ainda não existe para achá-las.
+      let pending = false
+      try {
+        pending = deps.fork?.pending(info, project.path) ?? false
+      } catch (e) {
+        log(`ramo pendente em ${localId}: ${errText(e)}`)
+      }
+      if (pending) return both(off('fork_pending'))
+      return both(off(info.engineSessionId ? 'anchor_not_found' : 'no_session'))
+    }
     if (cut.kind === 'codex' && cut.midTurn) return both(off('codex_mid_turn'))
     plan.cut = cut
 
@@ -362,6 +382,15 @@ export function createRewindService(deps: RewindDeps) {
             }
           }
           return { conversationRewound: false, ...(run ? { run } : {}), error: errorOf(e) }
+        }
+
+        // A conversa voltou: o ramo ainda com `fork_source` (o Codex copia no
+        // `thread/fork` da subida, antes do primeiro turno) já não pode ser
+        // refeito da origem, ou o revive desfaria a volta.
+        try {
+          deps.fork?.settled(localId)
+        } catch (e) {
+          log(`fim do fork_source de ${localId}: ${errText(e)}`)
         }
 
         // 5. Os turnos do trecho saem da conversa atual (continuam desfazíveis).

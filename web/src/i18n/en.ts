@@ -615,6 +615,7 @@ export const en = {
       codex_mid_turn: 'This message came in the middle of a Codex turn, and Codex only rewinds whole turns.',
       claude_mid_turn: 'This message came in the middle of a Claude turn, and rewinding from it is not safe.',
       anchor_not_found: 'Could not find this message in the agent conversation.',
+      fork_pending: 'The branch has not answered its first message yet.',
       no_git: 'No git in this folder: the files cannot go back.',
       no_snapshot: 'This message has no restore point for the files.',
       snapshot_late: 'The snapshot of a turn in this stretch was late: the files cannot go back.',

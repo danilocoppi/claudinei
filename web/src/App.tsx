@@ -197,8 +197,8 @@ export default function App() {
     <WsContext.Provider value={ws ?? null}>
       {/* Zen esconde a moldura por CSS (`.app.zen`), sem desmontá-la: um modal aberto
           a partir da lateral (Aparência, Novo terminal…) ou um campo meio preenchido
-          nela sobrevivem ao Alt+Z, e o "cancelar" deles continua sendo o único jeito
-          de desfazer uma prévia. */}
+          nela sobrevivem à combinação do Zen, e o "cancelar" deles continua sendo o
+          único jeito de desfazer uma prévia. */}
       <div className={`app ${navOpen ? 'nav-open' : ''} ${zen ? 'zen' : ''}`}>
         {/* Nas visões de detalhe (conversa e terminal) o ☰ vira "voltar", e voltar
             é trazer a lista de terminais — que no celular É a gaveta. */}

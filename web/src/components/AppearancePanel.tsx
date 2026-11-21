@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { chooseTerminal, fetchTerminals, savePrefs } from '../api'
-import { useStore } from '../store'
+import { isAdminMe, useStore } from '../store'
 import { GearIcon } from './MenuIcons'
 import { DefaultFolderField } from './DefaultFolderField'
+import { ShortcutsTab } from './ShortcutsTab'
+import { isMac } from '../shortcuts/combo'
+import { pruneOverrides, sameOverrides, type Overrides } from '../shortcuts/resolve'
 import {
   ACCENTS, CHAT_WIDTHS, CODE_FONTS, DEFAULT_APPEARANCE, DENSITIES, GLASS, RADII, THEMES, UI_FONTS,
   type Appearance, type Option,
@@ -70,6 +73,14 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
   const [draft, setDraft] = useState<Appearance>(current)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [tab, setTab] = useState<'appearance' | 'shortcuts'>('appearance')
+  // Atalhos: rascunho SEM prévia ao vivo — só valem depois do Salvar. As escolhas
+  // de abertura são a régua do "mudou?" e do que vai no PUT.
+  const setKeybindings = useStore((s) => s.setKeybindings)
+  const kbBefore = useRef<Overrides>(useStore.getState().keybindings.overrides)
+  const [kbDraft, setKbDraft] = useState<Overrides>(kbBefore.current)
+  // A mesma regra de administrador da store: é com ela que o uso ocupa (ou não) a combinação.
+  const kbAdmin = useStore((s) => isAdminMe(s.me))
 
   /** Preview ao vivo: o app inteiro atrás do modal é a amostra. */
   const change = (patch: Partial<Appearance>) => {
@@ -80,17 +91,30 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
 
   const cancel = () => { apply(before.current); onClose() }
 
+  /** PUT só com o que mudou; nada mudou, fecha sem falar com o servidor. */
   const save = async () => {
+    const appearanceChanged = JSON.stringify(draft) !== JSON.stringify(before.current)
+    const kbNext = pruneOverrides(kbDraft)
+    const kbChanged = !sameOverrides(kbNext, kbBefore.current)
+    if (!appearanceChanged && !kbChanged) { onClose(); return }
     setSaving(true)
     setError('')
     try {
-      const { appearance } = await savePrefs({ appearance: draft })
-      apply(appearance)   // o servidor devolve o objeto saneado; é ele que vale
+      const saved = await savePrefs({
+        ...(appearanceChanged ? { appearance: draft } : {}),
+        ...(kbChanged ? { keybindings: kbNext } : {}),
+      })
+      // O servidor devolve os objetos saneados; são eles que valem. Servidor antigo,
+      // sem `keybindings` na resposta: vale o que foi mandado.
+      if (appearanceChanged) apply(saved.appearance)
+      if (kbChanged) setKeybindings(saved.keybindings ?? kbNext)
       onClose()
     } catch (err) {
       // Manter o visual escolhido: reverter porque a rede caiu seria pior que o
       // problema — a escolha continua na tela e no cache, só não foi guardada.
-      setError((err as Error).message)
+      // Os atalhos não mudam: o rascunho fica na aba para tentar de novo.
+      const msg = (err as Error).message
+      setError(kbChanged && !appearanceChanged ? t('shortcuts.saveFailed', { error: msg }) : t('appearance.saveFailed', { error: msg }))
       setSaving(false)
     }
   }
@@ -109,110 +133,130 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
           <h3>{t('appearance.title')}</h3>
         </header>
 
+        <div className="ap-tabs" role="tablist">
+          <button type="button" role="tab" data-testid="ap-tab-appearance" aria-selected={tab === 'appearance'}
+                  className={`ap-tab ${tab === 'appearance' ? 'on' : ''}`} onClick={() => setTab('appearance')}>
+            {t('shortcuts.tabAppearance')}
+          </button>
+          <button type="button" role="tab" data-testid="ap-tab-shortcuts" aria-selected={tab === 'shortcuts'}
+                  className={`ap-tab ${tab === 'shortcuts' ? 'on' : ''}`} onClick={() => setTab('shortcuts')}>
+            {t('shortcuts.tabShortcuts')}
+          </button>
+        </div>
+
         <div className="ap-panel__body">
-          <div className="ap-field">
-            <span>{t('appearance.theme')}</span>
-            <div className="ap-swatches">
-              {THEMES.map((th) => (
-                <ThemeSwatch key={th.id} theme={th} on={draft.theme === th.id} onPick={() => change({ theme: th.id })} />
-              ))}
-            </div>
-          </div>
-
-          <div className="ap-field">
-            <span>{t('appearance.accent')}</span>
-            <div className="ap-accents">
-              {ACCENTS.map((a) => (
-                <button key={a.id} type="button" title={t(a.label as 'appearance.accentTheme')}
-                        className={`ap-accent ${draft.accent === a.id ? 'on' : ''} ${a.css ? '' : 'ap-accent--theme'}`}
-                        style={{ ['--chip' as string]: accentOf(a) }}
-                        onClick={() => change({ accent: a.id })} />
-              ))}
-            </div>
-          </div>
-
-          <div className="ap-field">
-            <span>{t('appearance.chatWidth')}</span>
-            <Pills options={CHAT_WIDTHS} value={draft.chatWidth} testPrefix="width" onPick={(chatWidth) => change({ chatWidth })} />
-            <p className="ap-hint">{t('appearance.chatWidthHint')}</p>
-          </div>
-
-          <div className="ap-row">
-            <label className="ap-field">
-              <span>{t('appearance.fontUi')}</span>
-              <select data-testid="ap-font-ui" value={draft.fontUi} onChange={(e) => change({ fontUi: e.target.value })}>
-                {UI_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{labelOf(f)}</option>)}
-              </select>
-            </label>
-            <label className="ap-field">
-              <span>{t('appearance.fontCode')}</span>
-              <select data-testid="ap-font-code" value={draft.fontCode} onChange={(e) => change({ fontCode: e.target.value })}>
-                {CODE_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{labelOf(f)}</option>)}
-              </select>
-            </label>
-          </div>
-
-          <div className="ap-row">
+          {tab === 'shortcuts' && <ShortcutsTab draft={kbDraft} onChange={setKbDraft} admin={kbAdmin} mac={isMac()} />}
+          {tab === 'appearance' && (<>
             <div className="ap-field">
-              <span>{t('appearance.density')}</span>
-              <Pills options={DENSITIES} value={draft.density} testPrefix="density" onPick={(density) => change({ density })} />
-            </div>
-            <div className="ap-field">
-              <span>{t('appearance.radius')}</span>
-              <Pills options={RADII} value={draft.radius} testPrefix="radius" onPick={(radius) => change({ radius })} />
-            </div>
-          </div>
-
-          <div className="ap-field">
-            <span>{t('appearance.glass')}</span>
-            <Pills options={GLASS} value={draft.glass} testPrefix="glass" onPick={(glass) => change({ glass })} />
-            <p className="ap-hint">{t('appearance.glassHint')}</p>
-          </div>
-
-          <label className="ap-toggle">
-            <input data-testid="ap-motion" type="checkbox" checked={draft.reducedMotion}
-                   onChange={(e) => change({ reducedMotion: e.target.checked })} />
-            <span>
-              <strong>{t('appearance.reducedMotion')}</strong>
-              <em>{t('appearance.reducedMotionHint')}</em>
-            </span>
-          </label>
-
-          {/* NESTA MÁQUINA — o resto do painel é preferência de QUEM entrou; isto é da
-              máquina que hospeda, porque é nela que a janela abre. Daí a seção
-              própria, o rótulo explícito, e o gravar na hora em vez de entrar no
-              rascunho que o Salvar confirma. */}
-          {terminals.length > 0 && (
-            <>
-              <div className="ap-sep" />
-              <div className="ap-field">
-                <span>{t('sidebar.onThisMachine')}</span>
-                <label className="ap-field ap-field--sub">
-                  <span>{t('sidebar.terminalApp')}</span>
-                  <select data-testid="ap-terminal" value={terminal ?? ''}
-                          onChange={(e) => {
-                            const escolhido = e.target.value || null
-                            setTerminal(escolhido)
-                            void chooseTerminal(escolhido).catch(() => {})
-                          }}>
-                    {terminals.map((tm) => <option key={tm.id} value={tm.id}>{tm.label}</option>)}
-                  </select>
-                </label>
-                <p className="ap-hint">{t('appearance.terminalHint')}</p>
+              <span>{t('appearance.theme')}</span>
+              <div className="ap-swatches">
+                {THEMES.map((th) => (
+                  <ThemeSwatch key={th.id} theme={th} on={draft.theme === th.id} onPick={() => change({ theme: th.id })} />
+                ))}
               </div>
-            </>
-          )}
+            </div>
 
-          {/* TERMINAIS — só admin cria terminal, então só admin decide de onde eles nascem. */}
-          {isAdmin && <DefaultFolderField />}
+            <div className="ap-field">
+              <span>{t('appearance.accent')}</span>
+              <div className="ap-accents">
+                {ACCENTS.map((a) => (
+                  <button key={a.id} type="button" title={t(a.label as 'appearance.accentTheme')}
+                          className={`ap-accent ${draft.accent === a.id ? 'on' : ''} ${a.css ? '' : 'ap-accent--theme'}`}
+                          style={{ ['--chip' as string]: accentOf(a) }}
+                          onClick={() => change({ accent: a.id })} />
+                ))}
+              </div>
+            </div>
 
-          {error && <div className="ap-error" role="alert">{t('appearance.saveFailed', { error })}</div>}
+            <div className="ap-field">
+              <span>{t('appearance.chatWidth')}</span>
+              <Pills options={CHAT_WIDTHS} value={draft.chatWidth} testPrefix="width" onPick={(chatWidth) => change({ chatWidth })} />
+              <p className="ap-hint">{t('appearance.chatWidthHint')}</p>
+            </div>
+
+            <div className="ap-row">
+              <label className="ap-field">
+                <span>{t('appearance.fontUi')}</span>
+                <select data-testid="ap-font-ui" value={draft.fontUi} onChange={(e) => change({ fontUi: e.target.value })}>
+                  {UI_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{labelOf(f)}</option>)}
+                </select>
+              </label>
+              <label className="ap-field">
+                <span>{t('appearance.fontCode')}</span>
+                <select data-testid="ap-font-code" value={draft.fontCode} onChange={(e) => change({ fontCode: e.target.value })}>
+                  {CODE_FONTS.map((f) => <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>{labelOf(f)}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div className="ap-row">
+              <div className="ap-field">
+                <span>{t('appearance.density')}</span>
+                <Pills options={DENSITIES} value={draft.density} testPrefix="density" onPick={(density) => change({ density })} />
+              </div>
+              <div className="ap-field">
+                <span>{t('appearance.radius')}</span>
+                <Pills options={RADII} value={draft.radius} testPrefix="radius" onPick={(radius) => change({ radius })} />
+              </div>
+            </div>
+
+            <div className="ap-field">
+              <span>{t('appearance.glass')}</span>
+              <Pills options={GLASS} value={draft.glass} testPrefix="glass" onPick={(glass) => change({ glass })} />
+              <p className="ap-hint">{t('appearance.glassHint')}</p>
+            </div>
+
+            <label className="ap-toggle">
+              <input data-testid="ap-motion" type="checkbox" checked={draft.reducedMotion}
+                     onChange={(e) => change({ reducedMotion: e.target.checked })} />
+              <span>
+                <strong>{t('appearance.reducedMotion')}</strong>
+                <em>{t('appearance.reducedMotionHint')}</em>
+              </span>
+            </label>
+
+            {/* NESTA MÁQUINA — o resto do painel é preferência de QUEM entrou; isto é da
+                máquina que hospeda, porque é nela que a janela abre. Daí a seção
+                própria, o rótulo explícito, e o gravar na hora em vez de entrar no
+                rascunho que o Salvar confirma. */}
+            {terminals.length > 0 && (
+              <>
+                <div className="ap-sep" />
+                <div className="ap-field">
+                  <span>{t('sidebar.onThisMachine')}</span>
+                  <label className="ap-field ap-field--sub">
+                    <span>{t('sidebar.terminalApp')}</span>
+                    <select data-testid="ap-terminal" value={terminal ?? ''}
+                            onChange={(e) => {
+                              const escolhido = e.target.value || null
+                              setTerminal(escolhido)
+                              void chooseTerminal(escolhido).catch(() => {})
+                            }}>
+                      {terminals.map((tm) => <option key={tm.id} value={tm.id}>{tm.label}</option>)}
+                    </select>
+                  </label>
+                  <p className="ap-hint">{t('appearance.terminalHint')}</p>
+                </div>
+              </>
+            )}
+
+            {/* TERMINAIS — só admin cria terminal, então só admin decide de onde eles nascem. */}
+            {isAdmin && <DefaultFolderField />}
+          </>)}
+
+          {error && <div className="ap-error" role="alert">{error}</div>}
         </div>
 
         <footer className="ap-panel__foot">
-          <button className="ghost" onClick={() => { setDraft(DEFAULT_APPEARANCE); apply(DEFAULT_APPEARANCE) }}>
-            {t('appearance.restore')}
-          </button>
+          {tab === 'appearance' ? (
+            <button className="ghost" onClick={() => { setDraft(DEFAULT_APPEARANCE); apply(DEFAULT_APPEARANCE) }}>
+              {t('appearance.restore')}
+            </button>
+          ) : (
+            <button className="ghost" data-testid="sc-reset-all" onClick={() => setKbDraft({})}>
+              {t('shortcuts.resetAll')}
+            </button>
+          )}
           <div className="ap-panel__foot-right">
             <button className="ghost" onClick={cancel}>{t('common.cancel')}</button>
             <button disabled={saving} onClick={() => void save()}>{t('common.save')}</button>

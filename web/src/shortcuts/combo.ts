@@ -24,8 +24,12 @@ const LATIN_LETTER = /^\p{Script=Latin}$/u
 const LETTER = /^\p{L}$/u
 const F_KEY = /^F([1-9]|1[0-2])$/
 
-/** Teclas que só modificam: apertadas sozinhas, a gravação continua esperando. */
-const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'])
+/**
+ * Teclas que só modificam: apertadas sozinhas, a gravação continua esperando.
+ * Super/Windows chega como 'Meta', 'OS', 'Super' ou 'Hyper', conforme o sistema
+ * e o navegador; CapsLock também não é combinação nem recusa.
+ */
+const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'OS', 'Super', 'Hyper', 'CapsLock'])
 
 /**
  * Mac, iPhone ou iPad. Avaliado a cada chamada, sem guardar: os testes simulam o
@@ -153,13 +157,13 @@ export function matchCombo(e: KeyLike, combo: string, mac: boolean): boolean {
 
 /**
  * A combinação que o evento grava. 'modifier' quando só um modificador foi
- * apertado (a gravação continua esperando); null quando a tecla está fora da
- * gramática ou quando vem com Super fora do Mac. As recusas de uso (letra sem
- * modificador, Ctrl+Alt, reservadas) ficam com quem resolve os atalhos.
+ * apertado ou quando a tecla é da composição (IME): a gravação continua
+ * esperando, sem aviso. null quando a tecla está fora da gramática ou quando vem
+ * com Super fora do Mac. As recusas de uso (letra sem modificador, Ctrl+Alt,
+ * reservadas) ficam com quem resolve os atalhos.
  */
 export function comboFromEvent(e: KeyLike, mac: boolean): string | 'modifier' | null {
-  if (MODIFIER_KEYS.has(e.key)) return 'modifier'
-  if (e.isComposing) return null
+  if (MODIFIER_KEYS.has(e.key) || e.isComposing) return 'modifier'
   if (!mac && e.metaKey) return null
   const key = keyFromEvent(e, mac)
   if (key === null) return null

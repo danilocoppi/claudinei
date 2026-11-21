@@ -394,7 +394,7 @@ interface State {
  * Sem `me` vale como administrador, como no App (a instalação sem login e a
  * carga antes do `/api/auth/me`): só quem é marcado como não administrador perde o uso.
  */
-const isAdminMe = (me: import('./api').Me | null): boolean => !me || me.isAdmin !== false
+export const isAdminMe = (me: import('./api').Me | null): boolean => !me || me.isAdmin !== false
 
 /** As escolhas junto com o que vale delas agora (o sistema é lido a cada chamada). */
 const bindingsFor = (overrides: Overrides, me: import('./api').Me | null): State['keybindings'] =>

@@ -141,6 +141,20 @@ describe('combo', () => {
     expect(comboFromEvent(ev({ key: '@', code: 'Digit2', shiftKey: true, altKey: true }), false)).toBe('Alt+Shift+2')
   })
 
+  /**
+   * Super, CapsLock e a composição (IME) não são combinação nem recusa: a
+   * gravação continua esperando, sem "tecla não aceita". Super com letra fora do
+   * Mac continua não aceito.
+   */
+  it('gravar: teclas que só modificam e composição continuam esperando', () => {
+    for (const key of ['OS', 'Super', 'Hyper', 'CapsLock', 'Meta']) {
+      expect(comboFromEvent(ev({ key, metaKey: key !== 'CapsLock' }), false), key).toBe('modifier')
+    }
+    expect(comboFromEvent(ev({ key: 'k', code: 'KeyK', ctrlKey: true, isComposing: true }), false)).toBe('modifier')
+    expect(comboFromEvent(ev({ key: 'Process', code: 'KeyK', isComposing: true }), true)).toBe('modifier')
+    expect(comboFromEvent(ev({ key: 'k', code: 'KeyK', metaKey: true }), false)).toBeNull()
+  })
+
   it('gravar no Mac', () => {
     expect(comboFromEvent(ev({ key: 'k', code: 'KeyK', metaKey: true }), true)).toBe('Mod+K')
     expect(comboFromEvent(ev({ key: 'k', code: 'KeyK', ctrlKey: true }), true)).toBe('Ctrl+K')

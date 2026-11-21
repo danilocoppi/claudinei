@@ -241,7 +241,90 @@ describe('embedLocalResources — teto por arquivo', () => {
   })
 })
 
+/**
+ * O teto por arquivo não basta: a mesma imagem de 400 KB citada mil vezes
+ * virava um documento de centenas de MB (e `RangeError`, ou o processo morto
+ * por falta de memória). Há um total: o recurso que passa do teto ainda entra
+ * (o documento fica acima dele e a página é recusada citando os maiores); dali
+ * em diante nada mais é lido, e cada referência local fica como está e vai a
+ * `missing`.
+ */
+describe('embedLocalResources — teto total', () => {
+  const LIMITE = 524_288
+  // 1100 cópias de ~533 KB (ou 500 KB) passam do tamanho máximo de uma string no V8.
+  const N = 1100
+  const IMG = Buffer.alloc(400_000, 7)
+  const imgUrl = `data:image/png;base64,${b64(IMG)}`
+  const CSS = 'a'.repeat(500_000)
+  const conta = (s: string, sub: string) => s.split(sub).length - 1
+
+  beforeAll(() => {
+    writeFileSync(join(proj, 'img/meio.png'), IMG)
+    writeFileSync(join(proj, 'css/meio.css'), CSS)
+  })
+
+  const formas: Array<[string, string, string, number]> = [
+    ['<img src> repetido', '<img src="img/meio.png">', imgUrl, 1],
+    ['<link stylesheet> repetido', '<link rel="stylesheet" href="css/meio.css">', `<style>${CSS}</style>`, 2],
+    ['url() em style= repetido', '<div style="background:url(img/meio.png)"></div>', imgUrl, 1],
+  ]
+  it.each(formas)('%s: não estoura, o documento fica limitado e o excedente vai a missing', (_nome, um, embutido, copias) => {
+    const html = `<p>${um.repeat(N)}<img src="http://x/y.png"></p>`
+    let r!: ReturnType<typeof embed>
+    expect(() => { r = embed(html) }).not.toThrow()
+    expect(r.html.length).toBeLessThan(html.length + 3 * LIMITE)
+    // O que passou do teto ainda entrou; dali em diante, nada.
+    expect(conta(r.html, embutido)).toBe(copias)
+    expect(conta(r.html, um)).toBe(N - copias)
+    expect(r.missing).toEqual([um.includes('css') ? 'css/meio.css' : 'img/meio.png'])
+    expect(r.embedded).toHaveLength(1)
+    expect(r.html.endsWith('<img src="http://x/y.png"></p>')).toBe(true)
+  })
+
+  it('url() repetido num <style> só: mesmo limite', () => {
+    const html = `<style>${'.a{background:url(img/meio.png)}'.repeat(N)}</style>`
+    let r!: ReturnType<typeof embed>
+    expect(() => { r = embed(html) }).not.toThrow()
+    expect(r.html.length).toBeLessThan(html.length + 3 * LIMITE)
+    expect(conta(r.html, imgUrl)).toBe(1)
+    expect(r.missing).toEqual(['img/meio.png'])
+  })
+
+  it('depois do teto, outro arquivo local também vai a missing; referência externa segue calada', () => {
+    const r = embed('<img src="img/meio.png"><img src="img/a.png"><script src="js/app.js"></script><img src="https://x/y.png">')
+    expect(r.html).toBe(`<img src="${imgUrl}"><img src="img/a.png"><script src="js/app.js"></script><img src="https://x/y.png">`)
+    expect(r.embedded.map((e) => e.ref)).toEqual(['img/meio.png'])
+    expect(r.missing).toEqual(['img/a.png', 'js/app.js'])
+  })
+
+  it('url() dentro de um CSS embutido conta para o total sem contar duas vezes', () => {
+    // CSS de 100 KB com uma imagem de ~267 KB dentro: ~367 KB no documento.
+    // Contada duas vezes (a imagem e o CSS que a contém), passaria de 512 KB.
+    writeFileSync(join(proj, 'img/duzentos.png'), Buffer.alloc(200_000, 3))
+    writeFileSync(join(proj, 'css/com-img.css'), 'a'.repeat(100_000) + '.x{background:url(../img/duzentos.png)}')
+    const r = embed('<link rel="stylesheet" href="css/com-img.css"><img src="img/a.png">')
+    expect(r.missing).toEqual([])
+    expect(conta(r.html, pngUrl)).toBe(1)
+  })
+
+  it('muitas referências pequenas que cabem no teto entram todas', () => {
+    const r = embed('<img src="img/a.png">'.repeat(5000))
+    expect(r.missing).toEqual([])
+    expect(conta(r.html, pngUrl)).toBe(5000)
+  })
+
+  it('img com src e style= embutidos na mesma tag', () => {
+    const r = embed(`<img style="background:url('img/a.png')" src="img/a.png" alt=x>`)
+    expect(r.html).toBe(`<img style="background:url('${pngUrl}')" src="${pngUrl}" alt=x>`)
+  })
+})
+
 describe('embedLocalResources — tags', () => {
+  it('<link rel=stylesheet/> fica como está: o navegador lê o rel como "stylesheet/"', () => {
+    const html = '<link rel=stylesheet/ href="css/s.css"><link href="css/s.css" rel=stylesheet/>'
+    expect(embed(html)).toEqual({ html, embedded: [], missing: [] })
+  })
+
   it('<style-box> e <script-x> são elementos comuns, não blocos de CSS e JS', () => {
     const r = embed('<style-box><img src="img/a.png"></style-box><style>.a{}</style>' +
       '<script-x><img src="img/a.png"></script-x><script>1</script>')

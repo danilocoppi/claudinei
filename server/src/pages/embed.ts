@@ -27,14 +27,17 @@ export interface EmbedResult {
   embedded: Array<{ ref: string; bytes: number }>
   /**
    * Referência como escrita: ausente, fora do projeto, diretório, extensão sem
-   * MIME, tipo errado para a tag (só JS em `<script>`, só CSS em `<link>`) ou
-   * arquivo maior que o teto da página.
+   * MIME, tipo errado para a tag (só JS em `<script>`, só CSS em `<link>`),
+   * arquivo maior que o teto da página ou referência que veio depois de o
+   * total embutido passar do teto.
    */
   missing: string[]
 }
 
-/** Teto de um arquivo embutido: o da página inteira. Maior que isso, ela já não caberia. */
-const MAX_FILE_BYTES = 524_288
+/** Teto da página inteira, depois de embutir (bytes UTF-8). */
+const MAX_PAGE_BYTES = 524_288
+/** Teto de um arquivo embutido: o da página. Maior que isso, ela já não caberia. */
+const MAX_FILE_BYTES = MAX_PAGE_BYTES
 
 /** Nome da tag logo depois do `<`; `<style-box>` é `style-box`, não `style`. */
 const TAG_NAME = /[a-zA-Z][\w:-]*/y
@@ -70,10 +73,21 @@ function parseAttrs(s: string): Attr[] {
   return out
 }
 
-/** Troca o valor de um atributo; sem aspas no original, passa a usar `"` (base64 tem `=`). */
-function setAttr(s: string, a: Attr, value: string): string {
-  const q = a.quote || '"'
-  return s.slice(0, a.start) + a.ws + a.raw + (a.eq || '=') + q + value + q + s.slice(a.end)
+/**
+ * Troca o valor de atributos de `s` (os `Attr` vêm de `parseAttrs(s)`); sem
+ * aspas no original, passa a usar `"` (base64 tem `=`). Tudo de uma vez, sobre
+ * o texto original: reler um texto que já tem um data: URL forçava uma cópia
+ * dele inteira a cada tag.
+ */
+function setAttrs(s: string, changes: Array<[Attr, string]>): string {
+  let out = ''
+  let at = 0
+  for (const [a, value] of [...changes].sort((x, y) => x[0].start - y[0].start)) {
+    const q = a.quote || '"'
+    out += s.slice(at, a.start) + a.ws + a.raw + (a.eq || '=') + q + value + q
+    at = a.end
+  }
+  return out + s.slice(at)
 }
 
 /** Entidades que mudam um caminho escrito num atributo. */
@@ -88,11 +102,19 @@ export function embedLocalResources(html: string, opts: { baseDir: string; proje
   const dataUrls = new Map<string, string>()
   const embedded = new Map<string, { ref: string; bytes: number }>()
   const missing = new Set<string>()
+  /**
+   * Bytes que o embutir pôs no documento até aqui. O recurso que passa do teto
+   * ainda entra — o documento fica acima dele e a página é recusada citando os
+   * maiores de `embedded`; dali em diante nada mais é lido. Sem isso, a mesma
+   * imagem de 500 KB citada mil vezes fazia uma string de centenas de MB.
+   */
+  let spent = 0
 
   /** null = não é local (ignora calado); false = local, mas não serve (aviso). */
   function locate(ref: string, baseDir: string): string | null | false {
     const raw = ref.trim()
     if (!raw || raw.startsWith('#') || /^[\\/]{2}/.test(raw) || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return null
+    if (spent > MAX_PAGE_BYTES) return false
     let p = raw.replace(/[?#].*$/s, '')
     try { p = decodeURI(p) } catch { /* % solto: fica o texto cru */ }
     if (!p) return false
@@ -118,7 +140,9 @@ export function embedLocalResources(html: string, opts: { baseDir: string; proje
     return reads.get(real)!
   }
 
+  /** O que entrou no documento: vai a `embedded` e ao total. */
   function record(real: string, ref: string, bytes: number) {
+    spent += bytes
     const e = embedded.get(real)
     if (e) e.bytes += bytes
     else embedded.set(real, { ref, bytes })
@@ -170,42 +194,48 @@ export function embedLocalResources(html: string, opts: { baseDir: string; proje
     })
   }
 
-  function styleAttr(attrs: string): string {
-    const a = parseAttrs(attrs).find((x) => x.name === 'style')
-    if (!a || a.value === null) return attrs
+  /** `url()` do `style=`; null = não muda. */
+  function styleAttr(list: Attr[]): [Attr, string] | null {
+    const a = list.find((x) => x.name === 'style')
+    if (!a || a.value === null) return null
     const out = css(a.value, opts.baseDir)
-    return out === a.value ? attrs : setAttr(attrs, a, out)
+    return out === a.value ? null : [a, out]
   }
 
   /** `<script>…</script>` ou `<style>…</style>` completo; null = fica como está. */
   function block(tag: string, attrs: string, body: string): string | null {
     if (tag.toLowerCase() === 'style') {
-      const a = styleAttr(attrs)
+      const a = styleAttr(parseAttrs(attrs))
       const b = css(body, opts.baseDir)
-      return a === attrs && b === body ? null : `<${tag}${a}>${b}</${tag}>`
+      return !a && b === body ? null : `<${tag}${a ? setAttrs(attrs, [a]) : attrs}>${b}</${tag}>`
     }
     const src = parseAttrs(attrs).find((x) => x.name === 'src')
     if (!src || src.value === null) return null
     const got = asText(src.value, opts.baseDir, unescapeAttr(src.value), 'text/javascript')
     if (!got) return null
-    record(got.real, src.value, Buffer.byteLength(got.text))
-    const rest = attrs.slice(0, src.start) + attrs.slice(src.end)
     // `</script` no meio do JS fecharia a tag antes da hora.
-    return `<${tag}${rest}>${got.text.replace(/<\/(script)/gi, '<\\/$1')}</${tag}>`
+    const text = got.text.replace(/<\/(script)/gi, '<\\/$1')
+    record(got.real, src.value, Buffer.byteLength(text))
+    const rest = attrs.slice(0, src.start) + attrs.slice(src.end)
+    return `<${tag}${rest}>${text}</${tag}>`
   }
 
   /** Qualquer outra tag de abertura; null = fica como está. */
   function element(tag: string, attrs: string): string | null {
     const name = tag.toLowerCase()
-    let a = attrs
-    const list = parseAttrs(a)
+    const list = parseAttrs(attrs)
+    const changes: Array<[Attr, string]> = []
     if (name === 'link') {
       const rel = list.find((x) => x.name === 'rel')?.value?.toLowerCase().split(/\s+/) ?? []
       const href = list.find((x) => x.name === 'href')
       if (rel.includes('stylesheet') && !rel.includes('alternate') && href?.value) {
         const got = asText(href.value, opts.baseDir, unescapeAttr(href.value), 'text/css')
         if (got) {
+          // Os url() de dentro já somaram no total; o CSS entra pelo tamanho
+          // final, que os contém — sem contá-los duas vezes.
+          const before = spent
           const text = css(got.text, dirname(got.real)).replace(/<\/(style)/gi, '<\\/$1')
+          spent = before
           record(got.real, href.value, Buffer.byteLength(text))
           const media = list.find((x) => x.name === 'media')
           const m = media?.value ? ` media="${media.value.replace(/"/g, '&quot;')}"` : ''
@@ -216,11 +246,12 @@ export function embedLocalResources(html: string, opts: { baseDir: string; proje
       const src = list.find((x) => x.name === 'src')
       if (src?.value) {
         const url = asDataUrl(src.value, opts.baseDir, unescapeAttr(src.value))
-        if (url) a = setAttr(a, src, url)
+        if (url) changes.push([src, url])
       }
     }
-    a = styleAttr(a)
-    return a === attrs ? null : `<${tag}${a}>`
+    const st = styleAttr(list)
+    if (st) changes.push(st)
+    return changes.length ? `<${tag}${setAttrs(attrs, changes)}>` : null
   }
 
   /*

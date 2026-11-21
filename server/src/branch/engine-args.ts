@@ -17,8 +17,13 @@ export interface ClaudeBranchOptions {
   ephemeral?: boolean
 }
 
-/** Ferramentas que escrevem arquivo, barradas na conversa só de leitura. */
-const WRITE_TOOLS = ['Edit', 'Write', 'NotebookEdit']
+/**
+ * Ferramentas barradas na conversa só de leitura: as que escrevem arquivo e as
+ * que dependem do operador. A lateral não responde `AskUserQuestion` (a sessão
+ * a seguraria até uma resposta que nunca vem, travada em "trabalhando") e o
+ * `ExitPlanMode` sem interação cai no allow, tirando a lateral do modo plano.
+ */
+const READ_ONLY_DISALLOWED = ['Edit', 'Write', 'NotebookEdit', 'AskUserQuestion', 'ExitPlanMode']
 
 /**
  * Ajusta os args do `claude` para abrir uma cópia. Sem nenhum campo, devolve os
@@ -31,7 +36,7 @@ const WRITE_TOOLS = ['Edit', 'Write', 'NotebookEdit']
  * - `sessionId`: `--session-id <id>`; a cópia ganha exatamente esse id.
  * - `ephemeral`: `--no-session-persistence` (não grava transcript).
  * - `readOnly`: sai o bypass; entra o modo plano e as ferramentas de escrita
- *   barradas. A lista de `--disallowed-tools` é variádica, então fica por
+ *   (e as que pedem o operador) barradas. A lista de `--disallowed-tools` é variádica, então fica por
  *   último: depois dela só o fim dos args.
  */
 export function claudeBranchArgs(args: string[], o: ClaudeBranchOptions): string[] {
@@ -49,7 +54,7 @@ export function claudeBranchArgs(args: string[], o: ClaudeBranchOptions): string
   }
   if (o.sessionId) out.push('--session-id', o.sessionId)
   if (o.ephemeral) out.push('--no-session-persistence')
-  if (o.readOnly) out.push('--permission-mode', 'plan', '--disallowed-tools', ...WRITE_TOOLS)
+  if (o.readOnly) out.push('--permission-mode', 'plan', '--disallowed-tools', ...READ_ONLY_DISALLOWED)
   return out
 }
 

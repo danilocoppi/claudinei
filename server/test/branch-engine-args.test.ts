@@ -36,7 +36,9 @@ describe('claudeBranchArgs', () => {
     expect(args).toContain('--no-session-persistence')
     expect(valueOf(args, '--session-id')).toBe('side-id')
     expect(valueOf(args, '--permission-mode')).toBe('plan')
-    expect(hasRun(args, ['--disallowed-tools', 'Edit', 'Write', 'NotebookEdit'])).toBe(true)
+    // AskUserQuestion e ExitPlanMode também: a lateral não responde pergunta
+    // (o turno travaria em "trabalhando") e sair do modo plano a tiraria do só leitura.
+    expect(hasRun(args, ['--disallowed-tools', 'Edit', 'Write', 'NotebookEdit', 'AskUserQuestion', 'ExitPlanMode'])).toBe(true)
     expect(args).not.toContain('--dangerously-skip-permissions')
     expect(args).not.toContain('--mcp-config')
     expect(args).not.toContain('--append-system-prompt')
@@ -46,7 +48,7 @@ describe('claudeBranchArgs', () => {
     expect(args).toContain('--permission-prompt-tool')
     // A lista variádica vem seguida de outra flag ou do fim (nunca de um valor solto).
     const i = args.indexOf('--disallowed-tools')
-    const after = args[i + 4]
+    const after = args[i + 6]
     expect(after === undefined || after.startsWith('--')).toBe(true)
   })
 

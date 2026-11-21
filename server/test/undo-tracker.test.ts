@@ -198,14 +198,29 @@ describe('rastreador de turnos', () => {
       })
       expect(turn.endKind).toBe('cut')
     })
-    it('status repetido fora de working não fecha o trecho que ainda não trabalhou', async () => {
+    it('saída real de working fecha o trecho aberto antes do working (R13)', async () => {
       const r = repo()
       const projectId = project(r.dir)
       const t = tracker()
       const ctx = { localId: 'L1', projectId, engine: 'codex' }
-      // Motor que só passa a working depois (Codex): o idle repetido não corta.
+      // Motor que só passa a working depois do envio (Codex): uma saída real fecha mesmo assim.
       t.onInput(ctx, 'faz', 'operator', () => {})
       const id = t.openSegment('L1')!
+      t.onStatus(ctx, 'needs_attention', info())
+      expect(t.openSegment('L1')).toBeUndefined()
+      await t.idle()
+      expect(store.turn(id)).toMatchObject({ endKind: 'cut' })
+      expect(store.turn(id)!.endMark).not.toBeNull()
+    })
+    it('status igual ao anterior não é saída; a saída seguinte fecha (R13)', async () => {
+      const r = repo()
+      const projectId = project(r.dir)
+      const t = tracker()
+      const ctx = { localId: 'L1', projectId, engine: 'codex' }
+      t.onStatus(ctx, 'idle', info())
+      t.onInput(ctx, 'faz', 'operator', () => {})
+      const id = t.openSegment('L1')!
+      // idle repetido (a sessão já estava idle): não é saída de working.
       t.onStatus(ctx, 'idle', info())
       await t.idle()
       expect(t.openSegment('L1')).toBe(id)
@@ -214,6 +229,19 @@ describe('rastreador de turnos', () => {
       t.onStatus(ctx, 'idle', info())
       await t.idle()
       expect(store.turn(id)).toMatchObject({ endKind: 'result' })
+    })
+    it('dead repetido fecha mesmo assim (R13)', async () => {
+      const r = repo()
+      const projectId = project(r.dir)
+      const t = tracker()
+      const ctx = { localId: 'L1', projectId, engine: 'codex' }
+      t.onStatus(ctx, 'dead', info())
+      t.onInput(ctx, 'faz', 'operator', () => {})
+      const id = t.openSegment('L1')!
+      t.onStatus(ctx, 'dead', info())
+      expect(t.openSegment('L1')).toBeUndefined()
+      await t.idle()
+      expect(store.turn(id)).toMatchObject({ endKind: 'dead' })
     })
   })
 
@@ -241,6 +269,70 @@ describe('rastreador de turnos', () => {
     t.onEvent(ctx, toolUse('Bash', { command: 'ls' }))
     await t.idle()
     expect(store.turn(second)!.snapshot).toBe('ok')
+  })
+
+  it('trecho no meio do turno nunca fica atrasado; o de turn_start fica (R12)', async () => {
+    const r = repo()
+    const projectId = project(r.dir)
+    const repoInfo = (await resolver.get(r.dir))!
+    const t = tracker()
+    const ctx = { localId: 'L1', projectId, engine: 'claude' }
+    send(t, ctx, 'primeira')
+    await t.idle()
+    // Fila travada: o marco `message` do trecho novo ainda não ficou pronto.
+    let release!: () => void
+    let gate = new Promise<void>(res => { release = res })
+    void queue.run(repoInfo.key, () => gate)
+    send(t, ctx, 'segunda')
+    const mid = t.openSegment('L1')!
+    t.onEvent(ctx, toolUse('Bash', { command: 'ls' }))
+    release()
+    await t.idle()
+    expect(store.turn(mid)).toMatchObject({ midTurn: true, snapshot: 'ok' })
+    expect(store.turn(mid)!.startMark).not.toBeNull()
+    finish(t, ctx)
+    await t.idle()
+    // Nas mesmas condições, o trecho aberto sem trecho anterior (turn_start) fica atrasado.
+    gate = new Promise<void>(res => { release = res })
+    void queue.run(repoInfo.key, () => gate)
+    send(t, ctx, 'terceira')
+    const fresh = t.openSegment('L1')!
+    t.onEvent(ctx, toolUse('Bash', { command: 'ls' }))
+    release()
+    await t.idle()
+    expect(store.turn(fresh)).toMatchObject({ midTurn: false, snapshot: 'late' })
+  })
+
+  it('resolver.get não roda na pilha síncrona do envio (R13)', async () => {
+    const r = repo()
+    const projectId = project(r.dir)
+    const get = vi.spyOn(resolver, 'get')
+    const t = tracker()
+    const ctx = { localId: 'L1', projectId, engine: 'claude' }
+    // Pasta nunca vista.
+    send(t, ctx, 'faz')
+    expect(get).not.toHaveBeenCalled()
+    await new Promise(res => setImmediate(res))
+    expect(get).toHaveBeenCalledWith(r.dir)
+    await t.idle()
+    finish(t, ctx)
+    await t.idle()
+    // Pasta já conhecida: a renovação do cache também fica fora da pilha.
+    get.mockClear()
+    send(t, ctx, 'de novo')
+    expect(get).not.toHaveBeenCalled()
+    await t.idle()
+    expect(get).toHaveBeenCalledWith(r.dir)
+    // O trecho do motor (aberto numa microtask do onStatus) também.
+    finish(t, ctx)
+    await t.idle()
+    get.mockClear()
+    t.onStatus(ctx, 'working', info())
+    await Promise.resolve()
+    expect(t.openSegment('L1')).toBeTypeOf('number')
+    expect(get).not.toHaveBeenCalled()
+    await t.idle()
+    expect(get).toHaveBeenCalled()
   })
 
   it('send que lança não grava trecho nem consome a nota', () => {

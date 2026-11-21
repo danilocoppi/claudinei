@@ -32,8 +32,8 @@ interface Segment {
   /** O marco de início terminou (bem ou mal); antes disso, ferramenta = retrato atrasado. */
   startDone: boolean
   late: boolean
-  /** A sessão esteve em working com o trecho aberto: só então idle/needs_attention o fecham. */
-  sawWorking: boolean
+  /** Aberto por mensagem com outro trecho aberto: a ferramenta antes do marco é do trabalho em curso, nunca atrasa (R12). */
+  midTurn: boolean
   /** Fim pelo último `result` visto no trecho. */
   result: EndKind | null
   /** Gravação dos caminhos declarados em curso; o fim espera por ela. */
@@ -47,6 +47,9 @@ interface MarkRequest { kind: MarkKind; opens?: Segment; closes?: Closing }
 
 const EXITS = new Set(['idle', 'needs_attention', 'dead', 'stopped'])
 const GOAL_PREFIX = '[Claudinei: goal'
+
+/** Adia para depois do tique de E/S atual: o git (`rev-parse`) nunca roda na pilha do envio. */
+const later = <T>(fn: () => Promise<T>): Promise<T> => new Promise<void>(res => setImmediate(res)).then(fn)
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)) || 'erro desconhecido'
 
@@ -212,18 +215,18 @@ export function createTurnTracker(deps: {
     const seg: Segment = {
       turnId, localId: ctx.localId, projectPath, interactive: !!opts.interactive, repo: known,
       ready: Promise.resolve(known ?? null), startDone: known === null, late: false,
-      sawWorking: lastStatus.get(ctx.localId) === 'working', result: null, declaring: Promise.resolve(),
+      midTurn: !!opts.midTurn, result: null, declaring: Promise.resolve(),
     }
     if (known !== undefined) {
       // Renova em segundo plano o cache vencido (pasta que ganhou git, repo movido).
-      if (projectPath !== null) track(resolver.get(projectPath))
+      if (projectPath !== null) track(later(() => resolver.get(projectPath)))
     } else {
       // Pasta nunca vista: resolve fora do envio. Encadeado no trecho anterior
       // da mesma sessão, para os marcos dos dois saírem na ordem.
       const before = lastSeg.get(ctx.localId)
       const base = before && before.repo === undefined && before.projectPath === projectPath
         ? before.ready
-        : resolver.get(projectPath!)
+        : later(() => resolver.get(projectPath!))
       seg.ready = base.then(repo => {
         seg.repo = repo
         if (repo) store.setRepo(turnId, repo.key, repo.top)
@@ -250,7 +253,6 @@ export function createTurnTracker(deps: {
     opts: { textKey?: string | null; interactive?: boolean; prevEnd?: (prev: Segment) => EndKind }): Segment {
     const prev = open.get(ctx.localId)
     const seg = newSegment(ctx, origin, { textKey: opts.textKey, midTurn: !!prev && kind === 'message', interactive: opts.interactive })
-    if (prev) seg.sawWorking ||= prev.sawWorking
     open.set(ctx.localId, seg)
     safe('onTurnOpened', () => deps.onTurnOpened?.(seg.turnId))
     if (!prev) {
@@ -340,11 +342,12 @@ export function createTurnTracker(deps: {
     },
 
     onStatus(ctx, status, info) {
+      const previous = lastStatus.get(ctx.localId)
       lastStatus.set(ctx.localId, status)
       if (info.engineSessionId) lastConversation.set(ctx.localId, info.engineSessionId)
       const seg = open.get(ctx.localId)
       if (status === 'working') {
-        if (seg) { seg.sawWorking = true; return }
+        if (seg) return
         // Turno que o motor abriu sozinho, ou o working do próprio envio (o
         // onInput abre o trecho logo depois do send). A compactação liga a
         // marca depois do status: tudo se decide na microtask.
@@ -355,8 +358,10 @@ export function createTurnTracker(deps: {
         return
       }
       if (!seg || seg.interactive || !EXITS.has(status)) return
-      // Motor que só passa a working depois do envio: o idle repetido antes disso não corta o trecho.
-      if ((status === 'idle' || status === 'needs_attention') && !seg.sawWorking) return
+      // Status repetido não é saída (o trecho aberto com a sessão já em idle, antes
+      // de o motor passar a working). Qualquer mudança para uma saída fecha;
+      // dead e stopped fecham sempre (R13).
+      if ((status === 'idle' || status === 'needs_attention') && status === previous) return
       safe('fechar trecho', () => closeOnStatus(ctx, seg, status, info))
     },
 
@@ -378,7 +383,7 @@ export function createTurnTracker(deps: {
         }
         if (event.kind !== 'assistant' || !Array.isArray(event.message.content)) return
         if (!event.message.content.some(b => b.type === 'tool_use')) return
-        if (!seg.startDone && !seg.late) {
+        if (!seg.startDone && !seg.late && !seg.midTurn) {
           seg.late = true
           store.markLate(seg.turnId)
         }
@@ -471,8 +476,25 @@ export function createTurnTracker(deps: {
 
     /** Marco fora de turno (desfazer), na mesma fila; active = trechos abertos do repo. */
     takeMark(repo: RepoInfo, kind: MarkKind): Promise<number> {
-      const active = activeIds(repo.key, openNow())
-      const job = queue.run(repo.key, async () => (await writeMark(repo, kind, active)).id)
+      // Os abertos na hora do pedido; o filtro pelo repositório espera as pastas resolverem.
+      const segs = openNow()
+      const unresolved = segs.filter(s => s.repo === undefined)
+      const run = (): Promise<number> => queue.run(repo.key, async () => (await writeMark(repo, kind, activeIds(repo.key, segs))).id)
+      if (!deferred && !unresolved.length) {
+        const job = run()
+        track(job)
+        return job
+      }
+      // Trecho de pasta ainda não resolvida (a resolução roda fora do envio):
+      // entra na fila dos adiados, para o active contá-lo e a ordem dos pedidos valer.
+      const enqueued = (deferred ?? Promise.resolve())
+        .then(() => Promise.all(unresolved.map(s => s.ready.catch(() => null))))
+        .then(() => ({ job: run() }))
+      const tail = enqueued.then(() => {}, e => log(`marco ${kind}: ${errText(e)}`))
+      deferred = tail
+      track(tail)
+      void tail.then(() => { if (deferred === tail) deferred = null })
+      const job = enqueued.then(x => x.job)
       track(job)
       return job
     },

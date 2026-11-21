@@ -60,6 +60,7 @@ import { registerBranchRoutes } from './routes/branch.js'
 import { createUndo, type Undo } from './undo/index.js'
 import { registerUndoRoutes } from './routes/undo.js'
 import { createPagesService, registerPageRoutes, type PagesService } from './pages/service.js'
+import { readNetwork } from './pages/settings.js'
 
 export interface AppDeps {
   config: Config
@@ -267,7 +268,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     broadcast: (m) => deps.wsHub?.broadcast(m),
   })
-  registerPageRoutes(app, { pages, manager: deps.manager, settings: createSettingsService(deps.db), network: () => 'cdn' })
+  const pageSettings = createSettingsService(deps.db)
+  registerPageRoutes(app, { pages, manager: deps.manager, settings: pageSettings, network: () => readNetwork(pageSettings) })
   const queueStore = createOperatorQueueStore(deps.db)
   const queue = createOperatorQueueService({
     store: queueStore, manager: deps.manager,

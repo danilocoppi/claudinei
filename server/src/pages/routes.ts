@@ -3,12 +3,13 @@ import { readFile } from 'node:fs/promises'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { SessionManager } from '../claude/manager.js'
 import type { SettingsService } from '../settings.js'
-import { requireProjectAccess } from '../auth/guards.js'
+import { requireAdmin, requireProjectAccess } from '../auth/guards.js'
 import { createPreviewStore, type PreviewStore } from '../files/preview.js'
 import { UserError, errorBody } from '../user-error.js'
 import type { PageNetwork } from '../../../shared/visual-pages.js'
 import { PAGE_PERMISSIONS_POLICY, pageCsp } from './csp.js'
 import { withHeightScript } from './height-script.js'
+import { PAGE_NETWORK_KEY, readNetwork } from './settings.js'
 import type { PagesService } from './service.js'
 
 /** Corpo do `POST /api/hermes/pages`: o `html` vai até 512 K caracteres, que em UTF-8 e JSON passam de 512 KB. */
@@ -52,6 +53,20 @@ export function registerPageRoutes(
   },
 ): void {
   const views = deps.views ?? createPreviewStore()
+
+  // A rede das páginas: global da instalação, todos leem, só o admin muda (como
+  // o auto-compact). Vale na próxima abertura: a rota de exibição lê a cada pedido.
+  app.get('/api/visual-pages/settings', async () => ({ network: readNetwork(deps.settings) }))
+  app.put('/api/visual-pages/settings', async (req, reply) => {
+    if (!requireAdmin(req, reply)) return
+    const network = (req.body as { network?: unknown } | null)?.network
+    if (network !== 'cdn' && network !== 'open') {
+      return reply.code(400).send({ error: "network must be 'cdn' or 'open'" })
+    }
+    deps.settings.set(PAGE_NETWORK_KEY, network)
+    return { network }
+  })
+
   // O show_page do Hermes: publica a página na conversa viva do terminal (projeto + motor).
   app.post('/api/hermes/pages', { bodyLimit: PUBLISH_BODY_LIMIT }, async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>

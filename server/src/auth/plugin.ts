@@ -186,6 +186,28 @@ export function registerSecurityHeaders(app: FastifyInstance, secureTransport: b
     return payload
   })
 
+  /**
+   * `Origin: null` não chega a /api nem a /ws, nunca. É a origem de toda página
+   * em sandbox (as páginas visuais, a prévia de HTML): com a rede liberada, uma
+   * delas alcançaria 127.0.0.1 sem credencial no pré-setup. A interface e o
+   * Hermes nunca mandam essa origem. Aqui, e não em registerAuth, porque vale
+   * também sem auth configurada; registrado antes dele, recusa primeiro.
+   */
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.headers.origin !== 'null') return
+    const rawPath = req.url.split('?')[0]
+    // Uma decodificação, como o router e o gancho de auth: /%61pi casa /api.
+    // Caminho que não decodifica, com essa origem, é recusado também.
+    let path: string
+    try {
+      path = decodeURIComponent(rawPath)
+    } catch {
+      return reply.code(403).send({ error: 'opaque_origin' })
+    }
+    if (path.startsWith('/api/') || path === '/ws' || path.startsWith('/ws/')) {
+      return reply.code(403).send({ error: 'opaque_origin' })
+    }
+  })
 }
 
 export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean; secureTransport?: boolean }): Promise<void> {

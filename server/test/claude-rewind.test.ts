@@ -65,6 +65,30 @@ describe('findClaudeCut', () => {
   it('a nota do Claudinei na frente da mensagem não entra na chave', async () => {
     expect(await findClaudeCut(FIXTURE, turnKey('mensagem depois da volta'), 0)).toEqual({ kind: 'claude', parentUuid: U(17) })
   })
+
+  // R20: a mensagem do meio do turno o CLI grava como attachment queued_command.
+  it('mensagem enfileirada no meio do turno é a ocorrência mais recente: null, não a anterior de mesmo texto', async () => {
+    // U(20) normal, U(22) enfileirada (prompt em lista): a mais recente é a enfileirada.
+    expect(await findClaudeCut(FIXTURE, turnKey('confere o build'), 0)).toBeNull()
+  })
+
+  it('a enfileirada conta como ocorrência: a seguinte chega à mensagem normal anterior', async () => {
+    expect(await findClaudeCut(FIXTURE, turnKey('confere o build'), 1)).toEqual({ kind: 'claude', parentUuid: U(19) })
+    expect(await findClaudeCut(FIXTURE, turnKey('confere o build'), 2)).toBeNull()
+  })
+
+  it('queued_command com commandMode diferente de prompt não conta', async () => {
+    // U(28) é bash com o mesmo texto de U(26): a última ocorrência continua sendo U(26).
+    expect(await findClaudeCut(FIXTURE, turnKey('lista os arquivos'), 0)).toEqual({ kind: 'claude', parentUuid: U(25) })
+    expect(await findClaudeCut(FIXTURE, turnKey('lista os arquivos'), 1)).toBeNull()
+  })
+
+  it('system-reminder antes do envelope da tarefa: a chave é a do corpo, como na web', async () => {
+    // U(31) = "<system-reminder>…</system-reminder>\n[Task from Outro projeto]: faça y";
+    // U(33) = a enfileirada "  faça   y " (prompt em string), a mais recente.
+    expect(await findClaudeCut(FIXTURE, turnKey('faça y'), 0)).toBeNull()
+    expect(await findClaudeCut(FIXTURE, turnKey('faça y'), 1)).toEqual({ kind: 'claude', parentUuid: U(30) })
+  })
 })
 
 describe('claudeForkArgs', () => {

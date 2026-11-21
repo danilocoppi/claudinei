@@ -138,6 +138,8 @@ describe('rotas do desfazer', () => {
       ['POST', '/api/undo/apply', { turnIds: [tb], token: preview.token, decisions: {} }],
       ['POST', `/api/undo/runs/${run.id}/redo/preview`, {}],
       ['POST', `/api/undo/runs/${run.id}/redo`, { token: 'x', decisions: {} }],
+      ['POST', '/api/undo/terminals/LB/rewind/options', { target: { turnId: tb, text: 'trabalha', occurrence: 0 } }],
+      ['POST', '/api/undo/terminals/LB/rewind', { target: { turnId: tb, text: 'trabalha', occurrence: 0 }, mode: 'conversation', editedText: 'outra' }],
     ] as const) {
       const res = await app.inject({ method, url, cookies: anaCookie, ...(payload ? { payload } : {}) })
       expect(res.statusCode, `${method} ${url}`).toBe(403)
@@ -149,6 +151,8 @@ describe('rotas do desfazer', () => {
     }
     // O admin vê.
     expect((await get(`/api/undo/turns/${tb}/files`)).statusCode).toBe(200)
+    // O rewind recusado não chegou a segurar o terminal.
+    expect(undo.holds(beta.id, 'claude')).toBe(false)
   })
 
   it('não-admin com acesso: arquivos fora da pasta do projeto viram hiddenOutside', async () => {

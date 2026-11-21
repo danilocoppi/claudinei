@@ -202,6 +202,26 @@ describe('changedFiles', () => {
     ])
   })
 
+  it('limitado depois de um completo: os soltos criados no turno aparecem como added', async () => {
+    const r = repo({ 'rastreado.txt': 'r\n' })
+    r.write('velho.txt', 'v\n')
+    const repoInfo = await info(r.dir)
+    const limits = { ...SNAPSHOT_LIMITS, limitedFiles: 3 }
+    const s1 = await takeSnapshot(repoInfo, 1, { limits })
+    expect(s1.mode).toBe('full')
+    for (const n of [1, 2, 3]) r.write(`novo${n}.txt`, `novo ${n}\n`)
+    r.write('velho.txt', 'v\nmudou\n')
+    const s2 = await takeSnapshot(repoInfo, 2, { limits, previousListing: 'full' })
+    expect(s2.mode).toBe('limited')
+    expect(await changedFiles(repoInfo, s1, s2)).toEqual([
+      { path: 'novo1.txt', status: 'added', added: 1, removed: 0, binary: false },
+      { path: 'novo2.txt', status: 'added', added: 1, removed: 0, binary: false },
+      { path: 'novo3.txt', status: 'added', added: 1, removed: 0, binary: false },
+      // O solto antigo estava no retrato completo e continua no limitado: diff normal.
+      { path: 'velho.txt', status: 'modified', added: 1, removed: 0, binary: false },
+    ])
+  })
+
   it('limitado: grande antigo que encolheu (e segue fora do retrato) é too_big', async () => {
     const r = repo()
     for (const n of [1, 2, 3, 4]) r.write(`velho${n}.txt`, `${n}\n`)
@@ -231,8 +251,31 @@ describe('changedFiles', () => {
     const f = byPath(await changedFiles(repoInfo, s1, s2))
     expect(f['novo.txt']).toMatchObject({ status: 'added' })
     for (const n of [1, 2, 3]) expect(f[`velho${n}.txt`]).toMatchObject({ status: 'unsnapshotted' })
-    // O apagado nunca esteve no retrato: some sem aparecer.
-    expect(f['velho4.txt']).toBeUndefined()
+    // O apagado nunca esteve no retrato: aparece sem retrato, com o tamanho de antes.
+    expect(f['velho4.txt']).toEqual({ path: 'velho4.txt', status: 'unsnapshotted', added: 0, removed: 0, binary: false, size: 2 })
+  })
+
+  it('limitado: solto antigo apagado no turno aparece como unsnapshotted com o tamanho de antes', async () => {
+    const r = repo()
+    for (const n of [1, 2, 3, 4, 5]) r.write(`velho${n}.txt`, `${n}`.repeat(n) + '\n')
+    const repoInfo = await info(r.dir)
+    const limits = { ...SNAPSHOT_LIMITS, limitedFiles: 3 }
+    const s1 = await takeSnapshot(repoInfo, 1, { limits })
+    expect(s1.mode).toBe('limited')
+    unlinkSync(join(r.dir, 'velho3.txt'))
+    r.write('novo.txt', 'novo\n')
+    const s2 = await takeSnapshot(repoInfo, 2, { limits, previousListing: s1.listing })
+    expect(s2.mode).toBe('limited')
+    expect(await changedFiles(repoInfo, s1, s2)).toEqual([
+      { path: 'novo.txt', status: 'added', added: 1, removed: 0, binary: false },
+      { path: 'velho3.txt', status: 'unsnapshotted', added: 0, removed: 0, binary: false, size: 4 },
+    ])
+    // O criado no turno e apagado depois está no retrato: é deleted normal.
+    unlinkSync(join(r.dir, 'novo.txt'))
+    const s3 = await takeSnapshot(repoInfo, 3, { limits, previousListing: s2.listing })
+    expect(await changedFiles(repoInfo, s2, s3)).toEqual([
+      { path: 'novo.txt', status: 'deleted', added: 0, removed: 1, binary: false },
+    ])
   })
 
   it('submódulo que avançou aparece como submodule', async () => {
@@ -302,7 +345,6 @@ describe('fileDiff', () => {
     // Três linhas de contexto de cada lado (o cabeçalho do trecho pode trazer a "função").
     expect(d.text).toMatch(/--- a\/f\.txt\n\+\+\+ b\/f\.txt\n@@ -7,7 \+7,7 @@[^\n]*\n l7\n l8\n l9\n-l10\n\+L10\n l11\n l12\n l13\n$/)
     // Arquivo que não mudou: diff vazio.
-    r.write('g.txt', 'g\n')
     expect(await fileDiff(repoInfo, s1.commit, s2.commit, 'README.md')).toEqual(
       { path: 'README.md', binary: false, text: '', truncated: false })
   })
@@ -329,6 +371,29 @@ describe('fileDiff', () => {
     const total = full.text.split('\n').length - 1
     expect(full.truncated).toBe(false)
     expect((await fileDiff(repoInfo, s1.commit, s2.commit, 'grande.txt', total)).truncated).toBe(false)
+  })
+
+  it('diff acima do teto de bytes volta cortado (truncated), não erro', async () => {
+    const r = repo()
+    const repoInfo = await info(r.dir)
+    const s1 = await takeSnapshot(repoInfo, 1)
+    r.write('grande.txt', Array.from({ length: 2500 }, (_, i) => `linha ${i}`).join('\n') + '\n')
+    const s2 = await takeSnapshot(repoInfo, 2)
+    const d = await fileDiff(repoInfo, s1.commit, s2.commit, 'grande.txt', 2000, { maxBuffer: 1024 })
+    expect(d.truncated).toBe(true)
+    expect(d.binary).toBe(false)
+    expect(d.text).toMatch(/^diff --git a\/grande\.txt b\/grande\.txt\n/)
+    expect(d.text).toContain('+linha 0\n')
+    // Só linhas inteiras, dentro do teto.
+    expect(d.text.endsWith('\n')).toBe(true)
+    expect(Buffer.byteLength(d.text)).toBeLessThanOrEqual(1024)
+    const lines = d.text.split('\n').length - 1
+    expect(lines).toBeGreaterThan(10)
+    expect(lines).toBeLessThan(2000)
+    // O teto de linhas continua valendo quando vem antes do de bytes.
+    const few = await fileDiff(repoInfo, s1.commit, s2.commit, 'grande.txt', 5, { maxBuffer: 1024 })
+    expect(few.truncated).toBe(true)
+    expect(few.text.split('\n').length - 1).toBe(5)
   })
 
   it('config do operador não muda o diff nem roda programas (prefixos, cor, diff externo, textconv)', async () => {

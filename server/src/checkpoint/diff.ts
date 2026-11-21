@@ -32,6 +32,8 @@ export interface MarkSide { commit: string; big: UntrackedEntry[]; listing: Untr
 export interface FileDiff { path: string; binary: boolean; sizeKb?: number; text: string; truncated: boolean }
 
 export const DIFF_MAX_LINES = 2000
+/** Teto de bytes do texto do diff: com linhas muito longas, o corte vem antes das 2.000 linhas. */
+export const DIFF_MAX_BYTES = 8 * 1024 * 1024
 
 const GITLINK = '160000'
 const EXEC_BITS = new Set(['100644', '100755'])
@@ -137,12 +139,16 @@ async function treePaths(repo: RepoInfo, commit: string): Promise<Set<string>> {
  *
  * - solto grande (`to.big`) ausente antes, ou com tamanho/data diferente, vira
  *   `too_big` com o tamanho. Se ele era pequeno e estava no retrato de antes, o
- *   diff-tree o dá como apagado; vale o `too_big` (desfazer apagaria o grande);
+ *   diff-tree o dá como apagado; vale o `too_big`: o "depois" (o grande) não
+ *   tem retrato, então a mudança não pode ser desfeita;
  * - grande de antes (`from.big`) que sumiu ou encolheu (para dentro do retrato
  *   ou, no modo limitado, fora dele) também é `too_big`, com o tamanho de
  *   antes: o "antes" não tem retrato, e desfazer apagaria um arquivo que existia;
  * - solto das duas listagens do modo limitado, fora dos dois commits, com
  *   tamanho/data diferente, vira `unsnapshotted`;
+ * - solto antigo do modo limitado (em `from.listing`, fora do commit de antes)
+ *   que sumiu (fora de `to.listing` e do commit de agora) também vira
+ *   `unsnapshotted`, com o tamanho de antes: foi apagado sem nunca ter retrato;
  * - solto antigo que entra no retrato quando o modo limitado acaba aparece no
  *   diff-tree como criado; como existia antes (está em `from.listing`), vira
  *   `unsnapshotted`, nunca `added` (desfazer o apagaria).
@@ -191,14 +197,19 @@ export async function changedFiles(repo: RepoInfo, from: MarkSide, to: MarkSide)
       return before && differs(before, now) && !toBig.has(now.path) && !fromBig.has(now.path) && !inRaw.has(now.path)
     })
     : []
-  if (gone.length || listed.length) {
+  // Soltos antigos do modo limitado que sumiram: nunca tiveram retrato (quem
+  // estava no commit de antes e sumiu aparece no diff-tree como apagado).
+  const vanished = from.listing
+    ? from.listing.filter(e => !toListing.has(e.path) && !fromBig.has(e.path) && !toBig.has(e.path) && !inRaw.has(e.path))
+    : []
+  if (gone.length || listed.length || vanished.length) {
     // Quem está no commit de agora e não mudou no diff-tree não é "sem retrato".
     const inTree = await treePaths(repo, to.commit)
     for (const e of gone) {
       if (inTree.has(e.path)) continue
       out.set(e.path, { path: e.path, status: 'too_big', added: 0, removed: 0, binary: false, size: e.size })
     }
-    for (const e of listed) {
+    for (const e of [...listed, ...vanished]) {
       if (inTree.has(e.path)) continue
       out.set(e.path, { path: e.path, status: 'unsnapshotted', added: 0, removed: 0, binary: false, size: e.size })
     }
@@ -207,25 +218,16 @@ export async function changedFiles(repo: RepoInfo, from: MarkSide, to: MarkSide)
   return [...out.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 
-/** Corta o texto em `max` linhas. */
-function cutLines(text: string, max: number): { text: string; truncated: boolean } {
-  let pos = 0
-  for (let n = 0; n < max; n++) {
-    const nl = text.indexOf('\n', pos)
-    if (nl < 0) return { text, truncated: false }
-    pos = nl + 1
-  }
-  if (pos >= text.length) return { text, truncated: false }
-  return { text: text.slice(0, pos), truncated: true }
-}
-
 /**
  * Diff unificado (-U3) de um arquivo entre dois commits, cortado em `maxLines`
- * linhas. Binário não tem texto: vem `sizeKb`, do lado novo (ou do antigo, se o
- * arquivo foi apagado), arredondado para cima. Arquivo sem mudança: texto vazio.
+ * linhas ou `maxBuffer` bytes (o que vier antes) com `truncated: true`: o git
+ * é morto ao passar do teto, e o texto fica só com linhas inteiras. Binário não
+ * tem texto: vem `sizeKb`, do lado novo (ou do antigo, se o arquivo foi
+ * apagado), arredondado para cima. Arquivo sem mudança: texto vazio.
  */
 export async function fileDiff(
   repo: RepoInfo, fromCommit: string, toCommit: string, path: string, maxLines = DIFF_MAX_LINES,
+  opts: { maxBuffer?: number } = {},
 ): Promise<FileDiff> {
   assertHash(fromCommit)
   assertHash(toCommit)
@@ -240,9 +242,8 @@ export async function fileDiff(
   const res = await git(repo.top, [
     'diff', ...DIFF_SAFE, '-U3', '--inter-hunk-context=0', '--src-prefix=a/', '--dst-prefix=b/',
     '--submodule=short', '--no-relative', fromCommit, toCommit, '--', path,
-  ])
-  const { text, truncated } = cutLines(res.stdout.toString('utf8'), maxLines)
-  return { path, binary: false, text, truncated }
+  ], { truncate: { maxLines }, maxBuffer: opts.maxBuffer ?? DIFF_MAX_BYTES })
+  return { path, binary: false, text: res.stdout.toString('utf8'), truncated: res.truncated === true }
 }
 
 /** O commit do marco ainda existe na base de objetos. false = "retrato perdido". */

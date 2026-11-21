@@ -138,6 +138,30 @@ describe('git()', () => {
     expect((await git(r.dir, ['cat-file', '-p', 'HEAD:grande.txt'])).stdout.length).toBe(4096)
   })
 
+  it('truncate: para depois de maxLines linhas ou de maxBuffer bytes, mata o git e devolve só linhas inteiras', async () => {
+    const body = Array.from({ length: 200_000 }, (_, i) => `linha ${i}`).join('\n') + '\n'
+    const r = repo({ 'linhas.txt': body, 'curto.txt': 'a\nb\nc\n' })
+    const args = ['cat-file', '-p', 'HEAD:linhas.txt']
+    // Por linhas.
+    const byLines = await git(r.dir, args, { truncate: { maxLines: 3 } })
+    expect(byLines.truncated).toBe(true)
+    expect(byLines.stdout.toString()).toBe('linha 0\nlinha 1\nlinha 2\n')
+    // Por bytes, mesmo com o teto abaixo do total: resolve, sem GitError.
+    const byBytes = await git(r.dir, args, { truncate: {}, maxBuffer: 100 })
+    expect(byBytes.truncated).toBe(true)
+    const text = byBytes.stdout.toString()
+    expect(text.length).toBeLessThanOrEqual(100)
+    expect(text.endsWith('\n')).toBe(true)
+    expect(body.startsWith(text)).toBe(true)
+    // Saída que cabe: inteira, sem truncated.
+    const fits = await git(r.dir, ['cat-file', '-p', 'HEAD:curto.txt'], { truncate: { maxLines: 3 } })
+    expect(fits.truncated).toBe(false)
+    expect(fits.code).toBe(0)
+    expect(fits.stdout.toString()).toBe('a\nb\nc\n')
+    // Erro do git continua erro.
+    await expect(git(r.dir, ['cat-file', '-p', 'HEAD:nao-existe'], { truncate: { maxLines: 3 } })).rejects.toBeInstanceOf(GitError)
+  })
+
   it('GIT_CEILING_DIRECTORIES do operador é respeitado (é limite, não redirecionamento)', async () => {
     const r = repo({ 'a/x.txt': 'x\n' })
     const top = realpathSync(r.dir)

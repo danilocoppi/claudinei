@@ -26,7 +26,13 @@ export class GitError extends Error {
   }
 }
 
-export interface GitResult { code: number; stdout: Buffer; stderr: string }
+export interface GitResult {
+  code: number
+  stdout: Buffer
+  stderr: string
+  /** Com `truncate`: o stdout foi cortado e o git, morto antes de terminar. */
+  truncated?: boolean
+}
 
 export interface GitOptions {
   /** Índice a usar no lugar do do operador (vira GIT_INDEX_FILE). */
@@ -37,6 +43,13 @@ export interface GitOptions {
   allowFail?: boolean
   /** Teto do stdout e do stderr, em bytes. Passou, o git é morto e vira GitError. */
   maxBuffer?: number
+  /**
+   * Corta o stdout em vez de falhar: passou de `maxLines` linhas ou de
+   * `maxBuffer` bytes, o git (e o grupo dele) é morto e o resultado vem com
+   * `truncated: true` e só as linhas inteiras lidas até ali. O código de saída,
+   * nesse caso, não conta. O stderr acima do teto continua sendo GitError.
+   */
+  truncate?: { maxLines?: number }
   /** Tempo máximo, em ms. Passou, o git (e o que ele abriu) é morto e vira GitError. */
   timeoutMs?: number
 }
@@ -121,9 +134,36 @@ export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise
       overflow = true
       killGroup('SIGKILL')
     }
+    // Modo truncate: linhas inteiras já guardadas e se o corte aconteceu.
+    let lines = 0
+    let cut = false
+    const cutHere = (): void => {
+      if (cut) return
+      cut = true
+      killGroup('SIGKILL')
+    }
+    const maxLines = opts.truncate?.maxLines
     child.stdout.on('data', (chunk: Buffer) => {
-      outBytes += chunk.length
-      if (outBytes > max) tooBig(); else out.push(chunk)
+      if (overflow || cut) return
+      if (!opts.truncate) {
+        outBytes += chunk.length
+        if (outBytes > max) tooBig(); else out.push(chunk)
+        return
+      }
+      let take = Math.min(chunk.length, max - outBytes)
+      if (maxLines !== undefined) {
+        // Já há maxLines linhas inteiras: qualquer byte a mais é corte.
+        let pos = -1
+        while (lines < maxLines) {
+          pos = chunk.indexOf(10, pos + 1)
+          if (pos < 0 || pos >= take) break
+          lines++
+        }
+        if (lines >= maxLines) take = pos + 1
+      }
+      out.push(chunk.subarray(0, take))
+      outBytes += take
+      if (take < chunk.length) cutHere()
     })
     child.stderr.on('data', (chunk: Buffer) => {
       errBytes += chunk.length
@@ -144,13 +184,19 @@ export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise
       if (timedOut) return fail(timeoutError())
       const stderr = Buffer.concat(err).toString('utf8')
       if (overflow) return fail(new GitError(args, -1, stderr, `saída acima de ${max} bytes`))
+      if (cut) {
+        // Morto no meio de uma linha: fica só até o último fim de linha.
+        const all = Buffer.concat(out)
+        done()
+        return resolve({ code: code ?? -1, stdout: all.subarray(0, all.lastIndexOf(10) + 1), stderr, truncated: true })
+      }
       // Morto por sinal: sem código, tratado como falha (-1).
       const exit = code ?? -1
       if (exit !== 0 && !opts.allowFail) {
         return fail(new GitError(args, exit, stderr, signal ? `${signal}: ${stderr}` : undefined))
       }
       done()
-      resolve({ code: exit, stdout: Buffer.concat(out), stderr })
+      resolve({ code: exit, stdout: Buffer.concat(out), stderr, ...(opts.truncate ? { truncated: false } : {}) })
     })
     // O git pode sair antes de ler o stdin todo (EPIPE); o código de saída já diz o que houve.
     child.stdin.on('error', () => {})

@@ -181,10 +181,27 @@ async function filterAddable(top: string, paths: string[]): Promise<string[]> {
   return paths.filter((_, i) => ok[i])
 }
 
+export interface SnapshotOptions {
+  /**
+   * O que se sabe dos soltos no marco anterior deste repositório. Só pesa no
+   * modo limitado, para saber quais soltos pequenos foram criados desde ele:
+   * - a lista (`listing` de um marco limitado): criado é quem não está nela;
+   * - `'full'` (o marco anterior foi completo e pôs todos os soltos pequenos
+   *   no índice próprio): criado é quem falta no índice próprio. Um solto que
+   *   encolheu de mais de 2 MB para dentro do limite também entra (inofensivo);
+   * - null/ausente (não há marco anterior conhecido): nenhum entra. Protege o
+   *   primeiro marco numa pasta com dezenas de milhares de soltos.
+   *
+   * Quem chama passa `prev.mode === 'full' ? 'full' : prev.listing`.
+   */
+  previousListing?: UntrackedEntry[] | 'full' | null
+  limits?: typeof SNAPSHOT_LIMITS
+}
+
 export async function takeSnapshot(
   repo: RepoInfo,
   n: number,
-  opts: { previousListing?: UntrackedEntry[] | null; limits?: typeof SNAPSHOT_LIMITS } = {},
+  opts: SnapshotOptions = {},
 ): Promise<Snapshot> {
   const limits = opts.limits ?? SNAPSHOT_LIMITS
   const top = repo.top
@@ -239,10 +256,12 @@ export async function takeSnapshot(
 
   // 4. Acrescenta os soltos pequenos novos e o que o operador pôs no índice
   // dele depois da semeadura. No modo limitado, só os soltos criados desde o
-  // marco anterior; sem a lista anterior, nenhum (não dá para saber quais são
+  // marco anterior: fora da lista dele ou, se ele foi completo, fora do índice
+  // próprio. Sem nada do marco anterior, nenhum (não dá para saber quais são
   // novos).
-  const previous = mode === 'limited' ? new Set((opts.previousListing ?? []).map(e => e.path)) : null
-  const fresh = mode === 'limited' && !opts.previousListing
+  const prev = opts.previousListing
+  const previous = mode === 'limited' && Array.isArray(prev) ? new Set(prev.map(e => e.path)) : null
+  const fresh = mode === 'limited' && !prev
     ? []
     : small.filter(e => !ownPaths.has(e.path) && !previous?.has(e.path)).map(e => e.path)
   const fromOperator = await filterAddable(top, [...operatorPaths].filter(p => !ownPaths.has(p)))

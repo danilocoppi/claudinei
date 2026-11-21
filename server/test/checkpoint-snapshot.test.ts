@@ -456,6 +456,33 @@ describe('takeSnapshot: o que entra no retrato', () => {
     expect(blob(r.dir, s3.commit, 'novo.txt')).toBe('novo2\n')
   })
 
+  it('limitado depois de um completo: os soltos criados no intervalo entram; os antigos continuam', async () => {
+    const r = repo({ 'README.md': '# r\n' })
+    r.write('velho1.txt', '1\n')
+    r.write('velho2.txt', '2\n')
+    const repoInfo = await info(r.dir)
+    const limits = { ...SNAPSHOT_LIMITS, limitedFiles: 3 }
+    const s1 = await takeSnapshot(repoInfo, 1, { limits })
+    expect(s1.mode).toBe('full')
+    expect(s1.listing).toBeNull()
+    expect(names(r.dir, s1.commit)).toEqual(['README.md', 'velho1.txt', 'velho2.txt'])
+
+    // O turno cria soltos que levam o marco seguinte ao modo limitado.
+    for (const n of [1, 2, 3]) r.write(`novo${n}.txt`, `novo ${n}\n`)
+    r.write('enorme.bin', Buffer.alloc(MB2 + 1, 1))
+    const s2 = await takeSnapshot(repoInfo, 2, { limits, previousListing: 'full' })
+    expect(s2.mode).toBe('limited')
+    expect(names(r.dir, s2.commit)).toEqual(['README.md', 'novo1.txt', 'novo2.txt', 'novo3.txt', 'velho1.txt', 'velho2.txt'])
+    expect(s2.big.map(e => e.path)).toEqual(['enorme.bin'])
+
+    // Sem saber nada do marco anterior, segue como antes: nenhum solto novo
+    // entra (o primeiro marco de uma pasta com milhares de soltos).
+    r.write('outro.txt', 'outro\n')
+    const s3 = await takeSnapshot(repoInfo, 3, { limits })
+    expect(s3.mode).toBe('limited')
+    expect(names(r.dir, s3.commit)).toEqual(names(r.dir, s2.commit))
+  })
+
   it('retrato limitado também pela soma dos bytes', async () => {
     const r = repo()
     r.write('a.txt', 'x'.repeat(600))

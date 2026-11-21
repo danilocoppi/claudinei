@@ -259,8 +259,11 @@ describe('manager: ganchos do desfazer', () => {
 
     process.env.FAKE_SESSION_ID = 'novo-0002'
     const mark = broadcasts.length
+    expect(mgr.rewindPending(info.localId)).toBe(false)
     const out = await mgr.relaunch(info.localId, { resumeSessionId: 'fake-session-0001', extraArgs: ['--fork-session'], holdEngineId: true })
     expect(out.engineSessionId).toBe('fake-session-0001')
+    // Volta pendente: o ramificar recusa enquanto o id está segurado.
+    expect(mgr.rewindPending(info.localId)).toBe(true)
     // O init do processo novo já chegou (status idle) com o id novo.
     await waitUntil(() => mgr.get(info.localId)?.status === 'idle')
     expect(mgr.liveSession(info.localId)?.sessionId).toBe('novo-0002')
@@ -279,6 +282,7 @@ describe('manager: ganchos do desfazer', () => {
     await waitUntil(() => spy.events.some((e) => e.event.kind === 'result'))
     expect(dbId()).toBe('novo-0002')
     expect(mgr.get(info.localId)?.engineSessionId).toBe('novo-0002')
+    expect(mgr.rewindPending(info.localId)).toBe(false)
     expect(threads()).toContain('novo-0002')
     expect(sinceRelaunch().at(-1)?.engineSessionId).toBe('novo-0002')
     await waitUntil(() => mgr.get(info.localId)?.status === 'needs_attention')
@@ -303,6 +307,8 @@ describe('manager: ganchos do desfazer', () => {
     mgr.send(info.localId, 'crash')
     await waitUntil(() => mgr.get(info.localId)?.status === 'dead')
     expect(dbId()).toBe('fake-session-0001')
+    // Sessão morta não segura mais nada: o ramificar volta a ler o banco.
+    expect(mgr.rewindPending(info.localId)).toBe(false)
     expect(threads()).not.toContain('novo-0003')
     expect(mgr.get(info.localId)?.engineSessionId).toBe('fake-session-0001')
     const sent = broadcasts.slice(mark).filter((b) => b.type === 'session_status' || (b.type === 'session_event' && b.event.kind !== 'init'))

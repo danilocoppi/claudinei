@@ -77,6 +77,20 @@ describe('onde a tela mostra os erros', () => {
   })
 })
 
+describe('erros do ramificar', () => {
+  // A volta da conversa ainda sem a primeira resposta: /side, /fork e ⇄ recusam.
+  it('rewind_pending tem tradução nas três línguas', async () => {
+    for (const lang of ['en', 'es', 'pt-BR']) {
+      await i18n.changeLanguage(lang)
+      expect(i18n.exists('serverErrors.rewind_pending'), lang).toBe(true)
+    }
+    await i18n.changeLanguage('pt-BR')
+    expect(localizeServerError({ error: 'x', code: 'rewind_pending' })).toBe('Espere a primeira resposta depois de voltar a conversa')
+    await i18n.changeLanguage('en')
+    expect(localizeServerError({ error: 'x', code: 'rewind_pending' })).toBe('Wait for the first reply after rewinding the conversation')
+  })
+})
+
 describe('erros do desfazer turno', () => {
   // Os códigos que server/src/undo/* e server/src/routes/undo.ts devolvem.
   const codes = [

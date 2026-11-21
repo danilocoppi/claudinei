@@ -9,9 +9,10 @@ import { canFork } from '../branch/fork.js'
 
 /**
  * Recusas que são o estado do terminal, não falha: já há lateral, nada para
- * copiar, ou o motor de destino da troca indisponível, trabalhando ou no limite.
+ * copiar, volta da conversa ainda sem a primeira resposta, ou o motor de
+ * destino da troca indisponível, trabalhando ou no limite.
  */
-const CONFLICTS = new Set(['side_exists', 'no_conversation', 'handoff_engine_unavailable', 'handoff_target_busy', 'handoff_target_limited'])
+const CONFLICTS = new Set(['side_exists', 'no_conversation', 'rewind_pending', 'handoff_engine_unavailable', 'handoff_target_busy', 'handoff_target_limited'])
 
 /** Status HTTP de um erro do serviço da lateral. */
 const statusOf = (err: unknown): number => {

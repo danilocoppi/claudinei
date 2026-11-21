@@ -777,6 +777,7 @@ export const ptBR: typeof en = {
     invalid_before: 'Posição inválida no histórico (before).',
     invalid_limit: 'limit deve ser um número inteiro de 1 a {{max}}.',
     no_conversation: 'Ainda não há conversa para copiar',
+    rewind_pending: 'Espere a primeira resposta depois de voltar a conversa',
     side_exists: 'Já há uma conversa lateral aberta neste terminal.',
     side_not_found: 'Não há conversa lateral aberta neste terminal.',
     fork_admin_only: 'Só um administrador pode criar terminais',

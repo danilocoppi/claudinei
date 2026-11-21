@@ -774,6 +774,7 @@ export const en = {
     invalid_before: 'Invalid position in the history (before).',
     invalid_limit: 'limit must be a whole number from 1 to {{max}}.',
     no_conversation: 'There is no conversation to copy yet',
+    rewind_pending: 'Wait for the first reply after rewinding the conversation',
     side_exists: 'This terminal already has a side conversation open.',
     side_not_found: 'There is no side conversation open in this terminal.',
     fork_admin_only: 'Only an administrator can create terminals',

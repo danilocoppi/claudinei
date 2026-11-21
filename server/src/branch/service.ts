@@ -8,7 +8,7 @@ import { createProjectsService, type Project } from '../projects.js'
 import { getEngine } from '../engine/index.js'
 import { UserError } from '../user-error.js'
 import { createSideService, type SideMain, type SideService } from './side.js'
-import { forkTerminal } from './fork.js'
+import { forkTerminal, rewindPending } from './fork.js'
 import { forkCopyDone, parseForkSource, type ForkSource } from './fork-source.js'
 import { collectHandoff } from './handoff.js'
 import { switchEngine } from './switch-engine.js'
@@ -50,10 +50,15 @@ export function createBranchService(deps: {
 }): BranchService {
   const projects = createProjectsService(deps.db)
 
-  /** A sessão principal viva do terminal, com o início do turno em curso; null sem sessão de pé. */
+  /**
+   * A sessão principal viva do terminal, com o início do turno em curso; null
+   * sem sessão de pé. Com a volta da conversa pendente, lança `rewind_pending`:
+   * o id que ela mostra ainda é o de antes da volta.
+   */
   const main = (projectId: number, engine: string): SideMain | null => {
     const s = deps.manager.list().find((x) => x.projectId === projectId && x.engine === engine && ACTIVE.has(x.status))
     if (!s) return null
+    if (deps.manager.rewindPending(s.localId)) throw rewindPending()
     return {
       localId: s.localId, status: s.status, engineSessionId: s.engineSessionId,
       model: s.model, effort: s.effort, turnStartedAt: deps.manager.turnStartedAt(s.localId),

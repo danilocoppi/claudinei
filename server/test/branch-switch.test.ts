@@ -292,6 +292,28 @@ describe('validação', () => {
     expect(created).toHaveLength(2)
   })
 
+  it('origem com volta da conversa pendente (id segurado até o primeiro result): 409 rewind_pending, sem pacote nem efeito no destino', async () => {
+    const NOVA = '33333333-3333-4333-8333-333333333333'
+    doisTurnos(p1.path)
+    doisTurnos(p1.path, NOVA)
+    const orig = startLive('claude', SRC)
+    const dest = startLive('codex', DEST_ID)
+    await manager.relaunch(orig.localId, { resumeSessionId: SRC, extraArgs: ['--fork-session'], holdEngineId: true })
+    const s = created.at(-1)!
+    s.init(NOVA)
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('rewind_pending')
+    expect(collectCalls).toEqual([])
+    expect(dest.s.stops).toBe(0)
+    // O primeiro result solta o id: o pacote sai da conversa de depois da volta.
+    manager.send(orig.localId, 'primeira')
+    s.result()
+    const ok = await handoff({ from: 'claude', to: 'codex' })
+    expect(ok.statusCode, ok.body).toBe(201)
+    expect(collectCalls).toEqual([{ engine: 'claude', id: NOVA, opts: { working: false } }])
+  })
+
   it('origem com sessão viva de "continuar conversa" ainda sem id: leva a mais recente do banco', async () => {
     doisTurnos(p1.path)
     const velha = startLive('claude', SRC)

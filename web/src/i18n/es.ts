@@ -776,6 +776,7 @@ export const es: typeof en = {
     invalid_before: 'Posición no válida en el historial (before).',
     invalid_limit: 'limit debe ser un número entero de 1 a {{max}}.',
     no_conversation: 'Todavía no hay conversación para copiar',
+    rewind_pending: 'Espera la primera respuesta después de volver la conversación atrás',
     side_exists: 'Ya hay una conversación lateral abierta en este terminal.',
     side_not_found: 'No hay ninguna conversación lateral abierta en este terminal.',
     fork_admin_only: 'Solo un administrador puede crear terminales',

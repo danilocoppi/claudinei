@@ -171,6 +171,32 @@ describe('rotas da lateral', () => {
     expect(sideOpts).toEqual([])
   })
 
+  it('volta da conversa pendente (id segurado até o primeiro result): 409 rewind_pending; depois do result, copia a conversa nova', async () => {
+    const localId = await startMain(p1)
+    const prev = process.env.FAKE_SESSION_ID
+    process.env.FAKE_SESSION_ID = 'novo-0002'
+    try {
+      // "Editar a partir daqui": o id novo só vale no primeiro result.
+      await manager.relaunch(localId, { resumeSessionId: 'fake-session-0001', extraArgs: ['--fork-session'], holdEngineId: true })
+      await waitUntil(() => manager.liveSession(localId)?.sessionId === 'novo-0002')
+      expect(manager.get(localId)?.engineSessionId).toBe('fake-session-0001')
+      const res = await openSide(p1.id, { engine: 'claude', text: 'oi' })
+      expect(res.statusCode).toBe(409)
+      expect(res.json().code).toBe('rewind_pending')
+      expect(sideOpts).toEqual([])
+      expect(listSideThreads(db)).toEqual([])
+
+      manager.send(localId, 'primeira')
+      await waitUntil(() => manager.get(localId)?.engineSessionId === 'novo-0002')
+      const ok = await openSide(p1.id, { engine: 'claude', text: 'oi' })
+      expect(ok.statusCode, ok.body).toBe(201)
+      expect(sideOpts[0].forkFrom).toEqual({ sourceId: 'novo-0002' })
+    } finally {
+      if (prev === undefined) delete process.env.FAKE_SESSION_ID
+      else process.env.FAKE_SESSION_ID = prev
+    }
+  })
+
   it('corpo e motor inválidos: 400; projeto inexistente: 404', async () => {
     expect((await openSide(p1.id, { engine: 'nada' })).statusCode).toBe(400)
     expect((await openSide(p1.id, {})).statusCode).toBe(400)

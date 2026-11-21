@@ -1107,6 +1107,16 @@ export function createSessionManager(deps: Deps) {
     },
 
     /**
+     * Volta da conversa pendente: o terminal foi relançado com o id segurado
+     * (holdEngineId) e o primeiro result ainda não chegou. Até lá o id que o
+     * manager mostra é o antigo, do banco; o ramificar (`/side`, `/fork`, ⇄)
+     * copiaria a conversa de antes da volta, então recusa com `rewind_pending`.
+     */
+    rewindPending(localId: string): boolean {
+      return heldEngineId.has(localId)
+    },
+
+    /**
      * Para a sessão viva (se houver) e sobe outra no MESMO terminal, retomando
      * `resumeSessionId` (null = conversa nova) com `extraArgs` no fim do argv. É
      * como o desfazer volta a conversa do Claude. `holdEngineId`: o id novo só

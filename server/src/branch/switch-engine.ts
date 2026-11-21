@@ -21,7 +21,7 @@ const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 
 export interface SwitchDeps {
   db: Db
-  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'stop' | 'sendAsClaudinei' | 'turnStartedAt'>
+  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'stop' | 'sendAsClaudinei' | 'turnStartedAt' | 'rewindPending'>
   store: Pick<TerminalStateStore, 'get' | 'setGoalStatus'>
   restart: Pick<RestartService, 'publish' | 'dismiss'>
   collect?: typeof collectHandoff // testes

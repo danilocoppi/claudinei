@@ -379,6 +379,29 @@ describe('o terminal do ramo', () => {
     await forkOk(p1.id, { engine: 'claude' })
   })
 
+  it('volta da conversa pendente (id segurado até o primeiro result): 409 rewind_pending; depois do result, copia a conversa nova', async () => {
+    const NOVA = '33333333-3333-4333-8333-333333333333'
+    doisTurnos(p1.path)
+    doisTurnos(p1.path, NOVA)
+    const { localId } = startMain(p1, 'claude', SRC)
+    // "Editar a partir daqui": a sessão sobe de novo com o id segurado; o init
+    // já traz o id novo, mas o banco e o manager ainda mostram o antigo.
+    await manager.relaunch(localId, { resumeSessionId: SRC, extraArgs: ['--fork-session'], holdEngineId: true })
+    const s = created.at(-1)!
+    s.init(NOVA)
+    expect(manager.get(localId)?.engineSessionId).toBe(SRC)
+    const antes = projects.list().length
+    const res = await fork(p1.id, { engine: 'claude' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('rewind_pending')
+    expect(projects.list()).toHaveLength(antes)
+    // O primeiro result solta o id: o ramo copia a conversa de depois da volta.
+    manager.send(localId, 'primeira')
+    s.result()
+    await forkOk(p1.id, { engine: 'claude' })
+    expect(created.at(-1)!.opts.forkFrom).toEqual({ sourceId: NOVA, cut: U(4) })
+  })
+
   it('sessão viva com "continuar conversa" ainda sem id: copia a mais recente do banco (a que o --continue retoma)', async () => {
     const VELHA = '22222222-2222-4222-8222-222222222222'
     doisTurnos(p1.path, VELHA)

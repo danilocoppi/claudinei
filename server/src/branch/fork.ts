@@ -42,7 +42,7 @@ export function branchName(original: string, existing: string[], given?: string)
 
 export interface ForkDeps {
   db: Db
-  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'sendAsClaudinei' | 'turnStartedAt'>
+  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'sendAsClaudinei' | 'turnStartedAt' | 'rewindPending'>
   cutFor?: typeof cutFor // testes
   collect?: typeof collectHandoff // testes
 }
@@ -51,6 +51,13 @@ export interface ForkDeps {
 export const canFork = (u: AuthUser | undefined): boolean => !u || (u.kind === 'user' && u.isAdmin)
 
 const noConversation = () => new UserError('no_conversation', 'Ainda não há conversa para copiar')
+
+/**
+ * Volta da conversa pendente ("Editar a partir daqui" antes do primeiro
+ * result): o id que o manager mostra ainda é o de antes da volta, e copiá-lo
+ * levaria a conversa antiga. O `/side`, o `/fork` e a ⇄ recusam até lá.
+ */
+export const rewindPending = () => new UserError('rewind_pending', 'Espere a primeira resposta depois de voltar a conversa')
 
 /** As opções da sessão que o ramo herda: motor, modelo, esforço e modo de permissão. */
 export interface Origin {
@@ -68,10 +75,12 @@ export interface Origin {
  * aberta como conversa nova (`continue_latest = 0`): não há o que copiar (a
  * antiga do banco não é a da tela), como no `/side`. Aberta com "continuar
  * conversa" e ainda sem o init (no Claude, só com a primeira mensagem): vale a
- * mais recente do banco, a mesma que o `--continue` retoma.
+ * mais recente do banco, a mesma que o `--continue` retoma. Com a volta da
+ * conversa pendente (id segurado), lança `rewind_pending`.
  */
-export function originOf(deps: { db: Db; manager: Pick<SessionManager, 'list' | 'turnStartedAt'> }, projectId: number, engine: string): Origin | null {
+export function originOf(deps: { db: Db; manager: Pick<SessionManager, 'list' | 'turnStartedAt' | 'rewindPending'> }, projectId: number, engine: string): Origin | null {
   const live = deps.manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))
+  if (live && deps.manager.rewindPending(live.localId)) throw rewindPending()
   const working = live?.status === 'working'
   const turnStartedAt = live && working ? deps.manager.turnStartedAt(live.localId) : undefined
   if (live?.engineSessionId) {

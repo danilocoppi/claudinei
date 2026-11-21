@@ -18,6 +18,19 @@ export interface FileChange {
 
 export interface FileDiff { path: string; binary: boolean; sizeKb?: number; text: string; truncated: boolean }
 
+// ── Atribuição entre terminais (server/src/undo/attribution.ts reexporta) ──
+
+/** `own`: do turno; `uncertain`: mudou com outros turnos ativos e ninguém declarou o caminho. */
+export type FileClass = 'own' | 'uncertain'
+
+export interface AttributedFile extends FileChange {
+  class: FileClass
+  /** Outro turno ativo na mesma janela também declarou o caminho: vira conflito na prévia. */
+  overlapped: boolean
+  /** Dentro da pasta do projeto do terminal. */
+  inProject: boolean
+}
+
 export type RestoreVerdict = 'revert' | 'already' | 'conflict'
 export type RestoreAction = 'revert' | 'merge' | 'force' | 'keep'
 /** `failed`: erro de E/S ao escrever aquele arquivo; os outros seguem. */

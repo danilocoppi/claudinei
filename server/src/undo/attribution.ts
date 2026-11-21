@@ -14,8 +14,14 @@ import type { MarkRow, TurnRow, UndoStore } from './store.js'
  *
  * - só o turno declarou → `own`;
  * - ele e outro ativo declararam → `own` com `overlapped` (vira conflito na prévia);
- * - só outro declarou → não é do turno;
+ * - só outro declarou → `uncertain` com `overlapped` (spec: "Senão fica
+ *   incerta"; decisão R14 — não some do turno);
  * - ninguém declarou → `uncertain`.
+ *
+ * O arquivo que mudou em mais de um intervalo junta os veredictos assim: se
+ * algum intervalo o deu como `uncertain`, fica `uncertain` (mesmo que outro
+ * intervalo, sozinho, o desse como `own`); `overlapped` se em algum intervalo
+ * outro ativo o declarou. É a regra segura: incerto fica desmarcado na prévia.
  *
  * O resultado é o diff líquido do início ao fim do turno: o arquivo que mudou
  * e voltou não entra. Só leitura no git (o diff-tree do `changedFiles`).
@@ -68,13 +74,18 @@ function turnMarks(store: UndoStore, repo: RepoInfo, turn: TurnRow): { start: Ma
   return { start, end }
 }
 
-/** Intervalos seguidos com os mesmos outros ativos, juntos num diff só. */
+/**
+ * Intervalos seguidos com os mesmos outros ativos, juntos num diff só (economiza
+ * git). O diff de um trecho juntado é o líquido do trecho: uma mudança feita e
+ * desfeita dentro dele não aparece (no espírito da regra 4). Os ids vão em
+ * ordem para a junção não depender da ordem do `active` em cada marco.
+ */
 interface Run { from: number; to: number; others: number[] }
 
 function runsOf(marks: MarkRow[], turnId: number): Run[] {
   const runs: Run[] = []
   for (let i = 0; i + 1 < marks.length; i++) {
-    const others = marks[i].active.filter(id => id !== turnId)
+    const others = marks[i].active.filter(id => id !== turnId).sort((x, y) => x - y)
     const last = runs[runs.length - 1]
     if (last && last.others.join(',') === others.join(',')) last.to = i + 1
     else runs.push({ from: i, to: i + 1, others })
@@ -111,7 +122,9 @@ export async function attributeTurn(repo: RepoInfo, store: UndoStore, turn: Turn
     return set
   }
 
-  interface Verdict { own: boolean; uncertain: boolean; overlapped: boolean }
+  // Por caminho, o que os intervalos em que ele mudou disseram. Sem `uncertain`
+  // em nenhum, é `own` (sozinho, ou declarado por este turno).
+  interface Verdict { uncertain: boolean; overlapped: boolean }
   const verdicts = new Map<string, Verdict>()
   for (const run of runs) {
     const changes = run.from === 0 && run.to === marks.length - 1
@@ -120,18 +133,13 @@ export async function attributeTurn(repo: RepoInfo, store: UndoStore, turn: Turn
     for (const c of changes) {
       let v = verdicts.get(c.path)
       if (!v) {
-        v = { own: false, uncertain: false, overlapped: false }
+        v = { uncertain: false, overlapped: false }
         verdicts.set(c.path, v)
       }
-      if (!run.others.length) {
-        v.own = true
-        continue
-      }
-      const byOther = run.others.some(id => declared(id).has(c.path))
-      if (byOther) v.overlapped = true
-      if (mine.has(c.path)) v.own = true
-      else if (!byOther) v.uncertain = true
-      // Só outro declarou: não é deste turno (a menos que outro intervalo diga que é).
+      if (!run.others.length) continue // só ele ativo: own
+      if (run.others.some(id => declared(id).has(c.path))) v.overlapped = true
+      // Ninguém declarou, ou só outro declarou: incerto (R14).
+      if (!mine.has(c.path)) v.uncertain = true
     }
   }
 
@@ -141,8 +149,8 @@ export async function attributeTurn(repo: RepoInfo, store: UndoStore, turn: Turn
     // Mudou no líquido sem aparecer em nenhum intervalo (grandes e soltos do
     // modo limitado): sem como dizer de quem é, fica incerto.
     if (!v) out.push({ ...c, class: 'uncertain', overlapped: false, inProject: inProject(c.path) })
-    else if (v.own) out.push({ ...c, class: 'own', overlapped: v.overlapped, inProject: inProject(c.path) })
-    else if (v.uncertain) out.push({ ...c, class: 'uncertain', overlapped: v.overlapped, inProject: inProject(c.path) })
+    // Incerto em algum intervalo vence o `own` de outro intervalo.
+    else out.push({ ...c, class: v.uncertain ? 'uncertain' : 'own', overlapped: v.overlapped, inProject: inProject(c.path) })
   }
   return out
 }

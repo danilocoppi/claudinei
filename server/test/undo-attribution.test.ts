@@ -112,7 +112,7 @@ describe('atribuição entre terminais', () => {
     expect(files[1]).toMatchObject({ status: 'added', added: 1, removed: 0 })
   })
 
-  it('sobrepostos, caminho declarado só por A: own em A, fora de B', async () => {
+  it('sobrepostos, caminho declarado só por A: own em A, incerto em B', async () => {
     const { r, t, repoInfo, A, B } = await twoTerminals()
     const ta = send(t, A, 'A trabalha')
     await t.idle()
@@ -125,7 +125,37 @@ describe('atribuição entre terminais', () => {
     finish(t, B)
     await t.idle()
     expect(brief(await attribute(repoInfo, ta))).toEqual([{ path: 'a.txt', class: 'own', overlapped: false }])
-    expect(await attribute(repoInfo, tb)).toEqual([])
+    // Spec: é do turno se ele declarou e os outros não; senão fica incerta (R14).
+    const inB = await attribute(repoInfo, tb)
+    expect(brief(inB)).toEqual([{ path: 'a.txt', class: 'uncertain', overlapped: true }])
+    expect(inB[0]).toMatchObject({ status: 'modified', added: 1, removed: 1, inProject: true })
+  })
+
+  it('o mesmo arquivo num trecho sozinho e num compartilhado: incerto vence own', async () => {
+    const { r, t, repoInfo, A, B } = await twoTerminals()
+    const ta = send(t, A, 'A trabalha')
+    await t.idle()
+    // A sozinho mexe no a.txt e no b.txt sem declarar (own por estar sozinho).
+    r.write('a.txt', 'A sozinho\n')
+    r.write('b.txt', 'A sozinho\n')
+    const tb = send(t, B, 'B trabalha')
+    await t.idle()
+    // Com B ativo, os dois mudam de novo sem declaração de A; B declara só o b.txt.
+    edit(t, B, join(r.dir, 'b.txt'))
+    r.write('a.txt', 'alguém\n')
+    r.write('b.txt', 'de B\n')
+    finish(t, B)
+    await t.idle()
+    finish(t, A)
+    await t.idle()
+    expect(brief(await attribute(repoInfo, ta))).toEqual([
+      { path: 'a.txt', class: 'uncertain', overlapped: false },
+      { path: 'b.txt', class: 'uncertain', overlapped: true },
+    ])
+    expect(brief(await attribute(repoInfo, tb))).toEqual([
+      { path: 'a.txt', class: 'uncertain', overlapped: false },
+      { path: 'b.txt', class: 'own', overlapped: false },
+    ])
   })
 
   it('sobrepostos sem declaração: uncertain nos dois', async () => {

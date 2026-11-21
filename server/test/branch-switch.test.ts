@@ -291,6 +291,18 @@ describe('validação', () => {
     expect(collectCalls).toEqual([])
     expect(created).toHaveLength(2)
   })
+
+  it('origem com sessão viva de "continuar conversa" ainda sem id: leva a mais recente do banco', async () => {
+    doisTurnos(p1.path)
+    const velha = startLive('claude', SRC)
+    await manager.stop(velha.localId)
+    // Terminal aberto com "continuar conversa", antes da primeira mensagem (sem init).
+    const cont = manager.start(projects.get(p1.id)!, { engine: 'claude', continueLatest: true })
+    expect(manager.get(cont.localId)?.engineSessionId).toBeFalsy()
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode, res.body).toBe(201)
+    expect(collectCalls.map((c) => c.id)).toEqual([SRC])
+  })
 })
 
 describe('o destino', () => {

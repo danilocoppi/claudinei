@@ -378,6 +378,19 @@ describe('o terminal do ramo', () => {
     await manager.stop(nova.localId)
     await forkOk(p1.id, { engine: 'claude' })
   })
+
+  it('sessão viva com "continuar conversa" ainda sem id: copia a mais recente do banco (a que o --continue retoma)', async () => {
+    const VELHA = '22222222-2222-4222-8222-222222222222'
+    doisTurnos(p1.path, VELHA)
+    const velha = startMain(p1, 'claude', VELHA)
+    await manager.stop(velha.localId)
+    // Terminal aberto com "continuar conversa", antes da primeira mensagem (sem init).
+    const cont = manager.start(p1, { engine: 'claude', continueLatest: true })
+    expect(manager.get(cont.localId)?.engineSessionId).toBeFalsy()
+    expect(rowOf(cont.localId).continue_latest).toBe(1)
+    await forkOk(p1.id, { engine: 'claude' })
+    expect(created.at(-1)!.opts.forkFrom).toEqual({ sourceId: VELHA, cut: U(4) })
+  })
 })
 
 describe('a sessão do ramo', () => {

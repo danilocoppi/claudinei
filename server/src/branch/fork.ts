@@ -65,16 +65,21 @@ export interface Origin {
 /**
  * A conversa de origem do motor: a da sessão viva, ou, sem sessão de pé, a
  * mais recente do terminal com conversa gravada. Uma sessão de pé ainda sem id
- * é conversa nova: não há o que copiar (a antiga do banco não é a da tela),
- * como no `/side`.
+ * aberta como conversa nova (`continue_latest = 0`): não há o que copiar (a
+ * antiga do banco não é a da tela), como no `/side`. Aberta com "continuar
+ * conversa" e ainda sem o init (no Claude, só com a primeira mensagem): vale a
+ * mais recente do banco, a mesma que o `--continue` retoma.
  */
 export function originOf(deps: { db: Db; manager: Pick<SessionManager, 'list' | 'turnStartedAt'> }, projectId: number, engine: string): Origin | null {
   const live = deps.manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))
-  if (live) {
-    if (!live.engineSessionId) return null
-    const working = live.status === 'working'
-    const turnStartedAt = working ? deps.manager.turnStartedAt(live.localId) : undefined
+  const working = live?.status === 'working'
+  const turnStartedAt = live && working ? deps.manager.turnStartedAt(live.localId) : undefined
+  if (live?.engineSessionId) {
     return { sourceId: live.engineSessionId, model: live.model, effort: live.effort, permissionMode: live.permissionMode, working, turnStartedAt }
+  }
+  if (live) {
+    const cont = deps.db.prepare('SELECT continue_latest FROM sessions WHERE local_id=?').get(live.localId) as { continue_latest: number } | undefined
+    if (!cont || cont.continue_latest === 0) return null
   }
   const row = deps.db.prepare(
     `SELECT claude_session_id, model, effort, permission_mode FROM sessions
@@ -82,7 +87,8 @@ export function originOf(deps: { db: Db; manager: Pick<SessionManager, 'list' | 
       ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
   ).get(projectId, engine) as { claude_session_id: string; model: string | null; effort: string | null; permission_mode: string | null } | undefined
   if (!row) return null
-  return { sourceId: row.claude_session_id, model: row.model, effort: row.effort, permissionMode: row.permission_mode, working: false }
+  // Com "continuar conversa" já trabalhando no primeiro turno, o corte respeita o turno aberto.
+  return { sourceId: row.claude_session_id, model: row.model, effort: row.effort, permissionMode: row.permission_mode, working, turnStartedAt }
 }
 
 /** O que a sessão do ramo leva: a cópia nativa (`forkSource`) ou o pacote a mandar depois (`seed`). */

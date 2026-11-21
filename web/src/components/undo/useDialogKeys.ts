@@ -12,6 +12,8 @@ const stack: object[] = []
  * não chega ao campo do chat, que para o turno no Esc, nem à busca. Com o foco
  * fora de tudo, o Esc que chega à janela fecha só o diálogo de cima.
  *
+ * O Tab fica preso no diálogo (ver `trapTab`).
+ *
  * Devolve o `onKeyDown` do elemento do diálogo.
  */
 export function useDialogKeys(ref: RefObject<HTMLElement | null>, onClose: () => void) {
@@ -38,9 +40,29 @@ export function useDialogKeys(ref: RefObject<HTMLElement | null>, onClose: () =>
   }, [ref])
 
   return useCallback((e: ReactKeyboardEvent) => {
+    if (e.key === 'Tab') { trapTab(e, ref.current); return }
     if (e.key !== 'Escape') return
     e.preventDefault()
     e.stopPropagation()
     onCloseRef.current()
-  }, [])
+  }, [ref])
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Prende o Tab no diálogo: no último focável volta ao primeiro; Shift+Tab no
+ * primeiro (ou no próprio diálogo, onde o foco entra ao abrir) vai ao último.
+ * No meio, o navegador segue sozinho. Sem isso o Shift+Tab saía para o campo do
+ * chat, atrás do diálogo.
+ */
+function trapTab(e: ReactKeyboardEvent, box: HTMLElement | null): void {
+  if (!box) return
+  const items = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => !el.closest('[hidden], [inert]'))
+  if (items.length === 0) { e.preventDefault(); return }
+  const first = items[0]
+  const last = items[items.length - 1]
+  const at = document.activeElement
+  if (e.shiftKey && (at === first || at === box || !box.contains(at))) { e.preventDefault(); last.focus() }
+  else if (!e.shiftKey && (at === last || !box.contains(at))) { e.preventDefault(); first.focus() }
 }

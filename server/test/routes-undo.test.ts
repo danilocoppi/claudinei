@@ -380,6 +380,8 @@ describe('ligação no servidor', () => {
     await scheduler!.runNow(sched.id)
     const [schedRun] = createSchedulesStore(db, { dir: schedDir }).listRuns(sched.id, 1)
     expect(schedRun.status).toBe('skipped')
+    // O motivo é o do desfazer, não o do aviso aberto esperando o operador.
+    expect(schedRun.error).toBe('escrita do desfazer em andamento')
     expect(createSchedulesStore(db, { dir: schedDir }).get(sched.id)!.consecutiveFailures).toBe(0)
     expect(poke).not.toHaveBeenCalled()
 

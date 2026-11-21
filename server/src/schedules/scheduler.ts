@@ -32,12 +32,16 @@ export interface SchedulerDeps {
    * O terminal (projeto + motor) tem aviso aberto esperando o operador (reinício
    * sem retomada automática, ou o limite de uso): a execução não fala com ele,
    * como a fila do operador e as tarefas de outros agentes. Ausente = nenhum.
+   * Um texto em vez de `true` é o motivo gravado na execução pulada (a escrita
+   * do desfazer segura pelo mesmo caminho, com motivo próprio).
    */
-  holds?: (projectId: number, engine: string) => boolean
+  holds?: (projectId: number, engine: string) => boolean | string
 }
 
 /** Motivo gravado na execução pulada por aviso aberto no terminal. */
 export const NOTICE_HELD_TEXT = 'aviso aberto esperando o operador'
+/** Motivo gravado na execução pulada pela escrita do desfazer (ou pela volta da conversa) no terminal. */
+export const UNDO_HELD_TEXT = 'escrita do desfazer em andamento'
 
 /** Estados em que a sessão está de pé e aceita uma mensagem nova agora. */
 const READY = new Set(['idle', 'needs_attention', 'starting'])
@@ -66,13 +70,14 @@ export function createScheduler(deps: SchedulerDeps) {
     const listed = s.engine ? null : enginesOf(db, s.projectId)
     const mine = manager.list().filter((x) => x.projectId === s.projectId &&
       (s.engine ? x.engine === s.engine : listed!.includes(x.engine)))
-    const held = (engine: string) => !!deps.holds?.(s.projectId, engine)
     // Terminal com aviso aberto não serve: a escolha passa ao próximo motor
-    // (sem motor fixo); se nenhum servir por causa do aviso, a execução é pulada.
-    let heldSome = false
+    // (sem motor fixo); se nenhum servir por causa do aviso, a execução é
+    // pulada com o motivo do primeiro que segurou.
+    let heldReason: string | null = null
     const usable = (engine: string): boolean => {
-      if (!held(engine)) return true
-      heldSome = true
+      const held = deps.holds?.(s.projectId, engine)
+      if (!held) return true
+      heldReason ??= typeof held === 'string' ? held : NOTICE_HELD_TEXT
       return false
     }
     const ready = mine.find((x) => READY.has(x.status) && usable(x.engine))
@@ -97,7 +102,7 @@ export function createScheduler(deps: SchedulerDeps) {
       ? (usable(s.engine) ? s.engine : undefined)
       : listed!.find((id) => hasEngine(id) && usable(id))
     // Com aviso aberto no motor fixo, ou em todos os listados, a execução é pulada.
-    if (!engine && heldSome) throw new NoticeHeldError(NOTICE_HELD_TEXT)
+    if (!engine && heldReason) throw new NoticeHeldError(heldReason)
     return manager.start(project, { engine, model: s.model ?? undefined, effort: s.effort ?? undefined })
   }
 

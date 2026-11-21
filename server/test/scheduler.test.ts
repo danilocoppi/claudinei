@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { openDb, type Db } from '../src/db.js'
 import { createProjectsService } from '../src/projects.js'
 import { createSchedulesStore, type SchedulesStore } from '../src/schedules/store.js'
-import { createScheduler, type SchedulerManager } from '../src/schedules/scheduler.js'
+import { createScheduler, UNDO_HELD_TEXT, type SchedulerManager } from '../src/schedules/scheduler.js'
 import type { SessionInfo } from '../src/claude/manager.js'
 import { RESTART_FAIL_TEXT } from '../src/restart/terminal-state.js'
 import { usageLimitFailText } from '../src/limit/texts.js'
@@ -472,6 +472,16 @@ describe('aviso aberto esperando o operador', () => {
     expect(calls.revived).toEqual([])
     expect(calls.started).toEqual([])
     expect(store.listRuns(s.id, 1)[0]).toMatchObject({ status: 'skipped', error: 'aviso aberto esperando o operador' })
+  })
+
+  it('segurado pela escrita do desfazer: pulada com o motivo próprio, sem contar falha', async () => {
+    const s = store.create(projectId, base)
+    overdue(s.id)
+    const { manager, calls } = fakeManager()
+    await createScheduler({ db, store, manager, holds: (pid, e) => (pid === projectId && e === 'claude' ? UNDO_HELD_TEXT : false) }).tick()
+    expect(calls.sent).toEqual([])
+    expect(store.listRuns(s.id, 1)[0]).toMatchObject({ status: 'skipped', error: 'escrita do desfazer em andamento' })
+    expect(store.get(s.id)!.consecutiveFailures).toBe(0)
   })
 
   it('aviso aberto em outro motor não segura este', async () => {

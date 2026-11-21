@@ -43,7 +43,7 @@ import type { IconifyDeps } from './icons/iconify.js'
 import { createPrefsService } from './prefs.js'
 import { createSettingsService } from './settings.js'
 import { createSchedulesStore } from './schedules/store.js'
-import { createScheduler, type Scheduler } from './schedules/scheduler.js'
+import { createScheduler, UNDO_HELD_TEXT, type Scheduler } from './schedules/scheduler.js'
 import { registerStatic } from './static.js'
 import { registerTerminalStateRoutes } from './routes/terminals.js'
 import { createTerminalStateStore } from './restart/terminal-state.js'
@@ -292,7 +292,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // depois da reabertura não segura: o turno bom do agendamento o tira.
     // A escrita de um desfazer também segura (R19): pulada sem contar falha, em
     // vez de bater no `undo_writing` do rastreador e contar como erro.
-    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine)) || undo.holds(projectId, engine),
+    holds: (projectId, engine) => holdsForSchedule(terminalState.get(projectId, engine))
+      || (undo.holds(projectId, engine) ? UNDO_HELD_TEXT : false),
   })
   registerScheduleRoutes(app, { db: deps.db, store: schedulesStore, scheduler, broadcast: deps.wsHub?.broadcast })
   deps.onSchedulerReady?.(scheduler)

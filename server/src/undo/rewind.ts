@@ -114,8 +114,35 @@ export function createRewindService(deps: RewindDeps) {
    * morrer antes (ou o CLI recusar o corte), nada muda no banco.
    * `newId` null: voltou à primeira mensagem (conversa nova, id ainda
    * desconhecido). `after`: o maior id de turno do terminal na hora da volta.
+   * `written`: os caminhos que a volta escreveu nos arquivos (sem nota, porque
+   * iriam com a conversa voltada); se o pendente cair, viram a nota "files reverted".
    */
-  const pendingLabel = new Map<string, { newId: string | null; oldId: string | null; range: number[]; kept: number[]; after: number }>()
+  interface Pending {
+    newId: string | null; oldId: string | null; range: number[]; kept: number[]; after: number
+    projectId: number; engine: string; written: string[]
+  }
+  const pendingLabel = new Map<string, Pending>()
+
+  /** Todos os caminhos escritos pelo run (o gravado, não o filtrado para quem não é administrador). */
+  function writtenPaths(run: UndoRunDto | undefined): string[] {
+    if (!run) return []
+    return (store.run(run.id)?.files ?? run.files).filter(f => WRITTEN.has(f.result)).map(f => f.path)
+  }
+
+  /**
+   * A volta pendente não aconteceu (o processo morreu antes do result, o CLI
+   * recusou o corte, outra volta passou por cima): a conversa ficou, então os
+   * arquivos que ela desfez viram a nota "files reverted" da próxima mensagem.
+   */
+  function dropPending(localId: string, label: Pending): void {
+    pendingLabel.delete(localId)
+    if (!label.written.length) return
+    try {
+      store.addNote(label.projectId, label.engine, label.written)
+    } catch (e) {
+      log(`nota dos arquivos desfeitos em ${localId}: ${errText(e)}`)
+    }
+  }
 
   function sessionOf(localId: string): SessionInfo {
     const info = manager.get(localId)
@@ -328,7 +355,7 @@ export function createRewindService(deps: RewindDeps) {
           // gravado, não o filtrado para quem não é administrador).
           if (run) {
             try {
-              const files = (store.run(run.id)?.files ?? run.files).filter(f => WRITTEN.has(f.result)).map(f => f.path)
+              const files = writtenPaths(run)
               if (files.length) store.addNote(first.projectId, first.engine, files)
             } catch (err) {
               log(`nota dos arquivos desfeitos em ${localId}: ${errText(err)}`)
@@ -341,11 +368,15 @@ export function createRewindService(deps: RewindDeps) {
         // Codex: o revert/fork já foi confirmado pelo RPC, o terminal está no id
         // novo. Claude: só quando o primeiro turno da conversa nova fechar com o id dela.
         const keptIds = plan.kept.map(t => t.id)
-        pendingLabel.delete(localId)
+        const previous = pendingLabel.get(localId)
+        if (previous) dropPending(localId, previous)
         if (plan.info.engine === 'claude') {
           const after = store.terminalTurns(first.projectId, first.engine).reduce((m, t) => Math.max(m, t.id), 0)
+          let written: string[] = []
+          try { written = writtenPaths(run) } catch (e) { log(`caminhos desfeitos em ${localId}: ${errText(e)}`) }
           pendingLabel.set(localId, {
             newId: applied.newConversationId ?? null, oldId: plan.info.engineSessionId, range: rangeIds, kept: keptIds, after,
+            projectId: first.projectId, engine: first.engine, written,
           })
         } else {
           store.markRewound(rangeIds)
@@ -387,7 +418,8 @@ export function createRewindService(deps: RewindDeps) {
      * Claude: o primeiro turno da conversa nova fechou. Com o id novo já no
      * banco, o trecho sai da conversa atual e os turnos que ficaram antes da
      * mensagem ganham o id novo. Sem ele (o processo morreu antes do result,
-     * o CLI recusou o corte), a volta não aconteceu: o pendente é descartado.
+     * o CLI recusou o corte), a volta não aconteceu: o pendente é descartado, e
+     * os arquivos que ela desfez viram a nota "files reverted".
      */
     onTurnClosed(turnId: number): void {
       if (!pendingLabel.size) return
@@ -395,14 +427,15 @@ export function createRewindService(deps: RewindDeps) {
         const t = store.turn(turnId)
         const label = t && pendingLabel.get(t.localId)
         if (!t || !label || t.id <= label.after || t.origin === 'interactive') return
-        pendingLabel.delete(t.localId)
         const now = manager.get(t.localId)?.engineSessionId ?? null
         const confirmed = now !== null && now !== label.oldId && (label.newId === null || now === label.newId)
           && t.conversationId === now
         if (!confirmed) {
           log(`a conversa nova de ${t.localId} não confirmou (turno ${turnId}): o trecho fica na conversa atual`)
+          dropPending(t.localId, label)
           return
         }
+        pendingLabel.delete(t.localId)
         store.markRewound(label.range)
         if (label.kept.length) store.setConversation(label.kept, now)
       } catch (e) {

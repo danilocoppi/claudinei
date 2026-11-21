@@ -424,6 +424,50 @@ describe('editar a partir daqui: execute', () => {
     expect(again.json().conversation).toEqual({ enabled: true })
   })
 
+  it('Claude com arquivos desfeitos que morre antes do primeiro result: a nota "files reverted" espera a próxima mensagem', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); await say(L, 'primeira')
+    tr.add('bash-escreve:a.txt=mudou'); const t2 = await say(L, 'bash-escreve:a.txt=mudou')
+    const opts = (await options(L, { text: 'bash-escreve:a.txt=mudou', occurrence: 0 })).json()
+    spyRelaunch()
+    const res = await rewind(L, {
+      target: { text: 'bash-escreve:a.txt=mudou', occurrence: 0 }, mode: 'conversation_and_files', editedText: 'de novo crash', token: opts.files.preview.token,
+    })
+    expect(res.json()).toMatchObject({ conversationRewound: true })
+    expect(readFileSync(join(r.dir, 'a.txt'), 'utf8')).toBe('a\n')
+    // Enquanto a conversa nova não confirma nem cai, sem nota.
+    expect(undo.store.takeNote(p.id, 'claude')).toBeNull()
+    await waitUntil(() => manager.get(L)?.status === 'dead')
+    await undo.idle()
+    const sent = undo.store.terminalTurns(p.id, 'claude').at(-1)!
+    await waitUntil(() => undo.store.turn(sent.id)!.endedAt !== null)
+    await undo.idle()
+    // A conversa ficou a antiga, mas os arquivos voltaram: o agente precisa saber.
+    expect(undo.store.turn(t2)!.rewoundAt).toBeNull()
+    expect(undo.store.takeNote(p.id, 'claude')).toEqual(['a.txt'])
+  })
+
+  it('Claude com arquivos desfeitos cuja conversa nova confirma: sem nota "files reverted"', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); await say(L, 'primeira')
+    tr.add('bash-escreve:a.txt=mudou'); const t2 = await say(L, 'bash-escreve:a.txt=mudou')
+    const opts = (await options(L, { text: 'bash-escreve:a.txt=mudou', occurrence: 0 })).json()
+    spyRelaunch()
+    const res = await rewind(L, {
+      target: { text: 'bash-escreve:a.txt=mudou', occurrence: 0 }, mode: 'conversation_and_files', editedText: 'de novo', token: opts.files.preview.token,
+    })
+    expect(res.json()).toMatchObject({ conversationRewound: true })
+    await waitUntil(() => undo.store.turn(t2)!.rewoundAt !== null)
+    await undo.idle()
+    expect(undo.store.takeNote(p.id, 'claude')).toBeNull()
+  })
+
   it('Claude voltando à primeira mensagem (conversa nova): o trecho sai da conversa só no primeiro result', async () => {
     const r = repo()
     const p = project(r.dir)

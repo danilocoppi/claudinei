@@ -43,10 +43,14 @@ const REF_PREFIX = 'refs/claudinei/'
 // Lock do índice próprio mais velho que isto é de um marco que morreu no meio
 // (o git() mata em 60 s; o processo inteiro pode ter caído).
 const STALE_LOCK_MS = 10 * 60 * 1000
-// Nos comandos que escrevem o índice próprio: nenhum hook do operador roda
-// (post-index-change dispara em toda escrita de índice) e o índice próprio
-// nunca fica dividido, preso a um sharedindex.* que o git do operador expira.
-const OWN_INDEX_CONFIG = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.splitIndex=false']
+// Nenhum hook do operador roda: post-index-change dispara em toda escrita de
+// índice e reference-transaction em todo update-ref (ferramentas como o
+// git-branchless gravam estado em .git a cada chamada, e um hook lento come o
+// tempo limite do git()).
+const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null']
+// Nos comandos que escrevem o índice próprio, além disso, ele nunca fica
+// dividido, preso a um sharedindex.* que o git do operador expira.
+const OWN_INDEX_CONFIG = [...NO_HOOKS, '-c', 'core.splitIndex=false']
 const LSTAT_BATCH = 256
 
 export function refName(key: string, n: number): string {
@@ -126,6 +130,40 @@ async function lsFiles(top: string, indexFile?: string): Promise<Set<string>> {
   return new Set(splitZ(res.stdout))
 }
 
+/**
+ * Caminhos do índice próprio e os marcados com assume-unchanged (etiqueta
+ * minúscula no `ls-files -v`) ou skip-worktree (`S`, ou `s` com as duas
+ * marcas). A semeadura copia essas marcas do índice do operador, e com elas o
+ * `add -u` nunca lê o arquivo do disco.
+ */
+async function lsOwnIndex(top: string, indexFile: string): Promise<{
+  paths: Set<string>; assumeUnchanged: string[]; skipWorktree: string[]
+}> {
+  const res = await git(top, ['ls-files', '-v', '-z'], { indexFile })
+  const paths = new Set<string>()
+  const assumeUnchanged: string[] = []
+  const skipWorktree: string[] = []
+  for (const entry of splitZ(res.stdout)) {
+    const tag = entry[0]
+    const path = entry.slice(2)
+    if (paths.has(path)) continue // entrada em conflito aparece uma vez por estágio
+    paths.add(path)
+    if (tag === 'S' || tag === 's') skipWorktree.push(path)
+    else if (tag !== tag.toUpperCase()) assumeUnchanged.push(path)
+  }
+  return { paths, assumeUnchanged, skipWorktree }
+}
+
+/** O caminho existe no disco (arquivo, link ou pasta). */
+async function exists(top: string, path: string): Promise<boolean> {
+  try {
+    await lstat(join(top, path))
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** O caminho ainda pode ir ao `git add`: existe e, se é pasta, é um submódulo. */
 async function addable(top: string, path: string): Promise<boolean> {
   try {
@@ -165,7 +203,8 @@ export async function takeSnapshot(
   const smallPaths = new Set(small.map(e => e.path))
 
   const operatorPaths = await lsFiles(top)
-  const ownPaths = await lsFiles(top, own)
+  const ownIndex = await lsOwnIndex(top, own)
+  const ownPaths = ownIndex.paths
 
   // 2. Sai do índice próprio quem não está no do operador nem é solto pequeno:
   // cresceu além do limite, sumiu ou passou a ser ignorado. Vem antes do
@@ -173,15 +212,30 @@ export async function takeSnapshot(
   // No modo limitado, os soltos que já estão no índice próprio continuam: foram
   // criados durante turnos.
   const drop = [...ownPaths].filter(p => !operatorPaths.has(p) && !smallPaths.has(p))
-  if (drop.length) {
+  const dropSet = new Set(drop)
+  // Sai também, para voltar no passo 4 sem a marca e com o conteúdo do disco,
+  // quem tem assume-unchanged ou skip-worktree no índice próprio. Skip-worktree
+  // só se o arquivo existe: num sparse checkout, o ausente fica com o conteúdo
+  // que tem, e não vira arquivo apagado. Só o índice próprio perde as marcas.
+  const existing = await Promise.all(ownIndex.skipWorktree.map(p => exists(top, p)))
+  const unflag = [
+    ...ownIndex.assumeUnchanged,
+    ...ownIndex.skipWorktree.filter((_, i) => existing[i]),
+  ].filter(p => !dropSet.has(p))
+  const remove = [...drop, ...unflag]
+  if (remove.length) {
     // -f: o conteúdo do índice próprio difere do arquivo e do HEAD (é o caso do
-    // solto que cresceu); --cached nunca toca a árvore de trabalho.
-    await ownGit(['rm', '--cached', '-f', '-q', '--ignore-unmatch', '--pathspec-from-file=-', '--pathspec-file-nul'], nulList(drop))
-    for (const p of drop) ownPaths.delete(p)
+    // solto que cresceu); --sparse: sem ele o git recusa mexer em entrada com
+    // skip-worktree; --cached nunca toca a árvore de trabalho.
+    await ownGit(['rm', '--cached', '-f', '-q', '--sparse', '--ignore-unmatch', '--pathspec-from-file=-', '--pathspec-file-nul'], nulList(remove))
+    for (const p of remove) ownPaths.delete(p)
   }
 
   // 3. Atualiza (e remove os apagados) tudo o que já está no índice próprio.
-  await ownGit(['add', '-u'])
+  // --sparse: num sparse checkout, o arquivo fora do cone que existe no disco
+  // aparece sem a marca skip-worktree, mas sem --sparse o `add -u` não o lê; o
+  // ausente continua com a marca e com o conteúdo que tem.
+  await ownGit(['add', '-u', '--sparse'])
 
   // 4. Acrescenta os soltos pequenos novos e o que o operador pôs no índice
   // dele depois da semeadura. No modo limitado, só os soltos criados desde o
@@ -192,10 +246,11 @@ export async function takeSnapshot(
     ? []
     : small.filter(e => !ownPaths.has(e.path) && !previous?.has(e.path)).map(e => e.path)
   const fromOperator = await filterAddable(top, [...operatorPaths].filter(p => !ownPaths.has(p)))
-  const toAdd = [...new Set([...fresh, ...fromOperator])]
+  const toAdd = [...new Set([...fresh, ...fromOperator, ...await filterAddable(top, unflag)])]
   if (toAdd.length) {
     // -f: o operador pode ter forçado no índice dele um caminho ignorado.
-    const args = ['add', '-f', '--pathspec-from-file=-', '--pathspec-file-nul']
+    // --sparse: o caminho pode estar fora do cone de um sparse checkout.
+    const args = ['add', '-f', '--sparse', '--pathspec-from-file=-', '--pathspec-file-nul']
     const res = await ownGit(args, nulList(toAdd), true)
     // Algo sumiu entre a listagem e o add: de novo, só com o que existe.
     if (res.code !== 0) {
@@ -210,7 +265,7 @@ export async function takeSnapshot(
   const commit = (await git(top, ['commit-tree', '--no-gpg-sign', '-m', `claudinei ${n}`, tree]))
     .stdout.toString('utf8').trim()
   const ref = refName(repo.key, n)
-  await git(top, ['-c', 'core.logAllRefUpdates=false', 'update-ref', ref, commit])
+  await git(top, [...NO_HOOKS, '-c', 'core.logAllRefUpdates=false', 'update-ref', ref, commit])
 
   // 6. HEAD e branch do operador. Repo sem commit: os dois null; HEAD destacado: branch null.
   const headRes = await git(top, ['rev-parse', '-q', '--verify', 'HEAD^{commit}'], { allowFail: true })
@@ -236,5 +291,5 @@ export async function deleteRefs(repo: RepoInfo, refs: string[]): Promise<void> 
   const bad = refs.find(r => !isOurRef(r))
   if (bad !== undefined) throw new Error(`ref fora de ${REF_PREFIX}: ${JSON.stringify(bad)}`)
   if (!refs.length) return
-  await git(repo.top, ['update-ref', '--stdin'], { input: refs.map(r => `delete ${r}\n`).join('') })
+  await git(repo.top, [...NO_HOOKS, 'update-ref', '--stdin'], { input: refs.map(r => `delete ${r}\n`).join('') })
 }

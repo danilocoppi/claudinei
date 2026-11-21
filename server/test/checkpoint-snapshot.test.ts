@@ -214,6 +214,86 @@ describe('takeSnapshot: o git do operador fica intocado', () => {
     expect(existsSync(marker)).toBe(false)
   })
 
+  it('hook reference-transaction do operador não roda no marco nem no deleteRefs', async () => {
+    const r = repo({ 'a.txt': 'a\n' })
+    // Hook no lugar padrão (.git/hooks), como o de ferramentas tipo git-branchless.
+    r.run('config', '--unset', 'core.hooksPath')
+    const marker = join(tempDir(), 'rodou')
+    const hook = join(r.dir, '.git', 'hooks', 'reference-transaction')
+    writeFileSync(hook, `#!/bin/sh\necho "$1" >> '${marker}'\n`, { mode: 0o755 })
+    // Prova de que o hook funciona neste repo.
+    r.run('update-ref', 'refs/prova/x', 'HEAD')
+    r.run('update-ref', '-d', 'refs/prova/x')
+    expect(readFileSync(marker, 'utf8')).toContain('committed')
+    rmSync(marker)
+    const repoInfo = await info(r.dir)
+    const printBefore = gitDirPrint(repoInfo.gitDir)
+
+    r.write('a.txt', 'a2\n')
+    const s1 = await takeSnapshot(repoInfo, 1)
+    const s2 = await takeSnapshot(repoInfo, 2)
+    expect(existsSync(marker)).toBe(false)
+    await deleteRefs(repoInfo, [s1.ref, s2.ref])
+    expect(existsSync(marker)).toBe(false)
+    expect(withoutOurs(gitDirPrint(repoInfo.gitDir))).toEqual(printBefore)
+  })
+
+  it('arquivos com skip-worktree e assume-unchanged no índice do operador entram com o conteúdo do disco', async () => {
+    const r = repo({ 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n', 'd.txt': 'd\n' })
+    r.run('update-index', '--skip-worktree', 'a.txt')
+    r.run('update-index', '--assume-unchanged', 'b.txt')
+    // c.txt: skip-worktree e ausente do disco, como fora do cone de um sparse
+    // checkout. Fica com o conteúdo do HEAD, não vira arquivo apagado.
+    r.run('update-index', '--skip-worktree', 'c.txt')
+    rmSync(join(r.dir, 'c.txt'))
+    r.write('a.txt', 'a mudou\n')
+    r.write('b.txt', 'b mudou\n')
+    r.write('d.txt', 'd mudou\n')
+    const repoInfo = await info(r.dir)
+    const before = operatorState(r.dir)
+    const flagsBefore = readGit(r.dir, 'ls-files', '-v')
+
+    const s1 = await takeSnapshot(repoInfo, 1)
+    expect(blob(r.dir, s1.commit, 'a.txt')).toBe('a mudou\n')
+    expect(blob(r.dir, s1.commit, 'b.txt')).toBe('b mudou\n')
+    expect(blob(r.dir, s1.commit, 'c.txt')).toBe('c\n')
+    expect(blob(r.dir, s1.commit, 'd.txt')).toBe('d mudou\n')
+    // O marco seguinte acompanha as mudanças desses arquivos.
+    r.write('a.txt', 'a de novo\n')
+    r.write('b.txt', 'b de novo\n')
+    const s2 = await takeSnapshot(repoInfo, 2)
+    expect(blob(r.dir, s2.commit, 'a.txt')).toBe('a de novo\n')
+    expect(blob(r.dir, s2.commit, 'b.txt')).toBe('b de novo\n')
+    expect(blob(r.dir, s2.commit, 'c.txt')).toBe('c\n')
+
+    // O índice do operador fica byte a byte igual, com as marcas.
+    expect(operatorState(r.dir)).toEqual(before)
+    expect(readGit(r.dir, 'ls-files', '-v')).toBe(flagsBefore)
+    expect(flagsBefore).toContain('S a.txt')
+    expect(flagsBefore).toContain('h b.txt')
+    expect(flagsBefore).toContain('S c.txt')
+  })
+
+  it('sparse checkout: arquivo fora do cone que existe no disco entra; o ausente fica com o conteúdo do HEAD', async () => {
+    const r = repo({ 'in/i.txt': 'i\n', 'out/o.txt': 'o\n', 'out/p.txt': 'p\n' })
+    r.run('sparse-checkout', 'set', 'in')
+    expect(existsSync(join(r.dir, 'out'))).toBe(false)
+    // O git mostra o presente fora do cone sem a marca (`H`), mas o `add -u`
+    // sem --sparse não o lê.
+    r.write('out/o.txt', 'o novo\n')
+    r.write('in/i.txt', 'i novo\n')
+    const repoInfo = await info(r.dir)
+    const before = operatorState(r.dir)
+    const printBefore = gitDirPrint(repoInfo.gitDir)
+
+    const s = await takeSnapshot(repoInfo, 1)
+    expect(blob(r.dir, s.commit, 'in/i.txt')).toBe('i novo\n')
+    expect(blob(r.dir, s.commit, 'out/o.txt')).toBe('o novo\n')
+    expect(blob(r.dir, s.commit, 'out/p.txt')).toBe('p\n')
+    expect(operatorState(r.dir)).toEqual(before)
+    expect(withoutOurs(gitDirPrint(repoInfo.gitDir))).toEqual(printBefore)
+  })
+
   it('assinatura de commit configurada pelo operador não trava o marco', async () => {
     const r = repo({ 'a.txt': 'a\n' })
     r.run('config', 'commit.gpgsign', 'true')

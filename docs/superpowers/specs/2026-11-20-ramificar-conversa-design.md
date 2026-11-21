@@ -230,3 +230,7 @@ para a fila (lugar 3). Destino no limite é recusado antes, então nunca há pac
   - **Ao confirmar:** o goal do destino fica pausado e só volta quando o operador retomar. A fila e os avisos do destino continuam e seguem a ordem normal depois do pacote, porque são mensagens que o operador mesmo pôs lá.
 - **`/side`, `/btw` e `/fork` nunca entram na fila.** O campo de mensagem reconhece o comando e chama a rota própria na hora, também no meio de um turno do Kimi ou do OpenCode. Um item antigo da fila que comece com esses comandos é enviado como texto comum, sem efeito de comando. Assim, a pergunta "Fechar a conversa lateral atual e abrir outra?" sempre aparece no navegador de quem digitou.
 - **O ramo herda a lista de acesso do original.** Quem via o terminal original vê o ramo. Não é acesso novo: é a mesma pasta e a mesma conversa.
+
+## Ajuste feito na implementação
+
+- **Lateral do Codex com cópia nativa recusada vira erro na coluna, sem cair no pacote.** O motivo: recriar a lateral pelo pacote deixaria uma conversa do Codex gravada no disco, e ela poderia virar "a mais recente da pasta" para a conversa principal. Nos outros motores, e no ramo do `/fork`, a queda para o pacote continua como descrito acima.

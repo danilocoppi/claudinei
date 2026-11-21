@@ -6,6 +6,7 @@ import { getEngine, hasEngine } from '../engine/index.js'
 import { enginesOf } from '../terminal-engines.js'
 import { RESTART_FAIL_TEXT } from '../restart/terminal-state.js'
 import { USAGE_LIMIT_FAIL_PREFIX } from '../limit/texts.js'
+import { SCHEDULE_RUN_TEXTS } from '../../../shared/schedule-run.js'
 
 /**
  * O que o agendador precisa do gerenciador de sessões — e só isso. A superfície
@@ -39,9 +40,9 @@ export interface SchedulerDeps {
 }
 
 /** Motivo gravado na execução pulada por aviso aberto no terminal. */
-export const NOTICE_HELD_TEXT = 'aviso aberto esperando o operador'
+export const NOTICE_HELD_TEXT = SCHEDULE_RUN_TEXTS.noticeHeld
 /** Motivo gravado na execução pulada pela escrita do desfazer (ou pela volta da conversa) no terminal. */
-export const UNDO_HELD_TEXT = 'escrita do desfazer em andamento'
+export const UNDO_HELD_TEXT = SCHEDULE_RUN_TEXTS.undoHeld
 
 /** Estados em que a sessão está de pé e aceita uma mensagem nova agora. */
 const READY = new Set(['idle', 'needs_attention', 'starting'])
@@ -83,7 +84,7 @@ export function createScheduler(deps: SchedulerDeps) {
     const ready = mine.find((x) => READY.has(x.status) && usable(x.engine))
     if (ready) return ready
     if (mine.some((x) => BUSY.has(x.status) || x.status === 'in_terminal')) {
-      throw new OverlapError('a sessão está ocupada')
+      throw new OverlapError(SCHEDULE_RUN_TEXTS.sessionBusy)
     }
 
     // Reviver preserva a conversa; começar do zero perde o contexto que o
@@ -96,7 +97,7 @@ export function createScheduler(deps: SchedulerDeps) {
     if (revivable) return manager.revive(revivable.localId)
 
     const project = projectOf(s.projectId)
-    if (!project) throw new Error('projeto do agendamento não existe mais')
+    if (!project) throw new Error(SCHEDULE_RUN_TEXTS.projectGone)
     // Sem motor conhecido na lista (só ids de uma versão futura), fica o padrão do manager.
     const engine = s.engine
       ? (usable(s.engine) ? s.engine : undefined)
@@ -130,7 +131,7 @@ export function createScheduler(deps: SchedulerDeps) {
   async function fire(s: Schedule, opts: { late?: boolean } = {}): Promise<void> {
     if (store.hasRunning(s.id)) {
       const skipped = store.startRun(s.id, {})
-      store.finishRun(skipped.id, { status: 'skipped', error: 'execução anterior ainda rodando' })
+      store.finishRun(skipped.id, { status: 'skipped', error: SCHEDULE_RUN_TEXTS.previousRunning })
       notify('schedule_run', { scheduleId: s.id, projectId: s.projectId })
       return
     }

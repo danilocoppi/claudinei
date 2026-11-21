@@ -10,7 +10,8 @@ export const LIMIT_RESUME_PREFIX = '[Claudinei: resume after usage limit]'
 export const LIMIT_RESUME_TEXT = `${LIMIT_RESUME_PREFIX}: The usage limit window reopened. Continue where you left off; check the current state of the files before redoing anything.`
 
 /** Começo de toda falha por limite: é por ele que o agendador reconhece o caso. */
-export const USAGE_LIMIT_FAIL_PREFIX = 'limite de uso do Claude'
+export { USAGE_LIMIT_FAIL_PREFIX } from '../../../shared/schedule-run.js'
+import { USAGE_LIMIT_FAIL_PREFIX } from '../../../shared/schedule-run.js'
 
 /**
  * Falha de quem esperava um turno que bateu no limite (tarefa encaminhada,

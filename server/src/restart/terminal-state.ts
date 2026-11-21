@@ -1,6 +1,7 @@
 import type { Db } from '../db.js'
 import type { Question } from '../claude/session.js'
 import { GOAL_MAX_TURNS } from '../goal/texts.js'
+import { SCHEDULE_RUN_TEXTS } from '../../../shared/schedule-run.js'
 
 /**
  * Estado de reinício por terminal (projeto + motor): os interruptores
@@ -93,7 +94,7 @@ export interface TerminalStateDto {
 }
 
 /** Erro com que fecham a tarefa encaminhada e a execução de agendamento que o reinício matou. */
-export const RESTART_FAIL_TEXT = 'interrompida pelo reinício do Claudinei'
+export const RESTART_FAIL_TEXT = SCHEDULE_RUN_TEXTS.restart
 
 interface RawRow {
   project_id: number; engine: string

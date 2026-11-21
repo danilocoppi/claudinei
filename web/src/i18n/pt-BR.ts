@@ -79,6 +79,16 @@ export const ptBR: typeof en = {
     restore: 'Restaurar padrões', saveFailed: 'Não foi possível guardar: {{error}}. A escolha continua aplicada aqui.',
   },
   schedules: {
+    runText: {
+      previousRunning: 'execução anterior ainda rodando',
+      sessionBusy: 'a sessão está ocupada',
+      noticeHeld: 'aviso aberto esperando o operador',
+      undoHeld: 'escrita do desfazer em andamento',
+      restart: 'interrompida pelo reinício do Claudinei',
+      projectGone: 'projeto do agendamento não existe mais',
+      usageLimit: 'limite de uso do Claude',
+      usageLimitAt: 'limite de uso do Claude — a janela reabre às {{time}}',
+    },
     open: 'Agendas', openTitle: 'Agendamentos deste terminal',
     titleFor: 'Agendas · {{name}}', new: 'Novo', newTitle: 'Novo agendamento', editTitle: 'Editar agendamento',
     empty: 'Nenhum agendamento neste terminal ainda.', selectTerminal: 'Selecione um terminal.',

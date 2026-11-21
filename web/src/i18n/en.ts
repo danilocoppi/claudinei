@@ -77,6 +77,16 @@ export const en = {
     restore: 'Restore defaults', saveFailed: 'Could not save: {{error}}. Your choice is still applied here.',
   },
   schedules: {
+    runText: {
+      previousRunning: 'previous run still running',
+      sessionBusy: 'the session is busy',
+      noticeHeld: 'a notice is waiting for the operator',
+      undoHeld: 'an undo is writing files',
+      restart: 'interrupted by the Claudinei restart',
+      projectGone: "the schedule's project no longer exists",
+      usageLimit: 'Claude usage limit',
+      usageLimitAt: 'Claude usage limit — the window reopens at {{time}}',
+    },
     open: 'Schedules', openTitle: 'Schedules for this terminal',
     titleFor: 'Schedules · {{name}}', new: 'New', newTitle: 'New schedule', editTitle: 'Edit schedule',
     empty: 'No schedules for this terminal yet.', selectTerminal: 'Select a terminal.',

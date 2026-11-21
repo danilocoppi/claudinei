@@ -1,3 +1,4 @@
+import { runErrorLabel } from '../scheduleRunText'
 import { useShallow } from 'zustand/react/shallow'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -64,7 +65,7 @@ function RunRow({ scheduleId, run, picking, picked, onPick }: {
                onChange={() => onPick?.(run.seq)} />
         <span className="sched-run__when">{fmtTime(run.startedAt)}</span>
         <span className={`sched-run__status sched-run__status--${run.status}`}>{STATUS_ICON[run.status]}</span>
-        <span className="sched-run__title">{run.title ?? run.error ?? t('schedules.noTitle')}</span>
+        <span className="sched-run__title">{run.title ?? (run.error ? runErrorLabel(t, run.error) : t('schedules.noTitle'))}</span>
       </label>
     )
   }
@@ -74,7 +75,7 @@ function RunRow({ scheduleId, run, picking, picked, onPick }: {
       <button type="button" className="sched-run__line" onClick={toggle}>
         <span className="sched-run__when">{fmtTime(run.startedAt)}</span>
         <span className={`sched-run__status sched-run__status--${run.status}`}>{STATUS_ICON[run.status]}</span>
-        <span className="sched-run__title">{run.title ?? run.error ?? t('schedules.noTitle')}</span>
+        <span className="sched-run__title">{run.title ?? (run.error ? runErrorLabel(t, run.error) : t('schedules.noTitle'))}</span>
         {run.late && <span className="sched-run__late">{t('schedules.late')}</span>}
         <span className="sched-run__caret">{open ? '⌃' : '⌄'}</span>
       </button>
@@ -85,7 +86,7 @@ function RunRow({ scheduleId, run, picking, picked, onPick }: {
             : content === null
               ? <div className="sched-run__missing">{t('schedules.contentMissing')}</div>
               : <ResultBody text={content} />
-          : <div className="sched-run__missing">{run.error ?? t('schedules.noContent')}</div>
+          : <div className="sched-run__missing">{run.error ? runErrorLabel(t, run.error) : t('schedules.noContent')}</div>
       )}
     </div>
   )

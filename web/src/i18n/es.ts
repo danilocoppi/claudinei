@@ -79,6 +79,16 @@ export const es: typeof en = {
     restore: 'Restaurar valores', saveFailed: 'No se pudo guardar: {{error}}. Tu elección sigue aplicada aquí.',
   },
   schedules: {
+    runText: {
+      previousRunning: 'la ejecución anterior sigue en curso',
+      sessionBusy: 'la sesión está ocupada',
+      noticeHeld: 'un aviso espera al operador',
+      undoHeld: 'el deshacer está escribiendo archivos',
+      restart: 'interrumpida por el reinicio de Claudinei',
+      projectGone: 'el proyecto de la programación ya no existe',
+      usageLimit: 'límite de uso de Claude',
+      usageLimitAt: 'límite de uso de Claude — la ventana se reabre a las {{time}}',
+    },
     open: 'Agendas', openTitle: 'Programaciones de esta terminal',
     titleFor: 'Agendas · {{name}}', new: 'Nueva', newTitle: 'Nueva programación', editTitle: 'Editar programación',
     empty: 'Aún no hay programaciones en esta terminal.', selectTerminal: 'Selecciona una terminal.',

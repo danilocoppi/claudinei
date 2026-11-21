@@ -62,6 +62,16 @@ export async function findRolloutCached(root: string, threadId: string): Promise
 }
 
 /**
+ * Esquece o caminho guardado do thread. O `thread/revert` passa a conversa para
+ * um rollout novo (`…-<id>_<novo id>.jsonl`) e deixa o antigo no disco: sem
+ * isto, o `stat` do cache acharia o antigo e o histórico mostraria os turnos
+ * desfeitos.
+ */
+export function forgetRollout(root: string, threadId: string): void {
+  rolloutCache.delete(`${root}\0${threadId}`)
+}
+
+/**
  * Normaliza um rollout do Codex (response_item da Responses API) para AgentEvent[].
  *
  * Lê pela CAUDA: uma sessão longa deste projeto chegou a 5,5 GB de rollout, e

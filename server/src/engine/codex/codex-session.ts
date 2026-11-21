@@ -237,6 +237,7 @@ export class CodexSession extends EventEmitter implements EngineSession {
       this.turnId = p.turn?.id
       if (!this.operation) { this.operation = 'message'; this.turnBaseline = this.total; this.lastText = '' }
       this.setStatus('working')
+      if (this.turnId) this.event({ kind: 'system', subtype: 'turn_started', raw: { turnId: this.turnId } }) // âncora do desfazer
       this.flushInputs()
       if (this.interrupting && this.turnId) void this.cancelTurn().catch((err) => this.fail(err))
     } else if (method === 'item/agentMessage/delta') {
@@ -305,6 +306,56 @@ export class CodexSession extends EventEmitter implements EngineSession {
     this.cancelInputs('Envio pendente cancelado pela interrupção do usuário. Reenvie para continuar.')
     await this.cancelTurn()
   }
+
+  // --- Desfazer: voltar a conversa (thread/revert, ou thread/fork se recusar) ---
+
+  /** A conexão pronta para mexer na conversa. Recusa com operação em curso: o corte não pode cair no meio de um turno. */
+  private async idleRpc(): Promise<CodexRpc> {
+    const busy = () => !!this.operation || this.steering || this.pendingInputs.length > 0 || this.status === 'working'
+    if (busy()) throw new Error('codex: há uma operação em curso; espere o turno terminar para voltar a conversa')
+    if (!this.sessionId) throw new Error('codex: sem conversa para voltar')
+    await this.ensureReady()
+    if (this.stopping || this.status === 'dead' || this.status === 'stopped') throw new Error(`codex: sessão ${this.status}`)
+    if (busy()) throw new Error('codex: há uma operação em curso; espere o turno terminar para voltar a conversa')
+    return this.rpc!
+  }
+  /** Troca o histórico pelo trecho antes de `beforeTurnId`. O thread segue o mesmo; os arquivos não mudam. */
+  async revertConversation(beforeTurnId: string): Promise<void> {
+    const rpc = await this.idleRpc()
+    await rpc.request('thread/revert', { threadId: this.sessionId, beforeTurnId })
+  }
+  /** Conversa nova com os turnos até `lastTurnId` (inclusive). Devolve o id dela; quem chama passa o terminal para ele. */
+  async forkConversation(lastTurnId: string): Promise<string> {
+    const rpc = await this.idleRpc()
+    // excludeTurns: conversa paginada recusa o fork sem ele (CLI 0.159.2).
+    const response = await rpc.request('thread/fork', {
+      threadId: this.sessionId, lastTurnId, excludeTurns: true,
+      cwd: this.opts.projectPath, approvalPolicy: 'never', sandbox: 'danger-full-access',
+    })
+    if (!response?.thread?.id) throw new Error('codex: fork sem identificador')
+    return response.thread.id
+  }
+  /** Os turnos da conversa, do mais antigo ao mais novo, com os textos de cada `userMessage` (o primeiro e os de steer). */
+  async listTurns(): Promise<Array<{ id: string; userTexts: string[] }>> {
+    const rpc = await this.idleRpc()
+    const desc: Array<{ id: string; userTexts: string[] }> = []
+    const seen = new Set<string>()
+    let cursor: string | null = null
+    do {
+      const page: any = await rpc.request('thread/turns/list', { threadId: this.sessionId, sortDirection: 'desc', itemsView: 'full', limit: 20, cursor })
+      for (const turn of Array.isArray(page?.data) ? page.data : []) {
+        if (typeof turn?.id !== 'string') continue
+        const userTexts = (Array.isArray(turn.items) ? turn.items : [])
+          .filter((it: any) => it?.type === 'userMessage')
+          .map((it: any) => (Array.isArray(it.content) ? it.content : []).filter((c: any) => c?.type === 'text').map((c: any) => c.text ?? '').join(''))
+        desc.push({ id: turn.id, userTexts })
+      }
+      cursor = typeof page?.nextCursor === 'string' && !seen.has(page.nextCursor) ? page.nextCursor : null
+      if (cursor) seen.add(cursor)
+    } while (cursor)
+    return desc.reverse()
+  }
+
   async setModel(model: string): Promise<void> {
     this.model = model || undefined
     this.contextWindow = undefined; this.contextTokens = undefined

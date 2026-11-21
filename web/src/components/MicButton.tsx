@@ -43,7 +43,7 @@ interface MicButtonProps {
   onDone: () => void
   onError: (msg: string) => void
   onStart?: () => void
-  /** Campo do chat: o Ctrl+Espaço funciona com o foco nele (ou fora de campos) e o leva até lá. */
+  /** Campo do chat: o atalho do microfone funciona com o foco nele (ou fora de campos) e o leva até lá. */
   field?: { readonly current: HTMLElement | null }
   deps?: MicDeps
 }

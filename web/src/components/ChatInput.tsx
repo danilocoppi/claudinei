@@ -14,7 +14,7 @@ import { MentionMenu } from './MentionMenu'
 import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
-import { isForeignField } from '../keyboard'
+import { inShortcutScope, matchShortcut } from '../shortcuts/active'
 import { isLargePaste, pasteFileName } from '../paste'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
@@ -48,20 +48,6 @@ const tokenName = (tok: string) => /^\[📎 (.*)\]$/u.exec(tok)?.[1] ?? tok
 /** Teto do POST /api/uploads/check; um guardado tem bem menos anexos que isso. */
 const CHECK_MAX = 200
 
-const LATIN_LETTER = /^\p{Script=Latin}$/u
-const LETTER = /^\p{L}$/u
-/**
- * Ctrl+S (ou Cmd+S), sem Alt nem Shift. Vale a letra da tecla; a posição
- * (`code` 'KeyS') só entra quando a tecla dá uma letra de outro alfabeto (no
- * cirílico a mesma tecla dá 'ы'). Se a posição do S der outra letra latina
- * (Dvorak: 'o'), o atalho é o daquela letra, não este. Mesmo critério do Alt+Z.
- */
-function isStashShortcut(e: { key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): boolean {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return false
-  if (e.key === 's' || e.key === 'S') return true
-  return e.code === 'KeyS' && LETTER.test(e.key) && !LATIN_LETTER.test(e.key)
-}
-
 export function ChatInput({
   localId,
   disabled,
@@ -93,8 +79,9 @@ export function ChatInput({
   const histIdxRef = useRef<number | null>(null)
 
   /**
-   * Prompts guardados com Ctrl+S. A chave é o TERMINAL (projeto + motor), não a
-   * sessão: um /clear ou uma retomada trocam a sessão, e o guardado fica.
+   * Prompts guardados pela combinação de guardar. A chave é o TERMINAL (projeto
+   * + motor), não a sessão: um /clear ou uma retomada trocam a sessão, e o
+   * guardado fica.
    */
   const termKey = session ? stashKey(session.projectId, session.engine) : null
   const [stash, setStash] = useState<StashEntry[]>(() => (termKey ? readStash(termKey) : []))
@@ -104,7 +91,7 @@ export function ChatInput({
   // A fila recusou o texto (cheia, grande demais): o texto volta ao campo e o motivo aparece.
   const [queueError, setQueueError] = useState<string | null>(null)
   const stashBtnRef = useRef<HTMLButtonElement>(null)
-  // checagem dos anexos de um guardado em andamento: outro Ctrl+S espera
+  // checagem dos anexos de um guardado em andamento: outro guardar espera
   const restoring = useRef(false)
   const vivo = useRef(true)
   useEffect(() => { vivo.current = true; return () => { vivo.current = false } }, [])
@@ -158,7 +145,7 @@ export function ChatInput({
    * Fila do operador deste terminal. Kimi e OpenCode recusam mensagem no meio
    * do turno: trabalhando, o Enter deles vai para a fila. No Claude e no Codex o
    * Enter continua entrando no turno atual — mensagem nova é ACRÉSCIMO, nunca
-   * cancelamento — e quem quer a fila usa Alt+Enter.
+   * cancelamento — e quem quer a fila usa a combinação da fila.
    */
   const termQueue = useStore((s) => (termKey ? s.queues[termKey] : undefined))
   const enterQueues = session?.status === 'working' && !engine?.midTurnInput
@@ -196,8 +183,8 @@ export function ChatInput({
   /**
    * Põe na fila do terminal o texto já pronto (tokens trocados pelos caminhos).
    * O campo limpa na hora; se a fila recusar, o texto e os anexos voltam.
-   * `via`: Alt+Enter (de propósito) ou Enter com o motor ocupado (sai como
-   * mensagem do operador e pausa o goal).
+   * `via`: a combinação da fila (de propósito) ou Enter com o motor ocupado
+   * (sai como mensagem do operador e pausa o goal).
    */
   const enqueue = (out: string, via: QueueVia) => {
     if (!session) return
@@ -223,7 +210,7 @@ export function ChatInput({
       })
   }
 
-  /** `viaQueue`: o Alt+Enter, que manda para a fila em qualquer motor. */
+  /** `viaQueue`: a combinação da fila, que manda para a fila em qualquer motor. */
   const send = (viaQueue = false) => {
     let out = text
     for (const [tok, path] of attachments.current) out = out.split(tok).join(path)
@@ -259,7 +246,8 @@ export function ChatInput({
   }
 
   /**
-   * Enviar — pelo Enter, pelo Ctrl+Enter de qualquer ponto da tela ou pelo botão.
+   * Enviar — pelo Enter, pela combinação de enviar (de qualquer ponto da tela)
+   * ou pelo botão.
    *
    * Ditando, a transcrição final ainda não está no campo: mandar agora levaria só
    * o parcial, e o final cairia depois no campo vazio, repetindo o que foi dito.
@@ -268,7 +256,7 @@ export function ChatInput({
    */
   const micRef = useRef<MicButtonHandle>(null)
   const [micBusy, setMicBusy] = useState(false)
-  // O envio que espera o ditado terminar: 'queue' é o Alt+Enter.
+  // O envio que espera o ditado terminar: 'queue' é a combinação da fila.
   const [enviarAposDitado, setEnviarAposDitado] = useState<false | 'send' | 'queue'>(false)
   const submit = (viaQueue = false) => {
     if (!micBusy) { send(viaQueue); return }
@@ -332,10 +320,10 @@ export function ChatInput({
   }
 
   /**
-   * Ctrl+S no campo: com texto, guarda (com os anexos) e limpa; vazio, traz o
-   * último. Com upload ou ditado em andamento não faz nada — o texto ainda teria
-   * token sem caminho, ou a transcrição cairia depois no campo já limpo. Quem
-   * chama já barrou o "salvar página" do navegador.
+   * A combinação de guardar no campo: com texto, guarda (com os anexos) e
+   * limpa; vazio, traz o último. Com upload ou ditado em andamento não faz
+   * nada — o texto ainda teria token sem caminho, ou a transcrição cairia depois
+   * no campo já limpo. Quem chama já barrou a tecla no navegador.
    */
   const guardarOuTrazer = () => {
     if (!termKey || uploading > 0 || micBusy || restoring.current) return
@@ -359,16 +347,16 @@ export function ChatInput({
     attachments.current.clear()
   }
 
-  // Ctrl+Enter de qualquer ponto da tela. No próprio campo quem trata é o
-  // onKeyDown (que já envia com qualquer Enter sem Shift); num outro campo de
-  // digitação o atalho é dele.
+  // A combinação de enviar, de qualquer ponto da tela (escopo do registro). No
+  // próprio campo quem trata é o onKeyDown, e pular aqui evita enviar duas
+  // vezes; num outro campo de digitação o atalho é dele.
   const submitRef = useRef(submit)
   submitRef.current = submit
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || !e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing) return
+      if (!matchShortcut(e, 'chat.send')) return
       const campo = areaRef.current
-      if (e.target === campo || isForeignField(e.target, campo)) return
+      if (e.target === campo || !inShortcutScope('chat.send', e.target, campo)) return
       e.preventDefault()
       submitRef.current()
     }
@@ -577,8 +565,8 @@ export function ChatInput({
           onBlur={() => setSlashDismissed(true)}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing || e.keyCode === 229) return
-            // Ctrl+S: sempre barra o "salvar página", mesmo quando ignorado.
-            if (isStashShortcut(e)) {
+            // Guardar: sempre barra a tecla (no padrão, o "salvar página"), mesmo quando ignorado.
+            if (matchShortcut(e, 'chat.stash')) {
               e.preventDefault(); guardarOuTrazer(); return
             }
             // Ctrl+Shift+V: só marca; o navegador cola (sem preventDefault).
@@ -604,10 +592,14 @@ export function ChatInput({
               }
             }
             if (e.key === 'Escape' && session?.status === 'working') { e.preventDefault(); stopTurn(); return }
-            // Alt+Enter: para a fila, em qualquer motor. Com upload em andamento o
-            // send ignora (o texto ainda teria token sem caminho), como o Enter.
-            if (e.key === 'Enter' && e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); submit(true); return }
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+            // A combinação da fila: para a fila, em qualquer motor. Com upload em
+            // andamento o send ignora (o texto ainda teria token sem caminho), como o Enter.
+            if (matchShortcut(e, 'chat.queue')) { e.preventDefault(); submit(true); return }
+            if (matchShortcut(e, 'chat.send')) { e.preventDefault(); submit(); return }
+            // Enter puro (sem Ctrl, ⌘, Alt nem Shift) envia. Com modificador e fora
+            // das combinações acima, não: com a fila em outra tecla, o Alt+Enter
+            // antigo não manda a mensagem na hora sem querer.
+            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) { e.preventDefault(); submit() }
           }}
           onPaste={(e) => {
             const comoTexto = Date.now() <= colarComoTexto.current

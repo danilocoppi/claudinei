@@ -272,13 +272,14 @@ describe('editar a partir daqui: execute', () => {
     expect(send.mock.calls[0][2]).toEqual({ echo: true })
     // Só a conversa: o arquivo fica como o agente deixou.
     expect(readFileSync(join(r.dir, 'a.txt'), 'utf8')).toBe('mudou\n')
-    expect(undo.store.turn(t2)!.rewoundAt).not.toBeNull()
     expect(undo.holds(p.id, 'claude')).toBe(false)
 
-    // O primeiro result da conversa nova: o id vai ao banco e o turno que ficou ganha o rótulo.
+    // O primeiro result da conversa nova: o id vai ao banco, o trecho sai da
+    // conversa atual e o turno que ficou ganha o rótulo.
     await waitUntil(() => manager.get(L)?.engineSessionId === newId && free(L))
     await undo.idle()
     await waitUntil(() => undo.store.turn(t1)!.conversationId === newId)
+    expect(undo.store.turn(t2)!.rewoundAt).not.toBeNull()
     const listed = (await app.inject({ method: 'GET', url: `/api/undo/terminals/${L}/turns` })).json()
     expect(listed.turns.map((t: { id: number }) => t.id)).toContain(t1)
     expect(listed.turns.map((t: { id: number }) => t.id)).not.toContain(t2)
@@ -375,6 +376,53 @@ describe('editar a partir daqui: execute', () => {
     expect(undo.holds(p.id, 'claude')).toBe(false)
   })
 
+  it('Claude que morre antes do primeiro result: os turnos do trecho continuam na conversa atual', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); const t1 = await say(L, 'primeira')
+    tr.add('segunda'); const t2 = await say(L, 'segunda')
+    spyRelaunch()
+    // "crash": o CLI falso relançado sai com exit 1 sem result.
+    const res = await rewind(L, { target: { text: 'segunda', occurrence: 0 }, mode: 'conversation', editedText: 'segunda crash' })
+    expect(res.json()).toEqual({ conversationRewound: true })
+    await waitUntil(() => manager.get(L)?.status === 'dead')
+    await undo.idle()
+    const sent = undo.store.terminalTurns(p.id, 'claude').at(-1)!
+    await waitUntil(() => undo.store.turn(sent.id)!.endedAt !== null)
+    await undo.idle()
+    // O banco segue no id antigo, e o trecho não saiu da conversa.
+    expect(manager.get(L)?.engineSessionId).toBe(SID)
+    expect(undo.store.turn(t2)!.rewoundAt).toBeNull()
+    expect(undo.store.turn(t1)!.conversationId).toBe(SID)
+    const listed = (await app.inject({ method: 'GET', url: `/api/undo/terminals/${L}/turns` })).json()
+    expect(listed.turns.map((t: { id: number }) => t.id)).toEqual(expect.arrayContaining([t1, t2]))
+    expect(listed.outside.map((t: { id: number }) => t.id)).not.toContain(t2)
+    // Editar de novo a mesma mensagem não cai em rewind_turn_outside.
+    const again = await options(L, { turnId: t2, text: 'segunda', occurrence: 0 })
+    expect(again.statusCode).toBe(200)
+    expect(again.json().conversation).toEqual({ enabled: true })
+  })
+
+  it('Claude voltando à primeira mensagem (conversa nova): o trecho sai da conversa só no primeiro result', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); const t1 = await say(L, 'primeira')
+    const real = manager.relaunch.bind(manager)
+    vi.spyOn(manager, 'relaunch').mockImplementation(async (localId, opts) => {
+      process.env.FAKE_SESSION_ID = 'fake-session-nova'
+      return real(localId, opts)
+    })
+    const res = await rewind(L, { target: { text: 'primeira', occurrence: 0 }, mode: 'conversation', editedText: 'outra primeira' })
+    expect(res.json()).toEqual({ conversationRewound: true })
+    await waitUntil(() => manager.get(L)?.engineSessionId === 'fake-session-nova' && free(L))
+    await undo.idle()
+    await waitUntil(() => undo.store.turn(t1)!.rewoundAt !== null)
+  })
+
   it('com o agente trabalhando: interrompe antes e espera livre', async () => {
     const r = repo()
     const p = project(r.dir)
@@ -403,8 +451,8 @@ describe('editar a partir daqui: execute', () => {
     const done = undo.store.turn(running.id)!
     // O fim é do rastreador: o result interrompido do CLI falso chega depois do status.
     expect(['interrupted', 'cut']).toContain(done.endKind)
-    expect(done.rewoundAt).not.toBeNull()
     expect(sentTexts(send)).toEqual(['rápida'])
+    await waitUntil(() => undo.store.turn(running.id)!.rewoundAt !== null)
   })
 
   it('holds verdadeiro durante a volta: a fila do operador não entrega no meio', async () => {

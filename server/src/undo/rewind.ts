@@ -105,8 +105,15 @@ export function createRewindService(deps: RewindDeps) {
   const rewinding = new Map<string, string>()
   /** O envio da própria volta passa pelo holdInput: o localId dele, só durante o `send`. */
   let ownSend: string | null = null
-  /** Claude: o id novo só chega ao banco no primeiro result; os turnos que ficam ganham o rótulo no fim do primeiro turno da conversa nova. */
-  const pendingLabel = new Map<string, { newId: string; kept: number[] }>()
+  /**
+   * Claude: o id novo só chega ao banco no primeiro result. O trecho sai da
+   * conversa atual (markRewound) e os turnos que ficam ganham o rótulo no fim
+   * do primeiro turno da conversa nova, se ele confirmar o id; se o processo
+   * morrer antes (ou o CLI recusar o corte), nada muda no banco.
+   * `newId` null: voltou à primeira mensagem (conversa nova, id ainda
+   * desconhecido). `after`: o maior id de turno do terminal na hora da volta.
+   */
+  const pendingLabel = new Map<string, { newId: string | null; oldId: string | null; range: number[]; kept: number[]; after: number }>()
 
   function sessionOf(localId: string): SessionInfo {
     const info = manager.get(localId)
@@ -315,13 +322,18 @@ export function createRewindService(deps: RewindDeps) {
         }
 
         // 5. Os turnos do trecho saem da conversa atual (continuam desfazíveis).
-        store.markRewound(rangeIds)
+        // Codex: o revert/fork já foi confirmado pelo RPC, o terminal está no id
+        // novo. Claude: só quando o primeiro turno da conversa nova fechar com o id dela.
         const keptIds = plan.kept.map(t => t.id)
         pendingLabel.delete(localId)
-        if (applied.newConversationId) {
-          // Codex (fork): o terminal já está no id novo. Claude: só depois do primeiro result.
-          if (plan.info.engine === 'claude') pendingLabel.set(localId, { newId: applied.newConversationId, kept: keptIds })
-          else if (keptIds.length) store.setConversation(keptIds, applied.newConversationId)
+        if (plan.info.engine === 'claude') {
+          const after = store.terminalTurns(first.projectId, first.engine).reduce((m, t) => Math.max(m, t.id), 0)
+          pendingLabel.set(localId, {
+            newId: applied.newConversationId ?? null, oldId: plan.info.engineSessionId, range: rangeIds, kept: keptIds, after,
+          })
+        } else {
+          store.markRewound(rangeIds)
+          if (applied.newConversationId && keptIds.length) store.setConversation(keptIds, applied.newConversationId)
         }
 
         // 6. O texto editado sai como mensagem do operador (pausa o goal; passa pelo rastreador).
@@ -356,20 +368,27 @@ export function createRewindService(deps: RewindDeps) {
     },
 
     /**
-     * Claude: o primeiro turno da conversa nova fechou com o id dela já no
-     * banco. Os turnos que ficaram antes da mensagem ganham o id novo e
-     * continuam na conversa atual.
+     * Claude: o primeiro turno da conversa nova fechou. Com o id novo já no
+     * banco, o trecho sai da conversa atual e os turnos que ficaram antes da
+     * mensagem ganham o id novo. Sem ele (o processo morreu antes do result,
+     * o CLI recusou o corte), a volta não aconteceu: o pendente é descartado.
      */
     onTurnClosed(turnId: number): void {
       if (!pendingLabel.size) return
       try {
         const t = store.turn(turnId)
         const label = t && pendingLabel.get(t.localId)
-        if (!t || !label || t.conversationId !== label.newId) return
-        // O processo pode ter morrido antes do result: o banco segue no id antigo.
-        if (manager.get(t.localId)?.engineSessionId !== label.newId) return
+        if (!t || !label || t.id <= label.after || t.origin === 'interactive') return
         pendingLabel.delete(t.localId)
-        if (label.kept.length) store.setConversation(label.kept, label.newId)
+        const now = manager.get(t.localId)?.engineSessionId ?? null
+        const confirmed = now !== null && now !== label.oldId && (label.newId === null || now === label.newId)
+          && t.conversationId === now
+        if (!confirmed) {
+          log(`a conversa nova de ${t.localId} não confirmou (turno ${turnId}): o trecho fica na conversa atual`)
+          return
+        }
+        store.markRewound(label.range)
+        if (label.kept.length) store.setConversation(label.kept, now)
       } catch (e) {
         log(`rótulo da conversa nova (turno ${turnId}): ${errText(e)}`)
       }

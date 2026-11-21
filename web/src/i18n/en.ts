@@ -656,8 +656,11 @@ export const en = {
       confirmMsg: 'The current {{engine}} conversation will be closed (it stays in the history), and a new one starts with the context from {{from}}.',
       confirmGoal: 'The {{engine}} goal stays paused until you resume it.',
       confirm: 'Continue',
-      card_one: 'Context brought from {{engine}}: {{count}} message (~{{k}}k tokens)',
-      card_other: 'Context brought from {{engine}}: {{count}} messages (~{{k}}k tokens)',
+      card_one: 'Context brought from {{engine}}: {{count}} message (~{{tokens}})',
+      card_other: 'Context brought from {{engine}}: {{count}} messages (~{{tokens}})',
+      tokens_one: '{{count}} token',
+      tokens_other: '{{count}} tokens',
+      tokensK: '{{k}}k tokens',
     },
     target: {
       none: 'no conversation',

@@ -659,8 +659,11 @@ export const ptBR: typeof en = {
       confirmMsg: 'A conversa atual do {{engine}} será encerrada (fica no histórico), e uma nova começa com o contexto do {{from}}.',
       confirmGoal: 'O goal do {{engine}} fica pausado até você retomá-lo.',
       confirm: 'Continuar',
-      card_one: 'Contexto trazido do {{engine}}: {{count}} mensagem (~{{k}} mil tokens)',
-      card_other: 'Contexto trazido do {{engine}}: {{count}} mensagens (~{{k}} mil tokens)',
+      card_one: 'Contexto trazido do {{engine}}: {{count}} mensagem (~{{tokens}})',
+      card_other: 'Contexto trazido do {{engine}}: {{count}} mensagens (~{{tokens}})',
+      tokens_one: '{{count}} token',
+      tokens_other: '{{count}} tokens',
+      tokensK: '{{k}} mil tokens',
     },
     target: {
       none: 'sem conversa',

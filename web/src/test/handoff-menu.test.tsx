@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import * as branchApi from '../branch/api'
 import { handoffTargets, parseHandoffHeader } from '../branch/handoff'
 import { foldsToOpen } from '../chat/find'
+import i18n from '../i18n'
 import type { ChatItem, EngineMeta, OperatorQueue, Project, SessionInfo, SessionStatus, TerminalState } from '../types'
 
 /**
@@ -276,8 +277,35 @@ describe('cartão do pacote', () => {
   })
 
   it('uma mensagem no singular', () => {
-    render(<MessageBlock item={card({ messages: 1, tokens: 900 })} />)
+    render(<MessageBlock item={card({ messages: 1, tokens: 1200 })} />)
     expect(screen.getByText('Contexto trazido do Codex: 1 mensagem (~1 mil tokens)')).toBeTruthy()
+  })
+
+  it('abaixo de mil tokens mostra o número cru, não "~1 mil"', () => {
+    render(<MessageBlock item={card({ tokens: 200 })} />)
+    expect(screen.getByText('Contexto trazido do Codex: 12 mensagens (~200 tokens)')).toBeTruthy()
+  })
+
+  it('um token no singular', () => {
+    render(<MessageBlock item={card({ tokens: 1 })} />)
+    expect(screen.getByText('Contexto trazido do Codex: 12 mensagens (~1 token)')).toBeTruthy()
+  })
+
+  it.each([
+    ['en', 200, 'Context brought from Codex: 12 messages (~200 tokens)'],
+    ['en', 1, 'Context brought from Codex: 12 messages (~1 token)'],
+    ['en', 15800, 'Context brought from Codex: 12 messages (~16k tokens)'],
+    ['es', 200, 'Contexto traído de Codex: 12 mensajes (~200 tokens)'],
+    ['es', 1, 'Contexto traído de Codex: 12 mensajes (~1 token)'],
+    ['es', 15800, 'Contexto traído de Codex: 12 mensajes (~16 mil tokens)'],
+  ] as const)('em %s, %i tokens', async (lang, tokens, texto) => {
+    await i18n.changeLanguage(lang)
+    try {
+      render(<MessageBlock item={card({ tokens })} />)
+      expect(screen.getByText(texto)).toBeTruthy()
+    } finally {
+      await i18n.changeLanguage('pt-BR')
+    }
   })
 
   it('o request aparece abaixo como texto do operador', () => {

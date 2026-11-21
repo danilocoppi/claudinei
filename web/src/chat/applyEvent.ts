@@ -66,6 +66,24 @@ function blockToText(content: unknown): string {
  * e/ou o texto real sem o ruído.
  */
 function classifyUserText(text: string): ChatItem[] {
+  // Pacote de contexto da troca de motor (⇄): vira o cartão "Contexto trazido
+  // do <Motor>", dobrado; o pedido do operador, quando vai junto, sai à parte.
+  // Vem antes de tudo: o corpo é texto cru da conversa de origem e pode citar
+  // `<command-name>`, caveat, stdout ou reminders, que não podem desviar o
+  // pacote nem cortar o corpo. Só o reminder que o harness anexa no FIM sai.
+  if (text.trimStart().startsWith(`${HANDOFF_PREFIX}:`)) {
+    const h = parseHandoffHeader(
+      text.trim().replace(/(?:\s*<system-reminder>(?:(?!<system-reminder>)[\s\S])*?<\/system-reminder>)+$/, ''),
+    )
+    if (h) {
+      return [{
+        kind: 'claudinei_message', reason: 'handoff', text: h.body,
+        engineLabel: h.engineLabel, messages: h.messages, tokens: h.tokens,
+        ...(h.request !== undefined ? { request: h.request } : {}),
+      }]
+    }
+  }
+
   // caveat de comando local: puro ruído, mensagem inteira some
   if (text.includes('<local-command-caveat>')) return []
 
@@ -116,19 +134,6 @@ function classifyUserText(text: string): ChatItem[] {
   const goalStart = afterSeal(cleaned, GOAL_START_PREFIX)
   if (goalStart != null) {
     return [{ kind: 'claudinei_message', reason: 'goal_start', text: goalStart, criterion: goalStart.match(GOAL_START)?.[1] ?? goalStart }]
-  }
-
-  // Pacote de contexto da troca de motor (⇄): vira o cartão "Contexto trazido
-  // do <Motor>", dobrado; o pedido do operador, quando vai junto, sai à parte.
-  if (cleaned.startsWith(`${HANDOFF_PREFIX}:`)) {
-    const h = parseHandoffHeader(cleaned)
-    if (h) {
-      return [{
-        kind: 'claudinei_message', reason: 'handoff', text: h.body,
-        engineLabel: h.engineLabel, messages: h.messages, tokens: h.tokens,
-        ...(h.request !== undefined ? { request: h.request } : {}),
-      }]
-    }
   }
 
   const scheduled = cleaned.match(/^\[Agendamento: (.+) #(\d+)\]:\s*([\s\S]*)$/)

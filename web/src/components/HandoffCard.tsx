@@ -16,8 +16,10 @@ export function HandoffCard({ item, currentLocalId }: {
   // A dobra mora no store (a lista é virtual: o bloco desmonta fora da tela).
   const [open, setOpen] = useFold(currentLocalId, item.key, 'summary')
   const toggle = () => setOpen(!open)
-  // "~16 mil tokens" para 15800; nunca "~0".
-  const k = Math.max(1, Math.round(item.tokens / 1000))
+  // "~16 mil tokens" para 15800; abaixo de mil, o número cru ("~200 tokens").
+  const tokens = item.tokens < 1000
+    ? t('branch.handoff.tokens', { count: item.tokens })
+    : t('branch.handoff.tokensK', { k: Math.round(item.tokens / 1000) })
   return (
     <div>
       <div className={`action-group handoff-card${open ? ' action-group--open' : ''}`} role="note">
@@ -31,7 +33,7 @@ export function HandoffCard({ item, currentLocalId }: {
         >
           <span aria-hidden="true">{open ? '▾' : '▸'}</span>
           <span aria-hidden="true">⇄</span>
-          <strong>{t('branch.handoff.card', { engine: item.engineLabel, count: item.messages, k })}</strong>
+          <strong>{t('branch.handoff.card', { engine: item.engineLabel, count: item.messages, tokens })}</strong>
         </div>
         {open && <pre className="action-group__body handoff-card__body">{item.text}</pre>}
       </div>

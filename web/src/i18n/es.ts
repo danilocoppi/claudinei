@@ -658,8 +658,11 @@ export const es: typeof en = {
       confirmMsg: 'La conversación actual de {{engine}} se cerrará (queda en el historial) y empieza una nueva con el contexto de {{from}}.',
       confirmGoal: 'El objetivo de {{engine}} queda en pausa hasta que lo reanudes.',
       confirm: 'Continuar',
-      card_one: 'Contexto traído de {{engine}}: {{count}} mensaje (~{{k}} mil tokens)',
-      card_other: 'Contexto traído de {{engine}}: {{count}} mensajes (~{{k}} mil tokens)',
+      card_one: 'Contexto traído de {{engine}}: {{count}} mensaje (~{{tokens}})',
+      card_other: 'Contexto traído de {{engine}}: {{count}} mensajes (~{{tokens}})',
+      tokens_one: '{{count}} token',
+      tokens_other: '{{count}} tokens',
+      tokensK: '{{k}} mil tokens',
     },
     target: {
       none: 'sin conversación',

@@ -35,9 +35,10 @@ export const MessageBlock = memo(function MessageBlock({ item, currentLocalId, e
   item: ChatItem
   currentLocalId?: string
   editable?: boolean
-  onEdit?: (text: string) => void
+  /** `key`: o item editado, para o "editar a partir daqui" achar a mensagem no chat. */
+  onEdit?: (text: string, key?: string) => void
 }) {
-  const edit = editable && onEdit && item.kind === 'user_text' ? () => onEdit(item.text) : undefined
+  const edit = editable && onEdit && item.kind === 'user_text' ? () => onEdit(item.text, item.key) : undefined
   // Ocorrência atual da busca (Ctrl+F): seletor estreito, só este booleano —
   // ir a outra ocorrência re-renderiza o bloco que perde e o que ganha a marca.
   const hit = useStore((s) => !!item.key && s.find?.currentKey === item.key)

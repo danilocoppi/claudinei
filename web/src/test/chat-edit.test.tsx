@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanup, screen, fireEvent, waitFor } from '@testing-library/react'
+import { cleanup, screen, fireEvent, waitFor, within } from '@testing-library/react'
 // A conversa é uma lista virtual: sem medidas fixas, o jsdom não montaria nada.
 import { renderComJanela as render } from './viewport'
 import { ChatView } from '../components/ChatView'
@@ -22,8 +22,11 @@ beforeEach(() => {
   // O campo agora começa no rascunho gravado (drafts.ts): sem limpar, o texto
   // de um caso pré-preenche o seguinte.
   localStorage.clear()
+  // O diálogo de editar busca as opções da volta; aqui elas não importam.
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+    new Response(JSON.stringify({ error: 'nada' }), { status: 404, headers: { 'Content-Type': 'application/json' } }))
 })
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('editar mensagem', () => {
   it('lápis aparece só nas últimas 5 mensagens do usuário', async () => {
@@ -32,15 +35,17 @@ describe('editar mensagem', () => {
     expect(await screen.findAllByLabelText('Editar esta mensagem')).toHaveLength(5) // m2..m6
   })
 
-  it('lápis durante working pede CONFIRMAÇÃO; confirmar envia interrupt e registra o editRequest', async () => {
+  it('lápis durante working abre o diálogo com o aviso de interrupção; Copiar para o campo interrompe e registra o editRequest', async () => {
     const send = vi.fn()
     setup('working', [u('instrução errada')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
     fireEvent.click(await screen.findByLabelText('Editar esta mensagem'))
-    // ainda NÃO interrompeu: abriu o diálogo
+    // ainda NÃO interrompeu: abriu o diálogo, com o aviso dentro dele
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
-    expect(screen.getByText('Editar e interromper?')).toBeTruthy()
-    fireEvent.click(screen.getByText('Interromper e editar'))
+    const dlg = screen.getByRole('dialog', { name: 'Editar a partir daqui' })
+    expect(within(dlg).getByText('Editar interrompe o turno em andamento.')).toBeTruthy()
+    expect(screen.queryByText('Editar e interromper?')).toBeNull()
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Copiar para o campo' }))
     expect(send).toHaveBeenCalledWith({ type: 'interrupt', localId: 's1' })
     expect(useStore.getState().editRequest).toMatchObject({ localId: 's1', text: 'instrução errada' })
   })
@@ -50,16 +55,20 @@ describe('editar mensagem', () => {
     setup('working', [u('mensagem na fila')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
     fireEvent.click(await screen.findByLabelText('Editar esta mensagem'))
-    fireEvent.click(screen.getByText('Cancelar'))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Editar a partir daqui' })).getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('dialog', { name: 'Editar a partir daqui' })).toBeNull()
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(useStore.getState().editRequest).toBeUndefined()
   })
 
-  it('clicar no lápis fora de working NÃO envia interrupt', async () => {
+  it('fora de working, Copiar para o campo NÃO envia interrupt', async () => {
     const send = vi.fn()
     setup('idle', [u('só recuperar')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
     fireEvent.click(await screen.findByLabelText('Editar esta mensagem'))
+    const dlg = screen.getByRole('dialog', { name: 'Editar a partir daqui' })
+    expect(within(dlg).queryByText('Editar interrompe o turno em andamento.')).toBeNull()
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Copiar para o campo' }))
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(useStore.getState().editRequest).toMatchObject({ text: 'só recuperar' })
   })

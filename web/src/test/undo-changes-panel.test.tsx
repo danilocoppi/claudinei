@@ -264,7 +264,7 @@ describe('estilos do desfazer', () => {
     for (const m of css.matchAll(/(?:^|[;{\s])((?:-webkit-)?(?:animation|transition|backdrop-filter)[\w-]*)\s*:\s*([^;}]*)/g)) {
       expect(m[2].trim(), `${m[1]} no undo.css`).toBe('none')
     }
-    for (const f of ['TurnLine.tsx', 'ChangesPanel.tsx', 'UnifiedDiff.tsx', 'UndoDialog.tsx']) {
+    for (const f of ['TurnLine.tsx', 'ChangesPanel.tsx', 'UnifiedDiff.tsx', 'UndoDialog.tsx', 'EditFromHereDialog.tsx']) {
       const src = ler(f)
       expect(src, f).not.toMatch(/\b(animation|transition|backdropFilter|WebkitBackdropFilter)\s*:/)
       // As classes do vidro e do fundo dos modais trazem backdrop-filter.

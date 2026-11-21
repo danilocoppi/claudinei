@@ -29,7 +29,8 @@ interface CommonProps {
  *   "voltar a conversa e os arquivos", recebe-a de `rewind/options` ou do 409
  *   do `rewind`), e o botão final devolve `{ token, decisions }` em `onSelect`.
  *   Prévia nova em `preview` refaz as escolhas; `changed` mostra o aviso de
- *   que os arquivos mudaram; `reload` liga o "Tentar de novo" da espera.
+ *   que os arquivos mudaram; `notice` é um aviso de quem chama (o turno já
+ *   interrompido, R21); `reload` liga o "Tentar de novo" da espera.
  */
 export type UndoDialogProps =
   | (CommonProps & { mode?: 'apply'; request: UndoRequest; onDone(run: UndoRunDto): void })
@@ -38,6 +39,7 @@ export type UndoDialogProps =
     preview: UndoPreview
     title?: string
     changed?: boolean
+    notice?: string
     busy?: boolean
     error?: string | null
     reload?(): Promise<UndoPreview>
@@ -326,6 +328,7 @@ export function UndoDialog(props: UndoDialogProps) {
             {t('undo.dialog.branchChanged', { from: branchName(p.branchChanged.from), to: branchName(p.branchChanged.to) })}
           </p>
         )}
+        {props.mode === 'select' && props.notice && <p className="undo-dialog__warn">{props.notice}</p>}
         {(changed || (props.mode === 'select' && props.changed)) && (
           <p className="undo-dialog__warn" role="status">{t('undo.dialog.changed')}</p>
         )}

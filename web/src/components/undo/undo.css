@@ -159,3 +159,13 @@
 .undo-dialog__err { margin: 6px 14px; color: var(--err); font-size: 13px; }
 .undo-dialog__foot { display: flex; justify-content: flex-end; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--border); }
 .undo-dialog__foot button { transition: none; }
+
+/* ── Editar a partir daqui ── */
+.undo-edit { width: min(640px, calc(100vw - 32px)); }
+.undo-edit__text {
+  display: block; box-sizing: border-box; width: calc(100% - 28px); margin: 4px 14px 8px;
+  min-height: 96px; max-height: 40vh; resize: vertical; font-size: 14px; line-height: 1.45;
+  transition: none;
+}
+.undo-edit__reason { margin: 2px 14px 4px; font-size: 12px; color: var(--text-dim); }
+.undo-edit__foot { flex-wrap: wrap; }

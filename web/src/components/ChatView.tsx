@@ -42,7 +42,8 @@ import { attachTurns, type TurnPlacement } from '../undo/attachTurns'
 import { TurnLine } from './undo/TurnLine'
 import { ChangesPanel, type PanelFocus } from './undo/ChangesPanel'
 import { UndoDialog, type UndoRequest } from './undo/UndoDialog'
-import type { TurnDto } from '../../../shared/undo'
+import { EditFromHereDialog, editTargetOf } from './undo/EditFromHereDialog'
+import type { RewindTarget, TurnDto } from '../../../shared/undo'
 
 const EMPTY_ITEMS: ChatItem[] = []
 const NO_LINES = new Map<number, TurnPlacement[]>()
@@ -200,7 +201,7 @@ export function ChatView() {
   const progressOpen = useStore((s) => s.progressOpen)
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
-  const [editConfirm, setEditConfirm] = useState<string | null>(null)
+  const [editing, setEditing] = useState<{ localId: string; target: RewindTarget; text: string; key?: string; index: number } | null>(null)
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [following, setFollowing] = useState(true)
   const historyCursor = useStore((s) => activeLocalId ? s.historyCursor[activeLocalId] : undefined)
@@ -238,6 +239,7 @@ export function ChatView() {
   useEffect(() => {
     setUndoPanel(null)
     setUndoDialog(null)
+    setEditing(null)
     if (!activeLocalId) return
     useUndoStore.getState().load(activeLocalId).catch((e) => console.warn('[undo] turnos não carregaram', e))
   }, [activeLocalId])
@@ -457,18 +459,24 @@ export function ChatView() {
     }
     return indices
   }, [items])
-  // Editar durante o turno é DESTRUTIVO (interrompe o que está rodando e
-  // recomeça da mensagem editada) — o operador pode achar que só vai corrigir
-  // uma mensagem enfileirada. Por isso pede confirmação antes.
-  // Estável entre renders (só muda com a sessão): é o que permite ao MessageBlock
-  // ser memoizado — uma closure nova por render furaria o memo em todos os
-  // blocos editáveis. O status é lido na hora, não capturado.
+  // Editar abre "editar a partir daqui" (o aviso de interrupção, com o agente
+  // trabalhando, fica dentro do diálogo). Estável entre renders (só muda com a
+  // sessão): é o que permite ao MessageBlock ser memoizado — uma closure nova
+  // por render furaria o memo em todos os blocos editáveis. O chat e os turnos
+  // são lidos na hora do clique, não capturados.
   const localId = session?.localId
-  const handleEdit = useCallback((text: string) => {
+  const handleEdit = useCallback((text: string, key?: string) => {
     if (!localId) return
-    const st = useStore.getState()
-    if (st.sessions[localId]?.status === 'working') { setEditConfirm(text); return }
-    st.requestEdit(localId, text)
+    const chat = useStore.getState().chat[localId] ?? EMPTY_ITEMS
+    // Pela chave; sem ela, a última mensagem do operador com o mesmo texto.
+    let index = key ? chat.findIndex((it) => it.key === key) : -1
+    for (let i = chat.length - 1; index < 0 && i >= 0; i--) {
+      const it = chat[i]
+      if (it.kind === 'user_text' && it.text === text) index = i
+    }
+    if (index < 0) return
+    const target = editTargetOf(chat, useUndoStore.getState().byLocal[localId]?.turns, index)
+    setEditing({ localId, target, text, key, index })
   }, [localId])
 
   // Sem git, a linha lê as ferramentas do bloco do turno; com git, não lê item nenhum.
@@ -634,18 +642,9 @@ export function ChatView() {
         // local do ChatInput e vazariam (e seriam enviados) para a sessão errada.
         <ChatInput key={session.localId} localId={session.localId} disabled={session.status === 'dead' || session.status === 'stopped'} />
       )}
-      {editConfirm !== null && session && (
-        <ConfirmDialog
-          title={t('chat.editWorkingTitle')}
-          message={t('chat.editWorkingMsg')}
-          confirmLabel={t('chat.editWorkingConfirm')}
-          onConfirm={() => {
-            setEditConfirm(null)
-            ws?.send({ type: 'interrupt', localId: session.localId })
-            useStore.getState().requestEdit(session.localId, editConfirm)
-          }}
-          onClose={() => setEditConfirm(null)}
-        />
+      {editing?.localId === session.localId && (
+        <EditFromHereDialog localId={editing.localId} target={editing.target} initialText={editing.text}
+                            itemKey={editing.key} itemIndex={editing.index} onClose={() => setEditing(null)} />
       )}
       {undoPanel && <ChangesPanel localId={session.localId} focus={undoPanel} onClose={() => setUndoPanel(null)} onUndo={setUndoDialog} />}
       {undoDialog && (

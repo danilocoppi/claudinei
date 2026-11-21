@@ -94,12 +94,12 @@ describe('MessageBlock não refaz o markdown à toa', () => {
 
   /** A assinatura que faz o memo valer: o pai passa UMA callback estável, e o
    *  bloco a chama com o próprio texto — sem closure nova por render. */
-  it('editável chama onEdit com o texto do próprio item', () => {
+  it('editável chama onEdit com o texto e a chave do próprio item', () => {
     const onEdit = vi.fn()
-    const item = { kind: 'user_text' as const, text: 'corrija isto' }
+    const item = { kind: 'user_text' as const, text: 'corrija isto', key: 'p42' }
     render(<MessageBlock item={item} currentLocalId="s1" editable onEdit={onEdit} />)
     fireEvent.click(screen.getByTitle(/edit|editar/i))
-    expect(onEdit).toHaveBeenCalledWith('corrija isto')
+    expect(onEdit).toHaveBeenCalledWith('corrija isto', 'p42')
   })
 
   it('não editável não expõe o botão, mesmo com onEdit', () => {

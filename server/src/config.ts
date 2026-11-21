@@ -33,6 +33,8 @@ export interface Config {
   scratchDir: string
   /** Acompanhamento de tarefas longas: um JSON por terminal (projeto + motor). */
   progressDir: string
+  /** Páginas das respostas visuais: um arquivo HTML por página publicada. */
+  pagesDir: string
   /** Certificado/chave para servir HTTPS direto. Vazios = HTTP (padrão). */
   tlsCert?: string
   tlsKey?: string
@@ -73,6 +75,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     schedulesDir: env.CLAUDINEI_SCHEDULES ?? join(homedir(), '.claudinei', 'schedules'),
     scratchDir: env.CLAUDINEI_SCRATCH ?? join(homedir(), '.claudinei', 'scratch'),
     progressDir: env.CLAUDINEI_PROGRESS ?? join(homedir(), '.claudinei', 'acompanhamento'),
+    pagesDir: env.CLAUDINEI_PAGES ?? join(homedir(), '.claudinei', 'pages'),
   }
 }
 

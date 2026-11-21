@@ -68,6 +68,7 @@
   // GET  /api/prefs → { appearance, keybindings }   (token de serviço: { appearance: DEFAULT_APPEARANCE, keybindings: {} })
   // PUT  /api/prefs  body { appearance?, keybindings? } → { appearance, keybindings } (saneados, relidos do banco)
   //   campo ausente (undefined) não muda; os dois gravam numa transação; token de serviço → 403
+//   keybindings presente mas não objeto (array, string, null, número) → 400 { error: 'keybindings inválido' } e nada é gravado (nem a aparência)
   ```
 
 - [ ] **Step 1: Testes que falham** em `server/test/prefs.test.ts`:
@@ -87,6 +88,7 @@
     - `PUT só com keybindings não mexe na aparência`: antes PUT `{ appearance: { theme: 'light-fun' } }`; depois PUT `{ keybindings: { 'view.zen': 'Alt+M' } }`; GET dá `theme 'light-fun'` e `keybindings { 'view.zen': 'Alt+M' }`.
     - `PUT só com appearance não mexe nos atalhos`.
     - `PUT vazio não muda nada e devolve os dois`.
+    - `PUT com keybindings que não é objeto dá 400 e não apaga nada`: com `{ 'view.zen': 'Alt+M' }` gravado, PUT `{ keybindings: [] }` e PUT `{ keybindings: null, appearance: { theme: 'light-fun' } }` → 400; GET continua com `{ 'view.zen': 'Alt+M' }` e o tema anterior.
     - `token de serviço: GET devolve {} e PUT dá 403`: `authorization: \`Bearer ${auth.tokens.signService()}\``.
 - [ ] **Step 2: Rodar e ver falhar.** `cd server && PATH=$N24:$PATH npx vitest run test/prefs.test.ts`
 - [ ] **Step 3: Implementar.** O teste antigo `sem auth, grava na linha 0` continua valendo. O comentário da rota passa a falar de "preferências" (aparência e atalhos).
@@ -439,4 +441,4 @@
 - **Salvar sem mudança fecha sem PUT**; aparência inalterada não vai no PUT.
 - **Tecla fora da gramática durante a gravação** avisa e continua gravando.
 - **Dica do Enviar** vira três pedaços juntados com " · ", para omitir o que não tem atalho.
-- **`PUT` com `keybindings` que não é objeto** grava `{}`, como o saneamento da aparência cai no padrão.
+- **`PUT` com `keybindings` que não é objeto** é recusado com 400 e não grava nada (revisado pelo coordenador: apagar as escolhas guardadas por causa de um pedido malformado seria perda calada). Entradas inválidas dentro de um objeto continuam sendo descartadas uma a uma.

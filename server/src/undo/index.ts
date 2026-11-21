@@ -83,6 +83,8 @@ export function createUndo(deps: UndoDeps) {
   // nova do Claude no fim do primeiro turno dela.
   let service: ReturnType<typeof createUndoService>
   let rewind: ReturnType<typeof createRewindService>
+  /** Os resumos de fim de turno em curso (git), para o idle(). */
+  const summaries = new Set<Promise<void>>()
   const tracker = createTurnTracker({
     store, resolver, queue,
     projectPath: id => deps.projects.get(id)?.path ?? null,
@@ -91,7 +93,10 @@ export function createUndo(deps: UndoDeps) {
       rewind.holdInput(ctx)
     },
     onTurnClosed: (id) => {
-      void service.summarizeTurn(id)
+      // summarizeTurn nunca rejeita; o catch é só a guarda do Set.
+      const job = service.summarizeTurn(id).catch(() => {})
+      summaries.add(job)
+      void job.then(() => summaries.delete(job))
       rewind.onTurnClosed(id)
     },
     log,
@@ -198,10 +203,14 @@ export function createUndo(deps: UndoDeps) {
 
     retain,
 
-    /** Espera o rastreador e a retenção em curso (testes e encerramento). */
+    /** Espera o rastreador, os resumos de fim de turno e a retenção em curso (testes e encerramento). */
     async idle(): Promise<void> {
-      await tracker.idle()
-      if (retaining) await retaining
+      for (;;) {
+        await tracker.idle()
+        if (summaries.size) { await Promise.all([...summaries]); continue }
+        if (retaining) { await retaining; continue }
+        return
+      }
     },
 
     /**

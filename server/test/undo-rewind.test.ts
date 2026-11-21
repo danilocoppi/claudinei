@@ -153,7 +153,8 @@ function spyRelaunch() {
   const real = manager.relaunch.bind(manager)
   return vi.spyOn(manager, 'relaunch').mockImplementation(async (localId, opts) => {
     const at = opts.extraArgs?.indexOf('--session-id') ?? -1
-    if (at >= 0) process.env.FAKE_SESSION_ID = opts.extraArgs![at + 1]
+    // Conversa nova (voltou à primeira mensagem): o CLI real sorteia um id.
+    process.env.FAKE_SESSION_ID = at >= 0 ? opts.extraArgs![at + 1] : 'fake-session-nova'
     return real(localId, opts)
   })
 }
@@ -520,6 +521,8 @@ describe('editar a partir daqui: execute', () => {
     spyRelaunch()
     await rewind(L, { target: { text: 'primeira', occurrence: 0 }, mode: 'conversation', editedText: 'outra primeira' })
     expect(state.get(p.id, 'claude')).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
+    // O primeiro turno da conversa nova termina antes do fim do teste.
+    await waitUntil(() => manager.get(L)?.engineSessionId !== SID && free(L))
   })
 
   it('opção desligada: rewind recusa com rewind_unavailable sem interromper nem relançar', async () => {
@@ -556,6 +559,25 @@ describe('CLI falso: escreve e bash-escreve', () => {
       const diff = (await app.inject({ method: 'GET', url: `/api/undo/turns/${t}/diff?path=${encodeURIComponent(path)}` })).json()
       expect(diff.text).toContain(path === 'b.txt' ? '+dois' : '+um')
     }
+  })
+})
+
+describe('idle do desfazer', () => {
+  it('idle espera também o resumo do turno que fechou (nada roda depois do fim do teste)', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const real = undo.service.summarizeTurn.bind(undo.service)
+    vi.spyOn(undo.service, 'summarizeTurn').mockImplementation(async (id) => {
+      await new Promise(res => setTimeout(res, 150))
+      return real(id)
+    })
+    manager.send(L, 'bash-escreve:a.txt=mudou')
+    await waitUntil(() => free(L))
+    const id = undo.store.terminalTurns(p.id, 'claude').at(-1)!.id
+    await waitUntil(() => undo.store.turn(id)!.endedAt !== null)
+    await undo.idle()
+    expect(undo.store.turn(id)!.summary).toMatchObject({ files: 1 })
   })
 })
 

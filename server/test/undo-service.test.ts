@@ -260,6 +260,8 @@ describe('desfazer', () => {
     expect(texts[0].startsWith(`${FILES_REVERTED_PREFIX}: The operator reverted the file changes of an earlier turn: a.txt, b.txt, novo.txt.`)).toBe(true)
     expect(texts[0].endsWith('\n\nsegue')).toBe(true)
     expect(texts[1]).toBe('e mais')
+    // Os marcos das duas mensagens saem antes de o repositório do teste sumir.
+    await t.idle()
   })
 
   it('bloqueado com outro terminal working no mesmo repo e com in_terminal; nome vira null sem acesso', async () => {

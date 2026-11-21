@@ -72,9 +72,13 @@ tudo, desfazer), que é do navegador em qualquer campo.
 
 **Escopos.** As regras de foco de hoje viram funções nomeadas no mesmo módulo, sem mudar
 o comportamento: *campo* (só no campo de mensagem); *página* (no campo ou fora de
-qualquer outro campo de texto, a regra `isForeignField`); *conversa* (como página, e fora
-de modal e do terminal, a regra do `shouldOpenFind`); *fora de campos* (fora de qualquer
-campo, inclusive o de mensagem); *tudo, menos o terminal* (o Zen). O que não é foco fica
+qualquer outro campo de texto, a regra `isForeignField`, e fora de modal); *conversa*
+(como página, e fora do terminal, a regra do `shouldOpenFind`); *fora de campos* (fora de
+qualquer campo, inclusive o de mensagem); *tudo, menos o terminal* (o Zen). "Fora de
+modal" vale com o foco num `.modal-overlay`, `[role="dialog"]` ou `[aria-modal="true"]`
+e também com um `.modal-overlay` ou `[aria-modal="true"]` aberto na página e o foco fora
+dele (vários modais não puxam o foco); o campo de mensagem escapa. Num modal, o atalho
+do microfone não liga, mas ainda para a gravação em curso. O que não é foco fica
 no componente: o desfazer só existe com o aviso na tela; o uso, só para administrador; o
 segundo Mod+F com a barra aberta segue para o navegador.
 

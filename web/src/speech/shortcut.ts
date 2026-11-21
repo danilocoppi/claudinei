@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { inShortcutScope, matchShortcut, shortcutCombo } from '../shortcuts/active'
 import { isComboRelease, isMac } from '../shortcuts/combo'
+import { isForeignField } from '../keyboard'
 
 /** Segurar o atalho por pelo menos isto vira "segurar para falar"; menos é um toque. */
 export const HOLD_MS = 400
@@ -43,8 +44,15 @@ export function useMicShortcut(options: MicShortcutOptions): void {
     const onKeyDown = (e: KeyboardEvent) => {
       const o = opts.current
       if (!o.enabled || !matchShortcut(e, 'chat.voice')) return
-      if (!inShortcutScope('chat.voice', e.target, o.field?.() ?? null)) return
-      // A tecla não é digitada (nem o espaço rola a página) — inclusive nas repetições.
+      const field = o.field?.() ?? null
+      // Fora do escopo (num modal, ou com um modal aberto na página) o atalho não
+      // liga o microfone, mas ainda PARA a gravação em curso: ela não fica presa
+      // porque um diálogo se abriu por cima. Num campo de texto alheio, a tecla
+      // continua do campo (Ctrl+Espaço é também a troca de idioma do teclado).
+      const soParar = o.active() && !isForeignField(e.target, field)
+      if (!inShortcutScope('chat.voice', e.target, field) && !soParar) return
+      // A tecla não é digitada (nem o espaço rola a página ou aperta o botão do
+      // diálogo em foco) — inclusive nas repetições.
       e.preventDefault()
       if (e.repeat || pressedAt !== null) return
       if (o.active()) { o.stop(); return }

@@ -22,9 +22,26 @@ export function isTerminalTarget(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest('.xterm')
 }
 
-/** Foco num modal: o `.modal-overlay` dos modais do app ou um diálogo. */
+/**
+ * Um modal aberto na página: o `.modal-overlay` dos modais do app ou um
+ * `[aria-modal="true"]` (o desfazer, o agendamento). O `[role="dialog"]` sozinho
+ * não conta: o menu de menção de arquivo é um diálogo não modal, preso ao campo,
+ * e contá-lo fecharia a página enquanto ele está aberto.
+ */
+function modalOpen(target: EventTarget | null): boolean {
+  const doc = target instanceof Node ? target.ownerDocument ?? document : document
+  return doc.querySelector('.modal-overlay, [aria-modal="true"]') !== null
+}
+
+/**
+ * Foco num modal (o `.modal-overlay` dos modais do app ou um diálogo) ou um modal
+ * aberto na página com o foco fora dele. Vários modais não puxam o foco para
+ * dentro (o ConfirmDialog, por exemplo): ele fica no botão que os abriu ou cai no
+ * body, e a tecla continua sendo do modal — o que está atrás saiu da vista.
+ */
 function inModal(target: EventTarget | null): boolean {
-  return target instanceof Element && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"]')
+  return (target instanceof Element && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"]'))
+    || modalOpen(target)
 }
 
 /** Foco num modal ou no terminal interativo (o `.xterm` ou o `[data-terminal]` que o envolve). */
@@ -39,8 +56,9 @@ function isChatInput(target: EventTarget | null, chatInput: HTMLElement | null):
 
 /**
  * Campo de mensagem ou fora de qualquer outro campo de texto e de modal. Com o
- * foco num diálogo (inclusive num botão dele), a tecla é do diálogo: o enviar e
- * o microfone do chat não agem lá. O terminal fora de campo continua valendo.
+ * foco num diálogo (inclusive num botão dele), ou com um modal aberto na página,
+ * a tecla é do modal: o enviar e o microfone do chat não agem. O terminal fora de
+ * campo continua valendo.
  */
 function inPage(target: EventTarget | null, chatInput: HTMLElement | null): boolean {
   return isChatInput(target, chatInput) || (!isForeignField(target, chatInput) && !inModal(target))

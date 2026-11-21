@@ -10,6 +10,7 @@ vi.mock('../api', async (importOriginal) => ({
 
 import { ChatInput } from '../components/ChatInput'
 import { MicButton, type MicDeps } from '../components/MicButton'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import { DEFAULT_APPEARANCE } from '../appearance'
@@ -126,20 +127,56 @@ describe('enviar, fila e guardar pelo registro', () => {
     expect(enviadas).toEqual([])
   })
 
-  it('o enviar de escopo page não age com o foco num diálogo; fora dele, envia', () => {
-    render(
+  it('o enviar de escopo page não age com o foco num diálogo; fechado o diálogo, envia', () => {
+    const tela = (dialogo: boolean) => (
       <WsContext.Provider value={ws}>
         <ChatInput localId="idle" disabled={false} />
-        <div role="dialog" aria-modal="true"><button type="button">no diálogo</button></div>
-      </WsContext.Provider>,
+        {dialogo && <div role="dialog" aria-modal="true"><button type="button">no diálogo</button></div>}
+      </WsContext.Provider>
     )
+    const { rerender } = render(tela(true))
     digitar('fica')
     const noDialogo = screen.getByRole('button', { name: 'no diálogo' })
     expect(tecla(noDialogo, 'Enter', 'Enter', { ctrlKey: true }), 'o atalho é do diálogo: não previne').toBe(true)
     expect(enviados()).toEqual([])
     expect(campo().value).toBe('fica')
+    rerender(tela(false))
     expect(tecla(document.body, 'Enter', 'Enter', { ctrlKey: true })).toBe(false)
     expect(enviados().map((m) => m.text)).toEqual(['fica'])
+  })
+
+  // O ConfirmDialog não puxa o foco: aberto pelo menu ⇄ (que se desmonta), o foco
+  // cai no body ou fica no botão que o abriu. A mensagem por trás não sai.
+  it('com o ConfirmDialog aberto e o foco fora dele (body ou o botão que o abriu), Ctrl+Enter não envia', () => {
+    const tela = (confirmando: boolean) => (
+      <WsContext.Provider value={ws}>
+        <button type="button">⇄</button>
+        <ChatInput localId="idle" disabled={false} />
+        {confirmando && <ConfirmDialog title="Trocar de motor?" message="A conversa passa para o Codex." onConfirm={vi.fn()} onClose={vi.fn()} />}
+      </WsContext.Provider>
+    )
+    const { rerender } = render(tela(true))
+    digitar('fica')
+    expect(tecla(document.body, 'Enter', 'Enter', { ctrlKey: true }), 'a tecla é do modal: não previne').toBe(true)
+    expect(tecla(screen.getByRole('button', { name: '⇄' }), 'Enter', 'Enter', { ctrlKey: true })).toBe(true)
+    expect(enviados()).toEqual([])
+    expect(campo().value).toBe('fica')
+    // Fechada a confirmação, volta a enviar de fora do campo.
+    rerender(tela(false))
+    expect(tecla(document.body, 'Enter', 'Enter', { ctrlKey: true })).toBe(false)
+    expect(enviados().map((m) => m.text)).toEqual(['fica'])
+  })
+
+  it('um role="dialog" não modal na página (o menu de menção de arquivo) não impede o enviar de fora dele', () => {
+    render(
+      <WsContext.Provider value={ws}>
+        <ChatInput localId="idle" disabled={false} />
+        <div className="file-mention" role="dialog" aria-label="Arquivos"><button type="button">a.ts</button></div>
+      </WsContext.Provider>,
+    )
+    digitar('vai')
+    expect(tecla(document.body, 'Enter', 'Enter', { ctrlKey: true })).toBe(false)
+    expect(enviados().map((m) => m.text)).toEqual(['vai'])
   })
 
   it('no Mac, ⌘Enter envia de fora do campo e Control+Enter não', () => {

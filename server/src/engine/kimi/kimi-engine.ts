@@ -4,7 +4,7 @@ import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, A
 import { KimiSession } from './kimi-session.js'
 import { buildTerminalArgs } from './kimi-args.js'
 import { ensureKimiHome, userKimiHome } from './kimi-home.js'
-import { latestSessionId, readHistory, readHistoryPage } from './kimi-history.js'
+import { latestSessionId, readHistory, readHistoryPage, sessionDirOf } from './kimi-history.js'
 import type { HistoryPage, HistoryPageOptions } from '../../history-page.js'
 
 function bin(): string { return process.env.CLAUDINEI_KIMI_BIN ?? 'kimi' }
@@ -45,6 +45,11 @@ export const kimiEngine: Engine = {
     return latestSessionId(projectPath, exclude)
   },
 
+  transcriptRef(projectPath: string, id: string): string | null {
+    const dir = sessionDirOf(projectPath, id)
+    return dir ? join(dir, 'agents', 'main', 'wire.jsonl') : null
+  },
+
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {
     // O terminal PRECISA do mesmo data root das sessões do chat (é onde vive a
     // conversa que o -r retoma e o mcp.json com o hermes deste projeto).
@@ -65,6 +70,7 @@ export const kimiEngine: Engine = {
       icon: '🌙',
       slashCommands: [],
       installHint: 'npm install -g @moonshot-ai/kimi-code',
+      fork: 'seed',      // sem cópia nativa: o Claudinei monta o pacote com o histórico
     }
   },
 }

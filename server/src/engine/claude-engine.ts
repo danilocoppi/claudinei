@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ClaudeSession, type PermissionMode } from '../claude/session.js'
-import { latestTranscriptId, readTranscript, readTranscriptPage, transcriptExists } from '../history.js'
+import { latestTranscriptId, readTranscript, readTranscriptPage, transcriptExists, transcriptPath } from '../history.js'
 import type { HistoryPage, HistoryPageOptions } from '../history-page.js'
 import type { Engine, EngineSession, EngineSessionOptions, EngineCapabilities, AgentEvent } from './types.js'
 
@@ -22,6 +22,7 @@ const CAPABILITIES: EngineCapabilities = {
   slashCommands: [],
   installHint: 'npm install -g @anthropic-ai/claude-code',
   midTurnInput: true, // Enter no meio do turno entra no turno atual
+  fork: 'native',
 }
 
 export const claudeEngine: Engine = {
@@ -60,6 +61,10 @@ export const claudeEngine: Engine = {
 
   conversationExists(projectPath: string, id: string): boolean {
     return transcriptExists(claudeConfigDir(), projectPath, id)
+  },
+
+  transcriptRef(projectPath: string, id: string): string | null {
+    return transcriptPath(claudeConfigDir(), projectPath, id)
   },
 
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {

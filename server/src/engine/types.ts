@@ -11,6 +11,17 @@ export type EngineId = string
 /** Evento normalizado de agente. Hoje idêntico ao shape do Claude; o Codex normaliza para cá (SP-B). */
 export type AgentEvent = ClaudeEvent
 
+/** Origem de uma conversa copiada (ramificar a conversa). */
+export interface ForkFrom {
+  sourceId: string
+  /** Claude: `uuid` da entrada do transcript (inclusivo). Codex: `lastTurnId`. Ausente = a conversa toda. */
+  cut?: string
+  /** OpenCode: pacote a juntar à 1ª mensagem quando a cópia nativa não vale mais. */
+  seed?: string
+  /** OpenCode: a cópia nativa ainda vale (o original não andou)? Ausente = vale. */
+  nativeOk?: () => Promise<boolean>
+}
+
 /** Opções genéricas para criar uma sessão de qualquer engine. */
 export interface EngineSessionOptions {
   projectPath: string
@@ -24,6 +35,16 @@ export interface EngineSessionOptions {
   bin?: string
   /** Somente testes: substitui TODOS os args do processo (aponta para o fake). */
   extraArgsOverride?: string[]
+  /** Abre a sessão como cópia de outra conversa (ramo ou conversa lateral). */
+  forkFrom?: ForkFrom
+  /** Sessão só de leitura (conversa lateral). */
+  readOnly?: boolean
+  /** Sem rastro no disco (Claude: `--no-session-persistence`; Codex: fork `ephemeral`). */
+  ephemeral?: boolean
+  /** Id da conversa escolhido pelo Claudinei (Claude: `--session-id`). */
+  sessionId?: string
+  /** Só o Kimi: data root próprio, no lugar do derivado da pasta do projeto. */
+  dataRoot?: string
 }
 
 /** Uma sessão viva. EventEmitter: o manager assina 'status' e 'event' e chama start(). */
@@ -89,6 +110,11 @@ export interface EngineCapabilities extends ModelCatalog {
    * "enviar agora" interrompe o turno para mandar.
    */
   midTurnInput?: boolean
+  /**
+   * Como a engine copia uma conversa: `'native'` (a CLI copia) ou `'seed'` (o
+   * Claudinei monta um pacote com o histórico). Ausente = não copia.
+   */
+  fork?: 'native' | 'seed'
 }
 
 /** Uma engine (registrada uma vez). */
@@ -131,6 +157,11 @@ export interface Engine {
    * de `--resume`. Ver SessionManager.resolveResume.
    */
   conversationExists?(projectPath: string, id: string): boolean
+  /**
+   * Onde está a conversa no storage da engine (caminho do arquivo, ou o comando
+   * que a exporta), para o operador conferir. null = não achou.
+   */
+  transcriptRef?(projectPath: string, id: string): string | null
   /**
    * Comando do terminal interativo. resumeSessionId ausente/null → sessão NOVA (fresh), sem retomar.
    * `env` (opcional) é MESCLADO ao ambiente do PTY — o Kimi precisa disso para abrir

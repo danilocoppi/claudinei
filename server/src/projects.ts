@@ -20,6 +20,10 @@ export interface Project {
   sortOrder: number
   /** Motores do terminal, em ordem canônica (terminal-engines.ts). */
   engines: string[]
+  /** Ramo: id do terminal de onde a conversa foi copiada (null = não é ramo, ou o original foi apagado). */
+  forkedFrom: number | null
+  /** Ramo: momento da última mensagem copiada do original. */
+  forkedCutAt: string | null
 }
 
 export type ProjectsService = ReturnType<typeof createProjectsService>
@@ -28,6 +32,7 @@ export function createProjectsService(db: Db) {
   const rowToProject = (r: any): Project => ({
     id: r.id, name: r.name, path: r.path, color: r.color, icon: r.icon, favorite: !!r.favorite, headsUp: r.heads_up === undefined ? true : !!r.heads_up, groupId: r.group_id ?? null, sectorId: r.sector_id ?? null, sortOrder: r.sort_order ?? 0,
     engines: parseEngines(r.engines) ?? ['claude'],
+    forkedFrom: r.forked_from ?? null, forkedCutAt: r.forked_cut_at ?? null,
   })
 
   return {

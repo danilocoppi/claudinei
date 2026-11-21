@@ -606,6 +606,21 @@ describe('refs ocultas', () => {
     expect(r.run('rev-parse', s1.ref).trim()).toBe(head)
   })
 
+  it('ref que falha por outro motivo que "já existe" não é repetida em outro n: o erro do git sobe', async () => {
+    const r = repo({ 'a.txt': 'a\n' })
+    const repoInfo = await info(r.dir)
+    const head = r.run('rev-parse', 'HEAD').trim()
+    // Conflito pasta/arquivo: com refs/claudinei/<chave>/3/x, a ref 3 não pode ser criada.
+    r.run('update-ref', `${refName(repoInfo.key, 3)}/x`, head)
+    const err = await takeSnapshot(repoInfo, 3).then(() => null, (e: unknown) => e as Error)
+    expect(err).toBeInstanceOf(Error)
+    expect(err!.message).toContain("cannot create 'refs/claudinei/")
+    expect(err!.message).not.toContain('já existem')
+    // Nenhuma tentativa em outro n.
+    const refs = r.run('for-each-ref', '--format=%(refname)', 'refs/claudinei/').trim().split('\n').filter(Boolean)
+    expect(refs).toEqual([`${refName(repoInfo.key, 3)}/x`])
+  })
+
   it('deleteRefs recusa ref fora de refs/claudinei/', async () => {
     const r = repo({ 'a.txt': 'a\n' })
     const repoInfo = await info(r.dir)
@@ -682,5 +697,63 @@ describe('takeSnapshot: soltos que mudam', () => {
     rmSync(join(r.dir, 'some.txt'))
     const s2 = await takeSnapshot(repoInfo, 2)
     expect(names(r.dir, s2.commit)).toEqual(['README.md', 'vazio.txt'])
+  })
+})
+
+/** O git daqui cria repositório sha256? (Sem isso, os testes abaixo são pulados.) */
+function sha256Supported(): boolean {
+  const d = makeTempDir()
+  try {
+    runGit(d, 'init', '-q', '--object-format=sha256')
+    return true
+  } catch {
+    return false
+  } finally {
+    rmSync(d, { recursive: true, force: true })
+  }
+}
+
+describe.skipIf(!sha256Supported())('repositório sha256', () => {
+  function sha256Repo() {
+    const r = emptyRepo()
+    rmSync(join(r.dir, '.git'), { recursive: true, force: true })
+    r.run('init', '-q', '-b', 'main', '--object-format=sha256')
+    r.run('config', 'user.name', 'Teste')
+    r.run('config', 'user.email', 'teste@localhost')
+    r.run('config', 'commit.gpgsign', 'false')
+    r.write('a.txt', 'a\n')
+    r.run('add', 'a.txt')
+    r.run('commit', '-q', '-m', 'inicial')
+    return r
+  }
+
+  it('marco funciona (o "valor antigo" do update-ref não pode ser 40 zeros) e ref existente pula para o n seguinte', async () => {
+    const r = sha256Repo()
+    const repoInfo = await info(r.dir)
+    r.write('b.txt', 'b\n')
+    const s1 = await takeSnapshot(repoInfo, 1)
+    expect(s1.n).toBe(1)
+    expect(s1.commit).toMatch(/^[0-9a-f]{64}$/)
+    expect(r.run('rev-parse', s1.ref).trim()).toBe(s1.commit)
+    expect(names(r.dir, s1.commit)).toEqual(['a.txt', 'b.txt'])
+    // Ref já existente no n pedido (outra instância): o seguinte livre.
+    const head = r.run('rev-parse', 'HEAD').trim()
+    r.run('update-ref', refName(repoInfo.key, 2), head)
+    const s2 = await takeSnapshot(repoInfo, 2)
+    expect(s2.n).toBe(3)
+    expect(r.run('rev-parse', refName(repoInfo.key, 2)).trim()).toBe(head)
+  })
+
+  it('deleteRefs confere o valor antigo de 64 hexadecimais: apaga a ref deste commit e deixa a de outra instância', async () => {
+    const r = sha256Repo()
+    const repoInfo = await info(r.dir)
+    const s1 = await takeSnapshot(repoInfo, 1)
+    const s2 = await takeSnapshot(repoInfo, 2)
+    const head = r.run('rev-parse', 'HEAD').trim()
+    r.run('update-ref', s1.ref, head)
+    await deleteRefs(repoInfo, [{ ref: s1.ref, commit: s1.commit }, { ref: s2.ref, commit: s2.commit }])
+    const refs = r.run('for-each-ref', '--format=%(refname)', 'refs/claudinei/').trim().split('\n').filter(Boolean)
+    expect(refs).toEqual([s1.ref])
+    expect(r.run('rev-parse', s1.ref).trim()).toBe(head)
   })
 })

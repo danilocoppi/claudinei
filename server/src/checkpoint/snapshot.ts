@@ -1,6 +1,6 @@
 import { copyFile, lstat, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { git, splitZ } from './git.js'
+import { GitError, git, splitZ } from './git.js'
 import type { RepoInfo } from './repo.js'
 
 /**
@@ -54,8 +54,12 @@ const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null']
 // dividido, preso a um sharedindex.* que o git do operador expira.
 const OWN_INDEX_CONFIG = [...NO_HOOKS, '-c', 'core.splitIndex=false']
 const LSTAT_BATCH = 256
-// O "valor antigo" zero do update-ref: a ref não pode existir (só-criação).
-const ZERO_OID = '0000000000000000000000000000000000000000'
+// O "valor antigo" vazio do update-ref: a ref não pode existir (só-criação).
+// Vazio, e não 40 zeros, porque num repositório sha256 o git recusa os 40
+// zeros ("not a valid old SHA1") e todo marco falharia.
+const CREATE_ONLY = ''
+// Como o git avisa que a ref do só-criação já existe (solta ou empacotada).
+const REF_EXISTS = 'reference already exists'
 // Tentativas de achar um `n` livre quando outra instância usa o mesmo repositório.
 const REF_TRIES = 5
 
@@ -305,7 +309,8 @@ export async function takeSnapshot(
  * Grava o commit do retrato na ref `n`, só se ela ainda não existe: duas
  * instâncias do Claudinei no mesmo repositório têm cada uma o seu banco e o
  * seu `n`, e nunca sobrescrevem a ref uma da outra. Ref já existente: passa
- * para depois da maior ref do repositório e tenta de novo.
+ * para depois da maior ref do repositório e tenta de novo. Qualquer outra falha
+ * sobe na hora, com a mensagem do git.
  */
 async function createRef(repo: RepoInfo, n: number, tree: string): Promise<{ n: number; ref: string; commit: string }> {
   let at = n
@@ -313,8 +318,10 @@ async function createRef(repo: RepoInfo, n: number, tree: string): Promise<{ n: 
     const commit = (await git(repo.top, ['commit-tree', '--no-gpg-sign', '-m', `claudinei ${at}`, tree]))
       .stdout.toString('utf8').trim()
     const ref = refName(repo.key, at)
-    const res = await git(repo.top, [...NO_HOOKS, '-c', 'core.logAllRefUpdates=false', 'update-ref', ref, commit, ZERO_OID], { allowFail: true })
+    const args = [...NO_HOOKS, '-c', 'core.logAllRefUpdates=false', 'update-ref', ref, commit, CREATE_ONLY]
+    const res = await git(repo.top, args, { allowFail: true })
     if (res.code === 0) return { n: at, ref, commit }
+    if (!res.stderr.includes(REF_EXISTS)) throw new GitError(args, res.code, res.stderr)
     at = Math.max(at, await maxRefN(repo)) + 1
   }
   throw new Error(`as refs ${REF_PREFIX}${repo.key}/ já existem até o ${at - 1} (outra instância do Claudinei neste repositório?)`)

@@ -537,6 +537,7 @@ export const ptBR: typeof en = {
   },
   zen: { exit: 'Sair do Zen', hint: 'Modo Zen: só a conversa e o campo. Alt+Z liga e desliga.' },
   shortcuts: {
+    keySpace: 'Espaço',
     labels: {
       send: 'Enviar', queue: 'Pôr na fila', voice: 'Microfone', stash: 'Guardar rascunho',
       find: 'Buscar na conversa', zen: 'Modo Zen', usage: 'Página de uso', undo: 'Desfazer da triagem',

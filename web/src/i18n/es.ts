@@ -536,6 +536,7 @@ export const es: typeof en = {
   },
   zen: { exit: 'Salir del modo Zen', hint: 'Modo Zen: solo la conversación y el campo. Alt+Z lo activa y desactiva.' },
   shortcuts: {
+    keySpace: 'Espacio',
     labels: {
       send: 'Enviar', queue: 'Poner en la cola', voice: 'Micrófono', stash: 'Guardar borrador',
       find: 'Buscar en la conversación', zen: 'Modo Zen', usage: 'Página de uso', undo: 'Deshacer de la clasificación',

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { shouldOpenFind } from '../keyboard'
+import { inScope, shouldOpenFind } from '../keyboard'
+import type { ShortcutScope } from '../shortcuts/registry'
 
 /**
  * Ctrl+F (⌘+F) abre a busca do Claudinei com o foco no chat, no campo de
@@ -67,5 +68,48 @@ describe('shouldOpenFind', () => {
   it('sem o campo do chat montado (terminal parado), o textarea qualquer continua sendo de outro', () => {
     const box = montar('<textarea id="t"></textarea>')
     expect(shouldOpenFind(tecla(box.querySelector('#t')), null, false)).toBe(false)
+  })
+})
+
+describe('inScope', () => {
+  // Onde cada escopo escuta, alvo a alvo. `corpo` é o foco em nada (body).
+  const ESPERADO: Record<ShortcutScope, Record<string, boolean>> = {
+    field: { campo: true, 'no-chat': false, 'busca-lateral': false, 'no-modal': false, editor: false, 'xterm-entrada': false, corpo: false },
+    page: { campo: true, 'no-chat': true, 'busca-lateral': false, 'no-modal': true, editor: false, 'xterm-entrada': false, corpo: true },
+    conversation: { campo: true, 'no-chat': true, 'busca-lateral': false, 'no-modal': false, editor: false, 'xterm-entrada': false, corpo: true },
+    outsideFields: { campo: false, 'no-chat': true, 'busca-lateral': false, 'no-modal': true, editor: false, 'xterm-entrada': false, corpo: true },
+    outsideFieldsAndModals: { campo: false, 'no-chat': true, 'busca-lateral': false, 'no-modal': false, editor: false, 'xterm-entrada': false, corpo: true },
+    allButTerminal: { campo: true, 'no-chat': true, 'busca-lateral': true, 'no-modal': true, editor: true, 'xterm-entrada': false, corpo: true },
+  }
+
+  it('cada escopo nos alvos de sempre', () => {
+    const box = montar(`
+      <div class="chat-main">
+        <div class="chat-scroll"><button id="no-chat">copiar</button></div>
+        <textarea id="campo" class="chat-compose__area"></textarea>
+      </div>
+      <aside><input id="busca-lateral" type="search" /></aside>
+      <div role="dialog"><button id="no-modal">ok</button></div>
+      <div class="cm-editor"><div id="editor" contenteditable="true">código</div></div>
+      <div class="xterm"><textarea id="xterm-entrada" class="xterm-helper-textarea"></textarea></div>
+    `)
+    const campo = box.querySelector<HTMLElement>('#campo')!
+    const alvo = (nome: string): EventTarget => (nome === 'corpo' ? document.body : box.querySelector(`#${nome}`)!)
+    const obtido: Record<string, Record<string, boolean>> = {}
+    for (const [scope, linha] of Object.entries(ESPERADO)) {
+      obtido[scope] = Object.fromEntries(Object.keys(linha).map((nome) => [nome, inScope(scope as ShortcutScope, alvo(nome), campo)]))
+    }
+    expect(obtido).toEqual(ESPERADO)
+  })
+
+  it('sem o campo do chat montado, nada é o campo', () => {
+    const box = montar('<textarea id="t"></textarea>')
+    const t = box.querySelector('#t')
+    expect(inScope('field', t, null)).toBe(false)
+    expect(inScope('field', document.body, null)).toBe(false)
+    expect(inScope('field', null, null)).toBe(false)
+    expect(inScope('page', t, null)).toBe(false)
+    expect(inScope('conversation', t, null)).toBe(false)
+    expect(inScope('page', null, null)).toBe(true)
   })
 })

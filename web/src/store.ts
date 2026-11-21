@@ -11,6 +11,9 @@ import { notifyQuestion, notifySessionChange } from './notifications'
 import { BUILTIN_FALLBACK, CLAUDINEI_COMMANDS } from './slash'
 import { CLAUDE_ICON, OPENAI_ICON } from './components/EngineIcon'
 import { applyAppearance, cacheAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance'
+import { isMac } from './shortcuts/combo'
+import { resolveBindings, type Overrides, type ResolvedBindings } from './shortcuts/resolve'
+import { cacheKeybindings, readCachedKeybindings } from './shortcuts/cache'
 import { localizeServerError } from './serverErrors'
 import { headsUpKey, nextHeadsUps, type HeadsUpCard } from './headsUp'
 import type { HeadsUpNode, OperatorQueue, Progress, TerminalState, TriageItem } from './types'
@@ -243,6 +246,10 @@ interface State {
   setSchedules(schedules: Schedule[]): void
   /** Aplica no <html>, guarda no cache de pintura e reflete no estado. */
   applyAppearance(appearance: Appearance): void
+  /** Atalhos: as escolhas guardadas e o que vale neste navegador (sistema e administrador de agora). */
+  keybindings: { overrides: Overrides } & ResolvedBindings
+  /** Troca as escolhas: resolve com o sistema e o administrador atuais e grava o cache. */
+  setKeybindings(overrides: Overrides): void
   openSchedules(): void
   setSlashCommands(cmds: string[]): void
   setEngines(engines: EngineMeta[]): void
@@ -383,17 +390,29 @@ interface State {
   clearInstallPrompt(): void
 }
 
+/**
+ * Sem `me` vale como administrador, como no App (a instalação sem login e a
+ * carga antes do `/api/auth/me`): só quem é marcado como não administrador perde o uso.
+ */
+const isAdminMe = (me: import('./api').Me | null): boolean => !me || me.isAdmin !== false
+
+/** As escolhas junto com o que vale delas agora (o sistema é lido a cada chamada). */
+const bindingsFor = (overrides: Overrides, me: import('./api').Me | null): State['keybindings'] =>
+  ({ overrides, ...resolveBindings(overrides, { mac: isMac(), admin: isAdminMe(me) }) })
+
 export const useStore = create<State>((set, get) => ({
   authStatus: 'loading',
   me: null,
   setAuth: (requested, me) => set((s) => {
     const identity = me === undefined ? s.me : me
     const authStatus = requested === 'ready' && identity?.access?.allowed === false ? 'locked' : requested
-    if (authStatus !== 'locked') return { authStatus, me: identity }
+    // O atalho do uso depende de quem entrou: resolve de novo só quando isso muda.
+    const keybindings = isAdminMe(identity) === isAdminMe(s.me) ? s.keybindings : bindingsFor(s.keybindings.overrides, identity)
+    if (authStatus !== 'locked') return { authStatus, me: identity, keybindings }
     // Unmount PTY clients without stopping their server processes. Clearing the
     // saved windows also prevents an old ActionRun from launching again later.
     saveRuns([])
-    return { authStatus, me: identity, view: 'dashboard', activeLocalId: undefined,
+    return { authStatus, me: identity, keybindings, view: 'dashboard', activeLocalId: undefined,
       projects: [], sessions: {}, chat: {}, streaming: {}, unread: {}, historyLoadedFor: {}, historyCursor: {}, orphanResults: {}, folds: {}, find: null,
       actionRuns: [], fileViewer: null, fileEditDirty: false, fileMenu: null, inlineFile: null, externalLink: null, headsUps: {}, dismissedHeadsUps: {}, progress: {}, terminalStates: {}, queues: {}, triage: {}, undo: null, triageError: null,
       board: [], tasks: [], schedules: [], editRequest: undefined }
@@ -418,6 +437,8 @@ export const useStore = create<State>((set, get) => ({
   sectors: [],
   schedules: [],
   appearance: DEFAULT_APPEARANCE,
+  // Do cache, para valerem antes do primeiro fetch; sem `me` ainda, como administrador.
+  keybindings: bindingsFor(readCachedKeybindings(), null),
   view: 'dashboard',
   board: [],
   tasks: [],
@@ -444,6 +465,11 @@ export const useStore = create<State>((set, get) => ({
     const applied = applyAppearance(appearance)
     cacheAppearance(applied)
     set({ appearance: applied })
+  },
+
+  setKeybindings: (overrides) => {
+    cacheKeybindings(overrides)
+    set((s) => ({ keybindings: bindingsFor(overrides, s.me) }))
   },
 
   // Mantém o activeLocalId: a tela de Agendas é do terminal aberto, e voltar ao

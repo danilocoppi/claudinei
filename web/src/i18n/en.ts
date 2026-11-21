@@ -534,6 +534,7 @@ export const en = {
   },
   zen: { exit: 'Exit Zen', hint: 'Zen mode: just the conversation and the input. Alt+Z toggles it.' },
   shortcuts: {
+    keySpace: 'Space',
     labels: {
       send: 'Send', queue: 'Add to queue', voice: 'Microphone', stash: 'Save draft',
       find: 'Search the conversation', zen: 'Zen mode', usage: 'Usage page', undo: 'Undo triage',

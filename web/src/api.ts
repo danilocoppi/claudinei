@@ -466,11 +466,14 @@ export const fetchRunContent = (id: number, seq: number) =>
 export const previewCadence = (cadence: Cadence) =>
   req<{ next: string[] }>('/api/schedules/preview', { method: 'POST', body: JSON.stringify({ cadence }) })
 
-// ---- Aparência (por usuário, no servidor) ----
+// ---- Preferências (por usuário, no servidor): aparência e atalhos ----
 import type { Appearance } from './appearance'
-export const fetchAppearance = () => req<{ appearance: Appearance }>('/api/prefs')
-export const saveAppearance = (appearance: Appearance) =>
-  req<{ appearance: Appearance }>('/api/prefs', { method: 'PUT', body: JSON.stringify({ appearance }) })
+import type { Overrides } from './shortcuts/resolve'
+export interface PrefsResponse { appearance: Appearance; keybindings: Overrides }
+export const fetchPrefs = () => req<PrefsResponse>('/api/prefs')
+/** Só o que vier muda; o servidor devolve os dois, saneados. */
+export const savePrefs = (patch: { appearance?: Appearance; keybindings?: Overrides }) =>
+  req<PrefsResponse>('/api/prefs', { method: 'PUT', body: JSON.stringify(patch) })
 
 // ---- Apps do desktop (só quando o servidor é a própria máquina) ----
 export type LocalApp = 'folder' | 'vscode' | 'terminal'

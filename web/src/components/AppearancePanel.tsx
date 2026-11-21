@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { chooseTerminal, fetchTerminals, saveAppearance } from '../api'
+import { chooseTerminal, fetchTerminals, savePrefs } from '../api'
 import { useStore } from '../store'
 import { GearIcon } from './MenuIcons'
 import { DefaultFolderField } from './DefaultFolderField'
@@ -84,7 +84,7 @@ export function AppearancePanel({ onClose }: { onClose: () => void }) {
     setSaving(true)
     setError('')
     try {
-      const { appearance } = await saveAppearance(draft)
+      const { appearance } = await savePrefs({ appearance: draft })
       apply(appearance)   // o servidor devolve o objeto saneado; é ele que vale
       onClose()
     } catch (err) {

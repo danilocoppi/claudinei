@@ -1,3 +1,5 @@
+import type { ShortcutScope } from './shortcuts/registry'
+
 /**
  * Um campo de digitação que não é o do chat. Com o foco nele, os atalhos globais
  * do chat (Ctrl+Espaço, Ctrl+Enter) são desse campo — a busca da lateral, um
@@ -23,6 +25,47 @@ function inModalOrTerminal(target: EventTarget | null): boolean {
     && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"], .xterm, [data-terminal]')
 }
 
+/** Foco num modal: o `.modal-overlay` dos modais do app ou um diálogo. */
+function inModal(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest('.modal-overlay, [role="dialog"], [aria-modal="true"]')
+}
+
+/** O foco está no campo de mensagem (sem campo montado, nunca). */
+function isChatInput(target: EventTarget | null, chatInput: HTMLElement | null): boolean {
+  return chatInput !== null && target === chatInput
+}
+
+/** Campo de mensagem ou fora de qualquer outro campo de texto. */
+function inPage(target: EventTarget | null, chatInput: HTMLElement | null): boolean {
+  return !isForeignField(target, chatInput)
+}
+
+/** Como a página, e fora de modal e do terminal: a regra de sempre do Ctrl+F. */
+function inConversation(target: EventTarget | null, chatInput: HTMLElement | null): boolean {
+  return isChatInput(target, chatInput) || (!isForeignField(target, chatInput) && !inModalOrTerminal(target))
+}
+
+/** Fora de qualquer campo de texto, inclusive o de mensagem. */
+function outsideFields(target: EventTarget | null): boolean {
+  return !isForeignField(target, null)
+}
+
+/**
+ * O foco está onde o atalho do escopo escuta (ver `ShortcutScope` no registro).
+ * Só o foco: o que depende do estado (o aviso do desfazer na tela, o uso só para
+ * administrador, a barra de busca já aberta) fica com quem escuta.
+ */
+export function inScope(scope: ShortcutScope, target: EventTarget | null, chatInput: HTMLElement | null): boolean {
+  switch (scope) {
+    case 'field': return isChatInput(target, chatInput)
+    case 'page': return inPage(target, chatInput)
+    case 'conversation': return inConversation(target, chatInput)
+    case 'outsideFields': return outsideFields(target)
+    case 'outsideFieldsAndModals': return outsideFields(target) && !inModal(target)
+    case 'allButTerminal': return !isTerminalTarget(target)
+  }
+}
+
 /**
  * Ctrl+F (⌘+F) abre a busca do Claudinei? Só com o foco no chat, no campo de
  * mensagem (`chatInput`: o campo faz parte do chat, exceção ao isForeignField)
@@ -37,6 +80,5 @@ export function shouldOpenFind(
 ): boolean {
   if (e.key.toLowerCase() !== 'f' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return false
   if (barOpen) return false
-  if (chatInput && e.target === chatInput) return true
-  return !isForeignField(e.target, chatInput) && !inModalOrTerminal(e.target)
+  return inScope('conversation', e.target, chatInput)
 }

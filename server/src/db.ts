@@ -286,6 +286,9 @@ export function openDb(path: string): Db {
     appearance TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`)
+  // Atalhos de teclado: só as diferenças do padrão, em JSON. Nula para quem nunca
+  // mexeu — que assim acompanha os padrões de versões futuras.
+  try { db.exec(`ALTER TABLE user_prefs ADD COLUMN keybindings TEXT`) } catch { /* já existe */ }
 
   // De quem é cada conversa. Existe porque as SESSÕES não servem de memória de
   // posse: a limpeza automática guarda só as 5 últimas finalizadas por projeto

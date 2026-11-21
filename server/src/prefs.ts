@@ -60,12 +60,43 @@ export function sanitizeAppearance(input: unknown): Appearance {
 }
 
 /**
- * Preferências visuais por usuário. `userId = 0` é a instalação SEM auth
+ * Atalhos de teclado de um usuário: id da ação → combinação, ou `null` para "sem
+ * atalho". Guarda só as DIFERENÇAS do padrão — quem nunca mexeu tem `{}` e acompanha
+ * os padrões de versões futuras. Os ids e os padrões moram no cliente; o servidor
+ * confere só a forma, e um id novo não exige mexer aqui.
+ */
+export type Keybindings = Record<string, string | null>
+
+export const KEYBINDING_ID = /^[a-z][a-z0-9.-]{0,40}$/
+/** Mesma gramática do cliente. Modificadores sempre na ordem Mod, Ctrl, Alt, Shift. */
+export const KEYBINDING_COMBO = /^(Mod\+)?(Ctrl\+)?(Alt\+)?(Shift\+)?([A-Z0-9]|Enter|Space|F[1-9]|F1[0-2])$/
+export const MAX_KEYBINDINGS = 64
+
+/**
+ * No molde do `sanitizeAppearance`: descarta a entrada que não passa em vez de
+ * recusar o resto, e guarda no máximo as 64 primeiras válidas. Não objeto vale `{}`.
+ */
+export function sanitizeKeybindings(input: unknown): Keybindings {
+  const out: Keybindings = {}
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return out
+  let n = 0
+  for (const [id, combo] of Object.entries(input as Record<string, unknown>)) {
+    if (n >= MAX_KEYBINDINGS) break
+    if (!KEYBINDING_ID.test(id)) continue
+    if (combo !== null && !(typeof combo === 'string' && KEYBINDING_COMBO.test(combo))) continue
+    out[id] = combo
+    n++
+  }
+  return out
+}
+
+/**
+ * Preferências por usuário (aparência e atalhos). `userId = 0` é a instalação SEM auth
  * (`authUser === undefined`: pré-setup em loopback e o app de teste) — sem essa
  * linha o recurso não existiria nessas instalações.
  */
 export function createPrefsService(db: Db) {
-  return {
+  const service = {
     get(userId: number): Appearance {
       const row = db.prepare(`SELECT appearance FROM user_prefs WHERE user_id=?`).get(userId) as any
       if (!row) return { ...DEFAULT_APPEARANCE }
@@ -78,6 +109,18 @@ export function createPrefsService(db: Db) {
       }
     },
 
+    getKeybindings(userId: number): Keybindings {
+      const row = db.prepare(`SELECT keybindings FROM user_prefs WHERE user_id=?`).get(userId) as any
+      if (!row?.keybindings) return {}
+      try {
+        return sanitizeKeybindings(JSON.parse(row.keybindings))
+      } catch {
+        // Mesmo motivo da aparência: JSON corrompido vale "nunca mexeu".
+        return {}
+      }
+    },
+
+    /** O UPSERT da aparência não toca em `keybindings`, e este não toca na aparência. */
     set(userId: number, input: unknown): Appearance {
       const appearance = sanitizeAppearance(input)
       db.prepare(`
@@ -87,10 +130,29 @@ export function createPrefsService(db: Db) {
       return appearance
     },
 
+    setKeybindings(userId: number, input: unknown): Keybindings {
+      const keybindings = sanitizeKeybindings(input)
+      // Usuário sem linha: `appearance` é NOT NULL, então a linha nasce com o padrão.
+      db.prepare(`
+        INSERT INTO user_prefs (user_id, appearance, keybindings, updated_at) VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET keybindings=excluded.keybindings, updated_at=excluded.updated_at
+      `).run(userId, JSON.stringify(DEFAULT_APPEARANCE), JSON.stringify(keybindings))
+      return keybindings
+    },
+
+    /** Grava o que veio (campo `undefined` não muda) numa transação só. */
+    update(userId: number, patch: { appearance?: unknown; keybindings?: unknown }): void {
+      db.transaction(() => {
+        if (patch.appearance !== undefined) service.set(userId, patch.appearance)
+        if (patch.keybindings !== undefined) service.setKeybindings(userId, patch.keybindings)
+      })()
+    },
+
     remove(userId: number): void {
       db.prepare(`DELETE FROM user_prefs WHERE user_id=?`).run(userId)
     },
   }
+  return service
 }
 
 export type PrefsService = ReturnType<typeof createPrefsService>

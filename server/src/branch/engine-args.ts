@@ -1,8 +1,11 @@
+import { join } from 'node:path'
 import type { ForkFrom } from '../engine/types.js'
+import { kimiHomesRoot } from '../engine/kimi/kimi-home.js'
 
 /**
- * Cópia nativa da conversa no Claude e no Codex: as flags e os params que
- * transformam o lançamento de sempre numa cópia (ramo ou conversa lateral).
+ * Cópia nativa da conversa no Claude, no Codex e no OpenCode, e o data root
+ * próprio do Kimi: as flags, os params e o caminho que transformam o
+ * lançamento de sempre numa cópia (ramo ou conversa lateral).
  * Funções puras; os ensaios com as CLIs reais (20/11/2026) fixaram os valores.
  */
 
@@ -69,4 +72,41 @@ export function codexForkParams(
     ...(o.ephemeral ? { ephemeral: true } : {}),
     sandbox: o.readOnly ? 'read-only' : base.sandbox,
   }
+}
+
+/**
+ * Ajusta os args de um turno do `opencode run` (os de `buildRunArgs`/
+ * `buildResumeArgs`, que terminam em `-- <prompt>`). Insere antes desse `--`:
+ * - `forkSourceId`: `--fork -s <origem>`, só na 1ª mensagem da cópia nativa.
+ *   O `--fork` é booleano e não aceita ponto de corte: copia a conversa toda,
+ *   e o id da cópia só sai no primeiro turno.
+ * - `readOnly`: `--agent plan` (o agente que não edita), em todo turno.
+ * Sem nenhum campo, devolve os args iguais. Não altera o array recebido.
+ */
+export function openCodeBranchArgs(args: string[], o: { forkSourceId?: string; readOnly?: boolean }): string[] {
+  const extra: string[] = []
+  if (o.forkSourceId) extra.push('--fork', '-s', o.forkSourceId)
+  if (o.readOnly) extra.push('--agent', 'plan')
+  if (!extra.length) return [...args]
+  // O separador é o `--` antes do prompt (o último argumento); procurar a partir
+  // do penúltimo evita confundir com um prompt que seja ele mesmo "--".
+  const sep = args.lastIndexOf('--', args.length - 2)
+  if (sep === -1) return [...args, ...extra]
+  return [...args.slice(0, sep), ...extra, ...args.slice(sep)]
+}
+
+/** Id de conversa lateral aceito num caminho: uuid ou `[A-Za-z0-9_-]`, sem `/` nem `..`. */
+const SIDE_ID = /^[A-Za-z0-9_-]+$/
+
+/**
+ * Data root do Kimi para a conversa lateral `sideId`: `<raiz dos homes>/side-<id>`.
+ * A limpeza da lateral apaga esse diretório inteiro, por isso o id é validado
+ * aqui: vazio, com barra, com ponto ou qualquer caractere fora de
+ * `[A-Za-z0-9_-]` lança erro em vez de montar o caminho.
+ */
+export function kimiSideHome(sideId: string): string {
+  if (typeof sideId !== 'string' || !SIDE_ID.test(sideId)) {
+    throw new Error(`id de conversa lateral inválido para o data root do Kimi: ${JSON.stringify(sideId)}`)
+  }
+  return join(kimiHomesRoot(), `side-${sideId}`)
 }

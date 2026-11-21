@@ -1,11 +1,13 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { Readable } from 'node:stream'
-import type { EngineSession, EngineSessionOptions } from '../types.js'
+import type { EngineSession, EngineSessionOptions, ForkFrom } from '../types.js'
 import type { SessionStatus } from '../../claude/session.js'
 import { userEchoEvent } from '../echo.js'
 import { buildRunArgs, buildResumeArgs, hermesConfigEnv } from './opencode-args.js'
 import { createOpenCodeTurnParser } from './opencode-parser.js'
+import { openCodeBranchArgs } from '../../branch/engine-args.js'
+import { withRequest } from '../../branch/handoff.js'
 
 // Margem sob o MAX_ARG_STRLEN do Linux (131071 bytes por argumento do argv).
 const MAX_PROMPT_BYTES = 120_000
@@ -21,6 +23,9 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
   private stderrTail: string[] = []
   private model?: string
   private effort?: string
+  // Turno da cópia esperando o `nativeOk` decidir (status já `working`, sem
+  // processo). Um interrupt/stop no meio troca/limpa o valor e o turno desiste.
+  private pendingFork?: object
 
   get lastStderr(): string { return this.stderrTail.join('').trim() }
 
@@ -54,11 +59,68 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
     // Depois da checagem de tamanho: mensagem rejeitada não pode aparecer no chat
     // como se tivesse entrado.
     if (opts?.echoToClients) this.emit('event', userEchoEvent(text))
+    // Cópia de outra conversa (ramo ou lateral): a 1ª mensagem decide como a
+    // conversa nasce. Depois dela já há sessionId e tudo segue o `-s` normal.
+    const fork = this.sessionId ? undefined : this.opts.forkFrom
+    if (fork) { this.sendFirstOfFork(fork, text); return }
+    this.spawnTurn(text)
+  }
+
+  /**
+   * 1ª mensagem da cópia: fica `working` na hora e pergunta se a cópia nativa
+   * ainda vale (o original não andou desde o ponto da cópia). Se vale, o turno
+   * roda com `--fork -s <origem>` e o id da cópia sai no init. Se não vale (ou
+   * a pergunta falhou), abre conversa nova com o pacote de contexto e o texto
+   * num turno só; sem pacote, só o texto.
+   */
+  private sendFirstOfFork(fork: ForkFrom, text: string): void {
+    const turn = {}
+    this.pendingFork = turn
+    this.setStatus('working')
+    const nativeOk = async () => { try { return (await fork.nativeOk?.()) ?? true } catch { return false } }
+    void nativeOk().then((native) => {
+      if (this.pendingFork !== turn || this.stopping) return // interrompido/parado enquanto decidia
+      this.pendingFork = undefined
+      if (native) { this.spawnTurn(text, { forkSourceId: fork.sourceId }); return }
+      const prompt = fork.seed ? withRequest(fork.seed, text) : text
+      if (Buffer.byteLength(prompt, 'utf8') > MAX_PROMPT_BYTES) {
+        // O pacote somado ao texto passou do limite do argv: mesmo tratamento da
+        // mensagem grande demais, sem spawn e com a sessão viva.
+        this.emit('event', {
+          kind: 'result' as const,
+          subtype: 'error',
+          isError: true,
+          resultText: `mensagem grande demais para o OpenCode junto do contexto trazido da conversa original (~${Math.round(MAX_PROMPT_BYTES / 1024)} KB por mensagem; o prompt vai por argv). Envie uma mensagem menor.`,
+          costUsd: 0,
+          raw: {},
+        })
+        this.setStatus('idle')
+        return
+      }
+      this.spawnTurn(prompt, { title: text })
+    }).catch((err: unknown) => {
+      // spawnTurn não deveria lançar; se lançar, a sessão não pode ficar presa em working.
+      const msg = err instanceof Error ? err.message : String(err)
+      this.stderrTail.push(msg)
+      this.emit('stderr', msg)
+      this.setStatus('dead')
+    })
+  }
+
+  /**
+   * Um turno = um processo `opencode run`. `title` (só na conversa nova) vem do
+   * texto do operador; ausente, do próprio prompt. `forkSourceId` faz deste o
+   * turno que copia a conversa de origem.
+   */
+  private spawnTurn(text: string, o: { title?: string; forkSourceId?: string } = {}): void {
     const bin = this.opts.binOverride ?? this.opts.bin ?? process.env.CLAUDINEI_OPENCODE_BIN ?? 'opencode'
     const turnOpts = { model: this.model, effort: this.effort, prompt: text }
-    const base = this.sessionId
-      ? buildResumeArgs(this.sessionId, turnOpts)
-      : buildRunArgs({ ...turnOpts, title: text.slice(0, 40) })
+    const base = openCodeBranchArgs(
+      this.sessionId
+        ? buildResumeArgs(this.sessionId, turnOpts)
+        : buildRunArgs({ ...turnOpts, title: (o.title ?? text).slice(0, 40) }),
+      { forkSourceId: o.forkSourceId, readOnly: this.opts.readOnly },
+    )
     const args = this.opts.extraArgsOverride ? [...this.opts.extraArgsOverride, ...base] : base
     // O MCP hermes (colaboração entre agentes) é injetado via OPENCODE_CONFIG_CONTENT
     // no env — o `opencode run` não tem flag inline de MCP; a env é MESCLADA com a
@@ -129,6 +191,12 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
   markRead(): void { if (this.status === 'needs_attention') this.setStatus('idle') }
 
   interrupt(): Promise<void> {
+    if (this.status === 'working' && !this.proc && this.pendingFork) {
+      // Ainda decidindo a cópia: nada rodou, a próxima mensagem decide de novo.
+      this.pendingFork = undefined
+      this.setStatus('idle')
+      return Promise.resolve()
+    }
     if (this.status === 'working' && this.proc) {
       this.interrupting = true
       const p = this.proc

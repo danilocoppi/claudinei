@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { useState } from 'react'
 
 vi.mock('../speech/recorder', () => ({ micSupported: () => false, startMicCapture: vi.fn() }))
 
@@ -288,13 +289,20 @@ describe('triagem pelo menu do cartão', () => {
     expect(useStore.getState().triage[1]).toEqual(item(1))
   })
 
-  it('Ctrl+Z com foco num botão de modal não desfaz a triagem atrás dele', async () => {
-    renderApp(
-      <>
-        <ConfirmDialog title="Apagar?" message="Certeza?" confirmLabel="Apagar" onConfirm={() => {}} onClose={() => {}} />
-        <div role="dialog" aria-modal="true"><button type="button">Salvar</button></div>
-      </>,
-    )
+  it('Ctrl+Z com foco num botão de modal, ou com um modal aberto e o foco no body, não desfaz a triagem atrás dele', async () => {
+    let fecharModais = () => {}
+    function Modais() {
+      const [abertos, setAbertos] = useState(true)
+      fecharModais = () => setAbertos(false)
+      if (!abertos) return null
+      return (
+        <>
+          <ConfirmDialog title="Apagar?" message="Certeza?" confirmLabel="Apagar" onConfirm={() => {}} onClose={() => {}} />
+          <div role="dialog" aria-modal="true"><button type="button">Salvar</button></div>
+        </>
+      )
+    }
+    renderApp(<Modais />)
     fireEvent.click(openMenu('Alpha').getByText('Assentar'))
     await settle()
     for (const btn of [screen.getByRole('button', { name: 'Apagar' }), screen.getByRole('button', { name: 'Salvar' })]) {
@@ -302,9 +310,13 @@ describe('triagem pelo menu do cartão', () => {
       expect(ctrlZ(btn), btn.textContent ?? '').toBe(true)
       await settle()
     }
+    // Vários modais não puxam o foco: com eles abertos, o body também é deles.
+    expect(ctrlZ(document.body)).toBe(true)
+    await settle()
     expect(patches).toHaveLength(1)
     expect(useStore.getState().triage[1]).toEqual(item(1, { settled: true }))
-    // Fora do modal, o mesmo atalho desfaz.
+    // Fechados os modais, o mesmo atalho desfaz.
+    act(() => fecharModais())
     ctrlZ(document.body)
     await settle()
     expect(useStore.getState().triage[1]).toEqual(item(1))

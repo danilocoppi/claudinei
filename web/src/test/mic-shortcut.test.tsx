@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { useRef } from 'react'
 import { MicButton, type MicDeps } from '../components/MicButton'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 /**
  * Ctrl+Espaço aciona o 🎤 do chat. Toque rápido liga e o próximo atalho para;
@@ -113,6 +114,101 @@ describe('Ctrl+Espaço no microfone', () => {
     render(<Chat deps={deps} onText={vi.fn()} />)
     expect(down(screen.getByLabelText('busca da lateral'))).toBe(true)
     expect(deps.startMicCapture).not.toHaveBeenCalled()
+  })
+
+  // Num modal o atalho não liga, mas consome a tecla: Ctrl+Espaço num botão em
+  // foco gera clique, e quem quer o microfone não pode confirmar o diálogo.
+  it('com o foco num diálogo, não grava e consome a tecla (não aperta o botão em foco)', () => {
+    const { deps } = makeDeps()
+    render(
+      <>
+        <Chat deps={deps} onText={vi.fn()} />
+        <div role="dialog" aria-modal="true"><button type="button">no diálogo</button></div>
+      </>,
+    )
+    expect(down(screen.getByRole('button', { name: 'no diálogo' }))).toBe(false)
+    expect(deps.startMicCapture).not.toHaveBeenCalled()
+  })
+
+  it('com o ConfirmDialog aberto, não grava e consome a tecla, com o foco no body, num botão atrás ou no do modal', () => {
+    const { deps } = makeDeps()
+    render(
+      <>
+        <Chat deps={deps} onText={vi.fn()} />
+        <ConfirmDialog title="Trocar de motor?" message="A conversa passa para o Codex." onConfirm={vi.fn()} onClose={vi.fn()} />
+      </>,
+    )
+    expect(down()).toBe(false)
+    expect(down(screen.getByRole('button', { name: 'outro botão' }))).toBe(false)
+    expect(down(screen.getAllByRole('button').find(b => b.closest('.modal-overlay'))!)).toBe(false)
+    expect(deps.startMicCapture).not.toHaveBeenCalled()
+  })
+
+  it('um role="dialog" não modal na página (o menu de menção de arquivo) não impede ligar de fora dele', async () => {
+    const { deps } = makeDeps()
+    render(
+      <>
+        <Chat deps={deps} onText={vi.fn()} />
+        <div className="file-mention" role="dialog" aria-label="Arquivos"><button type="button">a.ts</button></div>
+      </>,
+    )
+    expect(down()).toBe(false)
+    agora += 100; up()
+    await waitFor(() => expect(gravando()).toBe(true))
+  })
+
+  // Ligar fica bloqueado num modal, mas PARAR não: a gravação em curso não pode
+  // ficar presa porque um diálogo se abriu por cima.
+  it('gravando, com o foco num diálogo, Ctrl+Espaço para (e consome a tecla)', async () => {
+    const onText = vi.fn()
+    const { deps } = makeDeps()
+    const tela = (dialogo: boolean) => (
+      <>
+        <Chat deps={deps} onText={onText} />
+        {dialogo && <div role="dialog" aria-modal="true"><button type="button">no diálogo</button></div>}
+      </>
+    )
+    const { rerender } = render(tela(false))
+    down(); agora += 120; up()
+    await waitFor(() => expect(gravando()).toBe(true))
+    rerender(tela(true))
+    const noDialogo = screen.getByRole('button', { name: 'no diálogo' })
+    agora += 2_000
+    expect(down(noDialogo), 'a tecla parou a gravação: não aperta o botão do diálogo').toBe(false)
+    up(noDialogo)
+    await waitFor(() => expect(onText).toHaveBeenCalledWith('ditado'))
+    // Parado, o próximo Ctrl+Espaço no diálogo não liga de novo (e segue consumido).
+    expect(down(noDialogo)).toBe(false)
+    expect(deps.startMicCapture).toHaveBeenCalledTimes(1)
+  })
+
+  it('gravando, com o ConfirmDialog aberto e o foco no body, Ctrl+Espaço para', async () => {
+    const onText = vi.fn()
+    const { deps } = makeDeps()
+    const tela = (confirmando: boolean) => (
+      <>
+        <Chat deps={deps} onText={onText} />
+        {confirmando && <ConfirmDialog title="Trocar de motor?" message="A conversa passa para o Codex." onConfirm={vi.fn()} onClose={vi.fn()} />}
+      </>
+    )
+    const { rerender } = render(tela(false))
+    down(); agora += 120; up()
+    await waitFor(() => expect(gravando()).toBe(true))
+    rerender(tela(true))
+    agora += 2_000
+    expect(down()).toBe(false)
+    up()
+    await waitFor(() => expect(onText).toHaveBeenCalledWith('ditado'))
+  })
+
+  it('gravando, com o foco em outro campo de texto, a tecla continua dele: não para', async () => {
+    const { deps } = makeDeps()
+    render(<Chat deps={deps} onText={vi.fn()} />)
+    down(); agora += 120; up()
+    await waitFor(() => expect(gravando()).toBe(true))
+    agora += 2_000
+    expect(down(screen.getByLabelText('busca da lateral'))).toBe(true)
+    expect(gravando()).toBe(true)
   })
 
   it('com o chat desabilitado (sessão parada), não grava', () => {

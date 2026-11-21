@@ -196,9 +196,10 @@ type ChatItemBody =
   /**
    * Pacote de contexto da troca de motor (`[Claudinei: context handoff]`):
    * `text` são as mensagens trazidas (sem o cabeçalho); `request`, o pedido do
-   * operador que foi junto, quando há.
+   * operador que foi junto, quando há. `turnKey`: a chave do desfazer calculada
+   * do texto cru do pacote, como o servidor calcula; o corpo sozinho não a refaz.
    */
-  | { kind: 'claudinei_message'; reason: 'handoff'; text: string; engineLabel: string; messages: number; tokens: number; request?: string; fromSubagent?: boolean; parentId?: string }
+  | { kind: 'claudinei_message'; reason: 'handoff'; text: string; engineLabel: string; messages: number; tokens: number; request?: string; turnKey?: string; fromSubagent?: boolean; parentId?: string }
   /**
    * Notas do desfazer turno (`[Claudinei: files reverted]` e `[Claudinei:
    * conversation rewound]`), que o servidor gruda na frente da mensagem

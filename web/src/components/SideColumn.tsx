@@ -7,6 +7,7 @@ import type { SessionInfo } from '../types'
 import { closeSide, interruptSide, openSide, sendSide } from '../branch/api'
 import { dropSide, setSideInfo, useSideStore, type SideView } from '../branch/sideStore'
 import { bringBack, lastAnswer } from '../branch/bringBack'
+import { isSendKey } from '../shortcuts/active'
 import { MessageBlock } from './MessageBlock'
 import { EngineIcon } from './EngineIcon'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -181,7 +182,10 @@ function SideColumnView({ projectId, engine, localId, side }: Props & { side: Si
                     if (files && files.length) { e.preventDefault(); void attach(files) }
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send() }
+                    // A mesma regra do campo principal: a composição do IME fica com
+                    // ela; Enter puro ou a combinação de enviar enviam; Shift+Enter quebra a linha.
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                    if (isSendKey(e)) { e.preventDefault(); void send() }
                   }} />
         <div className="side-col__actions">
           <input ref={fileRef} type="file" multiple hidden data-testid="side-attach-input"

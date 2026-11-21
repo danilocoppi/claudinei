@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanup, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, cleanup, screen, fireEvent, waitFor, within } from '@testing-library/react'
 // A conversa é uma lista virtual: sem medidas fixas, o jsdom não montaria nada.
 import { renderComJanela as render } from './viewport'
 import { ChatView } from '../components/ChatView'
@@ -35,7 +35,7 @@ describe('editar mensagem', () => {
     expect(await screen.findAllByLabelText('Editar esta mensagem')).toHaveLength(5) // m2..m6
   })
 
-  it('lápis durante working abre o diálogo com o aviso de interrupção; Copiar para o campo NÃO interrompe e registra o editRequest', async () => {
+  it('lápis durante working abre o diálogo com o aviso de interrupção; Copiar para o campo NÃO interrompe e põe o texto no campo', async () => {
     const send = vi.fn()
     setup('working', [u('instrução errada')])
     render(<WsContext.Provider value={{ send }}><ChatView /></WsContext.Provider>)
@@ -48,7 +48,9 @@ describe('editar mensagem', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Copiar para o campo' }))
     // Copiar o texto não exige parar o turno (R24): só as duas voltas interrompem.
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
-    expect(useStore.getState().editRequest).toMatchObject({ localId: 's1', text: 'instrução errada' })
+    // O campo do terminal recebeu o texto e consumiu o pedido.
+    expect((screen.getByPlaceholderText(/processando/) as HTMLTextAreaElement).value).toBe('instrução errada')
+    expect(useStore.getState().editRequest).toBeUndefined()
   })
 
   it('cancelar o diálogo NÃO interrompe nem registra edição (mensagem na fila fica intacta)', async () => {
@@ -71,7 +73,8 @@ describe('editar mensagem', () => {
     expect(within(dlg).queryByText('Editar interrompe o turno em andamento.')).toBeNull()
     fireEvent.click(within(dlg).getByRole('button', { name: 'Copiar para o campo' }))
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
-    expect(useStore.getState().editRequest).toMatchObject({ text: 'só recuperar' })
+    expect((screen.getByPlaceholderText(/Mensagem para o Claude/) as HTMLTextAreaElement).value).toBe('só recuperar')
+    expect(useStore.getState().editRequest).toBeUndefined()
   })
 
   it('editRequest preenche o campo do ChatInput', async () => {
@@ -80,6 +83,53 @@ describe('editar mensagem', () => {
     const textarea = screen.getByPlaceholderText(/Mensagem para o Claude/) as HTMLTextAreaElement
     useStore.getState().requestEdit('s1', 'texto recuperado')
     await waitFor(() => expect(textarea.value).toBe('texto recuperado'))
+  })
+
+  it('o editRequest é consumido: trocar de terminal e voltar NÃO reaplica o pedido', async () => {
+    setup('idle', [])
+    useStore.setState({ sessions: { ...useStore.getState().sessions, s2: { localId: 's2', projectId: 1, status: 'idle' } as never } })
+    const campo = (id: string) =>
+      <WsContext.Provider value={{ send: vi.fn() }}><ChatInput key={id} localId={id} disabled={false} /></WsContext.Provider>
+    const { rerender } = render(campo('s1'))
+    const area = () => screen.getByPlaceholderText(/Mensagem para o Claude/) as HTMLTextAreaElement
+    act(() => useStore.getState().requestEdit('s1', 'texto recuperado'))
+    expect(area().value).toBe('texto recuperado')
+    expect(useStore.getState().editRequest).toBeUndefined()
+    // O operador apaga o texto, vai a outro terminal e volta.
+    fireEvent.change(area(), { target: { value: '' } })
+    rerender(campo('s2'))
+    rerender(campo('s1'))
+    expect(area().value).toBe('')
+    // Desmontar e montar de novo também não traz o pedido de volta.
+    cleanup()
+    render(campo('s1'))
+    expect(area().value).toBe('')
+  })
+
+  it('o editRequest de outro terminal fica à espera e só entra no campo dele', async () => {
+    setup('idle', [])
+    useStore.setState({ sessions: { ...useStore.getState().sessions, s2: { localId: 's2', projectId: 1, status: 'idle' } as never } })
+    const campo = (id: string) =>
+      <WsContext.Provider value={{ send: vi.fn() }}><ChatInput key={id} localId={id} disabled={false} /></WsContext.Provider>
+    const { rerender } = render(campo('s1'))
+    const area = () => screen.getByPlaceholderText(/Mensagem para o Claude/) as HTMLTextAreaElement
+    act(() => useStore.getState().requestEdit('s2', 'para o s2'))
+    expect(area().value).toBe('')
+    expect(useStore.getState().editRequest).toMatchObject({ localId: 's2', text: 'para o s2' })
+    rerender(campo('s2'))
+    expect(area().value).toBe('para o s2')
+    expect(useStore.getState().editRequest).toBeUndefined()
+    rerender(campo('s1'))
+    expect(area().value).toBe('')
+  })
+
+  it('o editRequest acrescenta ao que já está no campo, como o Trazer de volta', async () => {
+    setup('idle', [])
+    render(<WsContext.Provider value={{ send: vi.fn() }}><ChatInput localId="s1" disabled={false} /></WsContext.Provider>)
+    const textarea = screen.getByPlaceholderText(/Mensagem para o Claude/) as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'já escrito  \n' } })
+    act(() => useStore.getState().requestEdit('s1', 'texto recuperado'))
+    expect(textarea.value).toBe('já escrito\n\ntexto recuperado')
   })
 
   it('↑ no campo vazio navega o histórico; ↓ sai limpando', async () => {

@@ -1,5 +1,5 @@
 import { isCompactSummary } from './history'
-import { stripNotes } from '../../../shared/undo'
+import { stripNotes, turnKey } from '../../../shared/undo'
 import type { ChatItem, ClaudeEvent, ClaudineiTaskResult, ContentBlock } from '../types'
 import { HANDOFF_PREFIX, parseHandoffHeader } from '../branch/handoff'
 
@@ -82,18 +82,38 @@ function semRemindersNoFim(text: string): string {
  * e/ou o texto real sem o ruído.
  */
 function classifyUserText(text: string): ChatItem[] {
+  // Notas do desfazer turno grudadas na frente da mensagem (`withNote` no
+  // servidor): saem do texto cru antes de qualquer teste, cada uma vira uma
+  // linha própria, e o resto segue a classificação normal sem elas. Vêm antes
+  // do pacote da ⇄ e do caveat: o pacote atrás da nota deixaria de começar
+  // com o selo, e o caveat citado no corpo dele apagaria a mensagem inteira.
+  const noted = stripNotes(text.trimStart())
+  if (noted.notes.length > 0) {
+    return [
+      ...noted.notes.map((n): ChatItem => ({ kind: 'claudinei_message', reason: n.kind, text: n.body })),
+      ...classifyUserText(noted.rest),
+    ]
+  }
+
   // Pacote de contexto da troca de motor (⇄): vira o cartão "Contexto trazido
   // do <Motor>", dobrado; o pedido do operador, quando vai junto, sai à parte.
   // Vem antes de tudo: o corpo é texto cru da conversa de origem e pode citar
   // `<command-name>`, caveat, stdout ou reminders, que não podem desviar o
   // pacote nem cortar o corpo. Só o reminder que o harness anexa no FIM sai.
   if (text.trimStart().startsWith(`${HANDOFF_PREFIX}:`)) {
-    const h = parseHandoffHeader(semRemindersNoFim(text.trim()))
+    const cru = semRemindersNoFim(text.trim())
+    const h = parseHandoffHeader(cru)
     if (h) {
       return [{
         kind: 'claudinei_message', reason: 'handoff', text: h.body,
         engineLabel: h.engineLabel, messages: h.messages, tokens: h.tokens,
         ...(h.request !== undefined ? { request: h.request } : {}),
+        // O tracker do servidor grava a chave do texto que mandou: o pacote
+        // inteiro (selo e cabeçalho), com as notas que a `turnKey` tira e sem
+        // os reminders que o harness anexa depois. O cartão guarda só o corpo:
+        // guarda-se a chave pronta (até 300 caracteres), não o texto cru, que
+        // dobraria o pacote na memória.
+        turnKey: turnKey(cru),
       }]
     }
   }
@@ -115,17 +135,7 @@ function classifyUserText(text: string): ChatItem[] {
     return body ? [{ kind: 'command_output', text: body, ...(out[1] === 'stderr' ? { isError: true } : {}) }] : []
   }
 
-  // Notas do desfazer turno grudadas na frente da mensagem (`withNote` no
-  // servidor): cada uma vira uma linha própria antes da mensagem, que segue a
-  // classificação normal sem elas.
   const cleaned = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
-  const noted = stripNotes(cleaned)
-  if (noted.notes.length > 0) {
-    return [
-      ...noted.notes.map((n): ChatItem => ({ kind: 'claudinei_message', reason: n.kind, text: n.body })),
-      ...classifyUserText(noted.rest),
-    ]
-  }
 
   // Task de outro terminal: o backend a escreve no stdin do CLI como se fosse uma
   // mensagem digitada (manager.ts, dispatch_task), então no transcript ela é

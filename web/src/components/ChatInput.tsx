@@ -16,7 +16,7 @@ import { MentionMenu } from './MentionMenu'
 import { FileMentionMenu } from './FileMentionMenu'
 import { applyFileMention, applyMention, dropFileMention, mentionAt } from '../mentions'
 import { MicButton, type MicButtonHandle, type MicDeps } from './MicButton'
-import { inShortcutScope, matchShortcut, useShortcutLabel } from '../shortcuts/active'
+import { inShortcutScope, isSendKey, matchShortcut, useShortcutLabel } from '../shortcuts/active'
 import { isLargePaste, pasteFileName } from '../paste'
 import { mergeTranscript } from '../speech/insert'
 import { lastUserTexts, historyStep } from '../chat/history'
@@ -47,6 +47,12 @@ function useTelaEstreita(): boolean {
 const token = (name: string) => `[📎 ${name}]`
 /** O nome de dentro do token (`[📎 nome]` → `nome`). */
 const tokenName = (tok: string) => /^\[📎 (.*)\]$/u.exec(tok)?.[1] ?? tok
+/**
+ * Texto que chega ao campo de fora (Trazer de volta, Editar a partir daqui):
+ * vai depois do que já está lá, separado por uma linha em branco; com o campo
+ * vazio (ou só com espaços), o texto é o campo inteiro.
+ */
+const acrescentar = (atual: string, novo: string) => (atual.trim() ? `${atual.replace(/\s+$/, '')}\n\n${novo}` : novo)
 /** Teto do POST /api/uploads/check; um guardado tem bem menos anexos que isso. */
 const CHECK_MAX = 200
 
@@ -110,18 +116,30 @@ export function ChatInput({
   const vivo = useRef(true)
   useEffect(() => { vivo.current = true; return () => { vivo.current = false } }, [])
 
-  const editRequest = useStore((s) => s.editRequest)
+  /** Cursor no fim do campo, com foco, depois que o texto novo for pintado. */
+  const focarNoFim = () => requestAnimationFrame(() => {
+    const el = areaRef.current
+    el?.focus()
+    el?.setSelectionRange(el.value.length, el.value.length)
+  })
+
+  // Editar a partir daqui (Copiar para o campo e as falhas da volta): o texto
+  // entra no FIM do campo, com a mesma regra do Trazer de volta, e nunca apaga
+  // o que o operador já tinha (campo vazio: o texto é o campo inteiro). O
+  // pedido é consumido aqui, só pelo campo do terminal dele: sem isso, cada
+  // remontagem (trocar de terminal e voltar) o aplicava de novo. Lido do store
+  // na hora, e não da closure, para o efeito dobrado do StrictMode não
+  // acrescentar duas vezes.
+  const editSeq = useStore((s) => (s.editRequest?.localId === localId ? s.editRequest.seq : null))
   useEffect(() => {
-    if (!editRequest || editRequest.localId !== localId) return
-    setText(editRequest.text)
+    const req = useStore.getState().editRequest
+    if (!req || req.localId !== localId) return
+    useStore.setState({ editRequest: undefined })
+    setText((atual) => acrescentar(atual, req.text))
     histIdxRef.current = null
     setStashError(null)
-    requestAnimationFrame(() => {
-      const el = areaRef.current
-      el?.focus()
-      el?.setSelectionRange(el.value.length, el.value.length)
-    })
-  }, [editRequest?.seq])
+    focarNoFim()
+  }, [editSeq, localId])
 
   // Trazer de volta (coluna da lateral): o texto entra no FIM do campo, depois
   // do que já havia, e os anexos (`[token, caminho]`) passam a valer no envio. O
@@ -133,13 +151,9 @@ export function ChatInput({
     if (!req || req.localId !== localId) return
     useSideStore.setState({ appendRequest: null })
     for (const [tok, path] of req.attachments) attachments.current.set(tok, path)
-    setText((atual) => (atual.trim() ? `${atual.replace(/\s+$/, '')}\n\n${req.text}` : req.text))
+    setText((atual) => acrescentar(atual, req.text))
     histIdxRef.current = null
-    requestAnimationFrame(() => {
-      const el = areaRef.current
-      el?.focus()
-      el?.setSelectionRange(el.value.length, el.value.length)
-    })
+    focarNoFim()
   }, [appendSeq, localId])
 
   // Auto-resize: cresce de 1 até 10 linhas conforme o conteúdo; passou disso, rola.
@@ -651,11 +665,9 @@ export function ChatInput({
             // A combinação da fila: para a fila, em qualquer motor. Com upload em
             // andamento o send ignora (o texto ainda teria token sem caminho), como o Enter.
             if (matchShortcut(e, 'chat.queue')) { e.preventDefault(); submit(true); return }
-            if (matchShortcut(e, 'chat.send')) { e.preventDefault(); submit(); return }
-            // Enter puro (sem Ctrl, ⌘, Alt nem Shift) envia. Com modificador e fora
-            // das combinações acima, não: com a fila em outra tecla, o Alt+Enter
-            // antigo não manda a mensagem na hora sem querer.
-            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) { e.preventDefault(); submit() }
+            // A combinação de enviar ou o Enter puro (ver `isSendKey`). Com a fila
+            // em outra tecla, o Alt+Enter antigo não manda a mensagem na hora sem querer.
+            if (isSendKey(e)) { e.preventDefault(); submit() }
           }}
           onPaste={(e) => {
             const comoTexto = Date.now() <= colarComoTexto.current

@@ -3,6 +3,7 @@ import { render, cleanup, screen, fireEvent, act } from '@testing-library/react'
 import { VirtuosoMockContext } from 'react-virtuoso'
 import { ChatView } from '../components/ChatView'
 import { UndoToast } from '../components/UndoToast'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import { useZenShortcut } from '../useZenShortcut'
@@ -149,6 +150,27 @@ describe('desfazer pelo registro', () => {
     expect(tecla(document.body, 'u', 'KeyU', { altKey: true })).toBe(false)
     expect(useStore.getState().undo).toBeNull()
     expect(patches.map((p) => p.body)).toEqual([{ pinned: false, settled: false, snoozedUntil: null }])
+  })
+})
+
+// Um modal que não puxa o foco (o ConfirmDialog): com ele aberto, a triagem e a
+// conversa estão atrás dele, fora da vista. Mod+Z e Mod+F com o foco no body são
+// do modal (não previnem); fechado o modal, voltam a agir.
+describe('com um modal aberto e o foco fora dele', () => {
+  it('Ctrl+Z não desfaz a triagem nem Ctrl+F abre a busca; fechado o modal, agem', async () => {
+    await montar()
+    comDesfazer()
+    const { unmount } = render(<ConfirmDialog title="Excluir?" message="Não dá para voltar." onConfirm={vi.fn()} onClose={vi.fn()} />)
+    expect(tecla(document.body, 'z', 'KeyZ', { ctrlKey: true })).toBe(true)
+    expect(useStore.getState().undo).not.toBeNull()
+    expect(patches).toEqual([])
+    expect(tecla(document.body, 'f', 'KeyF', { ctrlKey: true })).toBe(true)
+    expect(barraAberta()).toBe(false)
+    unmount()
+    expect(tecla(document.body, 'z', 'KeyZ', { ctrlKey: true })).toBe(false)
+    expect(useStore.getState().undo).toBeNull()
+    expect(tecla(document.body, 'f', 'KeyF', { ctrlKey: true })).toBe(false)
+    expect(barraAberta()).toBe(true)
   })
 })
 

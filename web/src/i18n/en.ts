@@ -841,5 +841,8 @@ export const en = {
       of: 'branch of {{name}}',
     },
   },
+  editFromHere: {
+    commandNotAllowed: "Commands can't be used while editing; use the message field",
+  },
 }
 export default en

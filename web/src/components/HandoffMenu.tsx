@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
@@ -38,6 +38,23 @@ export function HandoffMenu({ projectId, from, anchorRef, onClose }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [confirmFor, setConfirmFor] = useState<HandoffTarget | null>(null)
+
+  // Esc fecha o menu, como nos outros `.sess-pop`. Em captura e consumido
+  // (preventDefault + stopPropagation, o padrão do FileOpenMenu): a busca e os
+  // outros ouvintes de Esc da página não o veem, e um segundo Esc já é deles.
+  // Com a confirmação aberta o menu saiu da frente, e o Esc não é dele.
+  const menuOpen = !confirmFor
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault(); e.stopPropagation()
+      // Como o clique fora: com o pedido no ar, o menu fica.
+      if (!busy) onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [menuOpen, busy, onClose])
 
   const targets = handoffTargets({ projectId, from, engines, listed: listedOf(project), sessions, terminalStates, queues })
   const fromLabel = engines.find((e) => e.id === from)?.label ?? from

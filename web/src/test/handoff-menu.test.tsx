@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
 import { EngineTabs } from '../components/EngineTabs'
+import { FindBar } from '../components/FindBar'
 import { MessageBlock } from '../components/MessageBlock'
 import { useStore } from '../store'
 import * as branchApi from '../branch/api'
@@ -262,6 +263,37 @@ describe('menu ⇄ na aba ativa', () => {
     await vi.waitFor(() => expect(useStore.getState().activeLocalId).toBe('o1'))
     expect(useStore.getState().view).toBe('chat')
     expect(useStore.getState().sessions.o1?.engine).toBe('opencode')
+    expect(document.querySelector('.sess-pop')).toBeNull()
+  })
+
+  it('Esc fecha o menu sem fechar a busca; um segundo Esc fecha a busca', () => {
+    useStore.getState().openFind('c1')
+    // Como no ChatView: as abas e a barra de busca dentro da coluna do chat.
+    render(<div className="chat-main"><EngineTabs projectId={1} activeLocalId="c1" /><FindBar localId="c1" /></div>)
+    const botao = swap()!
+    botao.focus()
+    openMenu()
+    expect(document.querySelector('.sess-pop')).toBeTruthy()
+    // O Esc é do menu: sai marcado e não chega ao ouvinte da busca.
+    expect(fireEvent.keyDown(botao, { key: 'Escape' })).toBe(false)
+    expect(document.querySelector('.sess-pop')).toBeNull()
+    expect(useStore.getState().find?.localId).toBe('c1')
+    // Sem o menu, o Esc volta a ser da busca.
+    fireEvent.keyDown(botao, { key: 'Escape' })
+    expect(useStore.getState().find).toBeFalsy()
+  })
+
+  it('com a confirmação aberta o menu não toma o Esc; cancelada, o Esc fecha o menu de volta', () => {
+    cenario()
+    render(<EngineTabs projectId={1} activeLocalId="c1" />)
+    fireEvent.click(item(openMenu(), 'Codex'))
+    expect(screen.getByRole('heading', { name: 'Continuar no Codex?' })).toBeTruthy()
+    // O menu saiu da frente: o Esc não é dele (sai sem marca) e nada muda.
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true)
+    expect(screen.getByRole('heading', { name: 'Continuar no Codex?' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(document.querySelector('.sess-pop')).toBeTruthy()
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(false)
     expect(document.querySelector('.sess-pop')).toBeNull()
   })
 

@@ -44,7 +44,13 @@ const keyCache = new WeakMap<ChatItem, string | null>()
 function itemKey(it: ChatItem): string | null {
   const cached = keyCache.get(it)
   if (cached !== undefined) return cached
-  const key = !isTurnItem(it) ? null : turnKey(it.kind === 'user_text' ? it.text : ENVELOPED + it.text)
+  let key: string | null = null
+  // O pacote da ⇄ traz a chave do texto cru (o cartão guarda só o corpo).
+  if (isTurnItem(it)) {
+    key = it.kind === 'claudinei_message' && it.reason === 'handoff' && it.turnKey !== undefined
+      ? it.turnKey
+      : turnKey(it.kind === 'user_text' ? it.text : ENVELOPED + it.text)
+  }
   keyCache.set(it, key)
   return key
 }

@@ -76,6 +76,12 @@ export interface UndoRunDto {
   /** `error` só em `failed`. */
   files: Array<{ path: string; result: RestoreResult; error?: string }>
   redone: boolean
+  /**
+   * Arquivos do desfazer fora da pasta do projeto, sem nome: vem no `undo_run`
+   * publicado (vai a todos que veem o projeto, R15) e na resposta a quem não é
+   * administrador.
+   */
+  hiddenOutside?: number
 }
 
 // ── Turnos ──

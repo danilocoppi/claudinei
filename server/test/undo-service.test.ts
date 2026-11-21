@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/db.js'
 import { createUndoStore, type MarkKind, type UndoStore } from '../src/undo/store.js'
@@ -24,6 +24,24 @@ let broadcasts: Array<Record<string, unknown>> = []
 let writeEnds: string[] = []
 /** Chamado no meio do takeMark do serviço (antes do marco), para espiar a escrita. */
 let onMark: ((kind: MarkKind) => void) | null = null
+/** Chamado logo depois do prepareRestore do serviço (antes da seção síncrona da escrita). */
+let afterPrepare: (() => void) | null = null
+
+// O prepareRestore real, com um gancho depois dele: o editor salva entre o preparo e a escrita.
+vi.mock('../src/checkpoint/restore.js', async importOriginal => {
+  const real = await importOriginal<typeof import('../src/checkpoint/restore.js')>()
+  return {
+    ...real,
+    prepareRestore: async (...args: Parameters<typeof real.prepareRestore>) => {
+      const prepared = await real.prepareRestore(...args)
+      afterPrepare?.()
+      return prepared
+    },
+  }
+})
+
+/** Os testes de permissão não valem como root (o root escreve em pasta só de leitura). */
+const asRoot = process.getuid?.() === 0
 
 const ADMIN: ViewerFull = { isAdmin: true, projectIds: 'all' }
 const only = (...ids: number[]): ViewerFull => ({ isAdmin: false, projectIds: ids })
@@ -111,6 +129,7 @@ beforeEach(() => {
   broadcasts = []
   writeEnds = []
   onMark = null
+  afterPrepare = null
 })
 
 afterEach(() => {
@@ -230,7 +249,7 @@ describe('desfazer', () => {
     expect(store.mark(row.preMark!)!.kind).toBe('undo_pre')
     expect(store.mark(row.postMark!)!.kind).toBe('undo_post')
     expect(store.lastRunFor(ta)!.id).toBe(run.id)
-    expect(broadcasts).toContainEqual({ type: 'undo_run', projectId: A.projectId, engine: 'claude', run })
+    expect(broadcasts).toContainEqual({ type: 'undo_run', projectId: A.projectId, engine: 'claude', run: { ...run, hiddenOutside: 0 } })
     expect(writeEnds).toEqual([repoInfo.top])
     expect(service.holds(A.projectId, 'claude')).toBe(false)
 
@@ -475,7 +494,7 @@ describe('desfazer', () => {
     await expect(service.preview([t3, tb], ADMIN)).rejects.toMatchObject({ code: 'undo_mixed_terminals' })
   })
 
-  it('erro de E/S num arquivo: failed no desfazer gravado e o resto segue', async () => {
+  it.skipIf(asRoot)('erro de E/S num arquivo: failed no desfazer gravado e o resto segue', async () => {
     const r = repo({ 'a.txt': 'a\n', 'trava/b.txt': 'b\n' })
     const A = ctxOf(project(r.dir, 'A'), 'LA')
     const { tracker: t, service } = setup()
@@ -500,9 +519,160 @@ describe('desfazer', () => {
     expect(service.holds(A.projectId, 'claude')).toBe(false)
     expect(writeEnds.length).toBe(1)
   })
+
+  it('o editor salva entre o preparo e a escrita: nada escrito e undo_changed com a prévia nova', async () => {
+    const r = repo()
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const { tracker: t, service } = setup()
+    const ta = await turn(t, A, () => {
+      r.write('a.txt', 'turno\n')
+      r.write('b.txt', 'turno\n')
+    })
+    const p = await service.preview([ta], ADMIN)
+    // b.txt vem depois de a.txt: sem a reconferência de todos, a.txt seria escrito.
+    afterPrepare = () => r.write('b.txt', 'editor\n')
+    const err = await service.apply([ta], { token: p.token, decisions: {} }, ADMIN).catch(e => e)
+    expect(err).toBeInstanceOf(UndoChangedError)
+    expect(err.preview.token).not.toBe(p.token)
+    expect(err.preview.files.find((f: { path: string }) => f.path === 'b.txt').verdict).toBe('conflict')
+    expect(err.preview.files.find((f: { path: string }) => f.path === 'a.txt').verdict).toBe('revert')
+    expect(read(r.dir, 'a.txt')).toBe('turno\n')
+    expect(read(r.dir, 'b.txt')).toBe('editor\n')
+    expect(store.lastRunFor(ta)).toBeUndefined()
+    expect(broadcasts.filter(m => m.type === 'undo_run')).toEqual([])
+    expect(service.holds(A.projectId, 'claude')).toBe(false)
+    expect(writeEnds.length).toBe(1)
+
+    // Com a prévia nova, o desfazer segue (b.txt, em conflito, fica).
+    afterPrepare = null
+    const run = await service.apply([ta], { token: err.preview.token, decisions: {} }, ADMIN)
+    expect(Object.fromEntries(run.files.map(f => [f.path, f.result]))).toEqual({ 'a.txt': 'reverted', 'b.txt': 'kept' })
+  })
+
+  it('pasta de projeto ainda não resolvida do mesmo repositório também é segurada', async () => {
+    const r = repo({ 'a.txt': 'a\n', 'sub/x.txt': 'x\n' })
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const B = ctxOf(project(join(r.dir, 'sub'), 'B'), 'LB')
+    const { tracker: t, service } = setup()
+    const ta = await turn(t, A, () => r.write('a.txt', 'mudou\n'))
+    const seen: Array<{ holds: boolean; error: unknown }> = []
+    onMark = kind => {
+      if (kind !== 'undo_pre') return
+      // Ninguém resolveu sub/ ainda: vale o prefixo do caminho.
+      expect(resolver.peek(join(r.dir, 'sub'))).toBeUndefined()
+      let error: unknown = null
+      try { service.holdInput(B) } catch (e) { error = (e as { code?: string }).code }
+      seen.push({ holds: service.holds(B.projectId, 'claude'), error })
+    }
+    const p = await service.preview([ta], ADMIN)
+    await service.apply([ta], { token: p.token, decisions: {} }, ADMIN)
+    expect(seen).toEqual([{ holds: true, error: 'undo_writing' }])
+    expect(service.holds(B.projectId, 'claude')).toBe(false)
+  })
+
+  it('undo_run publicado leva só os caminhos da pasta do projeto; quem chamou vê o que pode ver', async () => {
+    const r = repo({ 'raiz.txt': 'raiz\n', 'server/x.txt': 'x\n' })
+    const P = ctxOf(project(join(r.dir, 'server'), 'P'), 'LP')
+    const { tracker: t, service } = setup()
+    const tp = await turn(t, P, () => {
+      r.write('server/x.txt', 'turno\n')
+      r.write('raiz.txt', 'turno\n')
+    })
+    const p = await service.preview([tp], ADMIN)
+    const run = await service.apply([tp], { token: p.token, decisions: {} }, ADMIN)
+    // O administrador recebe tudo.
+    expect(run.files).toEqual([{ path: 'raiz.txt', result: 'reverted' }, { path: 'server/x.txt', result: 'reverted' }])
+    const msg = broadcasts.find(m => m.type === 'undo_run')!
+    expect(msg.run).toEqual({ ...run, files: [{ path: 'server/x.txt', result: 'reverted' }], hiddenOutside: 1 })
+    expect(JSON.stringify(broadcasts)).not.toContain('raiz.txt')
+    // O refazer do administrador também publica sem o caminho de fora.
+    const rp = await service.previewRedo(run.id, ADMIN)
+    const redone = await service.redo(run.id, { token: rp.token, decisions: {} }, ADMIN)
+    expect(redone.files.map(f => f.path)).toEqual(['raiz.txt', 'server/x.txt'])
+    const msgs = broadcasts.filter(m => m.type === 'undo_run')
+    expect(msgs[1].run).toEqual({ ...redone, files: [{ path: 'server/x.txt', result: 'reverted' }], hiddenOutside: 1 })
+    expect(JSON.stringify(broadcasts)).not.toContain('raiz.txt')
+  })
+
+  it('arquivo mexido só pelo t1 e mudado fora de turno antes do t2: [t1, t2] cai em conflict', async () => {
+    const r = repo()
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const { tracker: t, service } = setup()
+    const t1 = await turn(t, A, () => r.write('a.txt', 'a1\n'))
+    // Entre os turnos, fora de qualquer turno.
+    r.write('a.txt', 'a1 e o editor\n')
+    const t2 = await turn(t, A, () => r.write('b.txt', 'b2\n'))
+    const p = await service.preview([t1, t2], ADMIN)
+    expect(brief(p)).toEqual([
+      { path: 'a.txt', class: 'own', verdict: 'conflict', overlapped: false, checked: false },
+      { path: 'b.txt', class: 'own', verdict: 'revert', overlapped: false, checked: true },
+    ])
+    const run = await service.apply([t1, t2], { token: p.token, decisions: {} }, ADMIN)
+    expect(Object.fromEntries(run.files.map(f => [f.path, f.result]))).toEqual({ 'a.txt': 'kept', 'b.txt': 'reverted' })
+    expect(read(r.dir, 'a.txt')).toBe('a1 e o editor\n')
+  })
+
+  it('arquivo já como antes: force e merge recusados; keep e revert não fazem nada', async () => {
+    const r = repo()
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const { tracker: t, service } = setup()
+    const ta = await turn(t, A, () => {
+      r.write('a.txt', 'turno\n')
+      r.write('b.txt', 'turno\n')
+    })
+    r.write('a.txt', 'a\n')
+    const p = await service.preview([ta], ADMIN)
+    expect(p.files.find(f => f.path === 'a.txt')).toMatchObject({ verdict: 'already', checked: false })
+    for (const action of ['force', 'merge']) {
+      await expect(service.apply([ta], { token: p.token, decisions: { 'a.txt': action as never } }, ADMIN))
+        .rejects.toMatchObject({ code: 'undo_bad_decision' })
+    }
+    expect(read(r.dir, 'b.txt')).toBe('turno\n')
+    const run = await service.apply([ta], { token: p.token, decisions: { 'a.txt': 'revert' } }, ADMIN)
+    expect(Object.fromEntries(run.files.map(f => [f.path, f.result]))).toEqual({ 'a.txt': 'already', 'b.txt': 'reverted' })
+  })
 })
 
 describe('refazer', () => {
+  it('não-admin não refaz desfazer com arquivos ocultos: redo_hidden_files sem escrever', async () => {
+    const r = repo({ 'raiz.txt': 'raiz\n', 'server/x.txt': 'x\n' })
+    const P = ctxOf(project(join(r.dir, 'server'), 'P'), 'LP')
+    const { tracker: t, service } = setup()
+    const tp = await turn(t, P, () => {
+      r.write('server/x.txt', 'turno\n')
+      r.write('raiz.txt', 'turno\n')
+    })
+    const p = await service.preview([tp], ADMIN)
+    const undone = await service.apply([tp], { token: p.token, decisions: {} }, ADMIN)
+    await t.idle()
+    const viewer = only(P.projectId)
+    await expect(service.previewRedo(undone.id, viewer)).rejects.toMatchObject({ code: 'redo_hidden_files' })
+    await expect(service.redo(undone.id, { token: 'x', decisions: {} }, viewer)).rejects.toMatchObject({ code: 'redo_hidden_files' })
+    expect(read(r.dir, 'server/x.txt')).toBe('x\n')
+    expect(read(r.dir, 'raiz.txt')).toBe('raiz\n')
+    expect(store.run(undone.id)!.redoneAt).toBeNull()
+    expect(broadcasts.filter(m => m.type === 'undo_run').length).toBe(1)
+    // O administrador ainda tem o Refazer.
+    const rp = await service.previewRedo(undone.id, ADMIN)
+    await service.redo(undone.id, { token: rp.token, decisions: {} }, ADMIN)
+    expect(read(r.dir, 'raiz.txt')).toBe('turno\n')
+  })
+
+  it('não-admin refaz desfazer sem arquivos ocultos', async () => {
+    const r = repo({ 'raiz.txt': 'raiz\n', 'server/x.txt': 'x\n' })
+    const P = ctxOf(project(join(r.dir, 'server'), 'P'), 'LP')
+    const { tracker: t, service } = setup()
+    const tp = await turn(t, P, () => r.write('server/x.txt', 'turno\n'))
+    const viewer = only(P.projectId)
+    const p = await service.preview([tp], viewer)
+    const undone = await service.apply([tp], { token: p.token, decisions: {} }, viewer)
+    await t.idle()
+    const rp = await service.previewRedo(undone.id, viewer)
+    expect(rp.hiddenOutside).toBe(0)
+    const redone = await service.redo(undone.id, { token: rp.token, decisions: {} }, viewer)
+    expect(redone.files).toEqual([{ path: 'server/x.txt', result: 'reverted' }])
+    expect(read(r.dir, 'server/x.txt')).toBe('turno\n')
+  })
   it('refazer volta o que o desfazer tirou; com o arquivo mexido depois, conflict', async () => {
     const r = repo()
     const A = ctxOf(project(r.dir, 'A'), 'LA')
@@ -568,6 +738,24 @@ describe('retrato perdido', () => {
     await expect(service.turnFiles(ta, ADMIN)).rejects.toMatchObject({ code: 'snapshot_lost' })
     expect(store.turn(ta)!.snapshot).toBe('lost')
     await expect(service.preview([ta], ADMIN)).rejects.toMatchObject({ code: 'snapshot_lost' })
+  })
+
+  it('git que falha na conferência não grava lost: snapshot_check_failed, e passa quando o git volta', async () => {
+    const r = repo()
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const { tracker: t, service } = setup()
+    const ta = await turn(t, A, () => r.write('a.txt', 'mudou\n'))
+    // Sem a pasta de objetos o git nem reconhece o repositório: falha do git, não retrato perdido.
+    renameSync(join(r.dir, '.git', 'objects'), join(r.dir, '.git', 'objetos-fora'))
+    const back = () => renameSync(join(r.dir, '.git', 'objetos-fora'), join(r.dir, '.git', 'objects'))
+    try {
+      await expect(service.turnFiles(ta, ADMIN)).rejects.toMatchObject({ code: 'snapshot_check_failed' })
+      await expect(service.preview([ta], ADMIN)).rejects.toMatchObject({ code: 'snapshot_check_failed' })
+      expect(store.turn(ta)!.snapshot).toBe('ok')
+    } finally {
+      back()
+    }
+    expect((await service.turnFiles(ta, ADMIN)).files.map(f => f.path)).toEqual(['a.txt'])
   })
 })
 

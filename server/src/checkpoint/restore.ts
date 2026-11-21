@@ -430,11 +430,33 @@ function writeLeaf(top: string, segs: string[], now: NowState, mode: BlobState['
 }
 
 /**
+ * Os caminhos cujo "agora" já não é o da prévia: o que saiu `stale` do
+ * preparo e o que mudou depois dele. SÍNCRONO: quem chama roda isto e
+ * applyPrepared na mesma pilha, e com qualquer caminho na lista não escreve
+ * nada (a prévia inteira deixou de valer, inclusive nos arquivos que ficam).
+ * Erro de leitura não conta: applyPrepared o devolve como `failed` (R11).
+ */
+export function staleEntries(p: PreparedRestore): string[] {
+  const out: string[] = []
+  for (const entry of p.entries) {
+    let stale = entry.stale
+    if (!stale) {
+      try {
+        stale = nowDigest(readNow(p.repo.top, entry.segs)) !== entry.expected
+      } catch { /* fica para applyPrepared */ }
+    }
+    if (stale) out.push(entry.path)
+  }
+  return out
+}
+
+/**
  * A escrita. SÍNCRONA de propósito: entre a reconferência do disco e a
  * escrita de cada arquivo não cabe nenhum evento do Node (nenhum envio, nenhum
  * outro desfazer). Para cada entrada, relê o "agora" e compara com o digest da
- * prévia; diferente dá `changed_since_preview` e o arquivo não é tocado.
- * Pasta vazia que sobra de um apagado fica. Erro de E/S num arquivo
+ * prévia; diferente dá `changed_since_preview` e o arquivo não é tocado (a
+ * última defesa: o serviço já chamou staleEntries na mesma pilha e, com
+ * qualquer arquivo mudado, não chega aqui). Pasta vazia que sobra de um apagado fica. Erro de E/S num arquivo
  * (permissão, disco cheio) vira `failed` com a mensagem, e os outros seguem
  * (R11): quem chama sabe exatamente o que foi escrito.
  */

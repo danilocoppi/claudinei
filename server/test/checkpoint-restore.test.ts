@@ -9,7 +9,7 @@ import { resolveRepo, type RepoInfo } from '../src/checkpoint/repo.js'
 import { takeSnapshot, type Snapshot } from '../src/checkpoint/snapshot.js'
 import { changedFiles } from '../src/checkpoint/diff.js'
 import {
-  applyPrepared, blobStatesAt, planRestore, prepareRestore,
+  applyPrepared, blobStatesAt, planRestore, prepareRestore, staleEntries,
   type RestoreAction, type RestoreItem, type RestorePlanItem,
 } from '../src/checkpoint/restore.js'
 import { makeRepo, makeTempDir } from './helpers/git-repo.js'
@@ -364,7 +364,26 @@ describe('as três comparações e a escrita', () => {
     expect(read(r.dir, 'a.txt')).toBe('turno\n')
   })
 
-  it('erro de E/S num arquivo vira failed com a mensagem e os outros seguem (R11)', async () => {
+  it('staleEntries: aponta o que mudou depois do preparo, sem escrever nada', async () => {
+    const r = repo({ 'a.txt': 'antes\n', 'b.txt': 'antes\n', 'c.txt': 'antes\n' })
+    const repoInfo = await info(r.dir)
+    const s1 = await takeSnapshot(repoInfo, 1)
+    r.write('a.txt', 'turno\n')
+    r.write('b.txt', 'turno\n')
+    r.write('c.txt', 'turno\n')
+    const s2 = await takeSnapshot(repoInfo, 2)
+    const items = await itemsOf(repoInfo, s1, s2)
+    const plan = await planRestore(repoInfo, items)
+    const prepared = await prepareRestore(repoInfo, items, { 'c.txt': 'keep' }, expectedOf(plan))
+    expect(staleEntries(prepared)).toEqual([])
+    r.write('b.txt', 'editor salvou\n')
+    rmSync(join(r.dir, 'c.txt'))
+    // Também o que fica (keep): a prévia inteira deixou de valer.
+    expect(staleEntries(prepared)).toEqual(['b.txt', 'c.txt'])
+    expect(read(r.dir, 'a.txt')).toBe('turno\n')
+  })
+
+  it.skipIf(process.getuid?.() === 0)('erro de E/S num arquivo vira failed com a mensagem e os outros seguem (R11)', async () => {
     const r = repo({ 'a.txt': 'antes\n', 'trava/b.txt': 'antes\n', 'c.txt': 'antes\n' })
     const repoInfo = await info(r.dir)
     const s1 = await takeSnapshot(repoInfo, 1)

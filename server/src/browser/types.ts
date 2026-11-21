@@ -10,6 +10,9 @@ export const keyOf = (k: TerminalKey): string => `${k.projectId}:${k.engine}`
 /** A costura do launch: o padrão carrega o playwright-core; os testes passam o dublê. */
 export type LaunchFn = (o: { executablePath: string; chromiumSandbox: boolean; env: NodeJS.ProcessEnv }) => Promise<Browser>
 
+/** Uma mensagem do console da página (ou erro dela, com type 'pageerror'). */
+export interface ConsoleEntry { type: string; text: string }        // 'log' | 'warning' | 'error' | 'pageerror' …
+
 export type TabCloseReason = 'idle' | 'evicted' | 'closed_by_user' | 'closed_by_agent' | 'browser_closed' | 'shutdown'
 
 /** Textos ao agente (inglês, verbatim das Global Constraints); ao operador vão pelo i18n. */

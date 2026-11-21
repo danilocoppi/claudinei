@@ -308,6 +308,15 @@ describe('BrowserHost: abas dos terminais', () => {
     expect(host.status().tabs).toBe(0)
   })
 
+  it("closeTab(key, 'closed_by_agent') fecha com o motivo do agente; sem motivo, closed_by_user", async () => {
+    const a = await host.tab(KEY)
+    const reasons: TabCloseReason[] = []
+    a.onClosed((r) => reasons.push(r))
+    await host.closeTab(KEY, 'closed_by_agent')
+    expect(reasons).toEqual(['closed_by_agent'])
+    expect(host.existingTab(KEY)).toBeUndefined()
+  })
+
   it('contexto da aba: viewport 1280×800, deviceScaleFactor 1, sem downloads e sem service workers; state() com sandbox', async () => {
     const t = await host.tab(KEY)
     expect(fl.browsers[0].contexts[0].options).toEqual({

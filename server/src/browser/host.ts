@@ -12,13 +12,11 @@ import type { Browser, BrowserContext, Page } from 'playwright-core'
 import { INSTALL_COMMAND, resolveChromium } from './chromium.js'
 import { createTerminalTab, DEFAULT_VIEWPORT, type TerminalTab } from './terminal-tab.js'
 import { allowedUrl } from './url-policy.js'
-import { keyOf, TEXTS, TooManyTabsError, type LaunchFn, type TerminalKey } from './types.js'
+import { keyOf, TEXTS, TooManyTabsError, type ConsoleEntry, type LaunchFn, type TerminalKey } from './types.js'
 import { withMarker } from '../local-servers/marker.js'
 
 export type { TerminalTab } from './terminal-tab.js'
-export type { LaunchFn, TerminalKey } from './types.js'
-
-export interface ConsoleEntry { type: string; text: string }        // 'log' | 'warning' | 'error' | 'pageerror' …
+export type { ConsoleEntry, LaunchFn, TerminalKey } from './types.js'
 export interface PreviewPage {
   setContent(html: string, opts?: { loadTimeoutMs?: number }): Promise<{ loaded: boolean }>
   goto(url: string, opts?: { loadTimeoutMs?: number }): Promise<{ loaded: boolean }>
@@ -31,7 +29,8 @@ export interface BrowserHost {
   withIsolatedPage<T>(opts: IsolatedPageOpts, fn: (page: PreviewPage) => Promise<T>): Promise<T>
   tab(key: TerminalKey): Promise<TerminalTab>
   existingTab(key: TerminalKey): TerminalTab | undefined
-  closeTab(key: TerminalKey): Promise<void>
+  /** Sem motivo, é o operador (`closed_by_user`); a `browser_close` do agente passa `closed_by_agent`. */
+  closeTab(key: TerminalKey, reason?: 'closed_by_user' | 'closed_by_agent'): Promise<void>
   status(): { state: 'closed' | 'starting' | 'open' | 'unavailable'; tabs: number; reason?: string }
   shutdown(): Promise<void>
 }
@@ -361,8 +360,8 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
 
     existingTab: (key) => tabs.get(keyOf(key)),
 
-    async closeTab(key) {
-      await tabs.get(keyOf(key))?.close('closed_by_user')
+    async closeTab(key, reason = 'closed_by_user') {
+      await tabs.get(keyOf(key))?.close(reason)
     },
 
     status() {

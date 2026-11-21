@@ -391,4 +391,40 @@ describe('TerminalTab: viewport, avisos e estado', () => {
       viewport: { width: 1280, height: 800 }, dialog: null, notices: [], lastAction: null, sandbox: false,
     })
   })
+
+  it('setLastAction grava texto, hora e ponto e avisa o onState', async () => {
+    const { tab } = await makeTab()
+    const changes = vi.fn()
+    tab.onState(changes)
+    tab.setLastAction("clicked 'Enviar'", { x: 5, y: 6 })
+    expect(tab.state().lastAction).toEqual({ text: "clicked 'Enviar'", at: 1_000, point: { x: 5, y: 6 } })
+    tab.setLastAction('pressed Enter')
+    expect(tab.state().lastAction).toEqual({ text: 'pressed Enter', at: 1_000 })
+    expect(changes).toHaveBeenCalledTimes(2)
+  })
+
+  it('consoleMessages guarda as últimas 50 (console e pageerror), também da página recriada', async () => {
+    const { context, page, tab } = await makeTab()
+    for (let i = 0; i < 55; i++) page.emit('console', { type: () => 'log', text: () => `m${i}` })
+    page.emit('pageerror', new Error('boom'))
+    const msgs = tab.consoleMessages()
+    expect(msgs).toHaveLength(50)
+    expect(msgs[0]).toEqual({ type: 'log', text: 'm6' })
+    expect(msgs.at(-1)).toEqual({ type: 'pageerror', text: 'boom' })
+    // A página travada é recriada: as mensagens da nova entram.
+    page.emit('crash')
+    await tab.history('reload')
+    const fresh = context.pages.at(-1)!
+    expect(fresh).not.toBe(page)
+    fresh.emit('console', { type: () => 'warning', text: () => 'nova' })
+    expect(tab.consoleMessages().at(-1)).toEqual({ type: 'warning', text: 'nova' })
+  })
+
+  it('onClosed depois do fechamento chama na hora com o motivo', async () => {
+    const { tab } = await makeTab()
+    await tab.close('idle')
+    const fn = vi.fn()
+    tab.onClosed(fn)
+    expect(fn).toHaveBeenCalledWith('idle')
+  })
 })

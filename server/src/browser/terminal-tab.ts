@@ -4,10 +4,10 @@
 // arquivo cancelado e a recuperação da página travada. Nada vai ao banco.
 //
 // Só `import type` do playwright-core: o pacote é carregado sob demanda no launch.
-import type { BrowserContext, Dialog, Download, FileChooser, Frame, Page } from 'playwright-core'
+import type { BrowserContext, ConsoleMessage, Dialog, Download, FileChooser, Frame, Page } from 'playwright-core'
 import { allowedUrl, isChromiumErrorPage, normalizeAddress } from './url-policy.js'
 import { createBaton, type Baton } from './baton.js'
-import { TEXTS, type TabCloseReason, type TerminalKey } from './types.js'
+import { TEXTS, type ConsoleEntry, type TabCloseReason, type TerminalKey } from './types.js'
 
 export type Actor = { kind: 'agent' } | { kind: 'operator'; userId: number | null; name: string }
 export interface PendingDialog { id: number; type: 'confirm' | 'prompt'; message: string; defaultValue?: string }
@@ -21,6 +21,9 @@ export interface TabSnapshotState {
   sandbox: boolean
 }
 
+/** A última snapshot do agente: o epoch do bastão de quando foi tirada e o texto (já mascarado e cortado). */
+export interface AgentSnapshot { epoch: number; text: string }
+
 export interface TerminalTab {
   readonly key: TerminalKey
   readonly context: BrowserContext
@@ -31,7 +34,10 @@ export interface TerminalTab {
   lastAgentAt: number
   /** Há coluna aberta e visível desta aba? A Task 9 liga aos espectadores; aqui: false. */
   isVisible(): boolean
+  /** Com a aba já fechada, chama `fn` na hora com o motivo. */
   onClosed(fn: (reason: TabCloseReason) => void): () => void
+  /** O motivo do fechamento; aberta: null. */
+  closedReason(): TabCloseReason | null
   close(reason: TabCloseReason): Promise<void>
   state(): TabSnapshotState
   /** Mudou algo do `state()`. */
@@ -49,6 +55,15 @@ export interface TerminalTab {
   /** Avisos ainda não entregues ao agente; esvazia. */
   takeAgentNotices(): string[]
   pushNotice(text: string, forAgent: boolean): void
+  /**
+   * A última snapshot do agente nesta aba (as operações do agente são criadas a
+   * cada chamada; a referência vale contra esta). Sem snapshot: null.
+   */
+  agentSnapshot: AgentSnapshot | null
+  /** A última ação do agente, para a coluna ("clicked 'Enviar'" e o ponto do clique). */
+  setLastAction(text: string, point?: { x: number; y: number }): void
+  /** As últimas 50 mensagens do console e erros da página (a recriada pela queda também). */
+  consoleMessages(): ConsoleEntry[]
 }
 
 export const DEFAULT_VIEWPORT = { width: 1280, height: 800 } as const
@@ -68,6 +83,8 @@ const AGENT_NOTICES = 20
 const SETTLE_MS = 1_500
 /** Mensagem de diálogo maior que isto sai cortada no aviso. */
 const MESSAGE_MAX = 500
+/** As mensagens do console guardadas (o que a `browser_console` devolve). */
+const CONSOLE_MAX = 50
 
 const isTimeout = (err: unknown): boolean => err instanceof Error && err.name === 'TimeoutError'
 
@@ -103,6 +120,7 @@ export function createTerminalTab(o: {
   const stateListeners = new Set<() => void>()
   const pageListeners = new Set<(page: Page) => void>()
   let closed = false
+  let closedReason: TabCloseReason | null = null
 
   let current = o.page
   let url = current.url()
@@ -116,7 +134,8 @@ export function createTerminalTab(o: {
   let pending: { dialog: Dialog; info: PendingDialog } | null = null
   const notices: string[] = []
   const agentNotices: string[] = []
-  const lastAction: TabSnapshotState['lastAction'] = null
+  let lastAction: TabSnapshotState['lastAction'] = null
+  const consoleLog: ConsoleEntry[] = []
   /** Conta as navegações do quadro principal: a leitura de `readyState` de uma antiga não vale. */
   let navSeq = 0
   /**
@@ -133,6 +152,11 @@ export function createTerminalTab(o: {
     for (const fn of [...stateListeners]) {
       try { fn() } catch { /* um ouvinte não impede os outros */ }
     }
+  }
+
+  function pushConsole(e: ConsoleEntry): void {
+    consoleLog.push(e)
+    if (consoleLog.length > CONSOLE_MAX) consoleLog.splice(0, consoleLog.length - CONSOLE_MAX)
   }
 
   function pushNotice(text: string, forAgent: boolean): void {
@@ -227,6 +251,8 @@ export function createTerminalTab(o: {
       void fc.setFiles([]).catch(() => {})
       pushNotice('file chooser cancelled (file upload is not supported)', true)
     }
+    const onConsole = (m: ConsoleMessage) => pushConsole({ type: m.type(), text: m.text() })
+    const onPageError = (e: Error) => pushConsole({ type: 'pageerror', text: e.message })
     const onCrash = () => {
       if (p !== current || closed) return
       markCrashed()
@@ -241,6 +267,8 @@ export function createTerminalTab(o: {
     p.on('dialog', onDialog)
     p.on('download', onDownload)
     p.on('filechooser', onFileChooser)
+    p.on('console', onConsole)
+    p.on('pageerror', onPageError)
     p.on('crash', onCrash)
     p.on('close', onClose)
     return () => {
@@ -249,6 +277,8 @@ export function createTerminalTab(o: {
       p.off('dialog', onDialog)
       p.off('download', onDownload)
       p.off('filechooser', onFileChooser)
+      p.off('console', onConsole)
+      p.off('pageerror', onPageError)
       p.off('crash', onCrash)
       p.off('close', onClose)
     }
@@ -326,13 +356,22 @@ export function createTerminalTab(o: {
     isVisible: () => false,
 
     onClosed(fn) {
+      // Quem chega depois do fechamento (uma ferramenta que pegou a aba antes de
+      // ela fechar) fica sabendo na hora, em vez de esperar um aviso que não vem.
+      if (closedReason) {
+        fn(closedReason)
+        return () => {}
+      }
       closeListeners.add(fn)
       return () => { closeListeners.delete(fn) }
     },
 
+    closedReason: () => closedReason,
+
     async close(reason) {
       if (closed) return
       closed = true
+      closedReason = reason
       // Avisa antes de fechar o contexto: quem tem uma ferramenta em curso nesta
       // aba fica sabendo do motivo antes de a operação do Playwright falhar.
       for (const fn of [...closeListeners]) {
@@ -355,7 +394,7 @@ export function createTerminalTab(o: {
       viewport: { ...viewport },
       dialog: pending ? { ...pending.info } : null,
       notices: notices.slice(),
-      lastAction,
+      lastAction: lastAction ? structuredClone(lastAction) : null,
       sandbox: o.sandbox ?? true,
     }),
 
@@ -417,5 +456,14 @@ export function createTerminalTab(o: {
     takeAgentNotices: () => agentNotices.splice(0),
 
     pushNotice,
+
+    agentSnapshot: null,
+
+    setLastAction(text, point) {
+      lastAction = point ? { text, at: o.now(), point: { ...point } } : { text, at: o.now() }
+      emit()
+    },
+
+    consoleMessages: () => consoleLog.slice(),
   }
 }

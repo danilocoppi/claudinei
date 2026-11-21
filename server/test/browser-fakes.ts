@@ -36,6 +36,39 @@ export class FakeFrame {
   url(): string { return this.owner.currentUrl }
   page(): FakePage { return this.owner }
   parentFrame(): null { return null }
+  /** A leitura dos campos de senha devolve `passwordValues`; o resto, `evalResult`. */
+  evaluate(expr: string): Promise<unknown> {
+    this.owner.evaluated.push(expr)
+    return Promise.resolve(/password/.test(expr) ? this.owner.passwordValues.slice() : this.owner.evalResult)
+  }
+}
+
+/** Uma chamada do Playwright registrada pelo dublê (locator, mouse ou teclado). */
+export interface FakeCall { target: string; method: string; args: unknown[] }
+
+/**
+ * Locator do dublê: cada ação fica registrada em `page.calls`. Com `page.actHang`,
+ * as ações ficam penduradas até `page.releaseActs()` (ou o fechamento da página).
+ */
+export class FakeLocator {
+  constructor(private readonly owner: FakePage, readonly selector: string) {}
+  private act(method: string, ...args: unknown[]): Promise<void> {
+    this.owner.calls.push({ target: this.selector, method, args })
+    if (this.owner.closed) return Promise.reject(new Error('Target page, context or browser has been closed'))
+    return this.owner.actResult()
+  }
+  count(): Promise<number> { return Promise.resolve(this.owner.refCount(this.selector)) }
+  first(): FakeLocator { return new FakeLocator(this.owner, `${this.selector} >> nth=0`) }
+  boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null> {
+    return Promise.resolve(this.owner.boxes.get(this.selector) ?? null)
+  }
+  click(opts?: unknown): Promise<void> { return this.act('click', opts) }
+  fill(text: string, opts?: unknown): Promise<void> { return this.act('fill', text, opts) }
+  pressSequentially(text: string, opts?: unknown): Promise<void> { return this.act('pressSequentially', text, opts) }
+  press(key: string, opts?: unknown): Promise<void> { return this.act('press', key, opts) }
+  hover(opts?: unknown): Promise<void> { return this.act('hover', opts) }
+  selectOption(value: string, opts?: unknown): Promise<string[]> { return this.act('selectOption', value, opts).then(() => [value]) }
+  waitFor(opts?: unknown): Promise<void> { return this.act('waitFor', opts) }
 }
 
 export class FakePage extends Emitter {
@@ -51,11 +84,58 @@ export class FakePage extends Emitter {
   readonly screenshots: Array<Record<string, unknown> | undefined> = []
   readonly navigations: Array<{ kind: 'setContent' | 'goto' | 'back' | 'forward' | 'reload'; arg: string; opts?: Record<string, unknown> }> = []
   readonly viewports: Array<{ width: number; height: number }> = []
+  /** O texto que `ariaSnapshot` devolve, e as opções com que foi chamado. */
+  snapshotText = ''
+  readonly snapshots: Array<Record<string, unknown> | undefined> = []
+  /** Os valores dos `input[type=password]` (lidos por `frame.evaluate`). */
+  passwordValues: string[] = []
+  /** Quantos elementos cada seletor acha (padrão 1); `aria-ref` sem entrada aqui acha 1. */
+  readonly counts = new Map<string, number>()
+  readonly boxes = new Map<string, { x: number; y: number; width: number; height: number }>()
+  readonly calls: FakeCall[] = []
+  /** Com true, ações do locator, do mouse e do teclado ficam penduradas até `releaseActs()`. */
+  actHang = false
+  private hungActs: Array<{ resolve: () => void; reject: (err: Error) => void }> = []
+  readonly mouse = {
+    wheel: (dx: number, dy: number): Promise<void> => { this.calls.push({ target: 'mouse', method: 'wheel', args: [dx, dy] }); return this.actResult() },
+  }
+  readonly keyboard = {
+    press: (key: string): Promise<void> => { this.calls.push({ target: 'keyboard', method: 'press', args: [key] }); return this.actResult() },
+  }
   private readonly frame = new FakeFrame(this)
   private pending: Array<() => void> = []
 
   url(): string { return this.currentUrl }
   mainFrame(): FakeFrame { return this.frame }
+  frames(): FakeFrame[] { return [this.frame] }
+
+  ariaSnapshot(opts?: Record<string, unknown>): Promise<string> {
+    if (this.closed) return Promise.reject(new Error('Target page, context or browser has been closed'))
+    this.snapshots.push(opts)
+    return Promise.resolve(this.snapshotText)
+  }
+
+  locator(selector: string): FakeLocator { return new FakeLocator(this, selector) }
+  getByText(text: string): FakeLocator { return new FakeLocator(this, `text=${text}`) }
+
+  waitForURL(url: string, opts?: Record<string, unknown>): Promise<void> {
+    this.calls.push({ target: 'page', method: 'waitForURL', args: [url, opts] })
+    return this.actResult()
+  }
+
+  /** @internal Resultado de uma ação: na hora, ou pendurada com `actHang`. */
+  actResult(): Promise<void> {
+    if (!this.actHang) return Promise.resolve()
+    return new Promise((resolve, reject) => { this.hungActs.push({ resolve, reject }) })
+  }
+
+  /** @internal Quantos elementos o seletor acha. */
+  refCount(selector: string): number { return this.counts.get(selector) ?? 1 }
+
+  /** Solta as ações penduradas. */
+  releaseActs(): void {
+    for (const a of this.hungActs.splice(0)) a.resolve()
+  }
 
   /** O próximo `event`, ou TimeoutError depois de `timeout` ms. */
   waitForEvent(event: string, opts?: { timeout?: number }): Promise<unknown> {
@@ -131,6 +211,8 @@ export class FakePage extends Emitter {
   close(): Promise<void> {
     if (this.closed) return Promise.resolve()
     this.closed = true
+    // Como o Playwright: a ação em curso falha com a página fechada.
+    for (const a of this.hungActs.splice(0)) a.reject(new Error('Target page, context or browser has been closed'))
     this.emit('close', this)
     return Promise.resolve()
   }

@@ -78,7 +78,7 @@ describe('inScope', () => {
   // Onde cada escopo escuta, alvo a alvo. `corpo` é o foco em nada (body).
   const ESPERADO: Record<ShortcutScope, Record<string, boolean>> = {
     field: { campo: true, 'no-chat': false, 'busca-lateral': false, 'no-modal': false, editor: false, 'xterm-entrada': false, corpo: false },
-    page: { campo: true, 'no-chat': true, 'busca-lateral': false, 'no-modal': true, editor: false, 'xterm-entrada': false, corpo: true },
+    page: { campo: true, 'no-chat': true, 'busca-lateral': false, 'no-modal': false, editor: false, 'xterm-entrada': false, corpo: true },
     conversation: { campo: true, 'no-chat': true, 'busca-lateral': false, 'no-modal': false, editor: false, 'xterm-entrada': false, corpo: true },
     outsideFields: { campo: false, 'no-chat': true, 'busca-lateral': false, 'no-modal': true, editor: false, 'xterm-entrada': false, corpo: true },
     outsideFieldsAndModals: { campo: false, 'no-chat': true, 'busca-lateral': false, 'no-modal': false, editor: false, 'xterm-entrada': false, corpo: true },
@@ -103,6 +103,29 @@ describe('inScope', () => {
       obtido[scope] = Object.fromEntries(Object.keys(linha).map((nome) => [nome, inScope(scope as ShortcutScope, alvo(nome), campo)]))
     }
     expect(obtido).toEqual(ESPERADO)
+  })
+
+  it('page: dentro de um diálogo ou modal não escuta; no campo, na conversa e na lateral, sim', () => {
+    const box = montar(`
+      <div class="chat-main">
+        <div class="chat-scroll"><button id="no-chat">copiar</button></div>
+        <textarea id="campo" class="chat-compose__area"></textarea>
+      </div>
+      <aside class="side-col"><button id="na-lateral">ok</button></aside>
+      <div role="dialog"><button id="no-dialogo">ok</button><div id="no-dialogo-fundo" tabindex="-1"></div></div>
+      <div role="dialog" aria-modal="true"><button id="no-modal-aria">ok</button></div>
+      <div aria-modal="true"><button id="so-aria-modal">ok</button></div>
+      <div class="modal-overlay"><div class="glass"><button id="no-overlay">ok</button></div></div>
+    `)
+    const campo = box.querySelector<HTMLElement>('#campo')!
+    const el = (id: string) => box.querySelector<HTMLElement>(`#${id}`)!
+    for (const id of ['no-dialogo', 'no-dialogo-fundo', 'no-modal-aria', 'so-aria-modal', 'no-overlay']) {
+      expect(inScope('page', el(id), campo), id).toBe(false)
+    }
+    for (const id of ['campo', 'no-chat', 'na-lateral']) {
+      expect(inScope('page', el(id), campo), id).toBe(true)
+    }
+    expect(inScope('page', document.body, campo)).toBe(true)
   })
 
   it('sem o campo do chat montado, nada é o campo', () => {

@@ -126,6 +126,22 @@ describe('enviar, fila e guardar pelo registro', () => {
     expect(enviadas).toEqual([])
   })
 
+  it('o enviar de escopo page não age com o foco num diálogo; fora dele, envia', () => {
+    render(
+      <WsContext.Provider value={ws}>
+        <ChatInput localId="idle" disabled={false} />
+        <div role="dialog" aria-modal="true"><button type="button">no diálogo</button></div>
+      </WsContext.Provider>,
+    )
+    digitar('fica')
+    const noDialogo = screen.getByRole('button', { name: 'no diálogo' })
+    expect(tecla(noDialogo, 'Enter', 'Enter', { ctrlKey: true }), 'o atalho é do diálogo: não previne').toBe(true)
+    expect(enviados()).toEqual([])
+    expect(campo().value).toBe('fica')
+    expect(tecla(document.body, 'Enter', 'Enter', { ctrlKey: true })).toBe(false)
+    expect(enviados().map((m) => m.text)).toEqual(['fica'])
+  })
+
   it('no Mac, ⌘Enter envia de fora do campo e Control+Enter não', () => {
     simulateMac()
     abrir()

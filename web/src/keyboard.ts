@@ -37,9 +37,13 @@ function isChatInput(target: EventTarget | null, chatInput: HTMLElement | null):
   return chatInput !== null && target === chatInput
 }
 
-/** Campo de mensagem ou fora de qualquer outro campo de texto. */
+/**
+ * Campo de mensagem ou fora de qualquer outro campo de texto e de modal. Com o
+ * foco num diálogo (inclusive num botão dele), a tecla é do diálogo: o enviar e
+ * o microfone do chat não agem lá. O terminal fora de campo continua valendo.
+ */
 function inPage(target: EventTarget | null, chatInput: HTMLElement | null): boolean {
-  return !isForeignField(target, chatInput)
+  return isChatInput(target, chatInput) || (!isForeignField(target, chatInput) && !inModal(target))
 }
 
 /** Como a página, e fora de modal e do terminal: a regra de sempre da busca. */

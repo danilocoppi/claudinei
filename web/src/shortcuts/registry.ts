@@ -20,8 +20,8 @@ export type ShortcutId =
 /**
  * Onde o atalho escuta:
  * - `field`: só no campo de mensagem;
- * - `page`: no campo de mensagem ou fora de qualquer outro campo de texto;
- * - `conversation`: como `page`, e fora de modal e do terminal;
+ * - `page`: no campo de mensagem ou fora de qualquer outro campo de texto e de modal;
+ * - `conversation`: como `page`, e fora do terminal;
  * - `outsideFields`: fora de qualquer campo, inclusive o de mensagem;
  * - `outsideFieldsAndModals`: como `outsideFields`, e fora de modal;
  * - `allButTerminal`: em todo lugar, menos o terminal.

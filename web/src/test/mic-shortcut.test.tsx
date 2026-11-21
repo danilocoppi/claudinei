@@ -115,6 +115,18 @@ describe('Ctrl+Espaço no microfone', () => {
     expect(deps.startMicCapture).not.toHaveBeenCalled()
   })
 
+  it('com o foco num diálogo, o atalho é dele: não grava nem impede a tecla', () => {
+    const { deps } = makeDeps()
+    render(
+      <>
+        <Chat deps={deps} onText={vi.fn()} />
+        <div role="dialog" aria-modal="true"><button type="button">no diálogo</button></div>
+      </>,
+    )
+    expect(down(screen.getByRole('button', { name: 'no diálogo' }))).toBe(true)
+    expect(deps.startMicCapture).not.toHaveBeenCalled()
+  })
+
   it('com o chat desabilitado (sessão parada), não grava', () => {
     const { deps } = makeDeps()
     render(<Chat deps={deps} onText={vi.fn()} disabled />)

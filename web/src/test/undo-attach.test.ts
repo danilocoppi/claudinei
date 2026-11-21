@@ -188,6 +188,14 @@ describe('attachTurns', () => {
       const t2 = turn('agora b')
       expect(placed(items, [t1, t2])).toEqual([[t1.id, 1, 2], [t2.id, 3, 4]])
     })
+
+    it.each(formatos)('OpenCode com a cópia recusada: o pacote vai junto da pergunta dentro da sessão, e o turno casa pelo pedido (%s)', (_nome, evt) => {
+      const items = montar(PACOTE, evt)
+      // O tracker só viu o que o operador digitou; o pacote foi posto na frente pela sessão.
+      const t1 = turn('faça a')
+      const t2 = turn('agora b')
+      expect(placed(items, [t1, t2])).toEqual([[t1.id, 0, 1], [t2.id, 2, 3]])
+    })
   })
 
   it('ordena os turnos pelo id mesmo se vierem fora de ordem', () => {

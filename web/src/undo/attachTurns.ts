@@ -38,21 +38,35 @@ function isTurnItem(it: ChatItem): it is ChatItem & { text: string } {
 const ENVELOPED = '[x]: '
 
 /** As chaves já calculadas: os itens do chat não mudam, a lista é que cresce. */
-const keyCache = new WeakMap<ChatItem, string | null>()
+const keyCache = new WeakMap<ChatItem, string[]>()
 
-/** A `turnKey` do item, se ele abre turno; null se não abre. Calculada uma vez por item. */
-function itemKey(it: ChatItem): string | null {
+/**
+ * As `turnKey` com que o item pode abrir um turno (vazio se não abre), a
+ * principal primeiro. Calculadas uma vez por item. O pacote com pedido tem
+ * duas: a do texto cru (o Claudinei mandou o pacote inteiro) e a do pedido (a
+ * sessão do OpenCode pôs o pacote na frente do que o operador
+ * digitou, e o servidor gravou só o digitado).
+ */
+function itemKeys(it: ChatItem): string[] {
   const cached = keyCache.get(it)
   if (cached !== undefined) return cached
-  let key: string | null = null
-  // O pacote da ⇄ traz a chave do texto cru (o cartão guarda só o corpo).
+  let keys: string[] = []
   if (isTurnItem(it)) {
-    key = it.kind === 'claudinei_message' && it.reason === 'handoff' && it.turnKey !== undefined
-      ? it.turnKey
-      : turnKey(it.kind === 'user_text' ? it.text : ENVELOPED + it.text)
+    if (it.kind === 'claudinei_message' && it.reason === 'handoff' && it.turnKey !== undefined) {
+      keys = [it.turnKey]
+      if (it.request !== undefined) {
+        const byRequest = turnKey(it.request)
+        if (byRequest !== it.turnKey) keys.push(byRequest)
+      }
+    } else keys = [turnKey(it.kind === 'user_text' ? it.text : ENVELOPED + it.text)]
   }
-  keyCache.set(it, key)
-  return key
+  keyCache.set(it, keys)
+  return keys
+}
+
+/** A `turnKey` principal do item, se ele abre turno; null se não abre. */
+function itemKey(it: ChatItem): string | null {
+  return itemKeys(it)[0] ?? null
 }
 
 /**
@@ -83,11 +97,11 @@ export function attachTurns(items: ChatItem[], turns: TurnDto[]): TurnPlacement[
     if (key !== null || isUndoNote(items[i])) end = i - 1
   }
   for (let i = 0; i < items.length; i++) {
-    const key = itemKey(items[i])
-    if (key === null) continue
-    const list = positions.get(key)
-    if (list) list.push(i)
-    else positions.set(key, [i])
+    for (const key of itemKeys(items[i])) {
+      const list = positions.get(key)
+      if (list) list.push(i)
+      else positions.set(key, [i])
+    }
   }
 
   const ordered = turns.filter(t => t.origin !== 'interactive').sort((a, b) => a.id - b.id)

@@ -16,6 +16,9 @@ import type { CutPoint } from '../src/branch/cut.js'
 import type { BranchService } from '../src/branch/service.js'
 import type { Undo } from '../src/undo/index.js'
 import { listSideThreads } from '../src/branch/side-threads.js'
+import { SIDE_ACTIVE } from '../src/undo/store.js'
+import { observerOf } from '../src/undo/index.js'
+import { makeRepo } from './helpers/git-repo.js'
 
 /**
  * Rotas da conversa lateral (`/side`, `/btw`) e a amarração do serviço no app:
@@ -65,11 +68,14 @@ beforeEach(async () => {
   broadcasts = []
   sideOpts = []
   branch = undefined
+  undo = undefined
   cfg = mkdtempSync(join(tmpdir(), 'br-cfg-'))
   // Como o index.ts: o fim da sessão principal chega ao serviço pela referência.
   manager = createSessionManager({
     db, sessionFactory: fakeFactory, broadcast: () => {},
     onSessionEnded: (projectId, engine) => branch?.onSessionEnded(projectId, engine),
+    // Como o index.ts: o rastreador do desfazer vê os turnos da principal.
+    turnObserver: observerOf(() => undo),
   })
   app = await buildApp({
     config: loadConfig({}), db, manager, auth,
@@ -281,6 +287,61 @@ describe('rotas da lateral', () => {
     expect(body.events.some((e: any) => e.kind === 'assistant' && textOf(e) === 'eco: resuma')).toBe(true)
     // Outro motor do mesmo terminal não tem lateral.
     expect((await getSide(p1.id, 'codex')).json()).toEqual({ side: null, events: [] })
+  })
+
+  it('lateral trabalhando: o desfazer bloqueia por ela e o marco do turno seguinte a conta', async () => {
+    const r = makeRepo({ 'a.txt': 'a\n' })
+    try {
+      const p3 = createProjectsService(db).create({ name: 'Gama', path: r.dir })
+      const localId = await startMain(p3)
+      manager.send(localId, 'primeiro', { echo: true })
+      await waitUntil(() => undo!.store.terminalTurns(p3.id, 'claude').some((t) => t.endedAt !== null))
+      await undo!.idle()
+      const [t1] = undo!.store.terminalTurns(p3.id, 'claude')
+      expect((await undo!.service.preview([t1.id], { isAdmin: true, projectIds: 'all' })).blockedBy).toBeNull()
+
+      expect((await openSide(p3.id, { engine: 'claude', text: 'oi' })).statusCode).toBe(201)
+      await waitUntil(() => assistantTexts(p3.id).includes('eco: oi'))
+      expect((await message(p3.id, { engine: 'claude', text: 'demorada' })).statusCode).toBe(204)
+      await waitUntil(() => branch!.side.working().length === 1)
+      expect((await undo!.service.preview([t1.id], { isAdmin: true, projectIds: 'all' })).blockedBy).toEqual({ kind: 'side', terminal: 'Gama' })
+
+      // O turno seguinte da principal abre com a lateral no intervalo.
+      manager.send(localId, 'segundo', { echo: true })
+      await waitUntil(() => undo!.store.terminalTurns(p3.id, 'claude').length === 2)
+      await undo!.idle()
+      const t2 = undo!.store.terminalTurns(p3.id, 'claude')[1]
+      expect(undo!.store.mark(undo!.store.turn(t2.id)!.startMark!)!.active).toContain(SIDE_ACTIVE)
+
+      expect((await interrupt(p3.id, { engine: 'claude' })).statusCode).toBe(204)
+      await waitUntil(() => branch!.side.working().length === 0)
+      await waitUntil(() => undo!.store.terminalTurns(p3.id, 'claude').every((t) => t.endedAt !== null))
+      await undo!.idle()
+      expect((await undo!.service.preview([t1.id], { isAdmin: true, projectIds: 'all' })).blockedBy).toBeNull()
+    } finally {
+      await branch?.dispose()
+      await manager.stopAll()
+      r.cleanup()
+    }
+  })
+
+  it('o desfazer segurando a pasta ou voltando a conversa: a mensagem da lateral recusa com o código dele (409)', async () => {
+    await startMain(p1)
+    expect((await openSide(p1.id, { engine: 'claude', text: 'oi' })).statusCode).toBe(201)
+    await waitUntil(() => assistantTexts(p1.id).includes('eco: oi'))
+    const escrita = vi.spyOn(undo!.service, 'holds').mockImplementation((p) => p === p1.id)
+    const res = await message(p1.id, { engine: 'claude', text: 'e agora?' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('undo_writing')
+    escrita.mockRestore()
+    vi.spyOn(undo!.rewind, 'holds').mockImplementation((p, e) => p === p1.id && e === 'claude')
+    const volta = await message(p1.id, { engine: 'claude', text: 'e agora?' })
+    expect(volta.statusCode).toBe(409)
+    expect(volta.json().code).toBe('rewind_in_progress')
+    // Nada chegou à lateral.
+    expect(sideEvents(p1.id).some((b) => textOf(b.event) === 'e agora?')).toBe(false)
+    vi.restoreAllMocks()
+    expect((await message(p1.id, { engine: 'claude', text: 'e agora?' })).statusCode).toBe(204)
   })
 
   it('parar a sessão principal pela rota de stop publica side: null', async () => {

@@ -20,6 +20,8 @@ let queue: ReturnType<typeof createSerialQueue>
 const cleanups: Array<() => void> = []
 const projects = new Map<number, { id: number; name: string; path: string }>()
 let sessions: Array<Pick<SessionInfo, 'localId' | 'projectId' | 'engine' | 'status'>> = []
+/** As laterais trabalhando (o `working()` do serviço da lateral). */
+let sides: Array<{ projectId: number; engine: string }> = []
 let broadcasts: Array<Record<string, unknown>> = []
 let writeEnds: string[] = []
 /** Chamado no meio do takeMark do serviço (antes do marco), para espiar a escrita. */
@@ -68,6 +70,7 @@ function setup(extra: { restoreMaxBytes?: number } = {}) {
   service = createUndoService({
     db, store, resolver, queue,
     manager: { list: () => sessions as SessionInfo[] },
+    sides: () => sides,
     projects: { get: id => projects.get(id) },
     canSee: (v, id) => v.isAdmin || v.projectIds === 'all' || v.projectIds.includes(id),
     broadcast: m => broadcasts.push(m as Record<string, unknown>),
@@ -127,6 +130,7 @@ beforeEach(() => {
   queue = createSerialQueue()
   projects.clear()
   sessions = []
+  sides = []
   broadcasts = []
   writeEnds = []
   onMark = null
@@ -298,6 +302,50 @@ describe('desfazer', () => {
     expect(read(r.dir, 'a.txt')).toBe('mudou\n')
     expect(service.holds(A.projectId, 'claude')).toBe(false)
     expect(writeEnds.length).toBe(1)
+  })
+
+  it('lateral trabalhando no mesmo repo bloqueia como turno em andamento (kind side), com o nome do terminal dono', async () => {
+    const r = repo({ 'a.txt': 'a\n', 'sub/x.txt': 'x\n' })
+    const outro = repo({ 'z.txt': 'z\n' })
+    const A = ctxOf(project(r.dir, 'A'), 'LA')
+    const B = project(join(r.dir, 'sub'), 'B')
+    const C = project(outro.dir, 'C')
+    const { tracker: t, service } = setup()
+    const ta = await turn(t, A, () => r.write('a.txt', 'mudou\n'))
+
+    // Lateral de outro repositório não conta.
+    sides = [{ projectId: C, engine: 'kimi' }]
+    expect((await service.preview([ta], ADMIN)).blockedBy).toBeNull()
+
+    // A lateral do próprio terminal e a de um irmão no mesmo repositório contam.
+    sides = [{ projectId: A.projectId, engine: 'claude' }]
+    expect((await service.preview([ta], ADMIN)).blockedBy).toEqual({ kind: 'side', terminal: 'A' })
+    sides = [{ projectId: B, engine: 'kimi' }]
+    const p = await service.preview([ta], ADMIN)
+    expect(p.blockedBy).toEqual({ kind: 'side', terminal: 'B' })
+    expect((await service.preview([ta], only(A.projectId))).blockedBy).toEqual({ kind: 'side', terminal: null })
+    await expect(service.apply([ta], { token: p.token, decisions: {} }, ADMIN)).rejects.toMatchObject({
+      code: 'undo_blocked', message: 'esperando a conversa lateral de B terminar', params: { kind: 'side', terminal: 'B' },
+    })
+    expect(read(r.dir, 'a.txt')).toBe('mudou\n')
+
+    // Turno principal trabalhando vence a lateral; a lateral vence o terminal interativo.
+    sessions = [{ localId: 'LB', projectId: B, engine: 'claude', status: 'working' }]
+    expect((await service.preview([ta], ADMIN)).blockedBy).toEqual({ kind: 'working', terminal: 'B' })
+    sessions = [{ localId: 'LB', projectId: B, engine: 'claude', status: 'in_terminal' }]
+    expect((await service.preview([ta], ADMIN)).blockedBy).toEqual({ kind: 'side', terminal: 'B' })
+
+    // Lateral que começa a trabalhar entre a prévia e a escrita: a seção síncrona reconfere.
+    sessions = []
+    sides = []
+    const livre = await service.preview([ta], ADMIN)
+    expect(livre.blockedBy).toBeNull()
+    onMark = kind => { if (kind === 'undo_pre') sides = [{ projectId: A.projectId, engine: 'kimi' }] }
+    await expect(service.apply([ta], { token: livre.token, decisions: {} }, ADMIN)).rejects.toMatchObject({
+      code: 'undo_blocked', params: { kind: 'side', terminal: 'A' },
+    })
+    expect(read(r.dir, 'a.txt')).toBe('mudou\n')
+    expect(service.holds(A.projectId, 'claude')).toBe(false)
   })
 
   it('conflito cujo "agora" virou pasta: keepOnly na prévia, e voltar mesmo assim é recusado', async () => {

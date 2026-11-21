@@ -223,10 +223,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // O desfazer turno: a escrita de um desfazer segura o terminal (o árbitro não
   // entrega nada no repositório) e, no fim, cutuca o árbitro dos terminais dele.
   let nextSendRef: NextSend | undefined
+  // A lateral nasce depois (com o ramificar): o desfazer a lê pela referência.
+  let branchRef: BranchService | undefined
   const undo = createUndo({
     db: deps.db, manager: deps.manager, projects: createProjectsService(deps.db),
     broadcast: (m) => deps.wsHub?.broadcast(m),
     poke: (projectId, engine) => nextSendRef?.poke(projectId, engine),
+    sides: () => branchRef?.side.working() ?? [],
   })
   registerUndoRoutes(app, { undo, manager: deps.manager, db: deps.db })
   deps.onUndoReady?.(undo)
@@ -374,7 +377,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     store: terminalState, restart, side: deps.branchTest,
     // Só a volta da conversa: o desfazer que só escreve arquivos não mexe nela.
     rewinding: (projectId, engine) => undo.rewind.holds(projectId, engine),
+    // A lateral escreve na pasta do terminal: respeita as travas do desfazer e
+    // avisa o rastreador quando trabalha.
+    holdSide: (projectId, engine) => undo.holdSide(projectId, engine),
+    onSideWorking: (projectId, engine, working) => undo.onSideWorking(projectId, engine, working),
   })
+  branchRef = branch
   registerBranchRoutes(app, { db: deps.db, branch })
   deps.onBranchReady?.(branch)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })

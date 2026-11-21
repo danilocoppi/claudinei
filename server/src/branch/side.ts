@@ -58,6 +58,13 @@ export interface SideService {
   interrupt(projectId: number, engine: string): Promise<void>
   close(projectId: number, engine: string, opts?: { shutdown?: boolean }): Promise<void>
   snapshot(projectId: number, engine: string): { side: SideInfo; events: AgentEvent[] } | null
+  /**
+   * As laterais trabalhando agora (projeto + motor) que podem escrever na pasta
+   * do projeto (o Kimi pode alterar arquivos; Claude e OpenCode, pelo shell):
+   * o desfazer conta cada uma como um turno em andamento na pasta. A do Codex
+   * roda no sandbox só leitura e fica de fora.
+   */
+  working(): Array<{ projectId: number; engine: string }>
   onSessionEnded(projectId: number, engine: string): void
   bootCleanup(): Promise<void>
   dispose(): Promise<void>
@@ -108,6 +115,14 @@ export function createSideService(deps: {
   cutFor?: typeof cutFor // testes
   collect?: typeof collectHandoff // testes
   cleanup?: { claudeConfigDir?: string; run?: ExecLike } // testes
+  /**
+   * Antes de cada mensagem do operador à lateral: lança a recusa do desfazer
+   * (`undo_writing`, `rewind_in_progress`) enquanto ele segura a pasta ou a
+   * conversa do terminal.
+   */
+  holdInput?: (projectId: number, engine: string) => void
+  /** A lateral entrou em working (true) ou saiu (false): o rastreador do desfazer marca o intervalo. */
+  onWorking?: (projectId: number, engine: string, working: boolean) => void
 }): SideService {
   const sides = new Map<string, Side>()
   const keyOf = (projectId: number, engine: string) => `${projectId}:${engine}`
@@ -140,6 +155,15 @@ export function createSideService(deps: {
       side.events.shift()
       side.bytes -= side.sizes.shift()!
     }
+  }
+
+  /** Troca o status e avisa quem acompanha as entradas e saídas de working (só das que podem escrever). */
+  const setStatus = (side: Side, status: SessionStatus) => {
+    const before = side.info.status === 'working'
+    side.info.status = status
+    const now = status === 'working'
+    if (before === now || side.info.files === 'read_only') return
+    try { deps.onWorking?.(side.info.projectId, side.info.engine, now) } catch (err) { console.error('[lateral] aviso de working falhou', err) }
   }
 
   const errorEvent = (text: string): AgentEvent =>
@@ -204,18 +228,18 @@ export function createSideService(deps: {
         return
       }
       // A lateral não tem "não lida": o fim de turno volta a ociosa.
-      side.info.status = status === 'needs_attention' ? 'idle' : status
+      setStatus(side, status === 'needs_attention' ? 'idle' : status)
       if (status === 'dead') pushEvent(side, errorEvent(session.lastStderr || 'O processo do agente encerrou inesperadamente.'))
       publish(side)
     })
     session.start()
-    side.info.status = session.status
+    setStatus(side, session.status)
   }
 
   const retryAsSeed = async (side: Side) => {
     side.retried = true
     side.info.mode = 'seed'
-    side.info.status = 'starting'
+    setStatus(side, 'starting')
     publish(side)
     let seed: string | null = null
     try {
@@ -232,7 +256,7 @@ export function createSideService(deps: {
     try {
       launch(side, side.base)
     } catch (err) {
-      side.info.status = 'dead'
+      setStatus(side, 'dead')
       pushEvent(side, errorEvent(err instanceof Error ? err.message : String(err)))
       publish(side)
       return
@@ -251,6 +275,8 @@ export function createSideService(deps: {
   const closeSide = (side: Side, opts: { shutdown?: boolean } = {}): Promise<void> => {
     if (side.closing) return side.closing
     side.closed = true
+    // Fechada trabalhando: para o desfazer, o turno dela acabou aqui.
+    if (side.info.status === 'working') setStatus(side, 'stopped')
     const owned = sides.get(side.key) === side
     if (owned) sides.delete(side.key)
     if (owned && !opts.shutdown) publishNull(side.info.projectId, side.info.engine)
@@ -372,6 +398,9 @@ export function createSideService(deps: {
 
     send(projectId, engine, text) {
       const side = current(projectId, engine)
+      // O desfazer segurando a pasta (ou voltando a conversa): nada sai, e a
+      // recusa leva o código dele (a tela devolve o texto ao campo).
+      deps.holdInput?.(projectId, engine)
       deliver(side, text, { echo: true })
     },
 
@@ -390,6 +419,12 @@ export function createSideService(deps: {
       const side = sides.get(keyOf(projectId, engine))
       if (!side || side.opening) return null
       return { side: { ...side.info }, events: [...side.events] }
+    },
+
+    working() {
+      return [...sides.values()]
+        .filter((s) => !s.opening && !s.closed && s.info.status === 'working' && s.info.files !== 'read_only')
+        .map((s) => ({ projectId: s.info.projectId, engine: s.info.engine }))
     },
 
     onSessionEnded(projectId, engine) {

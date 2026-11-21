@@ -62,7 +62,8 @@ export interface UndoPreview {
   /** sha1 dos caminhos e digests do "agora", em ordem; o apply recusa se mudou. */
   token: string
   turnIds: number[]
-  blockedBy: { kind: 'working' | 'in_terminal'; terminal: string | null } | null
+  /** `side`: a conversa lateral do terminal trabalhando (ela pode escrever na pasta). */
+  blockedBy: { kind: 'working' | 'in_terminal' | 'side'; terminal: string | null } | null
   branchChanged: { from: string | null; to: string | null } | null
   /** own e uncertain; uncertain nasce desmarcado; overlapped vira conflict. */
   files: PreviewFile[]

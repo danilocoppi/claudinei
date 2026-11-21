@@ -671,6 +671,7 @@ export const es: typeof en = {
     dialog: {
       titleUndo: 'Deshacer los cambios en los archivos', titleRedo: 'Rehacer los cambios en los archivos',
       blocked: 'Esperando a que termine el turno de {{terminal}}', otherTerminal: 'otro terminal',
+      blockedSide: 'Esperando a que termine la conversación lateral de {{terminal}}',
       retry: 'Intentar de nuevo',
       branchChanged: 'La rama cambió desde el turno (era {{from}}, ahora {{to}})', noBranch: 'ninguna',
       changed: 'Los archivos cambiaron desde que abriste esta pantalla',

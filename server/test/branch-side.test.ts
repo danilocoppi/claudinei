@@ -17,6 +17,7 @@ import { cleanupSideTrace, listSideThreads, recordSideThread, sideThreadIds } fr
 import { foreignThreadIds } from '../src/project-threads.js'
 import { historyConversationId } from '../src/routes/sessions.js'
 import { transcriptPath } from '../src/history.js'
+import { UserError } from '../src/user-error.js'
 import '../src/engine/index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -582,6 +583,53 @@ describe('conversa lateral', () => {
     svc.send(project.id, 'codex', 'oi')
     expect(fakes[0].sends).toEqual(['oi'])
     expect(svc.snapshot(project.id, 'codex')!.side.question).toBe('oi')
+  })
+
+  it('working lista as laterais trabalhando e avisa cada entrada e saída de working (o desfazer as vê)', async () => {
+    const avisos: Array<[number, string, boolean]> = []
+    const svc = service({ onWorking: (p, e, w) => avisos.push([p, e, w]) })
+    expect(svc.working()).toEqual([])
+    await svc.open(project.id, 'claude', 'pergunta')
+    await svc.open(project.id, 'kimi', null)
+    // O envio da pergunta pôs a do Claude em working; a do Kimi segue ociosa.
+    expect(svc.working()).toEqual([{ projectId: project.id, engine: 'claude' }])
+    expect(avisos).toEqual([[project.id, 'claude', true]])
+    fakes[0].set('needs_attention')
+    expect(svc.working()).toEqual([])
+    expect(avisos).toEqual([[project.id, 'claude', true], [project.id, 'claude', false]])
+    svc.send(project.id, 'kimi', 'escreve')
+    expect(svc.working()).toEqual([{ projectId: project.id, engine: 'kimi' }])
+    // Fechar trabalhando também é saída de working.
+    await svc.close(project.id, 'kimi')
+    expect(svc.working()).toEqual([])
+    expect(avisos.at(-1)).toEqual([project.id, 'kimi', false])
+    // A do Codex roda no sandbox só leitura: não escreve na pasta, não conta.
+    const n = avisos.length
+    await svc.open(project.id, 'codex', 'pergunta')
+    expect(svc.snapshot(project.id, 'codex')!.side.status).toBe('working')
+    expect(svc.working()).toEqual([])
+    expect(avisos).toHaveLength(n)
+  })
+
+  it('send respeita a trava do desfazer: recusa com o código dele e nada sai', async () => {
+    let trava: UserError | null = null
+    const chamadas: Array<[number, string]> = []
+    const svc = service({ holdInput: (p, e) => { chamadas.push([p, e]); if (trava) throw trava } })
+    await svc.open(project.id, 'kimi', null)
+    const antes = svc.snapshot(project.id, 'kimi')!.events.length
+    trava = new UserError('undo_writing', 'o Claudinei está desfazendo arquivos nesta pasta')
+    expect(() => svc.send(project.id, 'kimi', 'oi')).toThrow(expect.objectContaining({ code: 'undo_writing' }))
+    trava = new UserError('rewind_in_progress', 'voltando a conversa')
+    expect(() => svc.send(project.id, 'kimi', 'oi')).toThrow(expect.objectContaining({ code: 'rewind_in_progress' }))
+    expect(fakes[0].sends).toEqual([])
+    expect(svc.snapshot(project.id, 'kimi')!.events.length).toBe(antes)
+    expect(svc.working()).toEqual([])
+    // Solta a trava: a mensagem sai (com o pacote, que ficou esperando).
+    trava = null
+    svc.send(project.id, 'kimi', 'oi')
+    expect(fakes[0].sends).toHaveLength(1)
+    expect(fakes[0].sends[0]).toContain('oi')
+    expect(chamadas.every(([p, e]) => p === project.id && e === 'kimi')).toBe(true)
   })
 
   it('onSessionEnded fecha a lateral', async () => {

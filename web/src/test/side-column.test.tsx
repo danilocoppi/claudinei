@@ -238,6 +238,38 @@ describe('pé', () => {
     })
   })
 
+  it('envio recusado pela trava do desfazer: o texto fica no campo e o motivo aparece traduzido', async () => {
+    let recusa: { code: string; error: string } | null = { code: 'undo_writing', error: 'o Claudinei está desfazendo arquivos nesta pasta' }
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const u = String(url)
+      if (u.endsWith('/side/message') && init?.method === 'POST') {
+        return recusa ? json(recusa, 409) : new Response(null, { status: 204 })
+      }
+      if (u.includes('/side')) return json({ side: null, events: [] })
+      return json([])
+    })
+    put(info({ engine: 'kimi' }))
+    render(<Coluna engine="kimi" />)
+    const campo = screen.getByPlaceholderText('Pergunte na conversa lateral…') as HTMLTextAreaElement
+    fireEvent.change(campo, { target: { value: 'e o teste?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('O Claudinei está desfazendo arquivos nesta pasta; tente de novo em alguns segundos.')
+    expect(campo.value).toBe('e o teste?')
+
+    recusa = { code: 'rewind_in_progress', error: 'voltando a conversa' }
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('O Claudinei está voltando a conversa deste terminal; tente de novo em alguns segundos.'))
+    expect(campo.value).toBe('e o teste?')
+
+    // Solta a trava: o mesmo texto sai, sem redigitar.
+    recusa = null
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    await waitFor(() => expect(campo.value).toBe(''))
+    const envios = fetch.mock.calls.filter(([u]) => String(u).endsWith('/side/message'))
+    expect(envios.map(([, i]) => JSON.parse(i!.body as string))).toEqual(Array(3).fill({ engine: 'kimi', text: 'e o teste?' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('campo da lateral desabilitado trabalhando no Kimi e habilitado no Claude', () => {
     api()
     put(info({ engine: 'kimi', status: 'working' }))

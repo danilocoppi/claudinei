@@ -2,7 +2,7 @@ import { changedFiles, type MarkSide } from '../checkpoint/diff.js'
 import type { RepoInfo } from '../checkpoint/repo.js'
 import type { AttributedFile, FileChange, TurnSummary } from '../../../shared/undo.js'
 import { inProjectOf } from './scope.js'
-import type { MarkRow, TurnRow, UndoStore } from './store.js'
+import { SIDE_ACTIVE, type MarkRow, type TurnRow, type UndoStore } from './store.js'
 
 /**
  * Atribuição entre terminais da mesma pasta (spec, "Vários terminais na mesma
@@ -18,6 +18,10 @@ import type { MarkRow, TurnRow, UndoStore } from './store.js'
  * - só outro declarou → `uncertain` com `overlapped` (spec: "Senão fica
  *   incerta"; decisão R14 — não some do turno);
  * - ninguém declarou → `uncertain`.
+ *
+ * Conversa lateral trabalhando na pasta (`SIDE_ACTIVE` no `active`) conta como
+ * outro ativo que pode ter escrito qualquer caminho: o que o turno declarou
+ * vira `own` com `overlapped` (conflito); o resto, `uncertain`.
  *
  * O arquivo que mudou em mais de um intervalo junta os veredictos assim: se
  * algum intervalo o deu como `uncertain`, fica `uncertain` (mesmo que outro
@@ -131,6 +135,8 @@ export async function attributeTurn(repo: RepoInfo, store: UndoStore, turn: Turn
       }
       if (!run.others.length) continue // só ele ativo: own
       if (run.others.some(id => declared(id).has(c.path))) v.overlapped = true
+      // A lateral não declara caminhos: o que o turno declarou fica compartilhado com ela.
+      if (run.others.includes(SIDE_ACTIVE) && mine.has(c.path)) v.overlapped = true
       // Ninguém declarou, ou só outro declarou: incerto (R14).
       if (!mine.has(c.path)) v.uncertain = true
     }
@@ -170,7 +176,7 @@ export function summarize(files: AttributedFile[], viewer: Viewer): TurnSummary 
 /**
  * Os intervalos fora de turno do repositório, do mais novo para o mais velho,
  * até `limit`: pares de marcos seguidos (`n` e `n + 1`) em que o `from` não
- * tinha turno ativo. `kind: 'undo'` quando o `from` é o marco "antes do
+ * tinha turno ativo (a conversa lateral sozinha não conta como turno). `kind: 'undo'` quando o `from` é o marco "antes do
  * desfazer". Par com marco apagado no meio (retenção) não conta: a janela
  * cobriria turnos que sumiram.
  *
@@ -187,7 +193,8 @@ export function listIntervals(store: UndoStore, repoKey: string, limit = 50): In
     for (let i = 1; i < marks.length && out.length < limit; i++) {
       const to = marks[i - 1]
       const from = marks[i]
-      if (to.n !== from.n + 1 || from.active.length) continue
+      // Só a lateral trabalhando não é turno: o intervalo continua fora de turno.
+      if (to.n !== from.n + 1 || from.active.some(id => id !== SIDE_ACTIVE)) continue
       out.push({ from, to, kind: from.kind === 'undo_pre' ? 'undo' : 'between' })
     }
     if (out.length >= limit || marks.length < want) return out

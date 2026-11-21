@@ -51,6 +51,10 @@ export function createBranchService(deps: {
    * em curso): `/side`, `/fork` e ⇄ recusam com `rewind_in_progress`.
    */
   rewinding?: (projectId: number, engine: string) => boolean
+  /** Antes de cada mensagem à lateral: lança a recusa do desfazer que segura a pasta ou a conversa. */
+  holdSide?: (projectId: number, engine: string) => void
+  /** A lateral entrou em working (ou saiu): o rastreador do desfazer a conta na pasta. */
+  onSideWorking?: (projectId: number, engine: string, working: boolean) => void
   side?: SideTestDeps
 }): BranchService {
   const projects = createProjectsService(deps.db)
@@ -78,6 +82,8 @@ export function createBranchService(deps: {
     broadcast: deps.broadcast,
     main,
     projectPath: (projectId) => projects.get(projectId)?.path ?? null,
+    holdInput: deps.holdSide,
+    onWorking: deps.onSideWorking,
     ...deps.side,
   })
 

@@ -35,6 +35,11 @@ export interface UndoDeps {
   broadcast(m: object): void
   /** A escrita de um desfazer terminou: cutuca o árbitro de cada terminal do repositório. */
   poke?(projectId: number, engine: string): void
+  /**
+   * As conversas laterais trabalhando agora (o `working()` do serviço da
+   * lateral, que nasce depois do desfazer): o desfazer espera por elas.
+   */
+  sides?(): Array<{ projectId: number; engine: string }>
   log?(m: string): void
 }
 
@@ -109,6 +114,7 @@ export function createUndo(deps: UndoDeps) {
   })
   service = createUndoService({
     db: deps.db, store, resolver, queue, manager: deps.manager, projects: deps.projects,
+    sides: () => deps.sides?.() ?? [],
     canSee: viewerCanSee, broadcast: m => deps.broadcast(m),
     // Lido na hora: quem envolve o takeMark do rastreador (testes) é respeitado.
     takeMark: (repo, kind) => tracker.takeMark(repo, kind),
@@ -237,6 +243,25 @@ export function createUndo(deps: UndoDeps) {
      */
     holds(projectId: number, engine: string): boolean {
       return service.holds(projectId, engine) || rewind.holds(projectId, engine)
+    },
+
+    /**
+     * Para a mensagem do operador à conversa lateral do terminal: as mesmas
+     * recusas da principal (`undo_writing` com a pasta em escrita,
+     * `rewind_in_progress` com a conversa voltando).
+     */
+    holdSide(projectId: number, engine: string): void {
+      if (service.holds(projectId, engine)) {
+        throw new UserError('undo_writing', 'o Claudinei está desfazendo arquivos nesta pasta; tente de novo em alguns segundos')
+      }
+      if (rewind.holds(projectId, engine)) {
+        throw new UserError('rewind_in_progress', 'o Claudinei está voltando a conversa deste terminal; tente de novo em alguns segundos')
+      }
+    },
+
+    /** A conversa lateral entrou em working (ou saiu): o rastreador a conta nos marcos da pasta. */
+    onSideWorking(projectId: number, engine: string, working: boolean): void {
+      tracker.onSideWorking(projectId, engine, working)
     },
 
     /**

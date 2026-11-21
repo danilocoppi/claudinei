@@ -669,6 +669,7 @@ export const en = {
     dialog: {
       titleUndo: 'Undo file changes', titleRedo: 'Redo file changes',
       blocked: 'Waiting for the turn of {{terminal}} to finish', otherTerminal: 'another terminal',
+      blockedSide: 'Waiting for the side conversation of {{terminal}} to finish',
       retry: 'Try again',
       branchChanged: 'The branch changed since the turn (was {{from}}, now {{to}})', noBranch: 'none',
       changed: 'The files changed since you opened this screen',

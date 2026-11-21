@@ -24,12 +24,19 @@ export interface MarkRow {
   branch: string | null
   mode: 'full' | 'limited'
   kind: MarkKind
-  /** Ids dos turnos ativos logo depois deste marco. */
+  /** Ids dos turnos ativos logo depois deste marco (e `SIDE_ACTIVE`, com conversa lateral trabalhando). */
   active: number[]
   big: UntrackedEntry[]
   listingHash: string | null
   createdAt: string
 }
+
+/**
+ * No `active` de um marco: alguma conversa lateral trabalhou na pasta no
+ * intervalo que ele abre. Ela não tem turno nem declara caminhos: conta como
+ * outro turno ativo, e o que mudou ali nunca é só do turno.
+ */
+export const SIDE_ACTIVE = -1
 
 export interface TurnRow {
   id: number
@@ -157,6 +164,7 @@ export function createUndoStore(db: Db) {
     mark: db.prepare(`SELECT * FROM undo_marks WHERE id = ?`),
     marksRange: db.prepare(`SELECT * FROM undo_marks WHERE repo_key = ? AND n BETWEEN ? AND ? ORDER BY n`),
     latestMarks: db.prepare(`SELECT * FROM undo_marks WHERE repo_key = ? ORDER BY n DESC LIMIT ?`),
+    setActive: db.prepare(`UPDATE undo_marks SET active = ? WHERE id = ?`),
     putListing: db.prepare(`INSERT OR IGNORE INTO undo_listings (hash, data) VALUES (?, ?)`),
     listing: db.prepare(`SELECT data FROM undo_listings WHERE hash = ?`),
     openTurn: db.prepare(`INSERT INTO undo_turns
@@ -238,6 +246,14 @@ export function createUndoStore(db: Db) {
     /** Do mais novo para o mais velho. */
     latestMarks(repoKey: string, limit: number): MarkRow[] {
       return (q.latestMarks.all(repoKey, limit) as MarkDb[]).map(toMark)
+    },
+
+    /** A lateral trabalhou no intervalo que o marco abre: acrescenta `SIDE_ACTIVE` ao `active` dele. */
+    addSideActive(markId: number): void {
+      const r = q.mark.get(markId) as MarkDb | undefined
+      if (!r) return
+      const active = JSON.parse(r.active) as number[]
+      if (!active.includes(SIDE_ACTIVE)) q.setActive.run(JSON.stringify([...active, SIDE_ACTIVE]), markId)
     },
 
     /** Guarda a lista em gzip; a chave é o sha1 do JSON, então lista igual é gravada uma vez. */

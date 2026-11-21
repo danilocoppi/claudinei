@@ -335,7 +335,8 @@ export function UndoDialog(props: UndoDialogProps) {
         )}
         {p.blockedBy && (
           <div className="undo-dialog__blocked">
-            <span>{t('undo.dialog.blocked', { terminal: p.blockedBy.terminal ?? t('undo.dialog.otherTerminal') })}</span>
+            {/* A conversa lateral do terminal trabalhando também segura o desfazer (ela escreve na pasta). */}
+            <span>{t(p.blockedBy.kind === 'side' ? 'undo.dialog.blockedSide' : 'undo.dialog.blocked', { terminal: p.blockedBy.terminal ?? t('undo.dialog.otherTerminal') })}</span>
             {(request || reload) && (
               <button type="button" className="ghost" disabled={loading} onClick={fetchPreview}>{t('undo.dialog.retry')}</button>
             )}

@@ -66,6 +66,8 @@ export interface UndoServiceDeps {
   /** Não usado: os marcos já passam pela fila no `takeMark`, e o serviço só lê o git. */
   queue?: ReturnType<typeof createSerialQueue>
   manager: Pick<SessionManager, 'list'>
+  /** As conversas laterais trabalhando (projeto + motor): bloqueiam como um turno em andamento na pasta. */
+  sides?(): Array<{ projectId: number; engine: string }>
   projects: { get(id: number): { id: number; name: string; path: string } | undefined }
   canSee(viewer: ViewerFull, projectId: number): boolean
   broadcast(m: object): void
@@ -255,12 +257,19 @@ export function createUndoService(deps: UndoServiceDeps) {
 
   // ── Bloqueio, branch, token ──
 
-  type Blocker = { kind: 'working' | 'in_terminal'; projectId: number }
+  type Blocker = { kind: 'working' | 'in_terminal' | 'side'; projectId: number }
+
+  /** As laterais trabalhando agora; falha do serviço delas não derruba o desfazer (conta como nenhuma). */
+  function workingSides(): Array<{ projectId: number; engine: string }> {
+    try { return deps.sides?.() ?? [] } catch (e) { log(`laterais: ${errText(e)}`); return [] }
+  }
 
   /**
-   * Alguma sessão de projeto do mesmo repositório trabalhando, ou aberta no
-   * terminal interativo. `working` vence `in_terminal`. `sync`: sem esperar o
-   * git (seção da escrita); pasta nunca resolvida conta pelo caminho.
+   * Alguma sessão de projeto do mesmo repositório trabalhando, conversa
+   * lateral trabalhando na pasta (ela escreve no mesmo cwd do terminal), ou
+   * sessão aberta no terminal interativo. `working` vence `side`, que vence
+   * `in_terminal`. `sync`: sem esperar o git (seção da escrita); pasta nunca
+   * resolvida conta pelo caminho.
    */
   function scanBlockers(repo: RepoInfo, sameRepo: (path: string) => boolean): Blocker | null {
     let found: Blocker | null = null
@@ -270,6 +279,10 @@ export function createUndoService(deps: UndoServiceDeps) {
       if (!p || !sameRepo(p.path)) continue
       if (s.status === 'working') return { kind: 'working', projectId: s.projectId }
       found ??= { kind: 'in_terminal', projectId: s.projectId }
+    }
+    for (const s of workingSides()) {
+      const p = deps.projects.get(s.projectId)
+      if (p && sameRepo(p.path)) return { kind: 'side', projectId: s.projectId }
     }
     return found
   }
@@ -284,8 +297,10 @@ export function createUndoService(deps: UndoServiceDeps) {
 
   async function blocker(repo: RepoInfo): Promise<Blocker | null> {
     // Resolve antes as pastas das sessões que importam; depois a varredura é síncrona.
-    const paths = deps.manager.list()
-      .filter(s => s.status === 'working' || s.status === 'in_terminal')
+    const paths = [
+      ...deps.manager.list().filter(s => s.status === 'working' || s.status === 'in_terminal'),
+      ...workingSides(),
+    ]
       .map(s => deps.projects.get(s.projectId)?.path)
       .filter((p): p is string => !!p)
     await Promise.all(paths.map(p => resolver.get(p).catch(() => null)))
@@ -299,9 +314,10 @@ export function createUndoService(deps: UndoServiceDeps) {
 
   function throwBlocked(b: NonNullable<UndoPreview['blockedBy']>): never {
     const { terminal } = b
+    const what = b.kind === 'side' ? 'a conversa lateral' : 'o turno'
     throw new UserError('undo_blocked', terminal
-      ? `esperando o turno de ${terminal} terminar`
-      : 'esperando o turno de outro terminal terminar', { kind: b.kind, terminal: terminal ?? '' })
+      ? `esperando ${what} de ${terminal} terminar`
+      : `esperando ${what} de outro terminal terminar`, { kind: b.kind, terminal: terminal ?? '' })
   }
 
   async function currentHead(repo: RepoInfo): Promise<{ head: string | null; branch: string | null }> {

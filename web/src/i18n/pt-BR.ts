@@ -672,6 +672,7 @@ export const ptBR: typeof en = {
     dialog: {
       titleUndo: 'Desfazer as mudanças nos arquivos', titleRedo: 'Refazer as mudanças nos arquivos',
       blocked: 'Esperando o turno de {{terminal}} terminar', otherTerminal: 'outro terminal',
+      blockedSide: 'Esperando a conversa lateral de {{terminal}} terminar',
       retry: 'Tentar de novo',
       branchChanged: 'O branch mudou desde o turno (era {{from}}, agora {{to}})', noBranch: 'nenhum',
       changed: 'Os arquivos mudaram desde que você abriu esta tela',

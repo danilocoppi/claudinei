@@ -5,8 +5,8 @@ import type { RepoInfo, createRepoResolver } from '../checkpoint/repo.js'
 import type { createSerialQueue } from '../checkpoint/serial.js'
 import { filesRevertedNote, turnKey, withNote, type EndKind, type TurnOrigin } from '../../../shared/undo.js'
 import { declaredPaths } from './declared.js'
-import { errText } from './scope.js'
-import type { MarkKind, TurnRow, UndoStore } from './store.js'
+import { errText, underTop } from './scope.js'
+import { SIDE_ACTIVE, type MarkKind, type TurnRow, type UndoStore } from './store.js'
 import type { TurnObserver, UndoCtx } from './types.js'
 
 /**
@@ -100,6 +100,10 @@ export function createTurnTracker(deps: {
   let deferred: Promise<void> | null = null
   /** Tudo o que roda fora do caminho síncrono, para o idle(). */
   const inflight = new Set<Promise<void>>()
+  /** Conversas laterais trabalhando agora: projeto+motor → projeto. */
+  const sidesWorking = new Map<string, number>()
+  /** Projetos cuja lateral entrou em working desde o último marco do repositório deles. */
+  const sideTouched = new Set<number>()
 
   function track(p: Promise<unknown>, what?: string): void {
     const settled = p.then(() => {}, (e) => { if (what) log(`${what}: ${errText(e)}`) })
@@ -131,21 +135,56 @@ export function createTurnTracker(deps: {
       .sort((a, b) => a - b)
   }
 
+  // ── Conversa lateral ──
+
+  /** A pasta do projeto cai no repositório (a mesma chave do desfazer; pasta nunca resolvida conta pelo caminho). */
+  function inRepo(projectId: number, repo: RepoInfo): boolean {
+    const path = deps.projectPath(projectId)
+    if (path === null) return false
+    const known = resolver.peek(path)
+    if (known !== undefined) return known?.key === repo.key
+    return underTop(path, repo.top)
+  }
+
+  /** Alguma lateral do repositório trabalhando agora. */
+  function sideWorkingIn(repo: RepoInfo): boolean {
+    for (const projectId of sidesWorking.values()) if (inRepo(projectId, repo)) return true
+    return false
+  }
+
+  /** Consome as entradas em working das laterais do repositório desde o último marco dele. */
+  function takeSideTouched(repo: RepoInfo): boolean {
+    let found = false
+    for (const projectId of sideTouched) {
+      if (!inRepo(projectId, repo)) continue
+      sideTouched.delete(projectId)
+      found = true
+    }
+    return found
+  }
+
   // ── Marcos ──
 
   async function writeMark(repo: RepoInfo, kind: MarkKind, active: number[]): Promise<{ id: number; limited: boolean }> {
     // O que se sabe dos soltos no marco anterior (só pesa no modo limitado).
     const prev = store.latestMarks(repo.key, 1)[0]
+    // Lateral que entrou em working depois do marco anterior: o intervalo dele
+    // (que este marco fecha) passa a contá-la.
+    if (prev && takeSideTouched(repo)) store.addSideActive(prev.id)
     const previousListing = !prev ? null
       : prev.mode === 'full' ? 'full' as const
       : prev.listingHash ? store.listing(prev.listingHash) : null
     const n = store.nextMarkN(repo.key)
     const snap = await takeSnapshot(repo, n, { previousListing, limits: deps.snapshotLimits })
     const listingHash = snap.listing ? store.putListing(snap.listing) : null
+    // Lateral que entrou em working durante o retrato: conta nos dois intervalos.
+    const late = takeSideTouched(repo)
+    if (prev && late) store.addSideActive(prev.id)
+    const withSide = late || sideWorkingIn(repo) ? [...active, SIDE_ACTIVE] : active
     // `snap.n`: o seguinte livre, se outra instância já tinha a ref `n`.
     const id = store.insertMark({
       repoKey: repo.key, n: snap.n, repoTop: repo.top, ref: snap.ref, commitSha: snap.commit, headSha: snap.head,
-      branch: snap.branch, mode: snap.mode, kind, active, big: snap.big, listingHash,
+      branch: snap.branch, mode: snap.mode, kind, active: withSide, big: snap.big, listingHash,
     })
     return { id, limited: snap.mode === 'limited' }
   }
@@ -503,6 +542,24 @@ export function createTurnTracker(deps: {
         await Promise.resolve()
         if (!inflight.size) return
       }
+    },
+
+    /**
+     * A conversa lateral do terminal entrou em working (ou saiu). Ela escreve
+     * na pasta do projeto sem turno próprio: os marcos do repositório a contam
+     * como outro turno ativo (`SIDE_ACTIVE`) em todo intervalo em que ela
+     * trabalhou, e o que mudou ali nunca fica só do turno.
+     */
+    onSideWorking(projectId: number, engine: string, working: boolean): void {
+      safe('lateral', () => {
+        const key = `${projectId}\0${engine}`
+        if (!working) { sidesWorking.delete(key); return }
+        sidesWorking.set(key, projectId)
+        sideTouched.add(projectId)
+        // Pasta nunca vista: resolve fora da pilha, para o marco achar o repositório certo.
+        const path = deps.projectPath(projectId)
+        if (path !== null && resolver.peek(path) === undefined) track(later(() => resolver.get(path)))
+      })
     },
 
     /** Id do turno do trecho aberto na sessão. */

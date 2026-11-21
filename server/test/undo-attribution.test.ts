@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/db.js'
-import { createUndoStore, type UndoStore } from '../src/undo/store.js'
+import { createUndoStore, SIDE_ACTIVE, type UndoStore } from '../src/undo/store.js'
 import { createTurnTracker } from '../src/undo/tracker.js'
 import type { UndoCtx } from '../src/undo/types.js'
 import { createRepoResolver, type RepoInfo } from '../src/checkpoint/repo.js'
@@ -224,6 +224,70 @@ describe('atribuição entre terminais', () => {
       [end1.id, start2.id, 'between'],
     ])
     expect(listIntervals(store, repoInfo.key, 1).map(i => i.kind)).toEqual(['undo'])
+  })
+
+  it('lateral que trabalha no meio do turno: o declarado pelo turno vira conflito, o resto incerto; nada fica own', async () => {
+    const { r, t, repoInfo, A } = await twoTerminals()
+    const ta = send(t, A, 'trabalha')
+    await t.idle()
+    // A lateral do próprio terminal começa depois do marco de início.
+    t.onSideWorking(A.projectId, 'kimi', true)
+    edit(t, A, join(r.dir, 'a.txt'))
+    r.write('a.txt', 'de A\n')
+    r.write('b.txt', 'da lateral?\n')
+    t.onSideWorking(A.projectId, 'kimi', false)
+    finish(t, A)
+    await t.idle()
+    expect(brief(await attribute(repoInfo, ta))).toEqual([
+      { path: 'a.txt', class: 'own', overlapped: true },
+      { path: 'b.txt', class: 'uncertain', overlapped: false },
+    ])
+    // O marco de início passou a contar a lateral no intervalo dele.
+    expect(store.mark(store.turn(ta)!.startMark!)!.active).toEqual([ta, SIDE_ACTIVE])
+    expect(store.mark(store.turn(ta)!.endMark!)!.active).toEqual([])
+  })
+
+  it('lateral já trabalhando no início do turno (terminal irmão): o marco a conta; fora de turno o intervalo continua between', async () => {
+    const { r, t, repoInfo, A, B } = await twoTerminals()
+    t.onSideWorking(B.projectId, 'claude', true)
+    const t1 = send(t, A, 'primeiro')
+    await t.idle()
+    r.write('c.txt', 'quem?\n')
+    t.onSideWorking(B.projectId, 'claude', false)
+    finish(t, A)
+    await t.idle()
+    expect(store.mark(store.turn(t1)!.startMark!)!.active).toEqual([t1, SIDE_ACTIVE])
+    expect(brief(await attribute(repoInfo, t1))).toEqual([{ path: 'c.txt', class: 'uncertain', overlapped: false }])
+
+    // Só a lateral, entre dois turnos: o intervalo segue listado (o operador o desfaz como fora de turno).
+    t.onSideWorking(A.projectId, 'kimi', true)
+    r.write('fora.txt', 'da lateral\n')
+    t.onSideWorking(A.projectId, 'kimi', false)
+    const t2 = send(t, A, 'segundo')
+    await t.idle()
+    finish(t, A)
+    await t.idle()
+    expect(await attribute(repoInfo, t2)).toEqual([])
+    const end1 = store.mark(store.turn(t1)!.endMark!)!
+    expect(end1.active).toEqual([SIDE_ACTIVE])
+    const start2 = store.mark(store.turn(t2)!.startMark!)!
+    expect(listIntervals(store, repoInfo.key).map(i => [i.from.id, i.to.id, i.kind])).toEqual([[end1.id, start2.id, 'between']])
+  })
+
+  it('lateral de outro repositório não mexe na atribuição', async () => {
+    const { r, t, repoInfo, A } = await twoTerminals()
+    const outro = makeRepo({ 'z.txt': 'z\n' })
+    cleanups.push(outro.cleanup)
+    const C = project(outro.dir, 'C')
+    const ta = send(t, A, 'trabalha')
+    await t.idle()
+    t.onSideWorking(C, 'kimi', true)
+    r.write('a.txt', 'de A\n')
+    t.onSideWorking(C, 'kimi', false)
+    finish(t, A)
+    await t.idle()
+    expect(brief(await attribute(repoInfo, ta))).toEqual([{ path: 'a.txt', class: 'own', overlapped: false }])
+    expect(store.mark(store.turn(ta)!.startMark!)!.active).toEqual([ta])
   })
 
   it('intervalo com marco apagado no meio (retenção) não vira between', async () => {

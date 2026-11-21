@@ -60,6 +60,21 @@ describe('UndoDialog', () => {
     expect(calls(spy, '/api/undo/preview')).toEqual([{ turnIds: [7] }, { turnIds: [7] }, { turnIds: [7] }])
   })
 
+  it('bloqueado pela conversa lateral mostra a espera por ela, com o nome do terminal dono ou "outro terminal"', async () => {
+    rotas({
+      '/api/undo/preview': [
+        preview({ blockedBy: { kind: 'side', terminal: 'Alfa' } }),
+        preview({ blockedBy: { kind: 'side', terminal: null } }),
+      ],
+    })
+    render(<UndoDialog request={{ turnIds: [7] }} onClose={() => {}} onDone={() => {}} />)
+    expect(await screen.findByText('Esperando a conversa lateral de Alfa terminar')).toBeTruthy()
+    expect(confirmar().disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }))
+    expect(await screen.findByText('Esperando a conversa lateral de outro terminal terminar')).toBeTruthy()
+    expect(confirmar().disabled).toBe(true)
+  })
+
   it('incerto nasce desmarcado e marcar manda revert', async () => {
     const DIFF: FileDiff = { path: 'talvez.ts', binary: false, truncated: false, text: '@@ -1 +1 @@\n-antes\n+linha do outro\n' }
     const spy = rotas({

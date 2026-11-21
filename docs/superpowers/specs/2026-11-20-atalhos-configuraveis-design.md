@@ -78,7 +78,8 @@ qualquer campo, inclusive o de mensagem); *tudo, menos o terminal* (o Zen). "For
 modal" vale com o foco num `.modal-overlay`, `[role="dialog"]` ou `[aria-modal="true"]`
 e também com um `.modal-overlay` ou `[aria-modal="true"]` aberto na página e o foco fora
 dele (vários modais não puxam o foco); o campo de mensagem escapa. Num modal, o atalho
-do microfone não liga, mas ainda para a gravação em curso. O que não é foco fica
+do microfone não liga, mas ainda para a gravação em curso, e a tecla é consumida (Ctrl+Espaço
+num botão em foco geraria clique). O que não é foco fica
 no componente: o desfazer só existe com o aviso na tela; o uso, só para administrador; o
 segundo Mod+F com a barra aberta segue para o navegador.
 

@@ -45,17 +45,20 @@ export function useMicShortcut(options: MicShortcutOptions): void {
       const o = opts.current
       if (!o.enabled || !matchShortcut(e, 'chat.voice')) return
       const field = o.field?.() ?? null
-      // Fora do escopo (num modal, ou com um modal aberto na página) o atalho não
-      // liga o microfone, mas ainda PARA a gravação em curso: ela não fica presa
-      // porque um diálogo se abriu por cima. Num campo de texto alheio, a tecla
-      // continua do campo (Ctrl+Espaço é também a troca de idioma do teclado).
-      const soParar = o.active() && !isForeignField(e.target, field)
-      if (!inShortcutScope('chat.voice', e.target, field) && !soParar) return
-      // A tecla não é digitada (nem o espaço rola a página ou aperta o botão do
-      // diálogo em foco) — inclusive nas repetições.
+      // Num campo de texto alheio, a tecla continua do campo (Ctrl+Espaço é também
+      // a troca de idioma do teclado): não liga, não para, não consome.
+      if (isForeignField(e.target, field)) return
+      // Fora do escopo daqui para baixo só por causa de um modal (no foco ou aberto
+      // na página): o atalho não liga o microfone, mas ainda PARA a gravação em
+      // curso — ela não fica presa porque um diálogo se abriu por cima.
+      const noEscopo = inShortcutScope('chat.voice', e.target, field)
+      // A tecla não é digitada (nem o espaço rola a página) — inclusive nas
+      // repetições. Num modal também é consumida sem ligar nada: Ctrl+Espaço num
+      // botão em foco gera clique, e quem quer o microfone não confirma o diálogo.
       e.preventDefault()
       if (e.repeat || pressedAt !== null) return
       if (o.active()) { o.stop(); return }
+      if (!noEscopo) return
       pressedAt = now()
       o.start()
     }

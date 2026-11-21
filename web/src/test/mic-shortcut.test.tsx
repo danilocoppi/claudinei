@@ -116,7 +116,9 @@ describe('Ctrl+Espaço no microfone', () => {
     expect(deps.startMicCapture).not.toHaveBeenCalled()
   })
 
-  it('com o foco num diálogo, o atalho é dele: não grava nem impede a tecla', () => {
+  // Num modal o atalho não liga, mas consome a tecla: Ctrl+Espaço num botão em
+  // foco gera clique, e quem quer o microfone não pode confirmar o diálogo.
+  it('com o foco num diálogo, não grava e consome a tecla (não aperta o botão em foco)', () => {
     const { deps } = makeDeps()
     render(
       <>
@@ -124,11 +126,11 @@ describe('Ctrl+Espaço no microfone', () => {
         <div role="dialog" aria-modal="true"><button type="button">no diálogo</button></div>
       </>,
     )
-    expect(down(screen.getByRole('button', { name: 'no diálogo' }))).toBe(true)
+    expect(down(screen.getByRole('button', { name: 'no diálogo' }))).toBe(false)
     expect(deps.startMicCapture).not.toHaveBeenCalled()
   })
 
-  it('com o ConfirmDialog aberto e o foco fora dele (no body), o atalho é do modal: não grava nem impede a tecla', () => {
+  it('com o ConfirmDialog aberto, não grava e consome a tecla, com o foco no body, num botão atrás ou no do modal', () => {
     const { deps } = makeDeps()
     render(
       <>
@@ -136,8 +138,9 @@ describe('Ctrl+Espaço no microfone', () => {
         <ConfirmDialog title="Trocar de motor?" message="A conversa passa para o Codex." onConfirm={vi.fn()} onClose={vi.fn()} />
       </>,
     )
-    expect(down()).toBe(true)
-    expect(down(screen.getByRole('button', { name: 'outro botão' }))).toBe(true)
+    expect(down()).toBe(false)
+    expect(down(screen.getByRole('button', { name: 'outro botão' }))).toBe(false)
+    expect(down(screen.getAllByRole('button').find(b => b.closest('.modal-overlay'))!)).toBe(false)
     expect(deps.startMicCapture).not.toHaveBeenCalled()
   })
 
@@ -174,8 +177,8 @@ describe('Ctrl+Espaço no microfone', () => {
     expect(down(noDialogo), 'a tecla parou a gravação: não aperta o botão do diálogo').toBe(false)
     up(noDialogo)
     await waitFor(() => expect(onText).toHaveBeenCalledWith('ditado'))
-    // Parado, o próximo Ctrl+Espaço no diálogo não liga de novo.
-    expect(down(noDialogo)).toBe(true)
+    // Parado, o próximo Ctrl+Espaço no diálogo não liga de novo (e segue consumido).
+    expect(down(noDialogo)).toBe(false)
     expect(deps.startMicCapture).toHaveBeenCalledTimes(1)
   })
 

@@ -346,7 +346,7 @@ describe('Editar a partir daqui', () => {
     fireEvent.click(within(tela).getByRole('button', { name: 'Voltar a conversa e os arquivos' }))
 
     expect(await screen.findByText(
-      'A conversa não voltou: thread/revert recusou. Os arquivos desfeitos ficam desfeitos; use Refazer se quiser trazê-los.',
+      'A conversa não voltou: erro do motor: “thread/revert recusou”. Os arquivos desfeitos ficam desfeitos; use Refazer se quiser trazê-los.',
     )).toBeTruthy()
     expect(useStore.getState().editRequest).toMatchObject({ localId: 'a', text: 'faça W' })
     // O histórico recarrega (o chat local foi cortado antes do envio).
@@ -362,8 +362,25 @@ describe('Editar a partir daqui', () => {
     const dlg = await editar(1)
     await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
     fireEvent.click(botao(dlg, 'Voltar só a conversa'))
-    expect(await screen.findByText('A conversa não voltou: sem âncora. O texto editado ficou no campo.')).toBeTruthy()
+    expect(await screen.findByText('A conversa não voltou: erro do motor: “sem âncora”. O texto editado ficou no campo.')).toBeTruthy()
     expect(useStore.getState().editRequest).toMatchObject({ text: 'faça Y' })
+  })
+
+  it('falha do motor em inglês: o texto em volta é traduzido e a mensagem crua vai como detalhe', async () => {
+    await i18n.changeLanguage('en')
+    try {
+      setup()
+      routes[OPTIONS] = opts()
+      routes[REWIND] = { conversationRewound: false, error: { code: 'rewind_failed', message: 'sem âncora' } } satisfies RewindResultDto
+      abrir()
+      fireEvent.click((await screen.findAllByLabelText('Edit this message'))[1])
+      const dlg = await screen.findByRole('dialog', { name: 'Edit from here' })
+      await waitFor(() => expect(botao(dlg, 'Rewind the conversation only').disabled).toBe(false))
+      fireEvent.click(botao(dlg, 'Rewind the conversation only'))
+      expect(await screen.findByText('The conversation did not rewind: engine error: “sem âncora”. The edited text is in the input.')).toBeTruthy()
+    } finally {
+      await i18n.changeLanguage('pt-BR')
+    }
   })
 
   it('a conversa voltou mas o texto não saiu: o aviso e o texto no campo', async () => {
@@ -375,7 +392,7 @@ describe('Editar a partir daqui', () => {
     fireEvent.change(within(dlg).getByRole('textbox'), { target: { value: 'faça V' } })
     await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
     fireEvent.click(botao(dlg, 'Voltar só a conversa'))
-    expect(await within(dlg).findByText('A conversa voltou, mas o texto editado não saiu: o envio falhou. Ele ficou no campo.')).toBeTruthy()
+    expect(await within(dlg).findByText('A conversa voltou, mas o texto editado não saiu: erro do motor: “o envio falhou”. Ele ficou no campo.')).toBeTruthy()
     expect(useStore.getState().editRequest).toMatchObject({ localId: 'a', text: 'faça V' })
     // A conversa voltou: o corte do chat local vale, e fechar não recarrega o histórico.
     expect(useStore.getState().chat.a.map(i => i.key)).toEqual(['k0', 'k1'])

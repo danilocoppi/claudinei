@@ -95,8 +95,9 @@ function TurnLineImpl({ turn, items, onOpen, onUndo, onRedo }: Props) {
       )}
       {late && <span className="undo-badge">{t('undo.badge.late')}</span>}
       {failed && (
-        <span className="undo-badge undo-badge--err">
-          {turn.stateReason ? t('undo.badge.failed', { reason: turn.stateReason }) : t('undo.badge.failedNoReason')}
+        // O motivo vem cru do servidor (português ou texto do git): só no title.
+        <span className="undo-badge undo-badge--err" title={turn.stateReason || undefined}>
+          {t('undo.badge.failedNoReason')}
         </span>
       )}
       {lost && <span className="undo-badge undo-badge--err">{t('undo.badge.lost')}</span>}

@@ -569,6 +569,7 @@ export const en = {
       failed: 'The conversation did not rewind: {{error}}. The reverted files stay reverted; use Redo if you want them back.',
       failedNoFiles: 'The conversation did not rewind: {{error}}. The edited text is in the input.',
       notSent: 'The conversation rewound, but the edited text was not sent: {{error}}. It is in the input.',
+      engineError: 'engine error: “{{error}}”',
     },
     reason: {
       engine_unsupported: '{{engine}} does not let Claudinei rewind the conversation.',
@@ -593,7 +594,7 @@ export const en = {
     },
     badge: {
       late: 'late snapshot',
-      failed: 'no restore point: {{reason}}', failedNoReason: 'no restore point',
+      failedNoReason: 'no restore point',
       lost: 'snapshot lost',
       uncertainEnd: 'uncertain end',
       limited: 'This folder has many files outside git; add them to .gitignore for the full snapshot',

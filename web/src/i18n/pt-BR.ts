@@ -572,6 +572,7 @@ export const ptBR: typeof en = {
       failed: 'A conversa não voltou: {{error}}. Os arquivos desfeitos ficam desfeitos; use Refazer se quiser trazê-los.',
       failedNoFiles: 'A conversa não voltou: {{error}}. O texto editado ficou no campo.',
       notSent: 'A conversa voltou, mas o texto editado não saiu: {{error}}. Ele ficou no campo.',
+      engineError: 'erro do motor: “{{error}}”',
     },
     reason: {
       engine_unsupported: 'O {{engine}} não deixa o Claudinei voltar a conversa.',
@@ -596,7 +597,7 @@ export const ptBR: typeof en = {
     },
     badge: {
       late: 'retrato atrasado',
-      failed: 'sem ponto de restauração: {{reason}}', failedNoReason: 'sem ponto de restauração',
+      failedNoReason: 'sem ponto de restauração',
       lost: 'retrato perdido',
       uncertainEnd: 'fim incerto',
       limited: 'Esta pasta tem muitos arquivos fora do git; ponha-os no .gitignore para o retrato completo',

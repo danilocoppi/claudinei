@@ -66,11 +66,12 @@ function reasonOf(t: T, engines: EngineMeta[], a: Availability, engine: string):
 
 /**
  * O erro da volta que não deu certo. `rewind_failed` é o motor recusando:
- * o texto dele diz mais que o genérico; os outros códigos têm tradução.
+ * o texto dele (cru, na língua do motor) diz mais que o genérico e vai como
+ * detalhe, atrás de um prefixo traduzido; os outros códigos têm tradução.
  */
-function resultError(e: RewindResultDto['error']): string {
+function resultError(t: T, e: RewindResultDto['error']): string {
   if (!e) return ''
-  if (e.code === 'rewind_failed' && e.message) return e.message
+  if (e.code === 'rewind_failed' && e.message) return t('undo.edit.engineError', { error: e.message })
   return localizeServerError({ code: e.code, error: e.message })
 }
 
@@ -160,7 +161,7 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
     if (!res.conversationRewound) {
       restoreChat()
       useStore.getState().requestEdit(localId, edited)
-      const msg = t(res.run ? 'undo.edit.failed' : 'undo.edit.failedNoFiles', { error: resultError(res.error) })
+      const msg = t(res.run ? 'undo.edit.failed' : 'undo.edit.failedNoFiles', { error: resultError(t, res.error) })
       if (alive.current) { setFiles(null); setFinished(msg); setSending(null) }
       return
     }
@@ -169,7 +170,7 @@ export function EditFromHereDialog({ localId, target, initialText, itemKey, item
     if (res.error) {
       // A conversa voltou, mas o texto não saiu: ele vai ao campo.
       useStore.getState().requestEdit(localId, edited)
-      if (alive.current) { setFiles(null); setFinished(t('undo.edit.notSent', { error: resultError(res.error) })); setSending(null) }
+      if (alive.current) { setFiles(null); setFinished(t('undo.edit.notSent', { error: resultError(t, res.error) })); setSending(null) }
       return
     }
     // Arquivo que falhou ou mudou durante a escrita: a volta seguiu, mas o operador precisa saber.

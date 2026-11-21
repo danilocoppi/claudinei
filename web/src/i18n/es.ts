@@ -571,6 +571,7 @@ export const es: typeof en = {
       failed: 'La conversación no volvió: {{error}}. Los archivos deshechos siguen deshechos; usa Rehacer si quieres recuperarlos.',
       failedNoFiles: 'La conversación no volvió: {{error}}. El texto editado quedó en el campo.',
       notSent: 'La conversación volvió, pero el texto editado no salió: {{error}}. Quedó en el campo.',
+      engineError: 'error del motor: “{{error}}”',
     },
     reason: {
       engine_unsupported: '{{engine}} no deja que Claudinei vuelva atrás la conversación.',
@@ -595,7 +596,7 @@ export const es: typeof en = {
     },
     badge: {
       late: 'instantánea tardía',
-      failed: 'sin punto de restauración: {{reason}}', failedNoReason: 'sin punto de restauración',
+      failedNoReason: 'sin punto de restauración',
       lost: 'instantánea perdida',
       uncertainEnd: 'final incierto',
       limited: 'Esta carpeta tiene muchos archivos fuera de git; agrégalos al .gitignore para la instantánea completa',

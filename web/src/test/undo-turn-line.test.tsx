@@ -62,7 +62,10 @@ describe('TurnLine', () => {
   it('selos: sem ponto de restauração, perdido, fim incerto, limitado e fora do projeto', () => {
     const h = handlers()
     const { rerender } = render(<TurnLine turn={turn({ state: 'failed', stateReason: 'disco cheio', summary: null })} items={NENHUM} {...h} />)
-    expect(screen.getByText('sem ponto de restauração: disco cheio')).toBeTruthy()
+    // O motivo cru (português ou texto do git) fica só no title; o texto é traduzido.
+    const selo = screen.getByText('sem ponto de restauração')
+    expect(selo.getAttribute('title')).toBe('disco cheio')
+    expect(screen.queryByText(/disco cheio/)).toBeNull()
     // Sem retrato não há o que ver nem desfazer.
     expect(screen.queryByRole('button', { name: 'Desfazer' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Ver mudanças' })).toBeNull()
@@ -75,6 +78,21 @@ describe('TurnLine', () => {
     expect(screen.getByText('fim incerto')).toBeTruthy()
     expect(screen.getByText('Esta pasta tem muitos arquivos fora do git; ponha-os no .gitignore para o retrato completo')).toBeTruthy()
     expect(screen.getByText('4 arquivos fora deste projeto')).toBeTruthy()
+  })
+
+  it('selo sem ponto de restauração em inglês e espanhol: texto traduzido, motivo cru só no title', async () => {
+    const { default: i18n } = await import('../i18n')
+    const h = handlers()
+    try {
+      for (const [lng, text] of [['en', 'no restore point'], ['es', 'sin punto de restauración']] as const) {
+        await i18n.changeLanguage(lng)
+        render(<TurnLine turn={turn({ state: 'failed', stateReason: 'git ls-files falhou (-1)', summary: null })} items={NENHUM} {...h} />)
+        expect(screen.getByText(text).getAttribute('title')).toBe('git ls-files falhou (-1)')
+        cleanup()
+      }
+    } finally {
+      await i18n.changeLanguage('pt-BR')
+    }
   })
 
   it('sem git: linha declarada só com declarações e o aviso fixo', () => {

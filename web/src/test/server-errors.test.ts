@@ -35,6 +35,21 @@ describe('localizeServerError', () => {
   })
 })
 
+describe('⇄ com o destino segurado pelo desfazer', () => {
+  // O mesmo código do destino ocupado; o servidor manda `context: 'undo'` e a tela
+  // escolhe o texto próprio (handoff_target_busy_undo), nos três idiomas.
+  it('traduz pelo contexto; sem ele, fica o texto do destino ocupado', async () => {
+    const corpo = { error: 'o Claudinei está desfazendo…', code: 'handoff_target_busy', params: { context: 'undo' } }
+    await i18n.changeLanguage('pt-BR')
+    expect(localizeServerError(corpo)).toBe('O Claudinei está desfazendo arquivos nesta pasta ou voltando a conversa do motor de destino; tente de novo em alguns segundos.')
+    await i18n.changeLanguage('en')
+    expect(localizeServerError(corpo)).toBe('Claudinei is undoing files in this folder or rewinding the target engine\'s conversation; try again in a few seconds.')
+    await i18n.changeLanguage('es')
+    expect(localizeServerError(corpo)).toBe('Claudinei está deshaciendo archivos en esta carpeta o volviendo atrás la conversación del motor de destino; inténtalo de nuevo en unos segundos.')
+    expect(localizeServerError({ error: 'x', code: 'handoff_target_busy', params: {} })).toBe('El motor de destino está ocupado; inténtalo de nuevo en un momento.')
+  })
+})
+
 describe('erros da conversa em páginas e da busca', () => {
   // A barra de busca e o topo da lista mostram estes; sem tradução, ficariam em português.
   const corpos: ServerErrorBody[] = [

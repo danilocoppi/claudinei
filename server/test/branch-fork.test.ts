@@ -24,6 +24,7 @@ import { collectHandoff, HANDOFF_PREFIX, type Handoff } from '../src/branch/hand
 import { branchName } from '../src/branch/fork.js'
 import type { BranchService } from '../src/branch/service.js'
 import { isSharedPath } from '../src/project-threads.js'
+import type { NextSend } from '../src/queue/next-send.js'
 
 /**
  * O ramo (`/fork`): terminal irmão na mesma pasta com a cópia da conversa até o
@@ -80,6 +81,8 @@ let auth: AuthService
 let manager: ReturnType<typeof createSessionManager>
 let branch: BranchService | undefined
 let undo: Undo | undefined
+/** O árbitro do próximo envio: o desfazer o cutuca quando solta a pasta. */
+let nextSend: NextSend | undefined
 let created: FakeSession[]
 /** Cada "livre" do manager, com o status da sessão na hora (o árbitro da fila só entrega se ela não está trabalhando). */
 let available: Array<{ localId?: string; status?: string }>
@@ -114,6 +117,7 @@ beforeEach(async () => {
   fakeCuts = {}
   fakePacks = {}
   branch = undefined
+  nextSend = undefined
   manager = createSessionManager({
     db, broadcast: () => {},
     sessionFactory: (opts) => { const s = new FakeSession(opts); created.push(s); return s },
@@ -129,6 +133,7 @@ beforeEach(async () => {
     wsHub: { broadcast: () => {}, register: () => {} } as never,
     onBranchReady: (b) => { branch = b },
     onUndoReady: (u) => { undo = u },
+    onNextSendReady: (n) => { nextSend = n },
     branchTest: {
       // Claude e Codex usam o corte e o pacote de verdade, sobre o storage temporário.
       cutFor: async (engine, path, id, opts) => engine in fakeCuts ? fakeCuts[engine] : realCutFor(engine, path, id, opts),
@@ -669,6 +674,27 @@ describe('cópia recusada', () => {
     expect(created).toHaveLength(n + 1)
   })
 
+  it('cópia recusada com o desfazer segurando a pasta: pacote e mensagem esperam a soltura e saem, na ordem, no cutucão', async () => {
+    doisTurnos(p1.path)
+    startMain(p1, 'claude', SRC)
+    const { project, session } = await forkOk(p1.id, { engine: 'claude' })
+    const n = created.length
+    manager.send(session.localId, 'minha pergunta')
+    // O desfazer começa a escrever na pasta (a mesma do ramo) e a cópia é recusada.
+    const segura = vi.spyOn(undo!, 'holds').mockImplementation((p) => p === project.id)
+    created.at(-1)!.set('dead')
+    await expect.poll(() => created.length).toBe(n + 1)
+    await tick()
+    const s2 = created.at(-1)!
+    expect(s2.writes).toEqual([])
+    // O desfazer solta e cutuca o árbitro do terminal.
+    segura.mockReturnValue(false)
+    nextSend!.poke(project.id, 'claude')
+    expect(s2.writes).toHaveLength(2)
+    expect(s2.writes[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
+    expect(s2.writes[1]).toEqual({ text: 'minha pergunta', echo: true })
+  })
+
   it('cópia recusada na primeira mensagem do operador: depois do pacote, a mensagem dele é reenviada uma vez', async () => {
     doisTurnos(p1.path)
     startMain(p1, 'claude', SRC)
@@ -844,6 +870,23 @@ describe('Kimi', () => {
     expect(available.filter((a) => a.localId === session.localId && a.status !== 'working')).toEqual([])
     s.result()
     await expect.poll(() => available.some((a) => a.localId === session.localId && a.status === 'idle')).toBe(true)
+  })
+
+  it('Kimi com o desfazer segurando a pasta: o pacote espera a soltura e sai no cutucão, antes da fila do ramo', async () => {
+    fakePacks.kimi = { text: `${HANDOFF_PREFIX}: pacote kimi`, messages: 3, tokens: 100 }
+    startMain(p1, 'kimi', 'kimi-conv-1')
+    // Escrita do desfazer na pasta do original, que é a do ramo também.
+    const segura = vi.spyOn(undo!.service, 'holds').mockReturnValue(true)
+    const { project, session } = await forkOk(p1.id, { engine: 'kimi' })
+    const s = created.at(-1)!
+    await tick()
+    expect(s.writes).toEqual([])
+    const added = await app.inject({ method: 'POST', url: `/api/projects/${project.id}/terminals/kimi/queue`, cookies: adminCookie, payload: { text: 'item da fila' } })
+    expect(added.statusCode).toBe(201)
+    segura.mockReturnValue(false)
+    nextSend!.poke(project.id, 'kimi')
+    expect(s.writes).toEqual([{ text: fakePacks.kimi.text, echo: true }])
+    expect(manager.get(session.localId)!.status).toBe('working')
   })
 
   it('Kimi sem pacote: no_conversation', async () => {

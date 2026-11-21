@@ -381,7 +381,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // avisa o rastreador quando trabalha.
     holdSide: (projectId, engine) => undo.holdSide(projectId, engine),
     onSideWorking: (projectId, engine, working) => undo.onSideWorking(projectId, engine, working),
+    // A ⇄ recusa o destino segurado; o pacote do /fork no Kimi e o da cópia
+    // recusada esperam a soltura (o desfazer cutuca o árbitro ao soltar).
+    holds: (projectId, engine) => undo.holds(projectId, engine),
   })
+  nextSend.register(branch.nextSendProvider)
   branchRef = branch
   registerBranchRoutes(app, { db: deps.db, branch })
   deps.onBranchReady?.(branch)

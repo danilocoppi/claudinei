@@ -10,6 +10,7 @@ import { UserError } from '../user-error.js'
 import { cutFor, type CutPoint } from './cut.js'
 import { collectHandoff, type Handoff } from './handoff.js'
 import type { ForkSource } from './fork-source.js'
+import type { BranchDelivery } from './deliver.js'
 
 /**
  * Ramificar (`/fork [nome]`): um terminal irmão na mesma pasta, logo abaixo do
@@ -42,9 +43,11 @@ export function branchName(original: string, existing: string[], given?: string)
 
 export interface ForkDeps {
   db: Db
-  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'sendAsClaudinei' | 'turnStartedAt' | 'rewindPending'>
+  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'turnStartedAt' | 'rewindPending'>
   /** O desfazer está voltando a conversa deste terminal (ver `rewindInProgress`). */
   rewinding?: (projectId: number, engine: string) => boolean
+  /** Entrega do pacote do Kimi que respeita as travas do desfazer (ver deliver.ts). */
+  deliver: BranchDelivery['deliver']
   cutFor?: typeof cutFor // testes
   collect?: typeof collectHandoff // testes
 }
@@ -221,7 +224,9 @@ function createBranchProject(db: Db, projectId: number, engine: string, name: st
  *   primeiro turno gravar a cópia. No Claude, o id da cópia é escolhido aqui.
  * - OpenCode: `fork_source` com o corte (nulo trabalhando) e o pacote.
  * - Kimi: conversa nova, e o pacote sai na hora como mensagem do Claudinei (o
- *   lugar 2: a fila do terminal só anda depois desse turno).
+ *   lugar 2: a fila do terminal só anda depois desse turno). Com o desfazer
+ *   escrevendo na pasta (a mesma do original), ele espera a soltura; se não
+ *   sai, vai ao chat do ramo (ver deliver.ts).
  */
 export async function forkTerminal(deps: ForkDeps, req: { projectId: number; engine: string; name?: string; user?: AuthUser }):
   Promise<{ project: Project; session: SessionInfo }> {
@@ -251,12 +256,7 @@ export async function forkTerminal(deps: ForkDeps, req: { projectId: number; eng
     throw err
   }
   if (plan.seed !== undefined && !plan.forkSource) {
-    try {
-      deps.manager.sendAsClaudinei(session.localId, plan.seed)
-    } catch (err) {
-      // O terminal e a sessão já existem: o operador segue sem o contexto.
-      console.error('[ramo] o pacote não saiu', err)
-    }
+    deps.deliver(session.localId, id, req.engine, [{ text: plan.seed, as: 'claudinei' }])
   }
   return { project, session: deps.manager.get(session.localId) ?? session }
 }

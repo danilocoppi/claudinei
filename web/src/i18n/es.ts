@@ -784,6 +784,7 @@ export const es: typeof en = {
     handoff_same_engine: 'El destino es el mismo motor de la conversación.',
     handoff_engine_unavailable: 'El motor de destino no está disponible en este terminal.',
     handoff_target_busy: 'El motor de destino está ocupado; inténtalo de nuevo en un momento.',
+    handoff_target_busy_undo: 'Claudinei está deshaciendo archivos en esta carpeta o volviendo atrás la conversación del motor de destino; inténtalo de nuevo en unos segundos.',
     handoff_target_limited: 'El motor de destino está en su límite de uso.',
   },
   branch: {

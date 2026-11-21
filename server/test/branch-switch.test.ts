@@ -90,6 +90,8 @@ let store: TerminalStateStore
 let manager: ReturnType<typeof createSessionManager>
 let branch: BranchService | undefined
 let undo: Undo | undefined
+/** O árbitro do próximo envio (o desfazer o cutuca quando solta o terminal). */
+let nextSend: NextSend | undefined
 let created: FakeSession[]
 let broadcasts: any[]
 let collectCalls: Array<{ engine: string; id: string; opts: { working: boolean; before?: number } }>
@@ -131,7 +133,7 @@ beforeEach(async () => {
   duringCollect = undefined
   onCreate = undefined
   branch = undefined
-  let nextSend: NextSend | undefined
+  nextSend = undefined
   let queue: OperatorQueueService | undefined
   let restart: RestartService | undefined
   let goal: GoalService | undefined
@@ -503,6 +505,69 @@ describe('o destino', () => {
     expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'active', goalPause: null })
   })
 
+  it('destino segurado pelo desfazer: 409 handoff_target_busy antes do pacote, sem parar o destino nem pausar o goal', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    const dest = startLive('codex', DEST_ID)
+    // Depois do "livre" do início: o goal não manda o continue ao destino agora.
+    await tick()
+    store.startGoal(p1.id, 'codex', 'objetivo do codex')
+    vi.spyOn(undo!, 'holds').mockImplementation((p, e) => p === p1.id && e === 'codex')
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode).toBe(409)
+    // O mesmo código; o contexto escolhe a tradução própria na tela.
+    expect(res.json()).toMatchObject({ code: 'handoff_target_busy', params: { context: 'undo' } })
+    expect(collectCalls).toEqual([])
+    expect(dest.s.stops).toBe(0)
+    expect(created).toHaveLength(2)
+    expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'active', goalPause: null })
+  })
+
+  it('a trava do desfazer que pega enquanto o pacote é montado: 409 handoff_target_busy, nada parado nem pausado', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    const dest = startLive('codex', DEST_ID)
+    await tick()
+    store.startGoal(p1.id, 'codex', 'objetivo do codex')
+    let segura = false
+    vi.spyOn(undo!, 'holds').mockImplementation((p, e) => segura && p === p1.id && e === 'codex')
+    duringCollect = () => { segura = true }
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode, res.body).toBe(409)
+    expect(res.json().code).toBe('handoff_target_busy')
+    expect(dest.s.stops).toBe(0)
+    expect(created).toHaveLength(2)
+    expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'active', goalPause: null })
+  })
+
+  it('a trava que pega durante o encerramento do destino: a conversa nova espera a soltura e o pacote sai antes da fila', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    const dest = startLive('codex', DEST_ID)
+    // A trava pega logo depois do encerramento do destino (o último `await` da troca).
+    let soltou = false
+    vi.spyOn(undo!, 'holds').mockImplementation((p, e) => dest.s.stops > 0 && !soltou && p === p1.id && e === 'codex')
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode, res.body).toBe(201)
+    const nova = created.at(-1)!
+    // O item espera na fila do destino, também segurada.
+    const added = await app.inject({ method: 'POST', url: `/api/projects/${p1.id}/terminals/codex/queue`, cookies: adminCookie, payload: { text: 'item da fila' } })
+    expect(added.statusCode).toBe(201)
+    await tick()
+    // Segurado: nem o pacote nem a fila saem, e nada vai ao chat como erro.
+    expect(nova.writes).toEqual([])
+    expect(broadcasts.some((b) => b.event?.subtype === 'message_error')).toBe(false)
+    // O desfazer solta e cutuca o árbitro: o pacote primeiro, a fila só depois do turno dele.
+    soltou = true
+    nextSend!.poke(p1.id, 'codex')
+    expect(nova.writes).toHaveLength(1)
+    expect(nova.writes[0].echo).toBe(true)
+    expect(nova.writes[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
+    nova.result()
+    await tick()
+    expect(nova.writes.map((w) => w.text).slice(1)).toEqual(['item da fila'])
+  })
+
   it('dois pedidos ao mesmo tempo para o mesmo destino: só um abre', async () => {
     doisTurnos(p1.path)
     startLive('claude', SRC)
@@ -583,6 +648,10 @@ describe('pendências do destino', () => {
     expect(created).toHaveLength(2)
     expect(created[1].writes).toEqual([])
     expect(store.get(p1.id, 'codex')).toMatchObject({ goalStatus: 'paused', goalPause: 'operator' })
+    // O pacote não some no log: vai ao chat da conversa nova, para o operador copiar.
+    const erro = broadcasts.find((b) => b.type === 'session_event' && b.localId === info.localId && b.event?.subtype === 'message_error')
+    expect(erro?.event.raw.message).toContain(HANDOFF_PREFIX)
+    expect(erro?.event.raw.message).toContain('pergunta dois')
   })
 
   it('fila do destino sai só depois do turno do pacote', async () => {

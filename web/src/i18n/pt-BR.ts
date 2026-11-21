@@ -785,6 +785,8 @@ export const ptBR: typeof en = {
     handoff_same_engine: 'O destino é o mesmo motor da conversa.',
     handoff_engine_unavailable: 'O motor de destino não está disponível neste terminal.',
     handoff_target_busy: 'O motor de destino está ocupado; tente de novo daqui a pouco.',
+    // Mesmo código, com `context: 'undo'` vindo do servidor (contexto do i18next): o desfazer segura o destino.
+    handoff_target_busy_undo: 'O Claudinei está desfazendo arquivos nesta pasta ou voltando a conversa do motor de destino; tente de novo em alguns segundos.',
     handoff_target_limited: 'O motor de destino está no limite de uso.',
   },
   branch: {

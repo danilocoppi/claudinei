@@ -9,6 +9,7 @@ import { UserError } from '../user-error.js'
 import { collectHandoff, type Handoff } from './handoff.js'
 import type { PermissionMode } from '../claude/session.js'
 import { originOf, SAFE_ID } from './fork.js'
+import type { BranchDelivery } from './deliver.js'
 
 /**
  * Continuar noutro motor (⇄): a conversa de origem vira o pacote de contexto,
@@ -21,11 +22,15 @@ const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
 
 export interface SwitchDeps {
   db: Db
-  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'stop' | 'sendAsClaudinei' | 'turnStartedAt' | 'rewindPending'>
+  manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'stop' | 'turnStartedAt' | 'rewindPending'>
   store: Pick<TerminalStateStore, 'get' | 'setGoalStatus'>
   restart: Pick<RestartService, 'publish' | 'dismiss'>
   /** O desfazer está voltando a conversa da origem (ver `rewindInProgress` em fork.ts). */
   rewinding?: (projectId: number, engine: string) => boolean
+  /** O desfazer segura o terminal de destino (escrita na pasta ou volta da conversa do destino). */
+  holds?: (projectId: number, engine: string) => boolean
+  /** Entrega do pacote que respeita as travas do desfazer (ver deliver.ts). */
+  deliver: BranchDelivery['deliver']
   collect?: typeof collectHandoff // testes
 }
 
@@ -40,10 +45,19 @@ function liveOf(deps: SwitchDeps, projectId: number, engine: string): SessionInf
 }
 
 /**
- * O destino aceita a troca: sem turno em curso, fora do terminal interativo e
- * fora do limite de uso. Devolve a sessão ociosa de pé (a encerrar), se houver.
+ * O destino aceita a troca: sem o desfazer segurando, sem turno em curso, fora
+ * do terminal interativo e fora do limite de uso. Devolve a sessão ociosa de
+ * pé (a encerrar), se houver.
  */
 function checkTarget(deps: SwitchDeps, projectId: number, to: string): SessionInfo | undefined {
+  // O desfazer escrevendo na pasta ou voltando a conversa do destino: o pacote
+  // seria recusado. Recusa antes de parar o destino e de pausar o goal. O
+  // código é o do destino ocupado; o contexto dá à tela o texto próprio.
+  if (deps.holds?.(projectId, to)) {
+    throw new UserError('handoff_target_busy',
+      'O Claudinei está desfazendo arquivos nesta pasta ou voltando a conversa do motor de destino; tente de novo em alguns segundos',
+      { context: 'undo' })
+  }
   const live = liveOf(deps, projectId, to)
   // Aberto no terminal interativo: o `manager.start` recusaria depois do pacote e da pausa do goal.
   const inTerminal = deps.db.prepare(
@@ -62,7 +76,7 @@ function checkTarget(deps: SwitchDeps, projectId: number, to: string): SessionIn
  * A troca, nesta ordem:
  * 1. valida os motores (o destino da lista do terminal e instalado);
  * 2. acha a conversa de origem (a viva, ou a mais recente com conversa);
- * 3. confere o destino (trabalhando ou no limite recusa);
+ * 3. confere o destino (segurado pelo desfazer, trabalhando ou no limite recusa);
  * 4. monta o pacote ANTES de mexer no destino; o destino é conferido de novo
  *    depois, porque pode ter começado a trabalhar enquanto o pacote era lido;
  * 5. encerra o destino ocioso (se o `stop` falha, nada é criado nem pausado);
@@ -73,8 +87,10 @@ function checkTarget(deps: SwitchDeps, projectId: number, to: string): SessionIn
  *    mensagem do Claudinei, no mesmo passo síncrono: o "livre" do início da
  *    sessão (microtask) já a encontra ocupada, e a fila e os avisos do destino
  *    só saem depois do turno do pacote.
- *    Se o envio do pacote lança, a sessão nova já existe: vai ao log e a troca
- *    responde com ela (o operador segue sem o contexto), como no `/fork`.
+ *    O envio passa pela entrega do ramificar (deliver.ts): se o desfazer
+ *    pegou o destino durante o `stop` (o último `await`), o pacote espera a
+ *    soltura e sai antes da fila; se o envio falha, a sessão nova já existe,
+ *    a troca responde com ela e o pacote vai ao chat dela, para o operador.
  */
 export async function switchEngine(deps: SwitchDeps, req: { projectId: number; from: string; to: string }): Promise<SessionInfo> {
   const { projectId, from, to } = req
@@ -136,10 +152,6 @@ export async function switchEngine(deps: SwitchDeps, req: { projectId: number; f
     ...(prefs.effort ? { effort: prefs.effort } : {}),
     ...(prefs.permissionMode ? { permissionMode: prefs.permissionMode as PermissionMode } : {}),
   })
-  try {
-    deps.manager.sendAsClaudinei(session.localId, pack.text)
-  } catch (err) {
-    console.error('[troca de motor] o pacote não saiu', err)
-  }
+  deps.deliver(session.localId, projectId, to, [{ text: pack.text, as: 'claudinei' }])
   return deps.manager.get(session.localId) ?? session
 }

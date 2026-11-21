@@ -782,6 +782,7 @@ export const en = {
     handoff_same_engine: 'The target is the same engine as the conversation.',
     handoff_engine_unavailable: 'The target engine is not available in this terminal.',
     handoff_target_busy: 'The target engine is busy; try again in a moment.',
+    handoff_target_busy_undo: 'Claudinei is undoing files in this folder or rewinding the target engine\'s conversation; try again in a few seconds.',
     handoff_target_limited: 'The target engine is at its usage limit.',
   },
   branch: {

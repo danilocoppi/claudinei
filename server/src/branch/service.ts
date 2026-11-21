@@ -12,6 +12,8 @@ import { forkTerminal, rewindInProgress, rewindPending } from './fork.js'
 import { forkCopyDone, parseForkSource, type ForkSource } from './fork-source.js'
 import { collectHandoff } from './handoff.js'
 import { switchEngine } from './switch-engine.js'
+import { createBranchDelivery } from './deliver.js'
+import type { NextSendProvider } from '../queue/next-send.js'
 
 /** Status em que a sessão está de pé (o mesmo ACTIVE do manager). */
 const ACTIVE = new Set(['starting', 'idle', 'working', 'needs_attention'])
@@ -36,6 +38,11 @@ export interface BranchService {
   onTurnResult(projectId: number, engine: string): void
   onSessionDied(projectId: number, engine: string): void
   onSessionEnded(projectId: number, engine: string): void
+  /**
+   * O lugar 2 do árbitro do próximo envio: o pacote (e as mensagens da cópia
+   * recusada) que esperou o desfazer soltar o terminal sai aqui (ver deliver.ts).
+   */
+  nextSendProvider: NextSendProvider
   bootCleanup(): Promise<void>
   dispose(): Promise<void>
 }
@@ -55,9 +62,20 @@ export function createBranchService(deps: {
   holdSide?: (projectId: number, engine: string) => void
   /** A lateral entrou em working (ou saiu): o rastreador do desfazer a conta na pasta. */
   onSideWorking?: (projectId: number, engine: string, working: boolean) => void
+  /**
+   * O desfazer segura o terminal (o `holds` dele: escrita na pasta ou volta da
+   * conversa): a ⇄ recusa o destino segurado, e o que o ramificar manda sozinho
+   * espera a soltura (ver deliver.ts).
+   */
+  holds?: (projectId: number, engine: string) => boolean
   side?: SideTestDeps
 }): BranchService {
   const projects = createProjectsService(deps.db)
+  const delivery = createBranchDelivery({
+    manager: deps.manager, broadcast: deps.broadcast,
+    holds: (projectId, engine) => deps.holds?.(projectId, engine) ?? false,
+  })
+  const deliver = delivery.deliver
 
   /**
    * A sessão principal viva do terminal, com o início do turno em curso; null
@@ -121,9 +139,11 @@ export function createBranchService(deps: {
   /**
    * Cópia recusada: revive em conversa nova, manda o pacote do original até o
    * corte e, se a recusa levou mensagens do operador, reenvia-as depois dele.
-   * O `fork_source` já saiu do banco: roda uma vez por sessão.
+   * O `fork_source` já saiu do banco: roda uma vez por sessão. Com o desfazer
+   * segurando o terminal, os dois esperam a soltura; o que não sai vai ao chat
+   * do ramo (ver deliver.ts).
    */
-  const recover = async (localId: string, projectPath: string, src: ForkSource, texts: string[]): Promise<void> => {
+  const recover = async (localId: string, projectId: number, projectPath: string, src: ForkSource, texts: string[]): Promise<void> => {
     // Chamado de dentro do handler de status da sessão morta, que ainda vai
     // tirá-la do `live` (e avisar o fim dela). Um revive síncrono aqui poria a
     // sessão nova no `live` antes desse `delete`, que a apagaria: o ramo ficaria
@@ -142,24 +162,25 @@ export function createBranchService(deps: {
       console.error('[ramo] não reviveu a cópia recusada', err)
       return
     }
-    try {
-      if (pack) deps.manager.sendAsClaudinei(localId, pack.text)
-      for (const text of texts) deps.manager.send(localId, text, { echo: true })
-    } catch (err) {
-      console.error('[ramo] envio depois da cópia recusada falhou', err)
-    }
+    deliver(localId, projectId, src.engine, [
+      ...(pack ? [{ text: pack.text, as: 'claudinei' as const }] : []),
+      ...texts.map((text) => ({ text, as: 'operator' as const })),
+    ])
   }
 
   return {
     side,
-    fork: (req) => forkTerminal({ db: deps.db, manager: deps.manager, rewinding: deps.rewinding, cutFor: deps.side?.cutFor, collect: deps.side?.collect }, req),
+    fork: (req) => forkTerminal({ db: deps.db, manager: deps.manager, rewinding: deps.rewinding, deliver, cutFor: deps.side?.cutFor, collect: deps.side?.collect }, req),
 
     async switchEngine(req) {
       const key = `${req.projectId}:${req.to}`
       if (switching.has(key)) throw new UserError('handoff_target_busy', 'O motor de destino já está recebendo outra conversa')
       switching.add(key)
       try {
-        return await switchEngine({ db: deps.db, manager: deps.manager, store: deps.store, restart: deps.restart, rewinding: deps.rewinding, collect: deps.side?.collect }, req)
+        return await switchEngine({
+          db: deps.db, manager: deps.manager, store: deps.store, restart: deps.restart,
+          rewinding: deps.rewinding, holds: deps.holds, deliver, collect: deps.side?.collect,
+        }, req)
       } finally {
         switching.delete(key)
       }
@@ -226,11 +247,12 @@ export function createBranchService(deps: {
       // Assíncrono de propósito: o handler de status ainda vai tirar a sessão
       // morta do `live`, e o revive tem de vir depois disso (o `recover` adia
       // para o passo seguinte do laço antes de tudo).
-      void recover(r.local_id, path, src, texts).catch((err) => console.error('[ramo] cópia recusada', err))
+      void recover(r.local_id, projectId, path, src, texts).catch((err) => console.error('[ramo] cópia recusada', err))
     },
 
     onSessionEnded(projectId, engine) { side.onSessionEnded(projectId, engine) },
+    nextSendProvider: delivery.provider,
     bootCleanup: () => side.bootCleanup(),
-    dispose: () => side.dispose(),
+    dispose: () => { delivery.dispose(); return side.dispose() },
   }
 }

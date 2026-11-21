@@ -25,7 +25,7 @@ const MIME: Record<string, string> = {
 // Tipos que uma página puxa por conta própria. Fora desta lista vai
 // `application/octet-stream`: adivinhar tipo é justamente o que o `nosniff` veio
 // impedir, e um tipo errado aqui só faria o navegador executar o que não devia.
-const PREVIEW_MIME: Record<string, string> = {
+export const PREVIEW_MIME: Record<string, string> = {
   ...MIME,
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',

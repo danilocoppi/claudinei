@@ -201,6 +201,13 @@ describe('cutFor', () => {
     expect(await cutFor('claude', PROJETO, '22222222-2222-4222-8222-222222222222', { working: false })).toBeNull()
   })
 
+  it('cutFor claude trabalhando sem turnStartedAt: null (sem o início do turno não dá para provar o que está fechado)', async () => {
+    instalarTranscript()
+    expect(await cutFor('claude', PROJETO, CLAUDE_ID, { working: true })).toBeNull()
+    // Ocioso, o início do turno não importa.
+    expect((await cutFor('claude', PROJETO, CLAUDE_ID, { working: false }))!.cut).toBe(U(6))
+  })
+
   it('cutFor codex: acha o rollout e ignora working', async () => {
     instalarRollout()
     expect((await cutFor('codex', PROJETO, CODEX_ID, { working: true, turnStartedAt: Date.now() }))!.cut).toBe(T2)

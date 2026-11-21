@@ -13,6 +13,7 @@ import { createHeadsUp, type HeadsUpNode, type HeadsUpPress, type HeadsUpSurface
 import { RESTART_FAIL_TEXT, type LimitOrigin } from '../restart/terminal-state.js'
 import type { SlotContext } from '../queue/operator-queue.js'
 import { usageLimitFailText } from '../limit/texts.js'
+import { forkPlanOf, parseForkSource, type ForkSource } from '../branch/fork-source.js'
 
 /** A sessão sabe ser uma superfície remota (só a do Claude). */
 const isHeadsUpSurface = (s: unknown): s is HeadsUpSurface =>
@@ -120,6 +121,11 @@ interface Deps {
   onTurnResult?: (projectId: number, engine: EngineId, info: TurnResultInfo) => void
   /** A sessão morreu de verdade (status 'dead' fora do encerramento do serviço). */
   onSessionDied?: (projectId: number, engine: EngineId) => void
+  /**
+   * A sessão saiu: virou 'dead' ou 'stopped', inclusive no encerramento do
+   * serviço. A conversa lateral do mesmo terminal e motor fecha com ela.
+   */
+  onSessionEnded?: (projectId: number, engine: EngineId, localId: string) => void
   /**
    * O turno bateu no limite de uso do Claude. Chamado no result, ANTES do
    * onTurnResult. `resetsAt` em epoch SEGUNDOS (null = desconhecido); `origin` é
@@ -327,6 +333,8 @@ export function createSessionManager(deps: Deps) {
     compactTurn?: boolean
     /** Quem mandou a última mensagem desta sessão: decide se o limite pode retomar sozinho. */
     origin: LimitOrigin
+    /** Início (epoch ms) do turno em curso: o corte da conversa lateral deixa de fora o que veio depois. */
+    turnStartedAt?: number
     /** Avisos do plugin You should know (só Claude): o cartão de agora e o controlador da superfície. */
     headsUp?: HeadsUpNode | null; headsUpCtl?: ReturnType<typeof createHeadsUp>; setHeadsUp?: (on: boolean) => Promise<void>
   }>()
@@ -512,6 +520,16 @@ export function createSessionManager(deps: Deps) {
       await ctl.start()
     }
     live.get(localId)!.setHeadsUp = setHeadsUp
+    // O início do turno é o relógio de ANTES da escrita no stdin: a CLI carimba
+    // a mensagem com o relógio dela, e o status 'working' só chega depois da
+    // escrita (e do eco ao navegador). Sem isto, a pergunta do turno em curso
+    // podia cair antes do início e entrar no corte da conversa lateral.
+    let sendingSince: number | undefined
+    const sendOriginal = session.send.bind(session)
+    session.send = (text, o) => {
+      sendingSince = Date.now()
+      try { sendOriginal(text, o) } finally { sendingSince = undefined }
+    }
     // Um lugar só monta o session_status do wire(): cada campo novo do SessionInfo
     // (hoje, pendingQuestion) entra aqui e chega igual nos três momentos em que
     // ele publica — mudança de status, init e arranque.
@@ -532,6 +550,11 @@ export function createSessionManager(deps: Deps) {
       }
     }
     session.on('status', (status: SessionStatus) => {
+      const entryT = live.get(localId)
+      if (entryT?.session === session) {
+        if (status === 'working') entryT.turnStartedAt ??= sendingSince ?? Date.now()
+        else entryT.turnStartedAt = undefined
+      }
       persist(localId, status, session.sessionId ?? null)
       // A pergunta aberta vai ao banco porque o processo não sobrevive ao reinício:
       // é dela que o boot seguinte sabe que a interrupção esperava uma decisão.
@@ -564,6 +587,7 @@ export function createSessionManager(deps: Deps) {
         live.delete(localId)
         hadQuestion.delete(localId)
         interruptedTurn.delete(localId)
+        try { deps.onSessionEnded?.(projectId, engine, localId) } catch (err) { console.error('[manager] onSessionEnded falhou', err) }
       }
       if (status === 'idle' || status === 'needs_attention') {
         queueMicrotask(() => {
@@ -809,7 +833,7 @@ export function createSessionManager(deps: Deps) {
   ).run(keep)
 
   return {
-    start(project: Project, opts?: { continueLatest?: boolean; permissionMode?: PermissionMode; model?: string; engine?: string; effort?: string }): SessionInfo {
+    start(project: Project, opts?: { continueLatest?: boolean; permissionMode?: PermissionMode; model?: string; engine?: string; effort?: string; forkSource?: ForkSource }): SessionInfo {
       const engine = (opts?.engine ?? DEFAULT_ENGINE_ID) as EngineId
       for (const [id, entry] of live) {
         if (entry.projectId === project.id && entry.engine === engine && ACTIVE.has(entry.session.status)) {
@@ -826,7 +850,10 @@ export function createSessionManager(deps: Deps) {
       // privilegiar o mais antigo não funcionaria, porque assim que o vizinho
       // conversa é a conversa DELE que o --continue traria.
       const shared = isSharedPath(deps.db, project.id)
-      const continueLatest = shared ? false : !!opts?.continueLatest
+      // O ramo (`/fork`) abre como cópia da origem: nem retoma nem continua.
+      const forkSource = opts?.forkSource
+      const forkPlan = forkSource ? forkPlanOf(forkSource, project.path) : undefined
+      const continueLatest = shared || forkSource ? false : !!opts?.continueLatest
       const sharedResume = shared && opts?.continueLatest
         ? ownResume(project.id, engine, project.path)
         : undefined
@@ -838,19 +865,21 @@ export function createSessionManager(deps: Deps) {
       // órfã no banco. O construtor é inerte — nada spawna até wire()→start().
       const session = makeSession(engine, {
         projectPath: project.path,
-        resumeSessionId: sharedResume,
-        continueLatest: shared ? false : opts?.continueLatest,
+        resumeSessionId: forkSource ? undefined : sharedResume,
+        continueLatest: shared || forkSource ? false : opts?.continueLatest,
         permissionMode,
         model,
         effort: opts?.effort,
         hermes: deps.hermes ? { ...deps.hermes, projectId: project.id, engine } : undefined,
+        ...forkPlan,
       })
       // O id vai no INSERT (e não só quando a engine anunciar): é o que faz o
       // effectiveEngineSessionId conhecê-lo de imediato, e com ele a prévia do
       // chat mostra a conversa retomada antes da primeira mensagem.
       deps.db.prepare(
-        `INSERT INTO sessions (local_id, project_id, engine, status, permission_mode, model, continue_latest, effort, claude_session_id) VALUES (?, ?, ?, 'starting', ?, ?, ?, ?, ?)`,
-      ).run(localId, project.id, engine, permissionMode, model ?? null, continueLatest ? 1 : 0, opts?.effort ?? null, sharedResume ?? null)
+        `INSERT INTO sessions (local_id, project_id, engine, status, permission_mode, model, continue_latest, effort, claude_session_id, fork_source) VALUES (?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?)`,
+      ).run(localId, project.id, engine, permissionMode, model ?? null, continueLatest ? 1 : 0, opts?.effort ?? null,
+        forkSource?.sessionId ?? sharedResume ?? null, forkSource ? JSON.stringify(forkSource) : null)
       wire(localId, project.id, engine, session)
       return infoOf(localId)!
     },
@@ -918,6 +947,11 @@ export function createSessionManager(deps: Deps) {
      */
     compactionPending(localId: string): boolean {
       return !!live.get(localId)?.compactPending
+    },
+
+    /** Início (epoch ms) do turno em curso da sessão viva; ausente fora de um turno. */
+    turnStartedAt(localId: string): number | undefined {
+      return live.get(localId)?.turnStartedAt
     },
 
     /**
@@ -1019,12 +1053,14 @@ export function createSessionManager(deps: Deps) {
       if (!project) throw new UserError('session_project_gone', 'projeto da sessão não existe mais')
       // Fantasma (transcript sumiu) é descartado aqui também: sem isto, reviver o
       // chat caía no mesmo "No conversation found" do terminal.
-      let reviveResume = resolveResume(engine, project.path, localId, row.claude_session_id ?? null)
+      // Ramo antes do primeiro turno gravar a cópia: copia de novo da origem.
+      const forkSource = parseForkSource(row.fork_source)
+      let reviveResume = forkSource ? null : resolveResume(engine, project.path, localId, row.claude_session_id ?? null)
       // Sem conversa própria para retomar (--resume), preserva a intenção
       // original: sessão nascida com --continue revive continuando a última
       // conversa da pasta — não uma conversa nova em branco.
-      let reviveContinue: boolean | undefined = reviveResume ? undefined : row.continue_latest !== 0
-      if (!reviveResume && isSharedPath(deps.db, row.project_id)) {
+      let reviveContinue: boolean | undefined = forkSource ? false : reviveResume ? undefined : row.continue_latest !== 0
+      if (!forkSource && !reviveResume && isSharedPath(deps.db, row.project_id)) {
         // Em pasta compartilhada, "a última da pasta" é uma resposta errada:
         // tenta o thread deste projeto e, sem ele, abre conversa nova.
         reviveResume = ownResume(row.project_id, engine, project.path) ?? null
@@ -1038,6 +1074,7 @@ export function createSessionManager(deps: Deps) {
         model: row.model ?? undefined,
         effort: row.effort ?? undefined,
         hermes: deps.hermes ? { ...deps.hermes, projectId: row.project_id, engine } : undefined,
+        ...(forkSource ? forkPlanOf(forkSource, project.path) : {}),
       }))
       return infoOf(localId)!
     },

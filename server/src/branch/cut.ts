@@ -120,7 +120,7 @@ export async function openCodeLastMessageId(_projectPath: string, id: string, ru
 
 /**
  * Corte por motor, achando o arquivo da conversa de cada um:
- * - Claude: o transcript; o `turnStartedAt` só vale com a principal trabalhando;
+ * - Claude: o transcript; o `turnStartedAt` só vale (e é exigido) com a principal trabalhando;
  * - Codex: o rollout; `working` não importa (o turno em curso não tem `task_complete`);
  * - OpenCode: sem corte nativo; ocioso, a última mensagem e o nº de eventos do
  *   histórico; trabalhando, nada (cai no pacote), sem chamar a CLI;
@@ -130,6 +130,9 @@ export async function cutFor(engineId: string, projectPath: string, sourceId: st
   opts: { working: boolean; turnStartedAt?: number }): Promise<CutPoint | null> {
   switch (engineId) {
     case 'claude': {
+      // Trabalhando sem o início do turno não dá para separar o turno em curso
+      // do que já fechou: copiar o fim do transcript levaria a pergunta aberta.
+      if (opts.working && opts.turnStartedAt === undefined) return null
       const file = claudeEngine.transcriptRef?.(projectPath, sourceId)
       if (!file) return null
       return claudeCut(file, { turnStartedAt: opts.working ? opts.turnStartedAt : undefined })

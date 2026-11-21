@@ -102,8 +102,12 @@ export function createCodexRewind(deps: { manager: Pick<SessionManager, 'liveSes
           await manager.relaunch(ctx.localId, { resumeSessionId: forkId })
           return { newConversationId: forkId }
         }
-        // Era o primeiro turno: nada fica, conversa nova.
-        await manager.relaunch(ctx.localId, { resumeSessionId: null })
+        // Era o primeiro turno: nada fica, conversa nova. O thread dela só nasce
+        // no primeiro turno; até o result dele o manager mostraria o id antigo,
+        // do banco, e o ramificar copiaria a conversa de antes da volta. Com o
+        // id segurado, `/side`, `/fork` e ⇄ recusam com `rewind_pending` (o
+        // result do Codex solta a trava pelo mesmo caminho do Claude).
+        await manager.relaunch(ctx.localId, { resumeSessionId: null, holdEngineId: true })
         return {}
       }
     },

@@ -214,6 +214,28 @@ describe('conversa lateral', () => {
     expect(sideStates().at(-1).side.id).toBe(nova.id)
   })
 
+  it('replace recusado pela principal (rewind_pending, sem conversa) não fecha a antiga', async () => {
+    let recusa: Error | null = null
+    const svc = service({ main: () => { if (recusa) throw recusa; return mainState } })
+    const velha = await svc.open(project.id, 'claude', 'um')
+    const publicadas = sideStates().length
+    // Volta da conversa pendente: a principal recusa, e a antiga continua aberta.
+    recusa = Object.assign(new Error('espere'), { code: 'rewind_pending' })
+    await expect(svc.open(project.id, 'claude', 'dois', { replace: true })).rejects.toMatchObject({ code: 'rewind_pending' })
+    expect(svc.snapshot(project.id, 'claude')!.side.id).toBe(velha.id)
+    expect(fakes[0].stopped).toBe(false)
+    // Sem conversa na principal: também recusa sem tocar na antiga.
+    recusa = null
+    mainState = { ...mainState!, engineSessionId: null }
+    await expect(svc.open(project.id, 'claude', 'dois', { replace: true })).rejects.toMatchObject({ code: 'no_conversation' })
+    expect(svc.snapshot(project.id, 'claude')!.side.id).toBe(velha.id)
+    expect(fakes[0].stopped).toBe(false)
+    expect(fakes).toHaveLength(1)
+    // Nenhum side_state (nem o null que esvaziaria a coluna) foi publicado.
+    expect(sideStates().slice(publicadas)).toEqual([])
+    expect(listSideThreads(db).map((r) => r.id)).toEqual([velha.id])
+  })
+
   it('sem engineSessionId: no_conversation', async () => {
     mainState = { ...mainState!, engineSessionId: null }
     const svc = service()

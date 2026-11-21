@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,6 +14,7 @@ import { createProjectsService, type Project } from '../src/projects.js'
 import { getEngine, type EngineSessionOptions } from '../src/engine/index.js'
 import type { CutPoint } from '../src/branch/cut.js'
 import type { BranchService } from '../src/branch/service.js'
+import type { Undo } from '../src/undo/index.js'
 import { listSideThreads } from '../src/branch/side-threads.js'
 
 /**
@@ -40,6 +41,7 @@ let db: Db
 let auth: AuthService
 let manager: ReturnType<typeof createSessionManager>
 let branch: BranchService | undefined
+let undo: Undo | undefined
 let broadcasts: any[]
 let sideOpts: EngineSessionOptions[]
 let cfg: string
@@ -73,6 +75,7 @@ beforeEach(async () => {
     config: loadConfig({}), db, manager, auth,
     wsHub: { broadcast: (m: object) => broadcasts.push(m), register: () => {} } as never,
     onBranchReady: (b) => { branch = b },
+    onUndoReady: (u) => { undo = u },
     branchTest: {
       makeSession: (engine, opts) => {
         sideOpts.push(opts)
@@ -169,6 +172,16 @@ describe('rotas da lateral', () => {
     expect(parada.statusCode).toBe(409)
     expect(parada.json().code).toBe('no_conversation')
     expect(sideOpts).toEqual([])
+  })
+
+  it('volta da conversa em curso (o desfazer segura o terminal): 409 rewind_in_progress, sem lateral', async () => {
+    await startMain(p1)
+    vi.spyOn(undo!.rewind, 'holds').mockImplementation((p, e) => p === p1.id && e === 'claude')
+    const res = await openSide(p1.id, { engine: 'claude', text: 'oi' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('rewind_in_progress')
+    expect(sideOpts).toEqual([])
+    expect(listSideThreads(db)).toEqual([])
   })
 
   it('volta da conversa pendente (id segurado até o primeiro result): 409 rewind_pending; depois do result, copia a conversa nova', async () => {

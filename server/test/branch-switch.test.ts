@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,6 +20,7 @@ import type { EngineSession, EngineSessionOptions } from '../src/engine/types.js
 import { transcriptPath } from '../src/history.js'
 import { collectHandoff, HANDOFF_PREFIX } from '../src/branch/handoff.js'
 import type { BranchService } from '../src/branch/service.js'
+import type { Undo } from '../src/undo/index.js'
 
 /**
  * Continuar noutro motor (`POST /api/projects/:id/handoff`): o pacote da
@@ -88,6 +89,7 @@ let auth: AuthService
 let store: TerminalStateStore
 let manager: ReturnType<typeof createSessionManager>
 let branch: BranchService | undefined
+let undo: Undo | undefined
 let created: FakeSession[]
 let broadcasts: any[]
 let collectCalls: Array<{ engine: string; id: string; opts: { working: boolean; before?: number } }>
@@ -162,6 +164,7 @@ beforeEach(async () => {
     onRestartReady: (r) => { restart = r },
     onGoalReady: (g) => { goal = g },
     onBranchReady: (b) => { branch = b },
+    onUndoReady: (u) => { undo = u },
     branchTest: {
       // O pacote de verdade, sobre o storage temporário; o teste pode mexer no destino no meio dele.
       collect: async (engine, path, id, opts) => {
@@ -312,6 +315,18 @@ describe('validação', () => {
     const ok = await handoff({ from: 'claude', to: 'codex' })
     expect(ok.statusCode, ok.body).toBe(201)
     expect(collectCalls).toEqual([{ engine: 'claude', id: NOVA, opts: { working: false } }])
+  })
+
+  it('origem com a volta da conversa em curso (o desfazer segura o terminal): 409 rewind_in_progress, sem pacote nem efeito no destino', async () => {
+    doisTurnos(p1.path)
+    startLive('claude', SRC)
+    const dest = startLive('codex', DEST_ID)
+    vi.spyOn(undo!.rewind, 'holds').mockImplementation((p, e) => p === p1.id && e === 'claude')
+    const res = await handoff({ from: 'claude', to: 'codex' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('rewind_in_progress')
+    expect(collectCalls).toEqual([])
+    expect(dest.s.stops).toBe(0)
   })
 
   it('origem com sessão viva de "continuar conversa" ainda sem id: leva a mais recente do banco', async () => {

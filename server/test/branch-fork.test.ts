@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildApp } from '../src/app.js'
+import type { Undo } from '../src/undo/index.js'
 import { loadConfig } from '../src/config.js'
 import { openDb, type Db } from '../src/db.js'
 import { createSessionManager } from '../src/claude/manager.js'
@@ -78,6 +79,7 @@ let app: Awaited<ReturnType<typeof buildApp>>
 let auth: AuthService
 let manager: ReturnType<typeof createSessionManager>
 let branch: BranchService | undefined
+let undo: Undo | undefined
 let created: FakeSession[]
 /** Cada "livre" do manager, com o status da sessão na hora (o árbitro da fila só entrega se ela não está trabalhando). */
 let available: Array<{ localId?: string; status?: string }>
@@ -126,6 +128,7 @@ beforeEach(async () => {
     config: loadConfig({}), db, manager, auth,
     wsHub: { broadcast: () => {}, register: () => {} } as never,
     onBranchReady: (b) => { branch = b },
+    onUndoReady: (u) => { undo = u },
     branchTest: {
       // Claude e Codex usam o corte e o pacote de verdade, sobre o storage temporário.
       cutFor: async (engine, path, id, opts) => engine in fakeCuts ? fakeCuts[engine] : realCutFor(engine, path, id, opts),
@@ -400,6 +403,34 @@ describe('o terminal do ramo', () => {
     s.result()
     await forkOk(p1.id, { engine: 'claude' })
     expect(created.at(-1)!.opts.forkFrom).toEqual({ sourceId: NOVA, cut: U(4) })
+  })
+
+  it('volta da conversa em curso (o desfazer segura o terminal): 409 rewind_in_progress, também no relançamento sem sessão de pé', async () => {
+    doisTurnos(p1.path)
+    const { localId } = startMain(p1, 'claude', SRC)
+    // "Editar a partir daqui" interrompe, desfaz arquivos e relança: nesse meio a
+    // conversa é a de antes da volta, e o ramo a copiaria.
+    vi.spyOn(undo!.rewind, 'holds').mockImplementation((p, e) => p === p1.id && e === 'claude')
+    const antes = projects.list().length
+    let res = await fork(p1.id, { engine: 'claude' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('rewind_in_progress')
+    // No relançamento a sessão some do live por um instante: a do banco é a velha.
+    await manager.stop(localId)
+    res = await fork(p1.id, { engine: 'claude' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('rewind_in_progress')
+    expect(projects.list()).toHaveLength(antes)
+    // A volta terminou: o terminal fica livre.
+    vi.mocked(undo!.rewind.holds).mockReturnValue(false)
+    await forkOk(p1.id, { engine: 'claude' })
+  })
+
+  it('arquivos em escrita por um desfazer (sem volta da conversa) não recusam o /fork', async () => {
+    doisTurnos(p1.path)
+    startMain(p1, 'claude', SRC)
+    vi.spyOn(undo!.service, 'holds').mockReturnValue(true)
+    await forkOk(p1.id, { engine: 'claude' })
   })
 
   it('sessão viva com "continuar conversa" ainda sem id: copia a mais recente do banco (a que o --continue retoma)', async () => {

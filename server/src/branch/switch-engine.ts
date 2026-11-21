@@ -24,6 +24,8 @@ export interface SwitchDeps {
   manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'stop' | 'sendAsClaudinei' | 'turnStartedAt' | 'rewindPending'>
   store: Pick<TerminalStateStore, 'get' | 'setGoalStatus'>
   restart: Pick<RestartService, 'publish' | 'dismiss'>
+  /** O desfazer está voltando a conversa da origem (ver `rewindInProgress` em fork.ts). */
+  rewinding?: (projectId: number, engine: string) => boolean
   collect?: typeof collectHandoff // testes
 }
 

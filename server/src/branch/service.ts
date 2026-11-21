@@ -8,7 +8,7 @@ import { createProjectsService, type Project } from '../projects.js'
 import { getEngine } from '../engine/index.js'
 import { UserError } from '../user-error.js'
 import { createSideService, type SideMain, type SideService } from './side.js'
-import { forkTerminal, rewindPending } from './fork.js'
+import { forkTerminal, rewindInProgress, rewindPending } from './fork.js'
 import { forkCopyDone, parseForkSource, type ForkSource } from './fork-source.js'
 import { collectHandoff } from './handoff.js'
 import { switchEngine } from './switch-engine.js'
@@ -46,16 +46,24 @@ export function createBranchService(deps: {
   broadcast: (m: object) => void
   store: TerminalStateStore
   restart: Pick<RestartService, 'publish' | 'dismiss'>
+  /**
+   * O desfazer está voltando a conversa do terminal ("Editar a partir daqui"
+   * em curso): `/side`, `/fork` e ⇄ recusam com `rewind_in_progress`.
+   */
+  rewinding?: (projectId: number, engine: string) => boolean
   side?: SideTestDeps
 }): BranchService {
   const projects = createProjectsService(deps.db)
 
   /**
    * A sessão principal viva do terminal, com o início do turno em curso; null
-   * sem sessão de pé. Com a volta da conversa pendente, lança `rewind_pending`:
-   * o id que ela mostra ainda é o de antes da volta.
+   * sem sessão de pé. Com a volta da conversa em curso, lança
+   * `rewind_in_progress` (antes de procurar a sessão: no relançamento ela pode
+   * não estar de pé); pendente, `rewind_pending`: o id que ela mostra ainda é o
+   * de antes da volta.
    */
   const main = (projectId: number, engine: string): SideMain | null => {
+    if (deps.rewinding?.(projectId, engine)) throw rewindInProgress()
     const s = deps.manager.list().find((x) => x.projectId === projectId && x.engine === engine && ACTIVE.has(x.status))
     if (!s) return null
     if (deps.manager.rewindPending(s.localId)) throw rewindPending()
@@ -138,14 +146,14 @@ export function createBranchService(deps: {
 
   return {
     side,
-    fork: (req) => forkTerminal({ db: deps.db, manager: deps.manager, cutFor: deps.side?.cutFor, collect: deps.side?.collect }, req),
+    fork: (req) => forkTerminal({ db: deps.db, manager: deps.manager, rewinding: deps.rewinding, cutFor: deps.side?.cutFor, collect: deps.side?.collect }, req),
 
     async switchEngine(req) {
       const key = `${req.projectId}:${req.to}`
       if (switching.has(key)) throw new UserError('handoff_target_busy', 'O motor de destino já está recebendo outra conversa')
       switching.add(key)
       try {
-        return await switchEngine({ db: deps.db, manager: deps.manager, store: deps.store, restart: deps.restart, collect: deps.side?.collect }, req)
+        return await switchEngine({ db: deps.db, manager: deps.manager, store: deps.store, restart: deps.restart, rewinding: deps.rewinding, collect: deps.side?.collect }, req)
       } finally {
         switching.delete(key)
       }

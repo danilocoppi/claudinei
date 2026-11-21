@@ -280,6 +280,11 @@ export function createSideService(deps: {
       if (old && (!opts?.replace || old.opening)) {
         throw new UserError('side_exists', 'já existe uma conversa lateral aberta neste terminal')
       }
+      // A principal recusa (volta da conversa pendente, sem conversa) ANTES de
+      // mexer nas laterais: com `replace`, a antiga continua aberta e a coluna
+      // não some. A chamada de baixo, depois de fechar a antiga, lê o estado fresco.
+      const antes = deps.main(projectId, engine)
+      if (!antes?.engineSessionId || !deps.projectPath(projectId)) throw noConversation()
       const q = question?.trim() ? question : null
       const id = randomUUID()
       const side: Side = {

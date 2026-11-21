@@ -372,6 +372,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const branch = createBranchService({
     db: deps.db, manager: deps.manager, broadcast: (m) => deps.wsHub?.broadcast(m),
     store: terminalState, restart, side: deps.branchTest,
+    // Só a volta da conversa: o desfazer que só escreve arquivos não mexe nela.
+    rewinding: (projectId, engine) => undo.rewind.holds(projectId, engine),
   })
   registerBranchRoutes(app, { db: deps.db, branch })
   deps.onBranchReady?.(branch)

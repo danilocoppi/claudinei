@@ -43,6 +43,8 @@ export function branchName(original: string, existing: string[], given?: string)
 export interface ForkDeps {
   db: Db
   manager: Pick<SessionManager, 'list' | 'get' | 'start' | 'sendAsClaudinei' | 'turnStartedAt' | 'rewindPending'>
+  /** O desfazer está voltando a conversa deste terminal (ver `rewindInProgress`). */
+  rewinding?: (projectId: number, engine: string) => boolean
   cutFor?: typeof cutFor // testes
   collect?: typeof collectHandoff // testes
 }
@@ -58,6 +60,17 @@ const noConversation = () => new UserError('no_conversation', 'Ainda não há co
  * levaria a conversa antiga. O `/side`, o `/fork` e a ⇄ recusam até lá.
  */
 export const rewindPending = () => new UserError('rewind_pending', 'Espere a primeira resposta depois de voltar a conversa')
+
+/**
+ * "Editar a partir daqui" em curso: o desfazer segura o terminal enquanto
+ * interrompe, espera o turno, desfaz os arquivos e relança. Nesse intervalo o
+ * id ainda não está segurado (`rewind_pending`), mas a conversa é a que está
+ * sendo voltada, e no relançamento a sessão some do `live` por um instante (a
+ * do banco é a velha). O mesmo código que o desfazer devolve às mensagens.
+ * Só a volta: o desfazer que só escreve arquivos não mexe na conversa.
+ */
+export const rewindInProgress = () =>
+  new UserError('rewind_in_progress', 'o Claudinei está voltando a conversa deste terminal; tente de novo em alguns segundos')
 
 /** As opções da sessão que o ramo herda: motor, modelo, esforço e modo de permissão. */
 export interface Origin {
@@ -76,9 +89,15 @@ export interface Origin {
  * antiga do banco não é a da tela), como no `/side`. Aberta com "continuar
  * conversa" e ainda sem o init (no Claude, só com a primeira mensagem): vale a
  * mais recente do banco, a mesma que o `--continue` retoma. Com a volta da
- * conversa pendente (id segurado), lança `rewind_pending`.
+ * conversa em curso, lança `rewind_in_progress`; pendente (id segurado),
+ * `rewind_pending`.
  */
-export function originOf(deps: { db: Db; manager: Pick<SessionManager, 'list' | 'turnStartedAt' | 'rewindPending'> }, projectId: number, engine: string): Origin | null {
+export function originOf(
+  deps: { db: Db; manager: Pick<SessionManager, 'list' | 'turnStartedAt' | 'rewindPending'>; rewinding?: ForkDeps['rewinding'] },
+  projectId: number, engine: string,
+): Origin | null {
+  // Antes de procurar a sessão: no relançamento ela pode não estar de pé.
+  if (deps.rewinding?.(projectId, engine)) throw rewindInProgress()
   const live = deps.manager.list().find((s) => s.projectId === projectId && s.engine === engine && ACTIVE.has(s.status))
   if (live && deps.manager.rewindPending(live.localId)) throw rewindPending()
   const working = live?.status === 'working'

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cleanup, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, cleanup, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { renderComJanela as render } from './viewport'
 import { ChatView } from '../components/ChatView'
 import { WsContext } from '../wsContext'
 import { useStore } from '../store'
 import { useUndoStore } from '../undo/undoStore'
+import { requestAppend, useSideStore } from '../branch/sideStore'
 import i18n from '../i18n'
 import { en } from '../i18n/en'
 import { es } from '../i18n/es'
@@ -113,6 +114,9 @@ async function editar(n: number) {
 
 const botao = (dlg: HTMLElement, name: string) => within(dlg).getByRole('button', { name }) as HTMLButtonElement
 
+/** O campo de mensagem do terminal (o ChatInput da ChatView), fora do diálogo. */
+const campoPrincipal = () => document.querySelector('textarea.chat-compose__area') as HTMLTextAreaElement
+
 describe('Editar a partir daqui', () => {
   it('Kimi/OpenCode: as duas opções desligadas com o motivo e Copiar para o campo funciona', async () => {
     // Com o agente trabalhando: copiar para o campo não interrompe (R24).
@@ -133,7 +137,9 @@ describe('Editar a partir daqui', () => {
     expect(campo.value).toBe('faça Y')
     fireEvent.change(campo, { target: { value: 'faça Y direito' } })
     fireEvent.click(botao(dlg, 'Copiar para o campo'))
-    expect(useStore.getState().editRequest).toMatchObject({ localId: 'a', text: 'faça Y direito' })
+    // O campo do terminal recebe o texto (vazio: o texto é o campo inteiro) e consome o pedido.
+    expect(campoPrincipal().value).toBe('faça Y direito')
+    expect(useStore.getState().editRequest).toBeUndefined()
     expect(screen.queryByRole('dialog', { name: 'Editar a partir daqui' })).toBeNull()
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'interrupt' }))
     expect(calls(REWIND)).toEqual([])
@@ -348,10 +354,57 @@ describe('Editar a partir daqui', () => {
     expect(await screen.findByText(
       'A conversa não voltou: erro do motor: “thread/revert recusou”. Os arquivos desfeitos ficam desfeitos; use Refazer se quiser trazê-los.',
     )).toBeTruthy()
-    expect(useStore.getState().editRequest).toMatchObject({ localId: 'a', text: 'faça W' })
+    expect(campoPrincipal().value).toBe('faça W')
+    expect(useStore.getState().editRequest).toBeUndefined()
     // O histórico recarrega (o chat local foi cortado antes do envio).
     expect('a' in useStore.getState().historyLoadedFor).toBe(false)
     await waitFor(() => expect(fetchSpy.mock.calls.some(([u]) => String(u).startsWith('/api/sessions/a/history'))).toBe(true))
+  })
+
+  it('falha da conversa: o texto editado entra DEPOIS do que veio do Trazer de volta, sem apagá-lo', async () => {
+    useSideStore.setState({ sides: {}, replaceAsk: null, appendRequest: null })
+    setup()
+    routes[OPTIONS] = opts()
+    routes[REWIND] = { conversationRewound: false, error: { code: 'rewind_failed', message: 'sem âncora' } } satisfies RewindResultDto
+    abrir()
+    // O operador trouxe de volta um trecho da conversa lateral para o campo.
+    await waitFor(() => expect(campoPrincipal()).toBeTruthy())
+    act(() => requestAppend('a', 'trecho trazido da lateral'))
+    expect(campoPrincipal().value).toBe('trecho trazido da lateral')
+    const dlg = await editar(1)
+    fireEvent.change(within(dlg).getByRole('textbox'), { target: { value: 'faça W' } })
+    await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
+    fireEvent.click(botao(dlg, 'Voltar só a conversa'))
+    expect(await screen.findByText('A conversa não voltou: erro do motor: “sem âncora”. O texto editado ficou no campo.')).toBeTruthy()
+    expect(campoPrincipal().value).toBe('trecho trazido da lateral\n\nfaça W')
+    expect(useStore.getState().editRequest).toBeUndefined()
+  })
+
+  it('a conversa voltou mas o texto não saiu: o texto entra depois do que já estava no campo', async () => {
+    setup()
+    routes[OPTIONS] = opts()
+    routes[REWIND] = { conversationRewound: true, error: { code: 'rewind_failed', message: 'o envio falhou' } } satisfies RewindResultDto
+    abrir()
+    await waitFor(() => expect(campoPrincipal()).toBeTruthy())
+    fireEvent.change(campoPrincipal(), { target: { value: 'rascunho do operador' } })
+    const dlg = await editar(1)
+    await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
+    fireEvent.click(botao(dlg, 'Voltar só a conversa'))
+    expect(await within(dlg).findByText(/A conversa voltou, mas o texto editado não saiu/)).toBeTruthy()
+    expect(campoPrincipal().value).toBe('rascunho do operador\n\nfaça Y')
+  })
+
+  it('Copiar para o campo com texto no campo acrescenta, sem apagar o que estava', async () => {
+    setup()
+    routes[OPTIONS] = opts()
+    abrir()
+    await waitFor(() => expect(campoPrincipal()).toBeTruthy())
+    fireEvent.change(campoPrincipal(), { target: { value: 'já escrito' } })
+    const dlg = await editar(1)
+    fireEvent.click(botao(dlg, 'Copiar para o campo'))
+    expect(screen.queryByRole('dialog', { name: 'Editar a partir daqui' })).toBeNull()
+    expect(campoPrincipal().value).toBe('já escrito\n\nfaça Y')
+    expect(useStore.getState().editRequest).toBeUndefined()
   })
 
   it('falha da conversa só da conversa: o aviso sem os arquivos', async () => {
@@ -363,7 +416,7 @@ describe('Editar a partir daqui', () => {
     await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
     fireEvent.click(botao(dlg, 'Voltar só a conversa'))
     expect(await screen.findByText('A conversa não voltou: erro do motor: “sem âncora”. O texto editado ficou no campo.')).toBeTruthy()
-    expect(useStore.getState().editRequest).toMatchObject({ text: 'faça Y' })
+    expect(campoPrincipal().value).toBe('faça Y')
   })
 
   it('falha do motor em inglês: o texto em volta é traduzido e a mensagem crua vai como detalhe', async () => {
@@ -393,7 +446,7 @@ describe('Editar a partir daqui', () => {
     await waitFor(() => expect(botao(dlg, 'Voltar só a conversa').disabled).toBe(false))
     fireEvent.click(botao(dlg, 'Voltar só a conversa'))
     expect(await within(dlg).findByText('A conversa voltou, mas o texto editado não saiu: erro do motor: “o envio falhou”. Ele ficou no campo.')).toBeTruthy()
-    expect(useStore.getState().editRequest).toMatchObject({ localId: 'a', text: 'faça V' })
+    expect(campoPrincipal().value).toBe('faça V')
     // A conversa voltou: o corte do chat local vale, e fechar não recarrega o histórico.
     expect(useStore.getState().chat.a.map(i => i.key)).toEqual(['k0', 'k1'])
     fireEvent.click(within(dlg).getAllByRole('button', { name: 'Fechar' }).at(-1)!)

@@ -190,7 +190,11 @@ interface State {
   patchFind(localId: string, q: string, patch: Partial<FindState>): void
   closeFind(): void
   activeLocalId?: string
-  /** Pedido de edição em curso: reenche o ChatInput da sessão-alvo com o texto original. `seq` distingue pedidos repetidos com o mesmo texto. */
+  /**
+   * Pedido de edição em curso (Editar a partir daqui): o ChatInput da sessão-alvo
+   * acrescenta o texto ao que já tem (campo vazio: o texto é o campo inteiro) e
+   * consome o pedido. `seq` distingue pedidos repetidos com o mesmo texto.
+   */
   editRequest?: { localId: string; text: string; seq: number }
   /** Comandos slash disponíveis (global), populado pelo evento init; fallback até o 1º init chegar. */
   slashCommands: string[]

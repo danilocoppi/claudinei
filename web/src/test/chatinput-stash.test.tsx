@@ -285,7 +285,8 @@ describe('Ctrl+S: teclado de outro alfabeto e o aviso de falha', () => {
     digitar('mensagem')
     falharGuardar()
     act(() => useStore.getState().requestEdit('s1', 'texto para editar'))
-    expect(campo().value).toBe('texto para editar')
+    // O texto vem depois do que estava no campo (não o apaga).
+    expect(campo().value).toBe('mensagem\n\ntexto para editar')
     semAviso()
   })
 })

@@ -308,6 +308,8 @@ describe('ligação no servidor', () => {
     before.onInput(ctx, 'trabalha', 'operator', () => before.onStatus(ctx, 'working', info()))
     const open = before.openSegment('LA')!
     await before.idle()
+    // A linha da sessão guarda o id da conversa do motor.
+    session(a.id, 'LA', 'CONV-DA-SESSAO')
 
     let seen: string | null | undefined
     await startAfterListen({
@@ -316,6 +318,9 @@ describe('ligação no servidor', () => {
       scheduler: undefined,
     })
     expect(seen).toBe('uncertain')
+    expect(store.turn(open)!.conversationId).toBe('CONV-DA-SESSAO')
+    // O marco de fim sai pela fila, sem a subida esperar por ele.
+    await undo.idle()
     expect(store.turn(open)!.endMark).not.toBeNull()
   })
 

@@ -496,6 +496,7 @@ describe('rastreador de turnos', () => {
     const closed: number[] = []
     const t2 = tracker({ onTurnClosed: x => closed.push(x) })
     await t2.boot()
+    await t2.idle()
     const turn = store.turn(id)!
     expect(turn.endKind).toBe('uncertain')
     expect(store.mark(turn.endMark!)).toMatchObject({ kind: 'turn_end', active: [] })
@@ -503,12 +504,61 @@ describe('rastreador de turnos', () => {
     expect(closed).toEqual([id])
   })
 
+  it('boot fecha no banco sem esperar o marco de fim (fila do repositório travada)', async () => {
+    const r = repo()
+    const projectId = project(r.dir)
+    const t1 = tracker()
+    const ctx = { localId: 'L1', projectId, engine: 'claude' }
+    send(t1, ctx, 'faz')
+    const id = t1.openSegment('L1')!
+    await t1.idle()
+    resolver = createRepoResolver()
+    queue = createSerialQueue()
+    // Um git travado na fila do repositório (hook lento, repositório enorme).
+    const key = (await resolver.get(r.dir))!.key
+    let release!: () => void
+    void queue.run(key, () => new Promise<void>(res => { release = res }))
+    const closed: number[] = []
+    const t2 = tracker({ onTurnClosed: x => closed.push(x) })
+    const booted = await Promise.race([
+      t2.boot().then(() => true),
+      new Promise<boolean>(res => setTimeout(() => res(false), 2000)),
+    ])
+    expect(booted).toBe(true)
+    // Já fechado no banco (R18), ainda sem o marco de fim nem o aviso de fechado.
+    expect(store.turn(id)).toMatchObject({ endKind: 'uncertain', endMark: null })
+    expect(store.turn(id)!.endedAt).not.toBeNull()
+    expect(store.openTurns()).toEqual([])
+    expect(closed).toEqual([])
+    release()
+    await t2.bootMarks()
+    await t2.idle()
+    expect(store.mark(store.turn(id)!.endMark!)).toMatchObject({ kind: 'turn_end' })
+    expect(store.turn(id)!.endKind).toBe('uncertain')
+    expect(closed).toEqual([id])
+  })
+
+  it('boot: o turno incerto fica com a conversa da linha da sessão (ou a do nascimento)', async () => {
+    const r = repo()
+    const projectId = project(r.dir)
+    const withSession = store.openTurn({ localId: 'L1', projectId, engine: 'claude', origin: 'operator', snapshot: 'no_git', bornSessionId: 'NASC' })
+    const bornOnly = store.openTurn({ localId: 'L2', projectId, engine: 'claude', origin: 'operator', snapshot: 'no_git', bornSessionId: 'NASC2' })
+    const interactive = store.openTurn({ localId: 'L1', projectId, engine: 'claude', origin: 'interactive', snapshot: 'no_git' })
+    const sessions: Record<string, string> = { L1: 'S-DA-SESSAO' }
+    await tracker({ sessionConversation: (localId, engine) => (engine === 'claude' ? sessions[localId] ?? null : null) }).boot()
+    expect(store.turn(withSession)).toMatchObject({ endKind: 'uncertain', conversationId: 'S-DA-SESSAO' })
+    expect(store.turn(bornOnly)).toMatchObject({ endKind: 'uncertain', conversationId: 'NASC2' })
+    expect(store.turn(interactive)).toMatchObject({ endKind: 'uncertain', conversationId: null })
+  })
+
   it('boot: turno sem marco de início vira failed; sem repo fecha sem marco', async () => {
     const r = repo()
     const projectId = project(r.dir)
     const pending = store.openTurn({ localId: 'L1', projectId, engine: 'claude', origin: 'operator', repoKey: 'naoexiste00000000', repoTop: join(r.dir, 'sumiu') })
     const noGit = store.openTurn({ localId: 'L2', projectId, engine: 'claude', origin: 'operator', snapshot: 'no_git' })
-    await tracker().boot()
+    const t = tracker()
+    await t.boot()
+    await t.idle()
     expect(store.turn(pending)).toMatchObject({ endKind: 'uncertain', endMark: null, snapshot: 'failed' })
     expect(store.turn(noGit)).toMatchObject({ endKind: 'uncertain', endMark: null, snapshot: 'no_git' })
   })

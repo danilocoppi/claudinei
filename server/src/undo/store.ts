@@ -171,6 +171,8 @@ export function createUndoStore(db: Db) {
     // Sem conversa nova, mantém a que havia.
     setEnd: db.prepare(`UPDATE undo_turns SET end_mark = ?, end_kind = ?, conversation_id = COALESCE(?, conversation_id),
       ended_at = datetime('now') WHERE id = ?`),
+    // O marco de fim que chega depois do fim (subida: o turno fecha antes de o git rodar).
+    setEndMark: db.prepare(`UPDATE undo_turns SET end_mark = ? WHERE id = ?`),
     markLate: db.prepare(`UPDATE undo_turns SET snapshot = 'late' WHERE id = ? AND snapshot IN ('pending', 'ok')`),
     setAnchor: db.prepare(`UPDATE undo_turns SET anchor = ? WHERE id = ?`),
     declared: db.prepare(`SELECT declared FROM undo_turns WHERE id = ?`),
@@ -269,6 +271,7 @@ export function createUndoStore(db: Db) {
     setEnd(id: number, markId: number | null, endKind: EndKind, conversationId: string | null): void {
       q.setEnd.run(markId, endKind, conversationId, id)
     },
+    setEndMark(id: number, markId: number): void { q.setEndMark.run(markId, id) },
     markLate(id: number): void { q.markLate.run(id) },
     setAnchor(id: number, anchor: string): void { q.setAnchor.run(anchor, id) },
     addDeclared(id: number, paths: string[]): void { addDeclared(id, paths) },

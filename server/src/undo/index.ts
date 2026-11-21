@@ -99,6 +99,12 @@ export function createUndo(deps: UndoDeps) {
       void job.then(() => summaries.delete(job))
       rewind.onTurnClosed(id)
     },
+    // A conversa da linha da sessão, para o turno que a subida fecha como incerto.
+    sessionConversation: (localId, engine) => {
+      const row = deps.db.prepare(`SELECT claude_session_id AS id, engine FROM sessions WHERE local_id = ?`).get(localId) as
+        { id: string | null; engine: string | null } | undefined
+      return row && (row.engine ?? 'claude') === engine ? row.id : null
+    },
     log,
   })
   service = createUndoService({
@@ -126,6 +132,8 @@ export function createUndo(deps: UndoDeps) {
   // ── Retenção ──
 
   let retaining: Promise<{ turns: number; marks: number }> | null = null
+  /** A retenção da subida, que espera os marcos de fim da subida. */
+  let afterBoot: Promise<void> | null = null
 
   /** Uma passada por vez; falha só no log. */
   function retain(): Promise<{ turns: number; marks: number }> {
@@ -195,10 +203,17 @@ export function createUndo(deps: UndoDeps) {
   return {
     store, resolver, queue, tracker, service, rewind,
 
-    /** Subida: fecha os turnos que ficaram abertos (fim incerto) e solta a retenção em segundo plano. */
+    /**
+     * Subida: fecha no banco os turnos que ficaram abertos (fim incerto) sem
+     * esperar os marcos de fim, que vão pela fila. A retenção roda em segundo
+     * plano depois desses marcos: antes, o turno fechado sem marco de fim não
+     * segura a janela dele.
+     */
     async boot(): Promise<void> {
       await tracker.boot()
-      void retain()
+      const next = tracker.bootMarks().then(() => retain()).then(() => {})
+      afterBoot = next
+      void next.then(() => { if (afterBoot === next) afterBoot = null })
     },
 
     retain,
@@ -208,6 +223,7 @@ export function createUndo(deps: UndoDeps) {
       for (;;) {
         await tracker.idle()
         if (summaries.size) { await Promise.all([...summaries]); continue }
+        if (afterBoot) { await afterBoot; continue }
         if (retaining) { await retaining; continue }
         return
       }

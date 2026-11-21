@@ -74,6 +74,12 @@ export function createTurnTracker(deps: {
   onTurnOpened?(turnId: number): void
   /** Depois de o marco de fim (ou o fim sem marco) estar gravado. */
   onTurnClosed?(turnId: number): void
+  /**
+   * Na subida: o id de conversa do motor gravado na linha da sessão, para o
+   * turno que ficou aberto quando o serviço caiu (sem ele, o turno contaria
+   * para sempre como da conversa atual).
+   */
+  sessionConversation?(localId: string, engine: string): string | null
   log?(m: string): void
   /** Só para testes: os limites do retrato. */
   snapshotLimits?: typeof SNAPSHOT_LIMITS
@@ -407,29 +413,51 @@ export function createTurnTracker(deps: {
     },
   }
 
-  /** Fecha um turno que ficou aberto quando o serviço caiu. */
-  function endUncertain(t: TurnRow, markId: number | null, error: string | null): void {
-    store.setEnd(t.id, markId, 'uncertain', null)
+  /**
+   * Fecha no banco um turno que ficou aberto quando o serviço caiu: fim
+   * `uncertain`, a conversa da linha da sessão (ou a do nascimento do turno).
+   * O marco de fim vem depois, pela fila (endWithMark).
+   */
+  function closeUncertain(t: TurnRow): void {
+    let conversation: string | null = null
+    if (t.origin !== 'interactive') {
+      try { conversation = deps.sessionConversation?.(t.localId, t.engine) ?? null } catch (e) { log(`conversa da sessão ${t.localId}: ${errText(e)}`) }
+      conversation ??= t.bornSessionId
+    }
+    store.setEnd(t.id, null, 'uncertain', conversation)
     if (t.snapshot === 'pending' && t.startMark === null) store.setSnapshot(t.id, 'failed', 'o serviço parou antes do marco de início')
-    else if (error !== null) failSnapshot(t.id, error)
+  }
+
+  /** O marco de fim da subida chegou (ou falhou): grava e avisa. */
+  function endWithMark(t: TurnRow, markId: number | null, error: string | null): void {
+    if (markId !== null) store.setEndMark(t.id, markId)
+    if (error !== null) failSnapshot(t.id, error)
     safe('onTurnClosed', () => deps.onTurnClosed?.(t.id))
   }
+
+  let bootMarks: Promise<void> = Promise.resolve()
 
   return {
     ...observer,
 
-    /** Na subida: todo turno aberto ganha um marco turn_end agora (um por repositório) e o fim `uncertain`. */
+    /**
+     * Na subida: todo turno aberto fecha já no banco com o fim `uncertain`
+     * (R18: antes de qualquer sessão religar). O marco turn_end (um por
+     * repositório) vai para a fila sem a subida esperar por ele: um repositório
+     * travado não atrasa o boot. `marks()` diz quando os marcos terminaram.
+     */
     async boot(): Promise<void> {
       const mine = new Set([...open.values(), ...closing.values()].map(s => s.turnId))
       const turns = store.openTurns().filter(t => !mine.has(t.id))
       const byRepo = new Map<string, TurnRow[]>()
       const jobs: Promise<void>[] = []
       for (const t of turns) {
+        safe(`fechar o turno ${t.id} na subida`, () => closeUncertain(t))
         if (t.repoKey && t.repoTop) {
           const k = `${t.repoKey}\0${t.repoTop}`
           byRepo.set(k, [...byRepo.get(k) ?? [], t])
         } else {
-          endUncertain(t, null, null)
+          endWithMark(t, null, null)
         }
       }
       for (const group of byRepo.values()) {
@@ -437,7 +465,7 @@ export function createTurnTracker(deps: {
         jobs.push((async () => {
           const repo = await resolver.get(repoTop!).catch(() => null)
           if (!repo || repo.key !== repoKey) {
-            for (const t of group) endUncertain(t, null, 'repositório não encontrado na subida')
+            for (const t of group) endWithMark(t, null, 'repositório não encontrado na subida')
             return
           }
           const active = activeIds(repo.key, openNow())
@@ -450,13 +478,18 @@ export function createTurnTracker(deps: {
               error = errText(e)
               log(`marco da subida em ${repo.top} falhou: ${error}`)
             }
-            for (const t of group) endUncertain(t, markId, error)
+            for (const t of group) endWithMark(t, markId, error)
           })
         })())
       }
-      const all = Promise.all(jobs)
+      const all = Promise.all(jobs).then(() => {})
       track(all)
-      await all
+      bootMarks = all
+    },
+
+    /** Resolve quando os marcos de fim da última subida terminaram (bem ou mal). */
+    bootMarks(): Promise<void> {
+      return bootMarks.catch(() => {})
     },
 
     /** Espera a fila e tudo o que o rastreador pôs para rodar. */

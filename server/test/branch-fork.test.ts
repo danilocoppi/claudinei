@@ -222,6 +222,18 @@ const history = (localId: string, before?: number) =>
 
 const tick = () => new Promise((r) => setTimeout(r, 20))
 
+/**
+ * Depois da cópia recusada, o ramo revivido continua no `live` do manager:
+ * aparece ativo e a próxima mensagem do operador chega à sessão nova (e não
+ * cai em `session_not_active`).
+ */
+function ramoSegueVivo(localId: string) {
+  const s = created.at(-1)!
+  expect(manager.list().find((x) => x.localId === localId)?.status).toMatch(/^(starting|idle|working|needs_attention)$/)
+  expect(() => manager.send(localId, 'e agora?')).not.toThrow()
+  expect(s.writes.at(-1)).toEqual({ text: 'e agora?', echo: false })
+}
+
 // ---------- testes ----------
 
 describe('branchName', () => {
@@ -564,6 +576,7 @@ describe('cópia recusada', () => {
     expect(s2.writes[0].text).not.toContain('depois do ramo')
     expect(collectCalls.at(-1)).toMatchObject({ engine: 'claude', id: SRC, opts: { working: false, before: fonte.previewBefore } })
     expect(rowOf(session.localId)).toMatchObject({ fork_source: null, claude_session_id: null })
+    ramoSegueVivo(session.localId)
 
     // Morrer de novo não repete.
     s2.set('dead')
@@ -584,6 +597,7 @@ describe('cópia recusada', () => {
     expect(s2.writes).toHaveLength(2)
     expect(s2.writes[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
     expect(s2.writes[1]).toEqual({ text: 'minha pergunta', echo: true })
+    ramoSegueVivo(session.localId)
     s2.set('dead')
     await tick()
     expect(created).toHaveLength(n + 1)
@@ -609,6 +623,7 @@ describe('cópia recusada', () => {
     expect(s2.writes[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
     expect(s2.writes[0].text).toContain('segunda resposta')
     expect(s2.writes[1]).toEqual({ text: 'minha pergunta', echo: true })
+    ramoSegueVivo(session.localId)
   })
 
   it('OpenCode: o processo sai com erro na primeira mensagem (result de erro e logo dead): o pacote sai e a mensagem é reenviada uma vez', async () => {
@@ -628,6 +643,7 @@ describe('cópia recusada', () => {
       { text: fakePacks.opencode.text, echo: true },
       { text: 'minha pergunta', echo: true },
     ])
+    ramoSegueVivo(session.localId)
   })
 
   it('OpenCode copiado no meio do turno: a cópia recusada manda o pacote guardado no /fork, não um refeito sem corte', async () => {
@@ -645,6 +661,7 @@ describe('cópia recusada', () => {
     await tick()
     expect(created.at(-1)!.writes).toEqual([{ text: `${HANDOFF_PREFIX}: pacote até o /fork`, echo: true }])
     expect(collectCalls).toHaveLength(chamadas)
+    ramoSegueVivo(session.localId)
   })
 
   it('Codex: o id do thread/fork sem rollout no disco não é cópia feita; morte antes do primeiro turno vira cópia recusada', async () => {
@@ -671,6 +688,7 @@ describe('cópia recusada', () => {
     expect(s2.writes).toHaveLength(1)
     expect(s2.writes[0].text.startsWith(HANDOFF_PREFIX)).toBe(true)
     expect(rowOf(session.localId)).toMatchObject({ fork_source: null })
+    ramoSegueVivo(session.localId)
   })
 
   it('Codex: com o rollout do id do thread/fork no disco, o fim do turno encerra a cópia', async () => {
@@ -705,6 +723,7 @@ describe('cópia recusada', () => {
     await expect.poll(() => created.length === n + 1 && created.at(-1)!.writes.length > 0).toBe(true)
     await tick()
     expect(created.at(-1)!.writes.map((w) => w.text)).toEqual([fakePacks.opencode.text])
+    ramoSegueVivo(session.localId)
   })
 
   it('morte depois da cópia gravada não recria: só limpa o fork_source', async () => {

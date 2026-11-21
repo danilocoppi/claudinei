@@ -94,6 +94,12 @@ export function createBranchService(deps: {
    * O `fork_source` já saiu do banco: roda uma vez por sessão.
    */
   const recover = async (localId: string, projectPath: string, src: ForkSource, texts: string[]): Promise<void> => {
+    // Chamado de dentro do handler de status da sessão morta, que ainda vai
+    // tirá-la do `live` (e avisar o fim dela). Um revive síncrono aqui poria a
+    // sessão nova no `live` antes desse `delete`, que a apagaria: o ramo ficaria
+    // rodando fora do manager. Só segue no passo seguinte do laço, com o
+    // handler já encerrado (o OpenCode com `seed` não tem outro `await` antes).
+    await new Promise<void>((resolve) => setImmediate(resolve))
     // O pacote guardado no `/fork` (OpenCode) é a cópia à risca até o comando;
     // refazê-lo agora, sem corte, traria o turno em curso e o que veio depois.
     const pack = src.seed ? { text: src.seed } : await collect(getEngine(src.engine), projectPath, src.sourceId, {
@@ -157,6 +163,8 @@ export function createBranchService(deps: {
           ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
       ).get(projectId, engine) as ForkRow | undefined
       if (!r) return
+      // Os textos saem aqui, no passo do handler: o `recover` só roda depois, e
+      // o `dropSent` agendado pelo `onTurnResult` já não os encontra.
       const texts = pending.get(r.local_id) ?? []
       pending.delete(r.local_id)
       const path = projects.get(projectId)?.path
@@ -175,7 +183,8 @@ export function createBranchService(deps: {
         deps.db.prepare('DELETE FROM project_threads WHERE project_id=? AND engine=? AND thread_id=?').run(projectId, engine, r.claude_session_id)
       }
       // Assíncrono de propósito: o handler de status ainda vai tirar a sessão
-      // morta do `live`, e o revive tem de vir depois disso.
+      // morta do `live`, e o revive tem de vir depois disso (o `recover` adia
+      // para o passo seguinte do laço antes de tudo).
       void recover(r.local_id, path, src, texts).catch((err) => console.error('[ramo] cópia recusada', err))
     },
 

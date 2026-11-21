@@ -25,6 +25,31 @@ export interface ClaudeBranchOptions {
  */
 const READ_ONLY_DISALLOWED = ['Edit', 'Write', 'NotebookEdit', 'AskUserQuestion', 'ExitPlanMode']
 
+/** Flags que já escolhem a conversa da cópia: só cabem uma vez no argv. */
+const COPY_FLAGS = ['--fork-session', '--resume-session-at', '--session-id']
+
+/**
+ * Recusa, com erro, args que já trazem outra cópia junto de `forkFrom` ou
+ * `sessionId`: os `extraArgs` da volta da conversa (`--resume-session-at`,
+ * `--fork-session`, `--session-id`) ou um segundo `--resume`. O argv sairia
+ * com duas origens ou dois ids, e qual vale fica por conta da CLI. Filtrar
+ * escolheria uma em silêncio: tirar a da volta reabriria o ramo da origem,
+ * desfazendo a volta sem aviso; tirar a do ramo ignoraria o `fork_source`.
+ * Nenhum chamador combina os dois hoje (o `relaunch` não leva o plano do ramo,
+ * e a subida do ramo não leva `extraArgs`); o erro faz a subida falhar à vista.
+ */
+function assertNoCopyConflict(args: string[], o: ClaudeBranchOptions): void {
+  if (!o.forkFrom && !o.sessionId) return
+  const conflict = (why: string) => new Error(`claudeBranchArgs: args em conflito com a cópia (${why})`)
+  if (o.forkFrom) {
+    const flag = args.find((a) => COPY_FLAGS.includes(a))
+    if (flag) throw conflict(`${flag} já presente com forkFrom`)
+    // Um `--resume` é o do launch de sempre, trocado pela origem; dois, não.
+    if (args.filter((a) => a === '--resume').length > 1) throw conflict('mais de um --resume com forkFrom')
+  }
+  if (o.sessionId && args.includes('--session-id')) throw conflict('--session-id já presente com sessionId')
+}
+
 /**
  * Ajusta os args do `claude` para abrir uma cópia. Sem nenhum campo, devolve os
  * args iguais. Não altera o array recebido.
@@ -38,8 +63,12 @@ const READ_ONLY_DISALLOWED = ['Edit', 'Write', 'NotebookEdit', 'AskUserQuestion'
  * - `readOnly`: sai o bypass; entra o modo plano e as ferramentas de escrita
  *   (e as que pedem o operador) barradas. A lista de `--disallowed-tools` é variádica, então fica por
  *   último: depois dela só o fim dos args.
+ *
+ * Com `forkFrom` ou `sessionId`, args que já tragam outra cópia lançam erro
+ * (veja `assertNoCopyConflict`).
  */
 export function claudeBranchArgs(args: string[], o: ClaudeBranchOptions): string[] {
+  assertNoCopyConflict(args, o)
   const out: string[] = []
   for (let i = 0; i < args.length; i++) {
     const a = args[i]

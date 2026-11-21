@@ -87,6 +87,28 @@ describe('claudeBranchArgs', () => {
     const args = claudeBranchArgs(['-p'], { sessionId: 'S', ephemeral: true })
     expect(args).toEqual(['-p', '--session-id', 'S', '--no-session-persistence'])
   })
+
+  it('recusa forkFrom quando os args já trazem outra cópia (--fork-session, --resume-session-at, --session-id ou um 2º --resume)', () => {
+    const uuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    // Os extraArgs da volta da conversa do Claude (claudeForkArgs) depois do launch que retoma.
+    const rewound = [...buildClaudeArgs({ resumeSessionId: 'atual' }), '--resume-session-at', uuid, '--fork-session', '--session-id', 'novo']
+    expect(() => claudeBranchArgs(rewound, { forkFrom: { sourceId: 'src' }, sessionId: 'X' })).toThrow(/conflit/)
+    expect(() => claudeBranchArgs([...buildClaudeArgs({}), '--fork-session'], { forkFrom: { sourceId: 'src' } })).toThrow(/conflit/)
+    expect(() => claudeBranchArgs([...buildClaudeArgs({}), '--resume-session-at', uuid], { forkFrom: { sourceId: 'src' } })).toThrow(/conflit/)
+    expect(() => claudeBranchArgs([...buildClaudeArgs({}), '--session-id', 'Y'], { forkFrom: { sourceId: 'src' } })).toThrow(/conflit/)
+    expect(() => claudeBranchArgs([...buildClaudeArgs({ resumeSessionId: 'a' }), '--resume', 'b'], { forkFrom: { sourceId: 'src' } })).toThrow(/conflit/)
+  })
+
+  it('recusa sessionId quando os args já trazem --session-id', () => {
+    expect(() => claudeBranchArgs(['-p', '--session-id', 'Y'], { sessionId: 'S' })).toThrow(/conflit/)
+  })
+
+  it('sem forkFrom nem sessionId, os args da volta da conversa passam intactos', () => {
+    const uuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    const rewound = [...buildClaudeArgs({ resumeSessionId: 'atual' }), '--resume-session-at', uuid, '--fork-session', '--session-id', 'novo']
+    expect(claudeBranchArgs(rewound, {})).toEqual(rewound)
+    expect(claudeBranchArgs(rewound, { ephemeral: true })).toEqual([...rewound, '--no-session-persistence'])
+  })
 })
 
 describe('codexForkParams', () => {

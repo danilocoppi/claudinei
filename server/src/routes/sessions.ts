@@ -8,6 +8,8 @@ import { createSettingsService } from '../settings.js'
 import { canAccessProject, requireAdmin, requireProjectAccess } from '../auth/guards.js'
 import { hasEngine, DEFAULT_ENGINE_ID, getEngine } from '../engine/index.js'
 import { ownLatestThread, isSharedPath } from '../project-threads.js'
+import { sideThreadIds } from '../branch/side-threads.js'
+import { forkPreviewPage } from '../branch/fork-source.js'
 import { errorBody, fail } from '../user-error.js'
 import { lastEventsOf, readPage, type HistoryResponse } from '../history-page.js'
 import type { Engine } from '../engine/types.js'
@@ -81,10 +83,11 @@ export function historyConversationId(
   if (!opts.refresh && previas.has(chave)) return previas.get(chave)!
   // Em pasta compartilhada, "a mais recente da pasta" pode ser a do terminal
   // vizinho — e a sessão não vai retomá-la. Sem conversa própria, vazio é a
-  // resposta honesta.
+  // resposta honesta. A conversa lateral aberta (a cópia do OpenCode fica no
+  // storage até fechar) também nunca é "a mais recente".
   const id = isSharedPath(db, info.projectId)
     ? ownLatestThread(db, info.projectId, info.engine)
-    : engine.latestConversationId(projectPath)
+    : engine.latestConversationId(projectPath, sideThreadIds(db, info.engine))
   previas.delete(chave)
   previas.set(chave, id)
   if (previas.size > PREVIAS_MAX) previas.delete(previas.keys().next().value!)
@@ -266,6 +269,8 @@ export function registerSessionRoutes(app: FastifyInstance, deps: {
     if (!project) return EMPTY_HISTORY
     const engine = getEngine(info.engine as string)
     try {
+      const preview = await forkPreviewPage(deps.db, info, project.path, before, limit)
+      if (preview) return preview
       const id = historyConversationId(deps.db, info, project.path, engine, { refresh: before === undefined })
       if (!id) return EMPTY_HISTORY
       return lastEventsOf(await readPage(engine, project.path, id, { before, minItems: limit }), limit)

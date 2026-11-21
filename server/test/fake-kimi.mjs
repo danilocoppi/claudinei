@@ -21,7 +21,8 @@ if (process.env.KIMI_FAKE_HANG === '1') {
     out({ role: 'tool', tool_call_id: 'tool_1', content: 'alvo.txt\n' })
   }
   if (process.env.KIMI_FAKE_ECHO_HOME === '1') out({ role: 'assistant', content: `home:${process.env.KIMI_CODE_HOME}` })
-  out({ role: 'assistant', content: `echo:${prompt}` })
+  // O prompt `__home__` responde o data root que a sessão passou.
+  out({ role: 'assistant', content: prompt === '__home__' ? `${process.env.KIMI_CODE_HOME}` : `echo:${prompt}` })
   // A CLI real anuncia o id da conversa só no FIM do turno.
   out({ role: 'meta', type: 'session.resume_hint', session_id: sessionId, command: `kimi -r ${sessionId}`, content: 'To resume…' })
   if (process.env.KIMI_FAKE_HANG_AFTER_TURN === '1') {

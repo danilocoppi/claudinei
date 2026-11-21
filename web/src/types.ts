@@ -9,6 +9,10 @@ export interface Project {
   id: number; name: string; path: string; color: string; icon: string; favorite?: boolean; headsUp?: boolean; groupId?: number | null; sectorId?: number | null; sortOrder?: number
   /** Motores do terminal (ids, em ordem canônica); só eles ganham aba. Ver terminalEngines.ts. */
   engines?: string[]
+  /** Ramo (`/fork`): o terminal de onde veio a cópia; null quando não é ramo ou o original sumiu. */
+  forkedFrom?: number | null
+  /** ISO do corte da cópia do ramo ("cópia até HH:MM"); null quando o motor não diz. */
+  forkedCutAt?: string | null
 }
 
 export interface SessionInfo {
@@ -189,6 +193,12 @@ type ChatItemBody =
   | { kind: 'claudinei_message'; reason: 'goal'; text: string; criterion: string; turn?: number; max?: number; fromSubagent?: boolean; parentId?: string }
   /** Partida do goal (`[Claudinei: goal start]`), com o critério. */
   | { kind: 'claudinei_message'; reason: 'goal_start'; text: string; criterion: string; fromSubagent?: boolean; parentId?: string }
+  /**
+   * Pacote de contexto da troca de motor (`[Claudinei: context handoff]`):
+   * `text` são as mensagens trazidas (sem o cabeçalho); `request`, o pedido do
+   * operador que foi junto, quando há.
+   */
+  | { kind: 'claudinei_message'; reason: 'handoff'; text: string; engineLabel: string; messages: number; tokens: number; request?: string; fromSubagent?: boolean; parentId?: string }
 
 /**
  * Uma tarefa dentro do aviso de resultado: o número, o projeto que a recebeu, o

@@ -193,6 +193,8 @@ if (process.argv.includes('--hermes')) {
   // reinício: o fim de turno, a mensagem do operador e o `/goal` chegam por elas.
   let taskWake: import('./delegate/task-wake.js').TaskWake | undefined
   let goal: import('./goal/goal.js').GoalService | undefined
+  // E para o de ramificar a conversa (a lateral): o fim da sessão principal a fecha.
+  let branch: import('./branch/service.js').BranchService | undefined
   /** Um gancho que falha não pode impedir os outros (aceita N): cada serviço cuida do seu estado. */
   const both = (label: string, ...calls: Array<() => void>): void => {
     for (const call of calls) {
@@ -224,14 +226,19 @@ if (process.argv.includes('--hermes')) {
       () => limit?.onTurnResult(projectId, engine, info),
       () => queue?.onTurnResult(projectId, engine, info),
       () => taskWake?.onTurnResult(projectId, engine, info),
-      () => goal?.onTurnResult(projectId, engine, info)),
+      () => goal?.onTurnResult(projectId, engine, info),
+      () => branch?.onTurnResult(projectId, engine)),
     // Só a morte de verdade: o manager não chama no encerramento do serviço.
     onSessionDied: (projectId, engine) => both('sessão morreu',
-      () => queue?.onSessionDied(projectId, engine)),
+      () => queue?.onSessionDied(projectId, engine),
+      () => branch?.onSessionDied(projectId, engine)),
+    // Parada ou morta: a lateral do terminal fecha junto (no encerramento o dispose já a tirou).
+    onSessionEnded: (projectId, engine) => branch?.onSessionEnded(projectId, engine),
     onOperatorMessage: (projectId, engine, info) => both('mensagem do operador',
       () => restart?.onOperatorMessage(projectId, engine),
       () => limit?.onOperatorMessage(projectId, engine),
-      () => goal?.onOperatorMessage(projectId, engine, info)),
+      () => goal?.onOperatorMessage(projectId, engine, info),
+      () => branch?.onOperatorMessage(projectId, engine, info)),
     // O `/goal` digitado (ou vindo da fila) é do goal; antes de ele existir, segue como mensagem comum.
     interceptCommand: (ctx, text) => goal?.command(ctx, text) ?? false,
     // Também pelo both: só para a falha sair no log (o manager engole o erro).
@@ -293,6 +300,7 @@ if (process.argv.includes('--hermes')) {
     onLimitReady: (l) => { limit = l },
     onTaskWakeReady: (w) => { taskWake = w },
     onGoalReady: (g) => { goal = g },
+    onBranchReady: (b) => { branch = b },
     onRevokeAll: () => {
       wsHub.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
@@ -315,6 +323,10 @@ if (process.argv.includes('--hermes')) {
   // Sem await: a primeira passada roda em segundo plano e repete a cada 10 min; uma
   // passada que lança é registrada no log pelo próprio indexador.
   usageIndexer.start()
+  // Rastros de laterais que a vez anterior deixou (queda, encerramento). Sem
+  // await, pelo mesmo motivo da subida acima: o `opencode session delete` de cada
+  // uma pode levar segundos, e os ouvintes de SIGINT/SIGTERM não podem esperar.
+  void branch?.bootCleanup().catch((err) => console.error('[lateral] limpeza da subida falhou', err))
   console.log(
     `Termaster server em ${https ? 'https' : 'http'}://${host}:${port}` +
     (cli.insecure && !isLoopbackHost(host) ? '  ⚠ EXPOSTO SEM AUTH' : '') +
@@ -341,6 +353,8 @@ if (process.argv.includes('--hermes')) {
       // O relógio do limite para: uma retomada armada fica no banco para a próxima subida.
       limit?.dispose()
       scheduler?.stop()
+      // Só os processos das laterais: a limpeza fica para a próxima subida.
+      await branch?.dispose()
       await manager.stopAll()
       await speech.stop()
       // Interrompe a passada na próxima fatia; o que já foi gravado fica coerente.

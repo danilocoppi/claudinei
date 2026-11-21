@@ -104,7 +104,8 @@ export function foldsToOpen(nodes: ChatNode[], items: ChatItem[], itemKey: strin
     if (isToolField(field)) out.push(foldId(itemKey, 'tool'))
   } else if (item.kind === 'thinking') {
     out.push(foldId(itemKey, 'thinking'))
-  } else if (item.kind === 'user_text' && item.compactSummary) {
+  } else if ((item.kind === 'user_text' && item.compactSummary) || (item.kind === 'claudinei_message' && item.reason === 'handoff')) {
+    // O resumo da compactação e o cartão do pacote da troca de motor nascem dobrados.
     out.push(foldId(itemKey, 'summary'))
   } else {
     const text = collapsibleText(item)

@@ -1,4 +1,5 @@
 import type { Db } from './db.js'
+import { sideThreadIds } from './branch/side-threads.js'
 
 /**
  * Posse de conversa: qual thread de agente pertence a qual terminal.
@@ -44,7 +45,9 @@ export function foreignThreadIds(db: Db, projectId: number, engine: string): Rea
         AND pt.project_id <> ?
         AND p.path = (SELECT path FROM projects WHERE id = ?)`,
   ).all(engine, projectId, projectId) as { id: string }[]
-  return new Set(rows.map((r) => r.id))
+  // As conversas laterais abertas (a cópia do OpenCode fica no storage até
+  // fechar) também nunca são "a mais recente da pasta".
+  return new Set([...rows.map((r) => r.id), ...sideThreadIds(db, engine)])
 }
 
 /**

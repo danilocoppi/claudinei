@@ -555,6 +555,20 @@ button.engine-tab__stop {
   transition: background .15s ease, color .15s ease, opacity .15s ease;
 }
 button.engine-tab__stop:hover { background: var(--surface-strong); color: var(--err); opacity: 1; filter: none; }
+/* ⇄ Continuar noutro motor: a geometria do ⏻, só na aba ativa e viva. Sem
+   transição (a interface roda sem GPU). */
+button.engine-tab__swap {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-right: 2px; padding: 0; flex: none;
+  border: none; border-radius: var(--radius-xs); background: transparent; color: var(--text-dim);
+  line-height: 0; cursor: pointer; opacity: .65; transition: none;
+}
+button.engine-tab__swap:hover { background: var(--surface-strong); color: var(--accent); opacity: 1; filter: none; }
+/* Destino do ⇄: nome, estado e pendências em linhas, à direita do ícone. */
+.handoff-target { align-items: flex-start; }
+.handoff-target__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.handoff-target__state { font-size: 11.5px; color: var(--text-dim); }
+.handoff-target__pending { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--warn); }
 
 /* "+" no fim das abas: acrescenta ao terminal um motor escondido. Tracejado para
    não parecer mais uma aba; sem transição (a interface roda sem GPU). */
@@ -1139,6 +1153,14 @@ button.usage-page__row--link:hover { filter: none; background: var(--surface-str
   animation: face-spin 1s linear infinite;
 }
 .compact-summary .action-group__body { padding: 6px 12px; }
+/* Pacote de contexto da troca de motor (⇄): uma coisa só, como o resumo; o
+   corpo aberto é o texto cru, rolando dentro do cartão. Sem animação. */
+.handoff-card::before { display: none; }
+.handoff-card__body {
+  margin: 4px 0 0; padding: 6px 12px; max-height: 420px; overflow: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--text-dim);
+}
+.handoff-card__request { white-space: pre-wrap; overflow-wrap: anywhere; }
 .sess-pop {
   position:fixed; min-width:220px; border-radius: var(--radius-lg); padding:6px; z-index:61;
   /* Base opaca sob o vidro. O `--surface` do `.glass` é quase transparente — bonito
@@ -1166,7 +1188,8 @@ button.usage-page__row--link:hover { filter: none; background: var(--surface-str
    mas discretas — quem abriu a conversa veio ler, não mexer na configuração. */
 /* Ícone + nome do projeto viraram um bloco só (para o celular escondê-los de uma
    vez); o gap que eles tinham como filhos diretos do flex vive aqui agora. */
-.chat-header__project { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* `overflow: hidden`: o selo do ramo (nowrap) não vaza sobre as abas de motor. */
+.chat-header__project { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
 /* Botões do cabeçalho não encolhem — o rótulo "Abrir no terminal" quebrava em
    duas linhas e engordava o cabeçalho inteiro assim que a barra de engines
    enchia. Quem cede espaço é a barra, que já rola (ver .engine-tabs). */
@@ -1174,10 +1197,19 @@ button.usage-page__row--link:hover { filter: none; background: var(--surface-str
 /* O `display` do cabeçalho mora aqui, e não no style inline do ChatView, para o
    `.app.zen .chat-header` ter a palavra final. */
 .chat-header { display: flex; }
-.chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* O nome do terminal tem prioridade sobre o selo do ramo: cede menos e nunca some.
+   O piso é o menor entre 6ch e o próprio nome (nome curto não alarga nem empurra
+   os selos); `min(6ch, max-content)` é inválido, daí o `calc-size`. Sem suporte a
+   ele, fica o 6ch da declaração anterior. */
+.chat-header__project strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 6ch; min-width: calc-size(max-content, min(size, 6ch)); flex-shrink: 0.2; }
 /* Discreto de propósito: é orientação, não alerta — a pasta compartilhada foi
    pedida pelo operador. */
 .chat-header__shared { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+/* "ramo de X · cópia até HH:MM": encolhe primeiro, com reticências. */
+.chat-header__fork {
+  font-size: 11px; color: var(--text-dim);
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .chat-header__more { padding:5px; line-height:0; color:var(--text-dim); }
 .chat-header__more:hover { color:var(--text); }
 /* Fronteira entre o que é preferência de quem entrou e o que é da máquina. */
@@ -3581,4 +3613,38 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .progress__discard { align-self: flex-start; font-size: 12px; padding: 4px 10px; }
 @media (max-width: 768px) {
   .progress { position: fixed; inset: 0; z-index: 45; width: auto; border-left: none; background: var(--surface-solid); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+}
+
+/* ── Conversa lateral (SideColumn) ──────────────────────────────────────────
+   No lugar da coluna do acompanhamento enquanto a lateral existe; mesmo molde
+   (empurra o chat; no celular cobre a tela). Sem GPU: sem transition nem
+   animation, sem rostinho; o ponto de status fica parado mesmo trabalhando. */
+.side-col {
+  width: 380px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border-left: 1px solid var(--glass-border); background: var(--surface);
+}
+.side-col__head { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border-bottom: 1px solid var(--glass-border); }
+.side-col__row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Nada se mexe dentro da coluna, nem o que vem do chat (blocos, botões, o pulso do status-working). */
+.side-col, .side-col * { transition: none !important; animation: none !important; }
+.side-col .status-dot { flex: none; box-shadow: none; }
+.side-col__engine { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-dim); min-width: 0; }
+.side-col__close { margin-left: auto; padding: 2px 9px; font-size: 18px; line-height: 1; }
+.side-col__meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--text-dim); line-height: 1.4; }
+.side-col__files--can_write { color: var(--warn); }
+.side-col__body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 14px; }
+.side-col__empty { margin: 12px 2px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+.side-col__error { margin: 0; padding: 6px 16px; font-size: 12.5px; color: var(--err); overflow-wrap: anywhere; }
+.side-col__foot { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--glass-border); }
+.side-col__area {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px; max-height: 40vh;
+  font: inherit; font-size: 13.5px; line-height: 1.45; padding: 8px 10px;
+  color: var(--text); background: var(--surface-strong); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.side-col__area:disabled { opacity: .6; }
+.side-col__actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.side-col__actions button { font-size: 12.5px; padding: 5px 10px; }
+.side-col__bring { margin-right: auto; }
+@media (max-width: 768px) {
+  .side-col { position: fixed; inset: 0; z-index: 45; width: auto; border-left: none; background: var(--surface-solid); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 }

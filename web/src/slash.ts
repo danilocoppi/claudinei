@@ -26,6 +26,10 @@ export const SLASH_DESCRIPTIONS: Record<string, string> = {
   redo: 'slash.redo',
   // Do Claudinei, não do motor: o servidor intercepta o /goal em todos os motores.
   goal: 'slash.goal',
+  // Do Claudinei também: o campo chama a rota da lateral e a do ramo (branch/commands.ts).
+  side: 'slash.side',
+  btw: 'slash.btw',
+  fork: 'slash.fork',
 }
 
 /**
@@ -34,14 +38,15 @@ export const SLASH_DESCRIPTIONS: Record<string, string> = {
  * comandos curados de outras engines (approvals/init/review/diff/undo são
  * Codex-only; nunca fizeram parte do protocolo do Claude).
  */
-export const BUILTIN_FALLBACK: string[] = ['compact', 'cost', 'context', 'usage', 'clear', 'model', 'mcp', 'agents', 'goal']
+export const BUILTIN_FALLBACK: string[] = ['compact', 'cost', 'context', 'usage', 'clear', 'model', 'mcp', 'agents', 'goal', 'side', 'btw', 'fork']
 
 /**
- * Comandos do próprio Claudinei, que valem em todo motor (o servidor os trata
- * antes de chegar ao agente): entram na lista de qualquer sessão, mesmo quando
+ * Comandos do próprio Claudinei, que valem em todo motor (o servidor trata o
+ * `/goal` antes de chegar ao agente; o campo desvia `/side`, `/btw` e `/fork`
+ * para as rotas deles): entram na lista de qualquer sessão, mesmo quando
  * a lista do protocolo chega sem eles ou o motor não tem slash nenhum.
  */
-export const CLAUDINEI_COMMANDS: string[] = ['goal']
+export const CLAUDINEI_COMMANDS: string[] = ['goal', 'side', 'btw', 'fork']
 
 /**
  * `/goal` sozinho ou seguido de espaço (não `/goalx`): o mesmo teste do servidor,

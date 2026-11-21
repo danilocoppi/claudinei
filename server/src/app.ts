@@ -55,6 +55,8 @@ import { registerOperatorQueueRoutes } from './routes/operator-queue.js'
 import { createTaskWake, type TaskWake } from './delegate/task-wake.js'
 import { createGoalService, type GoalService } from './goal/goal.js'
 import { getEngine } from './engine/index.js'
+import { createBranchService, type BranchService, type SideTestDeps } from './branch/service.js'
+import { registerBranchRoutes } from './routes/branch.js'
 
 export interface AppDeps {
   config: Config
@@ -157,6 +159,15 @@ export interface AppDeps {
    * index.ts preenche aqui.
    */
   onGoalReady?: (goal: GoalService) => void
+  /**
+   * Recebe o serviço de ramificar a conversa (a lateral), pelo mesmo motivo do
+   * `onRestartReady`: o fim da sessão principal no manager fecha a lateral pela
+   * referência que index.ts preenche aqui. index.ts roda a limpeza da subida
+   * (`bootCleanup`) depois do listen e o `dispose` no encerramento.
+   */
+  onBranchReady?: (branch: BranchService) => void
+  /** Sessões e corte da lateral. Injetável para o teste não abrir as CLIs nem ler o storage real. */
+  branchTest?: SideTestDeps
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -335,6 +346,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   deps.onLimitReady?.(limit)
   deps.onTaskWakeReady?.(wake)
   deps.onGoalReady?.(goalService)
+  // Ramificar a conversa: depois do goal (a troca de motor pausa o goal do destino).
+  const branch = createBranchService({
+    db: deps.db, manager: deps.manager, broadcast: (m) => deps.wsHub?.broadcast(m),
+    store: terminalState, restart, side: deps.branchTest,
+  })
+  registerBranchRoutes(app, { db: deps.db, branch })
+  deps.onBranchReady?.(branch)
   registerFileRoutes(app, { projects: createProjectsService(deps.db) })
   await registerUploadRoutes(app, { uploadsDir: deps.config.uploadsDir })
   if (deps.speech) await registerTranscribeRoutes(app, { speech: deps.speech, uploadsDir: deps.config.uploadsDir })

@@ -30,3 +30,16 @@ export function queueHeld(state: TerminalState | undefined, now: number = Date.n
   if (limit.resetsAt == null) return serverMs(limit.hitAt) + UNKNOWN_RESET_ACTIVE_MS > now
   return limit.resetsAt * 1000 > now
 }
+
+/**
+ * O limite de uso do terminal ainda vale: armado; reabertura no futuro; ou, sem
+ * reabertura conhecida, até 5 h depois de gravado. Espelha `limitActive`
+ * (server/src/restart/boot.ts), que recusa a troca de motor para esse destino.
+ */
+export function limitActive(state: TerminalState | undefined, now: number = Date.now()): boolean {
+  const limit = state?.usageLimit
+  if (!limit) return false
+  if (limit.action === 'armed') return true
+  if (limit.resetsAt == null) return serverMs(limit.hitAt) + UNKNOWN_RESET_ACTIVE_MS > now
+  return limit.resetsAt * 1000 > now
+}

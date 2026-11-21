@@ -15,6 +15,7 @@ const CAPABILITIES: EngineCapabilities = {
   slashCommands: ['model', 'approvals', 'init', 'compact', 'review', 'diff', 'mcp', 'undo'],
   installHint: 'npm install -g @openai/codex',
   midTurnInput: true, // Enter no meio do turno entra no turno atual
+  fork: 'native',
 }
 
 /**
@@ -55,6 +56,9 @@ export const codexEngine: Engine = {
   },
   latestConversationId(projectPath: string, exclude?: ReadonlySet<string>): string | null {
     return latestThreadForCwd(sessionsRoot(), projectPath, exclude)
+  },
+  transcriptRef(_projectPath: string, id: string): string | null {
+    return findRollout(sessionsRoot(), id)
   },
   terminalCommand(opts: { resumeSessionId?: string | null; projectPath: string; bin?: string }) {
     const file = opts.bin ?? process.env.CLAUDINEI_CODEX_BIN ?? 'codex'

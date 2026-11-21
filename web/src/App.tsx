@@ -5,6 +5,7 @@ import { fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetc
 import { syncPrefs } from './prefsSync'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
+import { applySideMessage } from './branch/sideStore'
 import { Sidebar } from './components/Sidebar'
 import { SidebarResizer } from './components/SidebarResizer'
 import { Dashboard } from './components/Dashboard'
@@ -130,7 +131,8 @@ export default function App() {
   useEffect(() => {
     if (authStatus !== 'ready') return
     const client = connectWs(
-      (msg) => useStore.getState().applyWsMessage(msg),
+      // A conversa lateral tem store próprio (branch/sideStore.ts): o que é dela não segue.
+      (msg) => { if (applySideMessage(msg)) return; useStore.getState().applyWsMessage(msg) },
       // RE-conexão: eventos perdidos na queda não são reenviados pelo servidor —
       // invalida os históricos carregados (o ChatView rebusca) e limpa streaming órfão.
       () => useStore.getState().resyncOnReconnect(),

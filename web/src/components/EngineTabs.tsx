@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { progressKey, useStore } from '../store'
@@ -11,6 +11,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { ContextMeter } from './ContextMeter'
 import { ViewportPopover } from './ViewportPopover'
 import { NewProjectModal } from './NewProjectModal'
+import { HandoffMenu } from './HandoffMenu'
 
 /**
  * Abas por engine de um projeto — usadas no header do ChatView E na barra do
@@ -43,6 +44,9 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // O "editar" do aviso de nenhum motor instalado abre o formulário do terminal
   // aqui mesmo, o mesmo do ⋮ → Editar.
   const [editOpen, setEditOpen] = useState(false)
+  // ⇄ Continuar noutro motor: o menu da aba ativa (o botão é a âncora).
+  const [swapOpen, setSwapOpen] = useState(false)
+  const swapRef = useRef<HTMLButtonElement>(null)
 
   const confirmStop = () => {
     if (!stopFor) return
@@ -82,6 +86,13 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // Sem o terminal no store (ainda não carregou), a lista lida seria o padrão,
   // e gravar a partir dela apagaria a verdadeira: o "+" espera o terminal.
   const hidden = project ? hiddenEngines(engines, listed) : []
+  // O motor da conversa aberta: a origem do ⇄.
+  const activeSession = sessions[activeLocalId]
+  const activeEngine = isLive(activeSession) && activeSession.projectId === projectId ? activeSession.engine : undefined
+  // A conversa de origem caiu com o menu aberto: ele fecha (e não volta sozinho quando ela subir de novo).
+  useEffect(() => { if (!activeEngine) setSwapOpen(false) }, [activeEngine])
+  // Há para onde levar a conversa: outro motor instalado na lista do terminal.
+  const canSwapFrom = (from: string) => engines.some((e) => e.id !== from && e.available !== false && listed.includes(e.id))
   // Nenhum motor da lista do terminal está instalado (um id que o catálogo não
   // conhece também não roda) e nenhuma sessão deste terminal está viva. A aba da
   // conversa aberta na tela continua (o tabEngines a mantém), e o aviso fica ao
@@ -148,6 +159,23 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
               {/* O contexto é da SESSÃO, então mora na aba da engine dona dele. */}
               {tabSession && <ContextMeter session={tabSession} />}
             </button>
+            {live && active && canSwapFrom(e.id) && (
+              <button
+                ref={swapRef}
+                type="button"
+                className="engine-tab__swap"
+                title={t('branch.handoff.button')}
+                aria-label={t('branch.handoff.button')}
+                aria-haspopup="menu"
+                aria-expanded={swapOpen}
+                onClick={() => setSwapOpen(true)}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+                     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 8h15" /><path d="m15 4 4 4-4 4" /><path d="M20 16H5" /><path d="m9 12-4 4 4 4" />
+                </svg>
+              </button>
+            )}
             {live && tabSession && (
               <button
                 type="button"
@@ -238,6 +266,9 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
           </ViewportPopover>
         </div>,
         document.body,
+      )}
+      {swapOpen && activeEngine && (
+        <HandoffMenu projectId={projectId} from={activeEngine} anchorRef={swapRef} onClose={() => setSwapOpen(false)} />
       )}
       {editOpen && project && <NewProjectModal editProject={project} onClose={() => setEditOpen(false)} />}
       {stopFor && (

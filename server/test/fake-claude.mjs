@@ -60,8 +60,19 @@
 import readline from 'node:readline'
 import { existsSync } from 'node:fs'
 
-const sid = process.env.FAKE_SESSION_ID ?? 'fake-session-0001'
+// --session-id <id> escolhe o id da conversa, como a CLI real (vale também com --fork-session).
+const sessionIdArg = process.argv.indexOf('--session-id')
+const sid = (sessionIdArg !== -1 ? process.argv[sessionIdArg + 1] : undefined) ?? process.env.FAKE_SESSION_ID ?? 'fake-session-0001'
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
+
+// --resume-session-at recebe o `uuid` da entrada do transcript. Com o `msg_…` da
+// API a CLI real sai com código 1 antes do init, sem chamar a API (ensaio de 20/11/2026).
+const cutArg = process.argv.indexOf('--resume-session-at')
+const cut = cutArg !== -1 ? process.argv[cutArg + 1] : undefined
+if (cut?.startsWith('msg_')) {
+  process.stderr.write(`No message found with message.uuid of: ${cut}\n`)
+  process.exit(1)
+}
 
 // Pergunta (AskUserQuestion) esperando o control_response do host. Replica a CLI
 // real: o turno fica bloqueado até a resposta chegar pelo stdin.

@@ -9,6 +9,7 @@ import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import type { ChatItem, ClaudineiTaskResult } from '../types'
 import { ToolCallCard } from './ToolCallCard'
+import { HandoffCard } from './HandoffCard'
 import { useStore } from '../store'
 import { COLLAPSE_LINES, useFold } from '../chat/folds'
 import { WsContext } from '../wsContext'
@@ -368,6 +369,8 @@ function ClaudineiMessageBubble({ item, currentLocalId }: {
   let title: string | null = null
   let body: ReactNode
   switch (item.reason) {
+    case 'handoff':
+      return <HandoffCard item={item} currentLocalId={currentLocalId} />
     case 'restart':
     case 'limit':
       body = <div style={{ lineHeight: 1.6 }}>{item.reason === 'limit' ? t('chat.claudineiLimitResume') : t('chat.claudineiResume')}</div>

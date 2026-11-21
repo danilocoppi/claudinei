@@ -1,5 +1,6 @@
 import { isCompactSummary } from './history'
 import type { ChatItem, ClaudeEvent, ClaudineiTaskResult, ContentBlock } from '../types'
+import { HANDOFF_PREFIX, parseHandoffHeader } from '../branch/handoff'
 
 /** Selo da mensagem de retomada que o servidor manda ao agente (cópia de `RESUME_PREFIX` em server/src/restart/boot.ts). */
 export const RESUME_PREFIX = '[Claudinei: resume after restart]'
@@ -11,6 +12,8 @@ export const TASK_RESULT_PREFIX = '[Claudinei: task result]'
 export const GOAL_PREFIX = '[Claudinei: goal]'
 /** Selo da partida do goal (cópia de `GOAL_START_PREFIX` em server/src/goal/texts.ts). */
 export const GOAL_START_PREFIX = '[Claudinei: goal start]'
+/** Selo do pacote de contexto da troca de motor (cópia de `HANDOFF_PREFIX` em server/src/branch/handoff.ts). */
+export { HANDOFF_PREFIX }
 
 /**
  * Cabeçalho de cada bloco do aviso de tarefa (`taskResultText` no servidor):
@@ -55,6 +58,21 @@ function blockToText(content: unknown): string {
 }
 
 /**
+ * Tira os `<system-reminder>` que o harness anexa no FIM do texto (e o espaço
+ * antes deles); os do meio ficam. Laço com `lastIndexOf` em vez de regex: a
+ * regex com `\s*` na frente era quadrática numa sequência longa de espaços.
+ */
+function semRemindersNoFim(text: string): string {
+  let t = text.trimEnd()
+  while (t.endsWith('</system-reminder>')) {
+    const ini = t.lastIndexOf('<system-reminder>')
+    if (ini < 0) break
+    t = t.slice(0, ini).trimEnd()
+  }
+  return t
+}
+
+/**
  * Mensagens "do usuário" no transcript nem sempre são texto digitado: slash
  * commands do terminal (<command-name>, <local-command-stdout>, caveat) e
  * injeções do harness (<task-notification>, <system-reminder>) chegam como
@@ -63,6 +81,22 @@ function blockToText(content: unknown): string {
  * e/ou o texto real sem o ruído.
  */
 function classifyUserText(text: string): ChatItem[] {
+  // Pacote de contexto da troca de motor (⇄): vira o cartão "Contexto trazido
+  // do <Motor>", dobrado; o pedido do operador, quando vai junto, sai à parte.
+  // Vem antes de tudo: o corpo é texto cru da conversa de origem e pode citar
+  // `<command-name>`, caveat, stdout ou reminders, que não podem desviar o
+  // pacote nem cortar o corpo. Só o reminder que o harness anexa no FIM sai.
+  if (text.trimStart().startsWith(`${HANDOFF_PREFIX}:`)) {
+    const h = parseHandoffHeader(semRemindersNoFim(text.trim()))
+    if (h) {
+      return [{
+        kind: 'claudinei_message', reason: 'handoff', text: h.body,
+        engineLabel: h.engineLabel, messages: h.messages, tokens: h.tokens,
+        ...(h.request !== undefined ? { request: h.request } : {}),
+      }]
+    }
+  }
+
   // caveat de comando local: puro ruído, mensagem inteira some
   if (text.includes('<local-command-caveat>')) return []
 

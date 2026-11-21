@@ -480,3 +480,44 @@ it('pasta com um terminal só não mostra indicador', async () => {
   expect(screen.queryByTestId('shared-path')).toBeNull()
   spy.mockRestore()
 })
+
+describe('selo "ramo de" no cabeçalho', () => {
+  /** 14:05 na hora local, em ISO (o `forkedCutAt` do servidor). */
+  const corte = new Date(2026, 10, 21, 14, 5).toISOString()
+
+  it('cabeçalho do chat mostra "ramo de X · cópia até 14:05"', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
+    useStore.setState({ projects: [
+      { id: 1, name: 'P (ramo)', path: '/tmp', color: '#fff', icon: '📁', engines: ['claude', 'codex'], forkedFrom: 2, forkedCutAt: corte },
+      { id: 2, name: 'Original', path: '/tmp', color: '#fff', icon: '📁' },
+    ] })
+    render(<ChatView />)
+    const selo = await screen.findByText('ramo de Original · cópia até 14:05')
+    expect(selo.className).toBe('chat-header__fork')
+    expect(selo.closest('.chat-header__project')).toBeTruthy()
+    spy.mockRestore()
+  })
+
+  it('sem o corte, só "ramo de X"', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
+    useStore.setState({ projects: [
+      { id: 1, name: 'P (ramo)', path: '/tmp', color: '#fff', icon: '📁', forkedFrom: 2, forkedCutAt: null },
+      { id: 2, name: 'Original', path: '/tmp', color: '#fff', icon: '📁' },
+    ] })
+    render(<ChatView />)
+    expect(await screen.findByText('ramo de Original')).toBeTruthy()
+    spy.mockRestore()
+  })
+
+  it('com o original apagado (forkedFrom nulo), nada aparece', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(vazio(url)))
+    useStore.setState({ projects: [
+      { id: 1, name: 'P (ramo)', path: '/tmp', color: '#fff', icon: '📁', forkedFrom: null, forkedCutAt: corte },
+    ] })
+    render(<ChatView />)
+    await screen.findByText('P (ramo)')
+    expect(document.querySelector('.chat-header__fork')).toBeNull()
+    expect(screen.queryByText(/ramo de/)).toBeNull()
+    spy.mockRestore()
+  })
+})

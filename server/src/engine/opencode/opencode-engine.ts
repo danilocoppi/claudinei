@@ -146,6 +146,10 @@ export const openCodeEngine: Engine = {
       ? { file, args: ['--session', opts.resumeSessionId, '--auto'] }
       : { file, args: ['--auto'] }
   },
+  transcriptRef(_projectPath: string, id: string): string | null {
+    // A conversa vive no SQLite do OpenCode; a referência legível é o comando que a exporta.
+    return `opencode export ${id}`
+  },
   capabilities(): EngineCapabilities {
     return {
       models: listModels(),
@@ -156,6 +160,7 @@ export const openCodeEngine: Engine = {
       icon: '◇',
       slashCommands: SLASH,
       installHint: 'npm install -g opencode-ai',
+      fork: 'native',
     }
   },
 }

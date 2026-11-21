@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { backfillProjectEngines } from './terminal-engines.js'
 import { migrateFavoritesToPins } from './triage/store.js'
+import { migrateBranch } from './branch/schema.js'
 
 export type Db = Database.Database
 
@@ -412,5 +413,6 @@ export function openDb(path: string): Db {
   } catch (err) {
     console.error('[claudinei] MIGRAÇÃO projects.path FALHOU — dois terminais na mesma pasta seguem indisponíveis:', err)
   }
+  migrateBranch(db)
   return db
 }

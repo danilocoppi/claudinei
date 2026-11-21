@@ -44,6 +44,15 @@ describe('createOpenCodeTurnParser', () => {
     expect(result.resultText).toBe('PONG')
     expect(result.tokens).toMatchObject({ total: 8048 })
   })
+  it('skipSessionId: esse id não vira init; o próximo id diferente vira', () => {
+    const events: AgentEvent[] = []
+    const p = createOpenCodeTurnParser((e) => events.push(e), undefined, { skipSessionId: 'ses_src' })
+    p.feed('{"type":"step_start","sessionID":"ses_src","part":{"type":"step-start"}}\n')
+    expect(events.filter((e) => e.kind === 'init')).toEqual([])
+    p.feed('{"type":"step_start","sessionID":"ses_novo","part":{"type":"step-start"}}\n')
+    p.feed('{"type":"step_start","sessionID":"ses_src","part":{"type":"step-start"}}\n')
+    expect(events.filter((e) => e.kind === 'init').map((e) => (e as any).sessionId)).toEqual(['ses_novo'])
+  })
   it('fixture com tool classifica sem lançar e o result não é erro', () => {
     const events: AgentEvent[] = []
     const p = createOpenCodeTurnParser((e) => events.push(e))

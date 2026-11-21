@@ -6,7 +6,7 @@ import type { SessionStatus } from '../../claude/session.js'
 import { userEchoEvent } from '../echo.js'
 import { buildTurnArgs } from './kimi-args.js'
 import { createKimiTurnParser } from './kimi-parser.js'
-import { ensureKimiHome } from './kimi-home.js'
+import { ensureKimiHome, ensureKimiHomeAt } from './kimi-home.js'
 import { readLastTurnTokens, type TurnTokens } from './kimi-history.js'
 
 // O prompt vai por argv (`-p <prompt>`) e o Linux limita um argumento a 131071
@@ -73,7 +73,10 @@ export class KimiSession extends EventEmitter implements EngineSession {
     const env = {
       ...process.env,
       PKG_EXECPATH: '',
-      KIMI_CODE_HOME: ensureKimiHome(this.opts.projectPath, this.opts.hermes),
+      // Com `dataRoot` (conversa lateral) o data root é o dir dado, sem hermes.
+      KIMI_CODE_HOME: this.opts.dataRoot
+        ? ensureKimiHomeAt(this.opts.dataRoot)
+        : ensureKimiHome(this.opts.projectPath, this.opts.hermes),
     }
     this.proc = spawn(bin, args, { cwd: this.opts.projectPath, stdio: ['ignore', 'pipe', 'pipe'], env })
     this.setStatus('working')

@@ -6,6 +6,8 @@ import { addToQueue, checkUploads, uploadFile } from '../api'
 import type { QueueVia } from '../types'
 import { SessionControls } from './SessionControls'
 import { GOAL_COMMAND, filterCommands } from '../slash'
+import { parseBranchCommand, runBranchCommand } from '../branch/commands'
+import { useSideStore } from '../branch/sideStore'
 import { readDraft, saveDraft } from '../drafts'
 import { readStash, pushStash, takeStash, stashKey, type StashEntry } from '../stash'
 import { StashMenu } from './StashMenu'
@@ -120,6 +122,25 @@ export function ChatInput({
       el?.setSelectionRange(el.value.length, el.value.length)
     })
   }, [editRequest?.seq])
+
+  // Trazer de volta (coluna da lateral): o texto entra no FIM do campo, depois
+  // do que já havia, e os anexos (`[token, caminho]`) passam a valer no envio. O
+  // pedido é consumido aqui; lido do store na hora, e não da closure, para o
+  // efeito dobrado do StrictMode não acrescentar duas vezes.
+  const appendSeq = useSideStore((s) => (s.appendRequest?.localId === localId ? s.appendRequest.seq : null))
+  useEffect(() => {
+    const req = useSideStore.getState().appendRequest
+    if (!req || req.localId !== localId) return
+    useSideStore.setState({ appendRequest: null })
+    for (const [tok, path] of req.attachments) attachments.current.set(tok, path)
+    setText((atual) => (atual.trim() ? `${atual.replace(/\s+$/, '')}\n\n${req.text}` : req.text))
+    histIdxRef.current = null
+    requestAnimationFrame(() => {
+      const el = areaRef.current
+      el?.focus()
+      el?.setSelectionRange(el.value.length, el.value.length)
+    })
+  }, [appendSeq, localId])
 
   // Auto-resize: cresce de 1 até 10 linhas conforme o conteúdo; passou disso, rola.
   //
@@ -246,6 +267,29 @@ export function ChatInput({
     }
 
     if (disabled) return
+    // `/side`, `/btw` e `/fork` são do Claudinei e nunca entram na fila nem no
+    // turno: a rota é chamada na hora, mesmo no meio do turno e com Alt+Enter.
+    // Sem balão otimista: a conversa lateral abre na coluna; o ramo, noutro terminal.
+    const branchCmd = session ? parseBranchCommand(trimmed) : null
+    if (branchCmd && session) {
+      const antes = { text, anexos: [...attachments.current] }
+      void runBranchCommand(branchCmd, { localId, projectId: session.projectId, engine: session.engine }).then((ok) => {
+        if (ok) return
+        // Falhou: o texto volta, só se o campo ainda estiver vazio (o que o
+        // operador digitou depois fica). Campo desmontado: vira o rascunho.
+        if (!vivo.current) {
+          if (!readDraft(localId).trim()) saveDraft(localId, antes.text)
+          return
+        }
+        for (const [tok, path] of antes.anexos) if (!attachments.current.has(tok)) attachments.current.set(tok, path)
+        setText((atual) => (atual.trim() ? atual : antes.text))
+      })
+      setText('')
+      histIdxRef.current = null
+      setUploadError(null); setStashError(null)
+      attachments.current.clear()
+      return
+    }
     if (viaQueue || enterQueues) { enqueue(trimmed, viaQueue ? 'alt-enter' : 'enter-busy'); return }
     ws?.send({ type: 'send_message', localId, text: trimmed })
     // O `/goal` é do Claudinei: o servidor o intercepta antes do agente, e nada

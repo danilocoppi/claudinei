@@ -3,7 +3,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { createLineParser } from './parser.js'
 import type { ClaudeEvent } from './events.js'
-import type { EngineSession } from '../engine/types.js'
+import type { EngineSession, ForkFrom } from '../engine/types.js'
+import { claudeBranchArgs } from '../branch/engine-args.js'
 import { userEchoEvent } from '../engine/echo.js'
 import { PROGRESS_RULE } from '../hermes/instructions.js'
 import { rateLimitWindows } from '../usage.js'
@@ -65,6 +66,14 @@ export interface SessionOptions {
   permissionMode?: PermissionMode
   /** Timeout (ms) para o control_response. Default 10000. */
   controlTimeoutMs?: number
+  /** Abre como cópia de outra conversa (`--resume <origem> --fork-session`). */
+  forkFrom?: ForkFrom
+  /** Id escolhido pelo Claudinei para a conversa (`--session-id`). */
+  sessionId?: string
+  /** Só leitura (conversa lateral): modo plano, sem ferramentas de escrita. */
+  readOnly?: boolean
+  /** Sem transcript no disco (`--no-session-persistence`). */
+  ephemeral?: boolean
 }
 
 /** Monta a lista de args do `claude` a partir das opções de sessão. Pura e exportada para testes. */
@@ -203,6 +212,7 @@ export class ClaudeSession extends EventEmitter implements EngineSession {
       })
       if (this.opts.extraArgs) args.push(...this.opts.extraArgs)
     }
+    args = claudeBranchArgs(args, this.opts)
     this.proc = spawn(this.opts.claudeBin ?? 'claude', args, {
       cwd: this.opts.projectPath,
       stdio: ['pipe', 'pipe', 'pipe'],

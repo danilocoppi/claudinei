@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Virtuoso, type Components, type ContextProp, type ListProps } from 'react-virtuoso'
-import { useStore } from '../store'
+import { progressKey, useStore } from '../store'
 import { stopSubagentTask } from '../api'
 import { loadHistoryTail } from '../chat/loadTail'
 import { EngineTabs } from './EngineTabs'
@@ -37,6 +37,8 @@ import { isAtBottom, SLACK } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { ProgressButton, ProgressColumn } from './ProgressColumn'
+import { hhmm, SideColumn } from './SideColumn'
+import { useSideRead, useSideStore } from '../branch/sideStore'
 
 const EMPTY_ITEMS: ChatItem[] = []
 /** Teclas que rolam a conversa com o foco nela. */
@@ -181,6 +183,8 @@ export function ChatView() {
   // Contagem, não `filter`: um selector que devolve array novo re-renderiza o
   // chat a cada atualização do store.
   const pastaCompartilhada = useStore((s) => s.projects.filter((p) => p.path === project?.path).length > 1)
+  // Ramo (`/fork`): o nome do original, só enquanto ele está na lista (apagado, o servidor zera o `forkedFrom`).
+  const ramoDe = useStore((s) => (project?.forkedFrom != null ? s.projects.find((p) => p.id === project.forkedFrom)?.name : undefined))
   const items = useStore((s) => (activeLocalId ? s.chat[activeLocalId] : undefined) ?? EMPTY_ITEMS)
   const hasStreaming = useStore((s) => !!(activeLocalId && s.streaming[activeLocalId]))
   const loadedEngineSessionId = useStore((s) => activeLocalId ? s.historyLoadedFor[activeLocalId] : undefined)
@@ -188,6 +192,10 @@ export function ChatView() {
   const markHistoryLoaded = useStore((s) => s.markHistoryLoaded)
   const openTerminal = useStore((s) => s.openTerminal)
   const progressOpen = useStore((s) => s.progressOpen)
+  // A conversa lateral do terminal da aba: enquanto existe, a coluna dela fica no
+  // lugar da do acompanhamento. Aqui só "existe?"; os eventos redesenham a coluna, não o chat.
+  useSideRead(session?.projectId ?? 0, session?.engine ?? '')
+  const hasSide = useSideStore((s) => !!session && !!s.sides[progressKey(session.projectId, session.engine)])
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
   const [editConfirm, setEditConfirm] = useState<string | null>(null)
@@ -485,6 +493,13 @@ export function ChatView() {
               ⫽ {t('chat.sharedPath')}
             </span>
           )}
+          {ramoDe != null && (
+            <span className="chat-header__fork">
+              {project.forkedCutAt && hhmm(project.forkedCutAt)
+                ? `${t('branch.fork.of', { name: ramoDe })} · ${t('branch.side.copyUntil', { time: hhmm(project.forkedCutAt) })}`
+                : t('branch.fork.of', { name: ramoDe })}
+            </span>
+          )}
         </span>
         <EngineTabs projectId={session.projectId} activeLocalId={session.localId} />
         {session.status === 'dead' && session.detail && (
@@ -606,7 +621,9 @@ export function ChatView() {
         />
       )}
     </div>
-    {progressOpen && <ProgressColumn projectId={session.projectId} engine={engine} sessionStatus={session.status} />}
+    {hasSide
+      ? <SideColumn projectId={session.projectId} engine={engine} localId={session.localId} />
+      : progressOpen && <ProgressColumn projectId={session.projectId} engine={engine} sessionStatus={session.status} />}
     </div>
   )
 }

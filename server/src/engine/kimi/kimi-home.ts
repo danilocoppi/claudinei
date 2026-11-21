@@ -74,7 +74,15 @@ function mcpConfig(hermes?: HermesOptions): unknown {
  * pode ter sido rotacionado por um revoke-all).
  */
 export function ensureKimiHome(projectPath: string, hermes?: HermesOptions): string {
-  const dir = kimiHomeFor(projectPath)
+  return ensureKimiHomeAt(kimiHomeFor(projectPath), hermes)
+}
+
+/**
+ * O mesmo preparo do `ensureKimiHome` (symlinks de login + mcp.json), num dir
+ * dado em vez do derivado da pasta do projeto — o data root da conversa
+ * lateral. Idempotente; devolve o próprio `dir`.
+ */
+export function ensureKimiHomeAt(dir: string, hermes?: HermesOptions): string {
   mkdirSync(dir, { recursive: true })
   for (const name of SHARED) {
     const src = join(userKimiHome(), name)

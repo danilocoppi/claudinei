@@ -50,13 +50,13 @@ Projeto 16 do roteiro `docs/superpowers/roteiro-ideias-t3code.md`: o agente nave
 ```ts
 export interface ConsoleEntry { type: string; text: string }        // 'log' | 'warning' | 'error' | 'pageerror' …
 export interface PreviewPage {
-  setContent(html: string): Promise<void>                            // espera o 'load'
-  goto(url: string): Promise<void>                                   // só http:, https:, about:blank
+  setContent(html: string, opts?: { loadTimeoutMs?: number }): Promise<{ loaded: boolean }>  // espera o 'load' até o prazo (padrão 10 s); estourou: loaded=false, sem erro, a página segue viva
+  goto(url: string, opts?: { loadTimeoutMs?: number }): Promise<{ loaded: boolean }>       // idem; só http:, https:, about:blank
   screenshot(opts: { fullPage: boolean }): Promise<Buffer>           // PNG
   contentHeight(): Promise<number>                                   // scrollHeight do documento, px CSS
   consoleMessages(): ConsoleEntry[]                                  // coletadas desde a abertura
 }
-export interface IsolatedPageOpts { viewport: { width: number; height: number }; offline?: boolean; timeoutMs?: number }
+export interface IsolatedPageOpts { viewport: { width: number; height: number }; offline?: boolean; timeoutMs?: number; queueTimeoutMs?: number }
 export interface BrowserHost {
   withIsolatedPage<T>(opts: IsolatedPageOpts, fn: (page: PreviewPage) => Promise<T>): Promise<T>
   tab(key: TerminalKey): Promise<TerminalTab>                        // cria sob demanda (uso do projeto 16)
@@ -69,9 +69,10 @@ export interface BrowserHostDeps { log: (line: string) => void; idleMs?: number;
 export function createBrowserHost(deps: BrowserHostDeps): BrowserHost
 // TerminalKey, TerminalTab e LaunchFn são internos do projeto 16; o 15 não os usa.
 export class BrowserUnavailableError extends Error { code: 'browser_not_installed' | 'launch_failed'; hint: string }
+export class BrowserBusyError extends Error { code: 'browser_busy' }               // a fila das páginas isoladas passou de queueTimeoutMs
 ```
 
-`withIsolatedPage` abre um contexto novo (sem cookies, downloads recusados, `offline` quando pedido), conta como uso (o processo não fecha no meio), e fecha o contexto no `finally`, com erro ou com estouro de `timeoutMs` (padrão 15 s, que rejeita com `Error('timeout')`). No máximo duas páginas isoladas ao mesmo tempo; as outras esperam na ordem. O projeto 15 usa só `createBrowserHost`, `withIsolatedPage` e `BrowserUnavailableError`; o `launch` é a costura do dublê nos testes.
+`withIsolatedPage` abre um contexto novo (sem cookies, downloads recusados, `offline` quando pedido), conta como uso (o processo não fecha no meio), e fecha o contexto no `finally`, com erro ou com estouro de `timeoutMs` (padrão 20 s, contado da abertura da página, sem a espera na fila; estourado, rejeita com `Error('timeout')`). O `load` tem prazo próprio e menor (`loadTimeoutMs`, padrão 10 s): estourado, `setContent`/`goto` devolvem `{ loaded: false }` sem erro, e quem chamou ainda captura a página (é o que o projeto 15 precisa para "capturar assim mesmo e avisar"). No máximo duas páginas isoladas ao mesmo tempo; as outras esperam na ordem até `queueTimeoutMs` (padrão 30 s) e então rejeitam com `BrowserBusyError` — o limite fica no host, o 15 não faz semáforo próprio. O projeto 15 usa só `createBrowserHost`, `withIsolatedPage`, `BrowserUnavailableError` e `BrowserBusyError`; o `launch` é a costura do dublê nos testes.
 
 **A aba do terminal (`server/src/browser/terminal-tab.ts`).** Um contexto isolado por terminal (`TerminalKey` = projectId + motor), com uma página só. Viewport: o tamanho da tela da coluna de quem tem o bastão ou, sem bastão, da última coluna que abriu (entre 320×240 e 1920×1200; sem coluna nenhuma, 1280×800), com `deviceScaleFactor` 1. Janela nova (`target=_blank`, `window.open`) vira navegação na própria aba. `alert` e `beforeunload` são aceitos e anotados; `confirm` e `prompt` ficam pendentes, na coluna com OK/Cancelar, e para o agente na ação `dialog`. Seletor de arquivo é cancelado com aviso. A aba fecha depois de 30 min sem ferramenta do agente e sem coluna visível; até 8 abas: a nona fecha a mais ociosa que não esteja visível ou é recusada com "muitos navegadores abertos". Nada vai ao banco.
 
@@ -172,3 +173,8 @@ Não entra. O navegador nunca manda mensagem ao agente: diálogo, download bloqu
 ## Fora do escopo / depois
 
 Perfil persistente por projeto; iframe por proxy para dev server; gravação de vídeo; `evaluate` e envio de arquivo pelo agente; várias abas; emulação de celular e escolha de viewport pelo agente; ignorar certificado de dev; instalar o Chromium por um botão; listar servidores de Docker.
+
+## Decisões da checagem do construtor
+
+- **Servidores MCP do agente não entram na lista de servidores locais.** O marcador chega a tudo o que o CLI abre, inclusive os servidores MCP do operador que escutam em porta (ex.: `statewright mcp`, 47615–47621). Regra: um processo cujo pai direto é o processo da CLI aberta pelo Claudinei é ferramenta do agente e fica fora da lista (e da pergunta ao encerrar). Os servidores que o agente sobe pelo Bash passam por um shell (netos da CLI) ou foram readotados pelo systemd (`nohup … &`), e entram. Teste com `/proc` falso para os três casos (filho direto, neto, readotado).
+- **Contrato com o projeto 15 fechado** (acima, no bloco do `host.ts`): `load` com prazo próprio que não lança (`{ loaded }`), `timeoutMs` contado só com a página aberta, fila com `queueTimeoutMs` e `BrowserBusyError` no host. O plano do 16 entrega primeiro o `host.ts` com o empacotamento do `playwright-core`; o coordenador avisa a trilha do 15 com o sha.

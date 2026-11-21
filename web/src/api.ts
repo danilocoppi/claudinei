@@ -7,7 +7,8 @@ const reportAccessRestriction = (status: number, error: unknown) => {
   if (status === 403 && error === 'access_hours_restricted') window.dispatchEvent(new Event('claudinei:access-restricted'))
 }
 
-async function req<T>(url: string, init?: RequestInit): Promise<T> {
+/** Exportado para os módulos com API própria (undo/api.ts). */
+export async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = init?.body ? { 'Content-Type': 'application/json' } : undefined
   const res = await fetch(url, { headers, ...init })
   if (!res.ok) {
@@ -19,8 +20,11 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({ error: res.statusText }))
     reportAccessRestriction(res.status, body.error)
     // A mensagem no idioma da tela (ver serverErrors.ts); o código cru continua em `code`.
-    const err = new Error(localizeServerError(body, res.statusText)) as Error & { status?: number; retryAfterMs?: number; sessions?: OpenSession[]; code?: string }
+    const err = new Error(localizeServerError(body, res.statusText)) as Error & { status?: number; retryAfterMs?: number; sessions?: OpenSession[]; code?: string; params?: Record<string, string | number>; preview?: unknown }
     if (typeof body.code === 'string') err.code = body.code
+    if (body.params && typeof body.params === 'object') err.params = body.params
+    // O 409 `undo_changed` do desfazer traz a prévia nova (a tela troca a que mostrava).
+    if (body.preview !== undefined) err.preview = body.preview
     err.status = res.status
     if (typeof body.retryAfterMs === 'number') err.retryAfterMs = body.retryAfterMs
     if (Array.isArray(body.sessions)) err.sessions = body.sessions

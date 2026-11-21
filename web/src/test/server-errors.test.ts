@@ -76,3 +76,26 @@ describe('onde a tela mostra os erros', () => {
     expect(JSON.stringify(itens)).toContain('This session is not active.')
   })
 })
+
+describe('erros do desfazer turno', () => {
+  // Os códigos que server/src/undo/* e server/src/routes/undo.ts devolvem.
+  const codes = [
+    'undo_blocked', 'undo_unavailable', 'undo_changed', 'undo_bad_decision', 'undo_bad_request', 'undo_mixed_terminals',
+    'undo_no_turns', 'undo_turn_not_found', 'undo_run_not_found', 'undo_interval_not_found', 'undo_not_redoable',
+    'undo_already_redone', 'undo_path_not_in_turn', 'undo_snapshot_failed', 'undo_writing', 'snapshot_lost',
+    'snapshot_check_failed', 'forbidden_path', 'redo_hidden_files', 'rewind_bad_request', 'rewind_busy', 'rewind_failed',
+    'rewind_in_progress', 'rewind_turn_outside', 'rewind_turn_stuck', 'rewind_unavailable', 'no_session',
+  ]
+  const reasons = ['engine_unsupported', 'codex_mid_turn', 'claude_mid_turn', 'anchor_not_found', 'no_git', 'no_snapshot', 'snapshot_late', 'snapshot_lost', 'no_session']
+
+  it('têm tradução nas três línguas, e os motivos da volta também', async () => {
+    for (const lang of ['en', 'es', 'pt-BR']) {
+      await i18n.changeLanguage(lang)
+      for (const code of codes) expect(i18n.exists(`serverErrors.${code}`), `${lang}: ${code}`).toBe(true)
+      for (const r of reasons) expect(i18n.exists(`undo.reason.${r}`), `${lang}: ${r}`).toBe(true)
+    }
+    await i18n.changeLanguage('pt-BR')
+    expect(localizeServerError({ error: 'x', code: 'undo_writing' })).toBe('O Claudinei está desfazendo arquivos nesta pasta; tente de novo em alguns segundos.')
+    expect(i18n.t('undo.reason.engine_unsupported', { engine: 'OpenCode' })).toBe('O OpenCode não deixa o Claudinei voltar a conversa.')
+  })
+})

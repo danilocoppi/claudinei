@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from './store'
+import { applyUndoWsMessage } from './undo/undoStore'
 import { fetchAppearance, fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
@@ -127,7 +128,7 @@ export default function App() {
   useEffect(() => {
     if (authStatus !== 'ready') return
     const client = connectWs(
-      (msg) => useStore.getState().applyWsMessage(msg),
+      (msg) => { useStore.getState().applyWsMessage(msg); applyUndoWsMessage(msg) },
       // RE-conexão: eventos perdidos na queda não são reenviados pelo servidor —
       // invalida os históricos carregados (o ChatView rebusca) e limpa streaming órfão.
       () => useStore.getState().resyncOnReconnect(),

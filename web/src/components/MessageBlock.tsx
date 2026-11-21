@@ -534,6 +534,14 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
     case 'scheduled_message':
       return <ScheduledMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'claudinei_message':
+      // Notas do desfazer: uma linha discreta antes da mensagem; o texto em inglês, como o agente leu, fica no título.
+      if (item.reason === 'files_reverted' || item.reason === 'conversation_rewound') {
+        return (
+          <div className="msg-undo-note" title={item.text} style={{ textAlign: 'center', color: 'var(--text-dim)', fontSize: 12, margin: '8px 0' }}>
+            ↶ {item.reason === 'files_reverted' ? t('undo.noteFilesReverted') : t('undo.noteConversationRewound')}
+          </div>
+        )
+      }
       return <ClaudineiMessageBubble item={item} currentLocalId={currentLocalId} />
     case 'tool_call':
       return <ToolCallCard item={item} currentLocalId={currentLocalId} />

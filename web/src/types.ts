@@ -189,6 +189,13 @@ type ChatItemBody =
   | { kind: 'claudinei_message'; reason: 'goal'; text: string; criterion: string; turn?: number; max?: number; fromSubagent?: boolean; parentId?: string }
   /** Partida do goal (`[Claudinei: goal start]`), com o critério. */
   | { kind: 'claudinei_message'; reason: 'goal_start'; text: string; criterion: string; fromSubagent?: boolean; parentId?: string }
+  /**
+   * Notas do desfazer turno (`[Claudinei: files reverted]` e `[Claudinei:
+   * conversation rewound]`), que o servidor gruda na frente da mensagem
+   * seguinte. Saem do texto dela e viram uma linha discreta logo antes; `text`
+   * é a nota inteira, em inglês, como o agente a leu. Não são turnos.
+   */
+  | { kind: 'claudinei_message'; reason: 'files_reverted' | 'conversation_rewound'; text: string; fromSubagent?: boolean; parentId?: string }
 
 /**
  * Uma tarefa dentro do aviso de resultado: o número, o projeto que a recebeu, o

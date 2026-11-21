@@ -92,7 +92,7 @@ describe('kimiSideHome', () => {
 describe('OpenCode: cópia da conversa', () => {
   const mk = (o: { forkFrom?: ForkFrom; readOnly?: boolean }) =>
     new OpenCodeSession({ projectPath: '/tmp', binOverride: process.execPath, extraArgsOverride: [FAKE_OC], ...o })
-  afterEach(() => { delete process.env.OPENCODE_FAKE_HANG })
+  afterEach(() => { delete process.env.OPENCODE_FAKE_HANG; delete process.env.OPENCODE_FAKE_FORK_ANNOUNCE })
 
   it('OpenCode ramo, original parado: a primeira mensagem roda com --fork -s src e o sessionId vira ses_FORK_src', async () => {
     let asked = 0
@@ -120,6 +120,30 @@ describe('OpenCode: cópia da conversa', () => {
     expect(hasRun(args2, ['-s', 'ses_FORK_src'])).toBe(true)
     expect(asked).toBe(1)
     expect(s.sessionId).toBe('ses_FORK_src')
+  })
+
+  it('--fork que anuncia antes o id da origem: não adota esse id; segue com o da cópia', async () => {
+    process.env.OPENCODE_FAKE_FORK_ANNOUNCE = 'first'
+    const s = mk({ forkFrom: { sourceId: 'src' } }); s.start()
+    const evs: AgentEvent[] = []; s.on('event', (e) => evs.push(e))
+    s.send('oi'); await waitFor(() => s.status === 'needs_attention')
+    expect(s.sessionId).toBe('ses_FORK_src')
+    // nenhum init com o id da origem sai para o manager (que o gravaria no banco)
+    expect(evs.filter((e) => e.kind === 'init').map((e) => (e as any).sessionId)).toEqual(['ses_FORK_src'])
+  })
+
+  it('--fork que só anuncia o id da origem: fica sem id e a próxima mensagem volta a tentar a cópia, nunca -s <origem> sem --fork', async () => {
+    process.env.OPENCODE_FAKE_FORK_ANNOUNCE = 'only'
+    const s = mk({ forkFrom: { sourceId: 'src' } }); s.start()
+    const evs: AgentEvent[] = []; s.on('event', (e) => evs.push(e))
+    s.send('oi'); await waitFor(() => s.status === 'needs_attention')
+    expect(s.sessionId).toBeUndefined()
+    expect(evs.filter((e) => e.kind === 'init')).toEqual([])
+    s.markRead()
+    const evs2: AgentEvent[] = []; s.on('event', (e) => evs2.push(e))
+    s.send('__args__'); await waitFor(() => s.status === 'needs_attention')
+    expect(hasRun(argsOf(evs2), ['--fork', '-s', 'src'])).toBe(true)
+    expect(s.sessionId).toBeUndefined()
   })
 
   it('sem nativeOk a cópia nativa vale', async () => {

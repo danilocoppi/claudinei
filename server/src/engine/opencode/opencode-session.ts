@@ -129,11 +129,14 @@ export class OpenCodeSession extends EventEmitter implements EngineSession {
     this.proc = spawn(bin, args, { cwd: this.opts.projectPath, stdio: ['ignore', 'pipe', 'pipe'], env })
     this.setStatus('working')
     let sawOutput = false
+    // No turno da cópia, o id da origem nunca é adotado (nem gravado): os turnos
+    // seguintes rodariam com `-s <origem>` e escreveriam na conversa original.
+    // Sem id novo até o fim, a próxima mensagem volta a tentar a cópia.
     const parser = createOpenCodeTurnParser((evt) => {
       if (evt.kind === 'init') { this.sessionId = evt.sessionId }
       if (evt.kind === 'assistant' || evt.kind === 'user') sawOutput = true
       this.emit('event', evt)
-    }, this.model)
+    }, this.model, { skipSessionId: o.forkSourceId })
     this.proc.stdout.on('data', (d) => parser.feed(d))
     this.proc.stderr.on('data', (d) => { const s = d.toString(); this.stderrTail.push(s); if (this.stderrTail.length > 20) this.stderrTail.shift(); this.emit('stderr', s) })
     this.proc.on('close', (code) => {

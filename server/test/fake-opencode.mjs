@@ -3,11 +3,14 @@
 // último argv (após '--'); no resume o session id é o valor após '-s'.
 // Com `--fork -s X` (cópia da conversa X) o id vira `ses_FORK_X`. O prompt
 // terminado em `__args__` responde o argv recebido, em JSON.
+// OPENCODE_FAKE_FORK_ANNOUNCE=first|only: no `--fork`, anuncia antes o id da
+// origem (`first`: depois segue com o id da cópia; `only`: nunca anuncia outro).
 import process from 'node:process'
 const args = process.argv.slice(2)
 const isResume = args.includes('-s')
 const resumed = isResume ? args[args.indexOf('-s') + 1] : undefined
-const sid = !isResume ? 'ses_FAKE' : args.includes('--fork') ? `ses_FORK_${resumed}` : resumed
+const announce = args.includes('--fork') ? process.env.OPENCODE_FAKE_FORK_ANNOUNCE : undefined
+const sid = !isResume ? 'ses_FAKE' : announce === 'only' ? resumed : args.includes('--fork') ? `ses_FORK_${resumed}` : resumed
 const dashdash = args.lastIndexOf('--')
 const prompt = dashdash >= 0 ? args.slice(dashdash + 1).join(' ') : ''
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n')
@@ -26,6 +29,7 @@ if (process.env.OPENCODE_FAKE_HANG === '1') {
   out({ type: 'error', sessionID: sid, error: { data: { message: 'rate limit exceeded: retry after 30s' } } })
   process.exit(1)
 } else {
+  if (announce === 'first') out({ type: 'step_start', sessionID: resumed, part: { type: 'step-start' } })
   out({ type: 'step_start', sessionID: sid, part: { type: 'step-start' } })
   const reply = prompt.endsWith('__args__') ? JSON.stringify(args) : `echo:${prompt}`
   out({ type: 'text', sessionID: sid, part: { type: 'text', text: reply } })

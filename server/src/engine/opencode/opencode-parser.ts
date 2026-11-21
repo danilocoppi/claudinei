@@ -36,8 +36,11 @@ export function classifyOpenCodeLine(line: string): AgentEvent[] {
 
 interface Tokens { input: number; cachedInput: number; output: number; reasoning: number; total: number }
 
-/** Stateful por turno: emite init (1º sessionID) + eventos de chat; acumula texto/tokens/erro; finish() = o result do turno. */
-export function createOpenCodeTurnParser(onEvent: (e: AgentEvent) => void, model?: string) {
+/**
+ * Stateful por turno: emite init (1º sessionID) + eventos de chat; acumula texto/tokens/erro; finish() = o result do turno.
+ * `skipSessionId` (turno de cópia `--fork -s <origem>`): esse id nunca vira o init; vale o próximo id diferente.
+ */
+export function createOpenCodeTurnParser(onEvent: (e: AgentEvent) => void, model?: string, opts: { skipSessionId?: string } = {}) {
   let buf = ''
   let sessionId: string | undefined
   let lastText = ''
@@ -50,7 +53,7 @@ export function createOpenCodeTurnParser(onEvent: (e: AgentEvent) => void, model
     let o: any
     try { o = JSON.parse(s) } catch { onEvent({ kind: 'parse_error', line: s }); return }
     // 1º sessionID → init
-    if (!sessionId && typeof o.sessionID === 'string') {
+    if (!sessionId && typeof o.sessionID === 'string' && o.sessionID !== opts.skipSessionId) {
       const sid: string = o.sessionID
       sessionId = sid
       onEvent({ kind: 'init', sessionId: sid, model: model ?? '', slashCommands: [], raw: o })

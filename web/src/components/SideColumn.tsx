@@ -21,8 +21,8 @@ import { ConfirmDialog } from './ConfirmDialog'
  */
 
 const dois = (n: number) => String(n).padStart(2, '0')
-/** HH:MM na hora local; vazio se a data não for legível. */
-function hhmm(iso: string): string {
+/** HH:MM na hora local; vazio se a data não for legível. Também o "cópia até" do ramo no cabeçalho do chat. */
+export function hhmm(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : `${dois(d.getHours())}:${dois(d.getMinutes())}`
 }

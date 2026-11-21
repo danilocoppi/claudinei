@@ -37,7 +37,7 @@ import { isAtBottom, SLACK } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { ProgressButton, ProgressColumn } from './ProgressColumn'
-import { SideColumn } from './SideColumn'
+import { hhmm, SideColumn } from './SideColumn'
 import { useSideRead, useSideStore } from '../branch/sideStore'
 
 const EMPTY_ITEMS: ChatItem[] = []
@@ -183,6 +183,8 @@ export function ChatView() {
   // Contagem, não `filter`: um selector que devolve array novo re-renderiza o
   // chat a cada atualização do store.
   const pastaCompartilhada = useStore((s) => s.projects.filter((p) => p.path === project?.path).length > 1)
+  // Ramo (`/fork`): o nome do original, só enquanto ele está na lista (apagado, o servidor zera o `forkedFrom`).
+  const ramoDe = useStore((s) => (project?.forkedFrom != null ? s.projects.find((p) => p.id === project.forkedFrom)?.name : undefined))
   const items = useStore((s) => (activeLocalId ? s.chat[activeLocalId] : undefined) ?? EMPTY_ITEMS)
   const hasStreaming = useStore((s) => !!(activeLocalId && s.streaming[activeLocalId]))
   const loadedEngineSessionId = useStore((s) => activeLocalId ? s.historyLoadedFor[activeLocalId] : undefined)
@@ -489,6 +491,13 @@ export function ChatView() {
           {pastaCompartilhada && (
             <span className="chat-header__shared" data-testid="shared-path" title={t('chat.sharedPathTitle')}>
               ⫽ {t('chat.sharedPath')}
+            </span>
+          )}
+          {ramoDe != null && (
+            <span className="chat-header__fork">
+              {project.forkedCutAt && hhmm(project.forkedCutAt)
+                ? `${t('branch.fork.of', { name: ramoDe })} · ${t('branch.side.copyUntil', { time: hhmm(project.forkedCutAt) })}`
+                : t('branch.fork.of', { name: ramoDe })}
             </span>
           )}
         </span>

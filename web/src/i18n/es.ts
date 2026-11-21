@@ -651,6 +651,32 @@ export const es: typeof en = {
       no_edit_tools: 'Sin herramientas de edición — los comandos de shell aún pueden cambiar archivos',
       can_write: 'Puede cambiar archivos de la carpeta',
     },
+    handoff: {
+      button: 'Continuar en otro motor',
+      footer: '{{engine}} sigue abierto; detenlo si no quieres los dos en la carpeta',
+      confirmTitle: '¿Continuar en {{engine}}?',
+      confirmMsg: 'La conversación actual de {{engine}} se cerrará (queda en el historial) y empieza una nueva con el contexto de {{from}}.',
+      confirmGoal: 'El objetivo de {{engine}} queda en pausa hasta que lo reanudes.',
+      confirm: 'Continuar',
+      card_one: 'Contexto traído de {{engine}}: {{count}} mensaje (~{{k}} mil tokens)',
+      card_other: 'Contexto traído de {{engine}}: {{count}} mensajes (~{{k}} mil tokens)',
+    },
+    target: {
+      none: 'sin conversación',
+      idle: 'inactivo — la conversación actual se cerrará (queda en el historial)',
+      working: 'trabajando — no disponible',
+      limited: 'en el límite de uso hasta las {{time}} — no disponible',
+      limitedUnknown: 'en el límite de uso — no disponible',
+    },
+    pending: {
+      goal: 'objetivo activo',
+      queue: '{{count}} en la cola',
+      taskResults_one: '{{count}} aviso de resultado',
+      taskResults_other: '{{count}} avisos de resultado',
+    },
+    fork: {
+      of: 'rama de {{name}}',
+    },
   },
 }
 export default es

@@ -652,6 +652,32 @@ export const ptBR: typeof en = {
       no_edit_tools: 'Sem ferramentas de edição — comandos de shell ainda podem alterar arquivos',
       can_write: 'Pode alterar arquivos da pasta',
     },
+    handoff: {
+      button: 'Continuar noutro motor',
+      footer: 'o {{engine}} continua aberto; pare-o se não quiser os dois na pasta',
+      confirmTitle: 'Continuar no {{engine}}?',
+      confirmMsg: 'A conversa atual do {{engine}} será encerrada (fica no histórico), e uma nova começa com o contexto do {{from}}.',
+      confirmGoal: 'O goal do {{engine}} fica pausado até você retomá-lo.',
+      confirm: 'Continuar',
+      card_one: 'Contexto trazido do {{engine}}: {{count}} mensagem (~{{k}} mil tokens)',
+      card_other: 'Contexto trazido do {{engine}}: {{count}} mensagens (~{{k}} mil tokens)',
+    },
+    target: {
+      none: 'sem conversa',
+      idle: 'ocioso — a conversa atual será encerrada (fica no histórico)',
+      working: 'trabalhando — indisponível',
+      limited: 'no limite até {{time}} — indisponível',
+      limitedUnknown: 'no limite — indisponível',
+    },
+    pending: {
+      goal: 'goal ativo',
+      queue: '{{count}} na fila',
+      taskResults_one: '{{count}} aviso de resultado',
+      taskResults_other: '{{count}} avisos de resultado',
+    },
+    fork: {
+      of: 'ramo de {{name}}',
+    },
   },
 }
 export default ptBR

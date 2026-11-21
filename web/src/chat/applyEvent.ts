@@ -1,5 +1,6 @@
 import { isCompactSummary } from './history'
 import type { ChatItem, ClaudeEvent, ClaudineiTaskResult, ContentBlock } from '../types'
+import { HANDOFF_PREFIX, parseHandoffHeader } from '../branch/handoff'
 
 /** Selo da mensagem de retomada que o servidor manda ao agente (cópia de `RESUME_PREFIX` em server/src/restart/boot.ts). */
 export const RESUME_PREFIX = '[Claudinei: resume after restart]'
@@ -11,6 +12,8 @@ export const TASK_RESULT_PREFIX = '[Claudinei: task result]'
 export const GOAL_PREFIX = '[Claudinei: goal]'
 /** Selo da partida do goal (cópia de `GOAL_START_PREFIX` em server/src/goal/texts.ts). */
 export const GOAL_START_PREFIX = '[Claudinei: goal start]'
+/** Selo do pacote de contexto da troca de motor (cópia de `HANDOFF_PREFIX` em server/src/branch/handoff.ts). */
+export { HANDOFF_PREFIX }
 
 /**
  * Cabeçalho de cada bloco do aviso de tarefa (`taskResultText` no servidor):
@@ -113,6 +116,19 @@ function classifyUserText(text: string): ChatItem[] {
   const goalStart = afterSeal(cleaned, GOAL_START_PREFIX)
   if (goalStart != null) {
     return [{ kind: 'claudinei_message', reason: 'goal_start', text: goalStart, criterion: goalStart.match(GOAL_START)?.[1] ?? goalStart }]
+  }
+
+  // Pacote de contexto da troca de motor (⇄): vira o cartão "Contexto trazido
+  // do <Motor>", dobrado; o pedido do operador, quando vai junto, sai à parte.
+  if (cleaned.startsWith(`${HANDOFF_PREFIX}:`)) {
+    const h = parseHandoffHeader(cleaned)
+    if (h) {
+      return [{
+        kind: 'claudinei_message', reason: 'handoff', text: h.body,
+        engineLabel: h.engineLabel, messages: h.messages, tokens: h.tokens,
+        ...(h.request !== undefined ? { request: h.request } : {}),
+      }]
+    }
   }
 
   const scheduled = cleaned.match(/^\[Agendamento: (.+) #(\d+)\]:\s*([\s\S]*)$/)

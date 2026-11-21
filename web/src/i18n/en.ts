@@ -649,6 +649,32 @@ export const en = {
       no_edit_tools: 'No editing tools — shell commands can still change files',
       can_write: 'Can change files in the folder',
     },
+    handoff: {
+      button: 'Continue in another engine',
+      footer: '{{engine}} stays open; stop it if you don\'t want both in the folder',
+      confirmTitle: 'Continue in {{engine}}?',
+      confirmMsg: 'The current {{engine}} conversation will be closed (it stays in the history), and a new one starts with the context from {{from}}.',
+      confirmGoal: 'The {{engine}} goal stays paused until you resume it.',
+      confirm: 'Continue',
+      card_one: 'Context brought from {{engine}}: {{count}} message (~{{k}}k tokens)',
+      card_other: 'Context brought from {{engine}}: {{count}} messages (~{{k}}k tokens)',
+    },
+    target: {
+      none: 'no conversation',
+      idle: 'idle — the current conversation will be closed (it stays in the history)',
+      working: 'working — unavailable',
+      limited: 'at the usage limit until {{time}} — unavailable',
+      limitedUnknown: 'at the usage limit — unavailable',
+    },
+    pending: {
+      goal: 'active goal',
+      queue: '{{count}} queued',
+      taskResults_one: '{{count}} result notice',
+      taskResults_other: '{{count}} result notices',
+    },
+    fork: {
+      of: 'branch of {{name}}',
+    },
   },
 }
 export default en

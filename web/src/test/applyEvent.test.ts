@@ -442,3 +442,32 @@ describe('fronteira de compactação alimenta o resumo', () => {
     expect(applyEvent([], { kind: 'system', subtype: 'status', raw: { status: 'compacting' } } as ClaudeEvent)).toEqual([])
   })
 })
+
+describe('pacote de contexto da troca de motor ([Claudinei: context handoff])', () => {
+  const formatos = [
+    ['content em string', (text: string) => ({ kind: 'user', message: { role: 'user', content: text }, raw: { type: 'user' } })],
+    ['content em lista (eco ao vivo)', (text: string) => ({ kind: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, raw: {} })],
+  ] as const
+  // Saída real do `buildHandoff` (server/src/branch/handoff.ts).
+  const PACOTE = '[Claudinei: context handoff]: This conversation continues one held with Claude Code in this same folder. Below are its 2 most recent messages, whole, oldest first (about 13 tokens). The full conversation is at /home/u/.claude/projects/-tmp-x/abc.jsonl; read it only if you need something older. If no request follows, reply with one short line confirming you have the context.\n\n=== operator ===\noi\n\n=== agent ===\nolá, tudo certo'
+  const CORPO = '=== operator ===\noi\n\n=== agent ===\nolá, tudo certo'
+
+  it.each(formatos)('mensagem com o selo vira o cartão (%s)', (_nome, evt) => {
+    expect(applyEvent([], evt(PACOTE) as never)).toEqual([{
+      kind: 'claudinei_message', reason: 'handoff', engineLabel: 'Claude Code', messages: 2, tokens: 13, text: CORPO,
+    }])
+  })
+
+  it('com o pedido do operador junto, o request sai separado', () => {
+    const [, evt] = formatos[0]
+    expect(applyEvent([], evt(`${PACOTE}\n\n=== request ===\ne agora?`) as never)).toEqual([{
+      kind: 'claudinei_message', reason: 'handoff', engineLabel: 'Claude Code', messages: 2, tokens: 13, text: CORPO, request: 'e agora?',
+    }])
+  })
+
+  it('o selo no meio da frase segue user_text', () => {
+    const [, evt] = formatos[0]
+    const text = `veja: ${PACOTE}`
+    expect(applyEvent([], evt(text) as never)).toEqual([{ kind: 'user_text', text }])
+  })
+})

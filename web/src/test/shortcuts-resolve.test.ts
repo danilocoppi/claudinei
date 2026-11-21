@@ -48,13 +48,17 @@ describe('registro', () => {
 
   it('os rótulos resolvem nas três línguas', async () => {
     const keys = [...EDITABLE, ...FIXED].map((s) => s.labelKey)
-    for (const lng of ['en', 'es', 'pt-BR'] as const) {
-      await i18n.changeLanguage(lng)
-      for (const k of keys) expect(i18n.t(k as never), `${k} em ${lng}`).not.toBe(k)
+    const before = i18n.language
+    try {
+      for (const lng of ['en', 'es', 'pt-BR'] as const) {
+        await i18n.changeLanguage(lng)
+        for (const k of keys) expect(i18n.t(k as never), `${k} em ${lng}`).not.toBe(k)
+      }
+      expect(i18n.t('shortcuts.labels.stash')).toBe('Guardar rascunho')
+      expect(i18n.t('shortcuts.labels.macEdit')).toBe('Edição de texto do macOS nos campos')
+    } finally {
+      await i18n.changeLanguage(before) // devolve a língua com que o teste começou
     }
-    await i18n.changeLanguage('pt-BR')
-    expect(i18n.t('shortcuts.labels.stash')).toBe('Guardar rascunho')
-    expect(i18n.t('shortcuts.labels.macEdit')).toBe('Edição de texto do macOS nos campos')
   })
 })
 
@@ -235,9 +239,9 @@ describe('pruneOverrides e sameOverrides', () => {
       'chat.send': 'Ctrl+Enter',
       'triage.undo': null,
       'chat.find': 'Alt+F',
-    })).toEqual({ 'triage.undo': null, 'chat.find': 'Alt+F' })
-    // No Mac Ctrl+Enter difere do padrão (⌘↩) e fica.
-    expect(pruneOverrides({ 'chat.send': 'Ctrl+Enter' }, true)).toEqual({ 'chat.send': 'Ctrl+Enter' })
+    })).toEqual({ 'chat.send': 'Ctrl+Enter', 'triage.undo': null, 'chat.find': 'Alt+F' })
+    // A conta vale nos dois sistemas: Ctrl+Enter é ⌃↩ no Mac e fica, mesmo salvo fora do Mac.
+    expect(pruneOverrides({ 'chat.send': 'Mod+Enter' })).toEqual({})
   })
 
   it('sameOverrides ignora a ordem das chaves', () => {

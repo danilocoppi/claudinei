@@ -53,7 +53,7 @@ export interface FixedShortcut {
   labelKey: string
   combos: string[]
   keysLabel?: string
-  places: Place[]
+  places: readonly Place[]
   platform?: 'mac'
   editable: false
 }
@@ -71,8 +71,8 @@ export const EDITABLE: readonly EditableShortcut[] = [
   { id: 'triage.undo', labelKey: 'shortcuts.labels.undo', default: 'Mod+Z', scope: 'outsideFieldsAndModals', editable: true },
 ]
 
-const ALL_PLACES: Place[] = ['chatInput', 'fields', 'editors', 'outside', 'terminal']
-const TEXT_PLACES: Place[] = ['chatInput', 'fields', 'editors']
+const ALL_PLACES: readonly Place[] = ['chatInput', 'fields', 'editors', 'outside', 'terminal']
+const TEXT_PLACES: readonly Place[] = ['chatInput', 'fields', 'editors']
 
 export const FIXED: readonly FixedShortcut[] = [
   { id: 'fixed.enter', labelKey: 'shortcuts.labels.enter', combos: ['Enter'], places: ['chatInput'], editable: false },

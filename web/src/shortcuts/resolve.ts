@@ -3,7 +3,7 @@
  * com os padrões. Tudo puro: nada aqui grava, e toda comparação é pela forma
  * canônica da plataforma (fora do Mac, `Ctrl` é o próprio `Mod`).
  */
-import { canonicalCombo, isMac, parseCombo, sameCombo } from './combo'
+import { canonicalCombo, parseCombo, sameCombo } from './combo'
 import {
   BROWSER_WARN,
   EDITABLE,
@@ -132,14 +132,17 @@ export function findOwner(
 }
 
 /**
- * Só o que vale guardar: ids do registro e escolhas diferentes do padrão
- * (`Ctrl+Enter` fora do Mac é o próprio `Mod+Enter`). `null` fica.
+ * Só o que vale guardar: ids do registro e escolhas diferentes do padrão. `null`
+ * fica. A conta é a mesma no Mac e fora dele, então a escolha só sai quando é o
+ * padrão nos dois sistemas: compara como no Mac, onde Ctrl e ⌘ são teclas
+ * diferentes. Assim um `Ctrl+Enter` gravado no Mac (⌃↩) não some ao salvar no
+ * Linux, onde ele seria igual ao `Mod+Enter`.
  */
-export function pruneOverrides(o: Overrides, mac: boolean = isMac()): Overrides {
+export function pruneOverrides(o: Overrides): Overrides {
   const out: Overrides = {}
   for (const [id, v] of Object.entries(o)) {
     if (!isShortcutId(id)) continue
-    if (typeof v === 'string' && sameCombo(v, editableById(id).default, mac)) continue
+    if (typeof v === 'string' && sameCombo(v, editableById(id).default, true)) continue
     out[id] = v
   }
   return out

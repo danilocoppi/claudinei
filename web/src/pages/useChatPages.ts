@@ -25,13 +25,12 @@ export function useChatPages(localId: string | null, engineSessionId: string | n
     usePagesStore.getState().load(localId).catch((e) => console.warn('[páginas] a lista não carregou', localId, e))
   }, [localId, engineSessionId])
 
-  // Trocar de terminal descarrega: a viva só fica se for deste terminal.
+  // Trocar de terminal descarrega: a viva e a tela cheia só ficam se forem deste terminal.
   useEffect(() => {
-    const { livePageId, byId, setLive } = usePagesStore.getState()
-    if (livePageId === null) return
-    const live = byId[livePageId]
-    if (typeof live === 'object' && live.localId === localId) return
-    setLive(null)
+    const { livePageId, fullPageId, byId, setLive, setFull } = usePagesStore.getState()
+    const here = (id: string) => { const p = byId[id]; return typeof p === 'object' && p.localId === localId }
+    if (livePageId !== null && !here(livePageId)) setLive(null)
+    if (fullPageId !== null && !here(fullPageId)) setFull(null)
   }, [localId])
 
   // Lista vazia conta como nenhuma (como os turnos do desfazer): a carga sem

@@ -17,7 +17,7 @@ const errJson = (status: number, error: string) =>
 const event = (p: VisualPageDto) => ({ type: 'visual_page', projectId: p.projectId, engine: p.engine, localId: p.localId, page: p })
 
 beforeEach(() => {
-  usePagesStore.setState({ byLocal: {}, byId: {}, livePageId: null })
+  usePagesStore.setState({ byLocal: {}, byId: {}, livePageId: null, fullPageId: null })
   useStore.setState({ activeLocalId: 'A' })
 })
 afterEach(() => vi.restoreAllMocks())
@@ -64,6 +64,18 @@ describe('pagesStore', () => {
     expect(usePagesStore.getState().livePageId).toBe(PG3)
     usePagesStore.getState().setLive(null)
     expect(usePagesStore.getState().livePageId).toBeNull()
+  })
+
+  it('tela cheia: setFull guarda a página e solta a viva se era ela; null fecha', () => {
+    usePagesStore.getState().setLive(PG1)
+    usePagesStore.getState().setFull(PG2)
+    expect(usePagesStore.getState().fullPageId).toBe(PG2)
+    expect(usePagesStore.getState().livePageId).toBe(PG1)
+    usePagesStore.getState().setFull(PG1)
+    expect(usePagesStore.getState().fullPageId).toBe(PG1)
+    expect(usePagesStore.getState().livePageId).toBeNull()
+    usePagesStore.getState().setFull(null)
+    expect(usePagesStore.getState().fullPageId).toBeNull()
   })
 
   it('fetchOne com 403 e com 404 vira unavailable', async () => {

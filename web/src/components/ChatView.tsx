@@ -46,6 +46,7 @@ import { ChangesPanel, type PanelFocus } from './undo/ChangesPanel'
 import { UndoDialog, type UndoRequest } from './undo/UndoDialog'
 import { EditFromHereDialog, editTargetOf } from './undo/EditFromHereDialog'
 import { useChatPages } from '../pages/useChatPages'
+import { PageFullscreenHost } from './PageFullscreen'
 import type { RewindTarget, TurnDto } from '../../../shared/undo'
 
 const EMPTY_ITEMS: ChatItem[] = []
@@ -665,6 +666,7 @@ export function ChatView() {
         <EditFromHereDialog localId={editing.localId} target={editing.target} initialText={editing.text}
                             itemKey={editing.key} itemIndex={editing.index} onClose={() => setEditing(null)} />
       )}
+      <PageFullscreenHost />
       {undoPanel && <ChangesPanel localId={session.localId} focus={undoPanel} onClose={() => setUndoPanel(null)} onUndo={setUndoDialog} />}
       {undoDialog && (
         <UndoDialog request={undoDialog} onClose={() => setUndoDialog(null)} onDone={() => {

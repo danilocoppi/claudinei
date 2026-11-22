@@ -58,3 +58,5 @@
 .page-card-full__close { flex: none; padding: 7px 10px; transition: none; }
 .page-card-full__frame { flex: 1; display: block; width: 100%; border: 0; background: #fff; }
 .page-card-full .page-card__status { flex: 1; }
+/* Guarda do foco, depois do diálogo: sem tamanho, fora do fluxo. */
+.page-card-full__guard { position: absolute; width: 0; height: 0; overflow: hidden; }

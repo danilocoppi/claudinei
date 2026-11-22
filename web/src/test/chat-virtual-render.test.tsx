@@ -44,7 +44,8 @@ const resposta = (i: number): ClaudeEvent =>
 
 beforeEach(() => {
   localStorage.clear()
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  // Uma resposta por chamada: o corpo de uma Response só se lê uma vez.
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }))
   useStore.setState({
     projects: [{ id: 1, name: 'Alpha', path: '/a', color: '#fff', icon: '📁' }],
     groups: [], sectors: [], schedules: [], sessions: { s1: sess },

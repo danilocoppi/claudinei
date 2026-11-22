@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { viewPage } from '../pages/api'
+import { usePagesStore } from '../pages/pagesStore'
+import { useDialogKeys } from './undo/useDialogKeys'
 import type { VisualPageDto } from '../../../shared/visual-pages'
 import '../pages/pages.css'
 
@@ -55,26 +57,27 @@ export function PageUrlStatus({ state, retry }: { state: PageUrlState; retry(): 
  * A página quase em tela cheia: o invólucro do `FileViewerModal`
  * (`calc(100vw - 40px)` × `calc(100vh - 40px)`), sem desfoque, com token
  * próprio. Esc, o ✕ ou um clique fora fecham.
+ *
+ * Foco e Esc como os diálogos do desfazer (`useDialogKeys`): o foco entra no
+ * diálogo, o Tab fica preso nele e, ao fechar, volta para onde estava. O Tab
+ * de dentro da página não passa pelo diálogo (é outro documento): quem sai do
+ * fim dela cai na guarda logo depois do diálogo, que devolve o foco ao ✕.
  */
 export function PageFullscreen({ page, onClose }: { page: VisualPageDto; onClose(): void }) {
   const { t } = useTranslation()
   const { state, retry } = usePageUrl(page.id)
-  const close = useRef(onClose)
-  close.current = onClose
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  const dialog = useRef<HTMLDivElement>(null)
+  const closeBtn = useRef<HTMLButtonElement>(null)
+  const onKeyDown = useDialogKeys(dialog, onClose)
 
   return createPortal(
     <div className="page-card-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="page-card-full" role="dialog" aria-modal="true" aria-label={page.title}>
+      <div ref={dialog} className="page-card-full" role="dialog" aria-modal="true" aria-label={page.title}
+           tabIndex={-1} onKeyDown={onKeyDown}>
         <div className="page-card-full__bar">
           <div className="page-card-full__title" title={page.title}>{page.title}</div>
           <button
-            type="button" className="ghost page-card-full__close" autoFocus
+            ref={closeBtn} type="button" className="ghost page-card-full__close"
             aria-label={t('pages.closeFullscreen')} title={t('pages.closeFullscreen')} onClick={onClose}
           >
             ✕
@@ -85,7 +88,24 @@ export function PageFullscreen({ page, onClose }: { page: VisualPageDto; onClose
                     sandbox="allow-scripts" referrerPolicy="no-referrer" />
           : <PageUrlStatus state={state} retry={retry} />}
       </div>
+      <span className="page-card-full__guard" tabIndex={0} data-focus-guard="" onFocus={() => closeBtn.current?.focus()} />
     </div>,
     document.body,
   )
+}
+
+const closeFull = () => usePagesStore.getState().setFull(null)
+
+/**
+ * A tela cheia da página `fullPageId`, montada uma vez no ChatView, fora da
+ * lista virtual: o cartão que a abriu pode desmontar sem fechá-la. Cada
+ * abertura monta de novo (token novo).
+ */
+export function PageFullscreenHost() {
+  const page = usePagesStore((s) => {
+    const p = s.fullPageId ? s.byId[s.fullPageId] : undefined
+    return typeof p === 'object' ? p : undefined
+  })
+  if (!page) return null
+  return <PageFullscreen key={page.id} page={page} onClose={closeFull} />
 }

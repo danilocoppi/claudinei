@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { usePagesStore } from '../pages/pagesStore'
+import { pageListSettled, usePagesStore } from '../pages/pagesStore'
 import { viewPage } from '../pages/api'
 import { PAGE_HEIGHT_MESSAGE, type VisualPageDto } from '../../../shared/visual-pages'
-import { PageFullscreen, PageUrlStatus, usePageUrl } from './PageFullscreen'
+import { PageUrlStatus, usePageUrl } from './PageFullscreen'
 import '../pages/pages.css'
 
 /** Altura de quem não sugeriu nenhuma. */
@@ -98,11 +98,14 @@ export function PageCard({ pageId, localId, page: given }: { pageId: string; loc
   const onScreen = useOnScreen(root, live && !!page)
   // Altura vinda da página; fica entre montagens para a volta à tela não pular.
   const [reported, setReported] = useState<number | null>(null)
-  const [full, setFull] = useState(false)
   const [tabError, setTabError] = useState<'deleted' | 'failed' | null>(null)
 
   // Sem DTO (id fora da lista da conversa): busca pelo id. 403/404 viram
   // 'unavailable' no store; outra falha fica aqui, com "tentar de novo".
+  // Antes espera a lista da conversa, se está chegando: ao abrir a conversa, o
+  // cartão monta junto e a lista quase sempre traz a página. A espera começa
+  // depois da vez (microtarefa): o efeito que pede a lista é do ChatView, que
+  // roda depois dos efeitos dos filhos.
   const missing = !page && stored === undefined
   const [fetchFailed, setFetchFailed] = useState(false)
   const [fetchAttempt, setFetchAttempt] = useState(0)
@@ -110,12 +113,18 @@ export function PageCard({ pageId, localId, page: given }: { pageId: string; loc
     if (!missing) return
     let alive = true
     setFetchFailed(false)
-    usePagesStore.getState().fetchOne(pageId).catch((e) => {
-      console.warn('[páginas] a página não veio', pageId, e)
-      if (alive) setFetchFailed(true)
-    })
+    Promise.resolve()
+      .then(() => pageListSettled(localId))
+      .then(() => {
+        if (!alive || usePagesStore.getState().byId[pageId] !== undefined) return
+        return usePagesStore.getState().fetchOne(pageId)
+      })
+      .catch((e) => {
+        console.warn('[páginas] a página não veio', pageId, e)
+        if (alive) setFetchFailed(true)
+      })
     return () => { alive = false }
-  }, [missing, pageId, fetchAttempt])
+  }, [missing, pageId, localId, fetchAttempt])
 
   const onHeight = useCallback((h: number) => setReported(h), [])
 
@@ -134,17 +143,15 @@ export function PageCard({ pageId, localId, page: given }: { pageId: string; loc
   }
 
   const height = reported ?? clampHeight(page.height ?? DEFAULT_HEIGHT)
-  const setLive = usePagesStore.getState().setLive
-  const openFull = () => {
-    // A tela cheia tem o próprio iframe: o cartão deixa de ser o vivo.
-    if (live) setLive(null)
-    setFull(true)
-  }
+  const { setLive, setFull } = usePagesStore.getState()
+  // A tela cheia fica fora da lista virtual (`PageFullscreenHost`) e tem o
+  // próprio iframe: o cartão deixa de ser o vivo (o store solta).
+  const openFull = () => setFull(page.id)
   const openTab = async () => {
-    setTabError(null)
     try {
       const { url } = await viewPage(page.id)
       window.open(url, '_blank', 'noopener,noreferrer')
+      setTabError(null)
     } catch (e) {
       console.warn('[páginas] a nova aba não abriu', page.id, e)
       setTabError(statusOf(e) === 404 ? 'deleted' : 'failed')
@@ -160,7 +167,8 @@ export function PageCard({ pageId, localId, page: given }: { pageId: string; loc
           <div className="page-card__bar">
             <span className="page-card__icon" aria-hidden="true">▦</span>
             {title}
-            {tabError && <span className="page-card__size">{t(tabError === 'deleted' ? 'pages.deleted' : 'pages.loadFailed')}</span>}
+            {tabError === 'deleted' && <span className="page-card__size">{t('pages.deleted')}</span>}
+            {tabError === 'failed' && <button type="button" className="page-card__btn" onClick={openTab}>{t('pages.loadFailed')}</button>}
             <button type="button" className="page-card__btn" onClick={openFull}>{t('pages.fullscreen')}</button>
             <button type="button" className="page-card__btn" onClick={openTab}>{t('pages.newTab')}</button>
             <button type="button" className="page-card__btn" onClick={() => setLive(null)}>{t('pages.close')}</button>
@@ -177,7 +185,6 @@ export function PageCard({ pageId, localId, page: given }: { pageId: string; loc
           <button type="button" className="page-card__btn" onClick={() => setLive(page.id)}>{t('pages.view')}</button>
         </div>
       )}
-      {full && <PageFullscreen page={page} onClose={() => setFull(false)} />}
     </div>
   )
 }

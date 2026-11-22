@@ -9,6 +9,7 @@ vi.mock('../pages/api', async (orig) => ({ ...(await orig<typeof import('../page
 
 import { viewPage } from '../pages/api'
 import { PageCard } from '../components/PageCard'
+import { PageFullscreen, PageFullscreenHost } from '../components/PageFullscreen'
 import { MessageBlock } from '../components/MessageBlock'
 import { ChatView } from '../components/ChatView'
 import { applyPagesWsMessage, usePagesStore } from '../pages/pagesStore'
@@ -72,7 +73,7 @@ beforeEach(() => {
   tok = 0
   view.mockReset()
   view.mockImplementation(async (id: string) => ({ url: urlOf(id, ++tok) }))
-  usePagesStore.setState({ byLocal: {}, byId: {}, livePageId: null })
+  usePagesStore.setState({ byLocal: {}, byId: {}, livePageId: null, fullPageId: null })
 })
 afterEach(() => {
   cleanup()
@@ -198,7 +199,7 @@ describe('PageCard', () => {
 
   it('tela cheia: token novo, o cartão volta a parado, Esc fecha', async () => {
     usePagesStore.setState({ byId: { [PG1]: page(PG1) } })
-    const { container } = render(<PageCard pageId={PG1} localId="a" />)
+    const { container } = render(<><PageCard pageId={PG1} localId="a" /><PageFullscreenHost /></>)
     fireEvent.click(screen.getByRole('button', { name: 'Ver página' }))
     tela(true)
     await frameUrl(container)
@@ -214,11 +215,12 @@ describe('PageCard', () => {
     within(container).getByRole('button', { name: 'Ver página' })
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).toBeNull()
+    expect(usePagesStore.getState().fullPageId).toBeNull()
   })
 
   it('tela cheia: o ✕ fecha', async () => {
     usePagesStore.setState({ byId: { [PG1]: page(PG1) } })
-    render(<PageCard pageId={PG1} localId="a" />)
+    render(<><PageCard pageId={PG1} localId="a" /><PageFullscreenHost /></>)
     fireEvent.click(screen.getByRole('button', { name: 'Ver página' }))
     tela(true)
     await frameUrl()
@@ -241,6 +243,7 @@ describe('PageCard', () => {
   })
 
   it('404 no view: Página apagada; 500: Não carregou com tentar de novo', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     usePagesStore.setState({ byId: { [PG1]: page(PG1, 'a', { title: 'Um' }), [PG2]: page(PG2, 'a', { title: 'Dois' }) } })
     view.mockRejectedValueOnce(httpError(404))
     const { unmount } = render(<PageCard pageId={PG1} localId="a" />)
@@ -258,6 +261,51 @@ describe('PageCard', () => {
     expect(frameIn()).toBeNull()
     fireEvent.click(retry)
     expect((await frameUrl()).getAttribute('src')).toMatch(/^\/api\/pages\/view\/pg_0000000000000002\//)
+    // O 404 é a página apagada, sem aviso; o 500 avisa no console.
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[páginas] o endereço da página não veio', PG2, expect.objectContaining({ status: 500 }))
+  })
+
+  it('nova aba que falha: "Não carregou — tentar de novo" é botão, tenta de novo e some quando a aba abre', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    usePagesStore.setState({ byId: { [PG1]: page(PG1) } })
+    const { container } = render(<PageCard pageId={PG1} localId="a" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ver página' }))
+    tela(true)
+    await frameUrl(container)
+    view.mockRejectedValueOnce(httpError(500))
+    fireEvent.click(screen.getByRole('button', { name: 'Nova aba' }))
+    const retry = await within(container).findByRole('button', { name: 'Não carregou — tentar de novo' })
+    expect(open).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith('[páginas] a nova aba não abriu', PG1, expect.objectContaining({ status: 500 }))
+    fireEvent.click(retry)
+    await waitFor(() => expect(open).toHaveBeenCalledWith(urlOf(PG1, 2), '_blank', 'noopener,noreferrer'))
+    expect(within(container).queryByRole('button', { name: 'Não carregou — tentar de novo' })).toBeNull()
+  })
+
+  it('tela cheia prende o Tab: o foco entra no diálogo; Shift+Tab vai à página, Tab nela volta ao ✕; quem sai do fim da página cai de volta no ✕', async () => {
+    const onClose = vi.fn()
+    render(<><textarea aria-label="campo do chat" /><PageFullscreen page={page(PG1)} onClose={onClose} /></>)
+    const dialog = screen.getByRole('dialog')
+    const f = await frameUrl(dialog)
+    const x = within(dialog).getByRole('button', { name: 'Fechar tela cheia' })
+    expect(document.activeElement).toBe(dialog)
+    expect(fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })).toBe(false)
+    expect(document.activeElement).toBe(f)
+    expect(fireEvent.keyDown(f, { key: 'Tab' })).toBe(false)
+    expect(document.activeElement).toBe(x)
+    expect(fireEvent.keyDown(x, { key: 'Tab', shiftKey: true })).toBe(false)
+    expect(document.activeElement).toBe(f)
+    // O Tab de dentro da página não passa pelo diálogo: o foco sai do iframe
+    // para o próximo da janela, a guarda logo depois do diálogo, que o devolve ao ✕.
+    const guard = document.querySelector<HTMLElement>('[data-focus-guard]')
+    expect(guard).not.toBeNull()
+    act(() => guard!.focus())
+    expect(document.activeElement).toBe(x)
+    expect(screen.getByLabelText('campo do chat')).not.toBe(document.activeElement)
+    fireEvent.keyDown(x, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('id fora da lista da conversa: busca por id; 404 vira Página indisponível', async () => {
@@ -307,6 +355,99 @@ function setupChat(chat: Record<string, ChatItem[]>, lists: Record<string, Visua
 const renderChat = () => renderComJanela(<WsContext.Provider value={{ send: vi.fn() }}><ChatView /></WsContext.Provider>)
 
 describe('PageCard no ChatView', () => {
+  it('conversa aberta: o cartão da chamada espera a lista e não busca a página pelo id', async () => {
+    setupChat(
+      { a: [{ kind: 'user_text', text: 'faça', key: 'a0' }, call('a1', shown(PG1))] },
+      { a: [page(PG1, 'a', { title: 'Página A' })] },
+    )
+    // A lista demora (como na rede): o cartão monta antes dela chegar.
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    const fetch = vi.mocked(globalThis.fetch)
+    const base = fetch.getMockImplementation()!
+    fetch.mockImplementation(async (url, init) => {
+      if (String(url) === '/api/sessions/a/pages') await gate
+      return base(url, init)
+    })
+    renderChat()
+    await screen.findByText('Carregando página…')
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+    await act(async () => { release() })
+    await screen.findByText('Página A')
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+    const urls = fetch.mock.calls.map(([u]) => String(u))
+    expect(urls).toContain('/api/sessions/a/pages')
+    expect(urls).not.toContain(`/api/pages/${PG1}`)
+  })
+
+  it('tela cheia fora da lista virtual: o cartão sai da conversa e a tela cheia fica, com o mesmo token', async () => {
+    setupChat(
+      { a: [{ kind: 'user_text', text: 'faça', key: 'a0' }, call('a1', shown(PG1)), { kind: 'assistant_text', text: 'feito', key: 'a2' }] },
+      { a: [page(PG1, 'a', { title: 'Página A' })] },
+    )
+    renderChat()
+    await screen.findByText('Página A')
+    fireEvent.click(within(cardOf('Página A')).getByText('Ver página'))
+    tela(true)
+    await frameUrl(cardOf('Página A'))
+    fireEvent.click(within(cardOf('Página A')).getByText('Tela cheia'))
+    expect(usePagesStore.getState().livePageId).toBeNull()
+    const dialog = await screen.findByRole('dialog')
+    expect((await frameUrl(dialog)).getAttribute('src')).toBe(urlOf(PG1, 2))
+
+    // A lista virtual desmonta o cartão (aqui, a conversa troca de trecho).
+    act(() => useStore.setState({ chat: { a: [{ kind: 'user_text', text: 'outra coisa', key: 'z0' }] } }))
+    await waitFor(() => expect(document.querySelectorAll('.page-card')).toHaveLength(0))
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(frameIn(dialog)!.getAttribute('src')).toBe(urlOf(PG1, 2))
+    expect(view).toHaveBeenCalledTimes(2)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(usePagesStore.getState().fullPageId).toBeNull()
+  })
+
+  it('tela cheia aberta quando a página passa do fim do turno ao lugar da chamada: continua aberta, sem token novo', async () => {
+    const items: ChatItem[] = [
+      { kind: 'user_text', text: 'faça o gráfico', key: 'k0' },
+      call('k1'),
+      { kind: 'assistant_text', text: 'pronto, está aí', key: 'k2' },
+    ]
+    setupChat({ a: items }, { a: [] }, 'working')
+    renderChat()
+    await screen.findByText('pronto, está aí')
+    await waitFor(() => expect(usePagesStore.getState().byLocal.a).toEqual([]))
+    act(() => applyPagesWsMessage(event(page(PG1, 'a', { title: 'Gráfico vivo', turnId: 7, turnKey: turnKey('faça o gráfico') }))))
+    await screen.findByText('Gráfico vivo')
+    tela(true)
+    await frameUrl(cardOf('Gráfico vivo'))
+    fireEvent.click(within(cardOf('Gráfico vivo')).getByText('Tela cheia'))
+    const dialog = await screen.findByRole('dialog')
+    expect((await frameUrl(dialog)).getAttribute('src')).toBe(urlOf(PG1, 2))
+
+    act(() => useStore.setState({ chat: { a: [items[0], call('k1', shown(PG1)), items[2]] } }))
+    await waitFor(() => expect(document.querySelector<HTMLElement>('.page-card')!.closest<HTMLElement>('.chat-entry')!.dataset.key).toBe('k1'))
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(frameIn(dialog)!.getAttribute('src')).toBe(urlOf(PG1, 2))
+    expect(view).toHaveBeenCalledTimes(2)
+  })
+
+  it('trocar de terminal fecha a tela cheia', async () => {
+    setupChat(
+      { a: [{ kind: 'user_text', text: 'faça', key: 'a0' }, call('a1', shown(PG1))],
+        b: [{ kind: 'user_text', text: 'outro', key: 'b0' }] },
+      { a: [page(PG1, 'a', { title: 'Página A' })], b: [] },
+    )
+    renderChat()
+    await screen.findByText('Página A')
+    fireEvent.click(within(cardOf('Página A')).getByText('Ver página'))
+    fireEvent.click(within(cardOf('Página A')).getByText('Tela cheia'))
+    await screen.findByRole('dialog')
+    act(() => useStore.setState({ activeLocalId: 'b' }))
+    await screen.findByText('outro')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(usePagesStore.getState().fullPageId).toBeNull()
+  })
+
   it('visual_page ao vivo do terminal ativo monta sozinho; de outro terminal fica parado; trocar de terminal descarrega', async () => {
     setupChat(
       { a: [{ kind: 'user_text', text: 'faça', key: 'a0' }, call('a1', shown(PG1))],

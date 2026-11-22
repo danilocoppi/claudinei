@@ -5,18 +5,26 @@ import type { VisualPageDto } from '../../../shared/visual-pages'
 
 /**
  * Respostas visuais: as páginas de cada conversa (por `localId`), as buscadas
- * pelo id (chamada `show_page` cuja página não está na lista) e a página viva,
- * a única com iframe montado.
+ * pelo id (chamada `show_page` cuja página não está na lista), a página viva,
+ * a única com iframe montado no chat, e a aberta em tela cheia.
  */
 interface PagesState {
   byLocal: Record<string, VisualPageDto[] | undefined>
   byId: Record<string, VisualPageDto | 'unavailable' | undefined>
   livePageId: string | null
+  /**
+   * A página em tela cheia. Fica aqui, e não no cartão, porque a tela cheia é
+   * desenhada fora da lista virtual (`PageFullscreenHost`): o cartão pode
+   * desmontar (saiu da margem da lista, mudou de lugar) com ela aberta.
+   */
+  fullPageId: string | null
   /** A última carga vence (contador por localId, como o undoStore). */
   load(localId: string): Promise<void>
   /** 403 (sem acesso) e 404 (apagada) viram 'unavailable'; outra falha lança e não marca nada. */
   fetchOne(id: string): Promise<void>
   setLive(id: string | null): void
+  /** Abre (ou fecha, com null) a tela cheia; a página aberta deixa de ser a viva, que tem o próprio iframe. */
+  setFull(id: string | null): void
 }
 
 // Carga em voo por localId: o número da última e as páginas que chegaram pelo
@@ -25,6 +33,17 @@ const loadSeq: Record<string, number> = {}
 const pendingPages: Record<string, VisualPageDto[] | undefined> = {}
 // Busca pelo id em voo: o mesmo cartão redesenhado não dispara outra.
 const fetching = new Map<string, Promise<void>>()
+// A carga da lista em voo por localId (a última).
+const loading: Record<string, Promise<void> | undefined> = {}
+
+/**
+ * Espera a carga em voo da lista de `localId`, se houver, sem lançar. O cartão
+ * de uma chamada `show_page` espera por ela antes de buscar a página pelo id:
+ * ao abrir a conversa, a lista quase sempre a traz.
+ */
+export function pageListSettled(localId: string): Promise<void> {
+  return (loading[localId] ?? Promise.resolve()).catch(() => {})
+}
 
 /** A página entra no fim da lista, se ainda não estiver nela. */
 function appendPage(list: VisualPageDto[], page: VisualPageDto): VisualPageDto[] {
@@ -38,30 +57,37 @@ export const usePagesStore = create<PagesState>((set) => ({
   byLocal: {},
   byId: {},
   livePageId: null,
+  fullPageId: null,
 
-  async load(localId) {
+  load(localId) {
     const seq = (loadSeq[localId] ?? 0) + 1
     loadSeq[localId] = seq
     pendingPages[localId] = []
-    let pages: VisualPageDto[]
-    try {
-      const body: unknown = await listPages(localId)
-      // Corpo torto vira conversa sem páginas em vez de derrubar o chat.
-      pages = Array.isArray(body) ? body.filter(isPage) : []
-    } catch (e) {
-      // Uma carga mais nova assumiu: o erro desta não interessa mais.
+    const run = (async () => {
+      let pages: VisualPageDto[]
+      try {
+        const body: unknown = await listPages(localId)
+        // Corpo torto vira conversa sem páginas em vez de derrubar o chat.
+        pages = Array.isArray(body) ? body.filter(isPage) : []
+      } catch (e) {
+        // Uma carga mais nova assumiu: o erro desta não interessa mais.
+        if (loadSeq[localId] !== seq) return
+        pendingPages[localId] = undefined
+        throw e
+      }
       if (loadSeq[localId] !== seq) return
+      for (const p of pendingPages[localId] ?? []) pages = appendPage(pages, p)
       pendingPages[localId] = undefined
-      throw e
-    }
-    if (loadSeq[localId] !== seq) return
-    for (const p of pendingPages[localId] ?? []) pages = appendPage(pages, p)
-    pendingPages[localId] = undefined
-    set(s => {
-      const byId = { ...s.byId }
-      for (const p of pages) byId[p.id] = p
-      return { byLocal: { ...s.byLocal, [localId]: pages }, byId }
-    })
+      set(s => {
+        const byId = { ...s.byId }
+        for (const p of pages) byId[p.id] = p
+        return { byLocal: { ...s.byLocal, [localId]: pages }, byId }
+      })
+    })()
+    loading[localId] = run
+    const done = () => { if (loading[localId] === run) loading[localId] = undefined }
+    run.then(done, done)
+    return run
   },
 
   fetchOne(id) {
@@ -85,6 +111,10 @@ export const usePagesStore = create<PagesState>((set) => ({
 
   setLive(id) {
     set({ livePageId: id })
+  },
+
+  setFull(id) {
+    set(s => (id !== null && s.livePageId === id ? { fullPageId: id, livePageId: null } : { fullPageId: id }))
   },
 }))
 

@@ -48,7 +48,8 @@ export function useDialogKeys(ref: RefObject<HTMLElement | null>, onClose: () =>
   }, [ref])
 }
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+// `iframe`: a página em tela cheia (respostas visuais) é uma parada do Tab.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])'
 
 /**
  * Prende o Tab no diálogo: no último focável volta ao primeiro; Shift+Tab no

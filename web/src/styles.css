@@ -1697,7 +1697,10 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
    O que sobra para a interface é DIZER que soltou, e oferecer o caminho de volta
    num clique. Some sozinho quando a rolagem volta: um botão que fica na tela
    depois de cumprido vira ruído. */
-.chat-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.chat-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; container-type: size; container-name: chat-scroll; }
+/* Conversa espremida (ex.: pergunta do agente ocupando a tela do celular): o
+   "ir para o fim" não tem onde ficar e flutuaria sobre as abas do motor. */
+@container chat-scroll (max-height: 90px) { .chat-scroll-wrap > .chat-tofoot { display: none; } }
 /* A caixa de rolagem é a da lista virtual (react-virtuoso), que já traz o
    overflow. Nada de padding vertical nela: a conta de "rolar até o fim" da lista
    não o enxerga e deixaria o fim do rodapé de fora. O recuo lateral vai na
@@ -2190,7 +2193,7 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
    tingido, corpo, rodapé — para ler como "o agente parou para perguntar", e não
    como mais um aviso. O foco visual é a pergunta; cabeçalho e rodapé ficam quietos. */
 .qpanel {
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; min-height: 0; flex: 0 1 auto;
   margin: 8px 20px 0; padding: 0; border-radius: var(--radius-lg); overflow: hidden;
   background: color-mix(in srgb, var(--surface-solid) 90%, var(--accent));
   border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
@@ -2216,7 +2219,14 @@ button.usage-info-btn:hover { color: var(--accent); filter: none; background: tr
   padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface-solid) 60%, transparent);
 }
-.qpanel__body { display: flex; flex-direction: column; gap: 10px; padding: calc(12px * var(--density)) 14px; }
+.qpanel__body {
+  display: flex; flex-direction: column; gap: 10px; padding: calc(12px * var(--density)) 14px;
+  /* Pergunta mais alta que a tela (celular): o painel encolhe e só o corpo rola;
+     cabeçalho e rodapé (com o botão de responder) ficam sempre à vista. Sem
+     isso o corpo era cortado pelo overflow do painel e o rodapé saía da tela. */
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+}
+.qpanel__head, .qpanel__foot { flex: none; }
 /* Passos: as perguntas SÃO uma sequência, daí o número; ✓ toma o lugar dele na respondida. */
 .qpanel__tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .qpanel__tab {

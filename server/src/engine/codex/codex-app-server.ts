@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
+import { withMarker } from '../../local-servers/marker.js'
 
 export interface CodexMetadataSnapshot {
   models?: unknown[]
@@ -19,7 +20,8 @@ export function readCodexMetadata(opts: {
   return new Promise((resolve) => {
     const proc = spawn(opts.bin ?? process.env.CLAUDINEI_CODEX_BIN ?? 'codex', opts.args ?? ['app-server'], {
       cwd: homedir(), stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
-      env: { ...process.env, PKG_EXECPATH: '' },
+      // Consulta de metadados, fora de terminal: nunca herda o marcador do serviço.
+      env: withMarker({ ...process.env, PKG_EXECPATH: '' }, undefined),
     })
     const snapshot: CodexMetadataSnapshot = {}
     const pending = new Map<number, string>([[0, 'initialize']])

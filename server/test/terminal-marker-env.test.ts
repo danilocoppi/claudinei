@@ -32,7 +32,18 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...real, spawn, default: { ...real, spawn } }
 })
 
+// O node-pty de mentira: só anota o que o pty receberia (nada é aberto).
+const ptySpawns: Array<{ file: string; env: Record<string, string> }> = []
+vi.mock('node-pty', () => ({
+  spawn: (file: string, _args: unknown, opts: { env: Record<string, string> }) => {
+    ptySpawns.push({ file, env: opts.env })
+    return { onData() {}, onExit() {}, write() {}, resize() {}, kill() {} }
+  },
+}))
+
 const { ClaudeSession } = await import('../src/claude/session.js')
+const { nodePtyFactory } = await import('../src/terminal/pty.js')
+const { readCodexMetadata } = await import('../src/engine/codex/codex-app-server.js')
 const { claudeEngine } = await import('../src/engine/claude-engine.js')
 const { CodexSession } = await import('../src/engine/codex/codex-session.js')
 const { KimiSession } = await import('../src/engine/kimi/kimi-session.js')
@@ -61,6 +72,7 @@ beforeEach(() => {
   // O serviço tem um marcador próprio: nenhuma CLI pode herdá-lo.
   process.env.CLAUDINEI_TERMINAL = '1:fora'
   spawns.length = 0
+  ptySpawns.length = 0
 })
 
 afterEach(async () => {
@@ -207,5 +219,28 @@ describe('marcador na conversa lateral', () => {
     expect(made).toHaveLength(1)
     expect(made[0].terminalMarker).toBe(`${project.id}:${engine}`)
     await svc.close(project.id, engine, { shutdown: true })
+  })
+})
+
+describe('o marcador do serviço não vaza para o que não é terminal', () => {
+  it('pty sem marcador (o das ações): o CLAUDINEI_TERMINAL do serviço não chega', () => {
+    // O env que a rota das ações passa: aditivo, sem marcador.
+    nodePtyFactory('bash', ['-lic', 'npm run dev'], { cwd: tmp, cols: 80, rows: 24, env: { LD_LIBRARY_PATH: '' } })
+    expect(ptySpawns).toHaveLength(1)
+    expect('CLAUDINEI_TERMINAL' in ptySpawns[0].env).toBe(false)
+    expect(ptySpawns[0].env.LD_LIBRARY_PATH).toBe('')
+    expect(ptySpawns[0].env.CODEX_HOME).toBe(process.env.CODEX_HOME)
+  })
+
+  it('pty do terminal interativo: o marcador que o env traz vale', () => {
+    nodePtyFactory('claude', [], { cwd: tmp, cols: 80, rows: 24, env: { CLAUDINEI_TERMINAL: '4:claude' } })
+    expect(ptySpawns[0].env.CLAUDINEI_TERMINAL).toBe('4:claude')
+  })
+
+  it('consulta de metadados do Codex: sem o marcador do serviço', async () => {
+    await readCodexMetadata({ bin: 'codex-falso', timeoutMs: 20 })
+    expect(spawns).toHaveLength(1)
+    expect('CLAUDINEI_TERMINAL' in spawns[0].env).toBe(false)
+    expect(spawns[0].env.PKG_EXECPATH).toBe('')
   })
 })

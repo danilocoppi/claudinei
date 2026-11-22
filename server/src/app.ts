@@ -61,6 +61,7 @@ import { createUndo, type Undo } from './undo/index.js'
 import { registerUndoRoutes } from './routes/undo.js'
 import type { BrowserHost } from './browser/host.js'
 import { createBrowserFeature, type BrowserFeature } from './browser/feature.js'
+import { registerLocalServerRoutes } from './local-servers/routes.js'
 
 export interface AppDeps {
   config: Config
@@ -409,6 +410,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerUsageReportRoutes(app, { db: deps.db, usageIndexer: deps.usageIndexer })
   if (deps.terminalManager) registerTerminalRoutes(app, { manager: deps.manager, terminalManager: deps.terminalManager })
   if (deps.wsHub) deps.wsHub.register(app, { manager: deps.manager, db: deps.db })
+  // Os servidores locais de cada terminal (16): só /proc, valem com ou sem o navegador.
+  registerLocalServerRoutes(app, { db: deps.db, servicePort: deps.config.port })
   // O navegador embutido (16): rotas do hermes e do operador; o `browser_tab` passa pelo hub.
   if (deps.browserHost) {
     const browser = createBrowserFeature({ host: deps.browserHost, db: deps.db, uploadsDir: deps.config.uploadsDir, broadcast: (m) => deps.wsHub?.broadcast(m) })

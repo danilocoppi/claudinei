@@ -1,5 +1,6 @@
 import { spawn as ptySpawn, type IPty } from 'node-pty'
 import { resolveBin } from '../engine/available.js'
+import { withMarker } from '../local-servers/marker.js'
 
 export interface PtyProcess {
   onData(cb: (data: string) => void): void
@@ -23,10 +24,20 @@ export type PtyFactory = (
   opts: { cwd: string; cols: number; rows: number; env?: Record<string, string> },
 ) => PtyProcess
 
+/**
+ * O ambiente do pty. `extra` é ADITIVO (não substitui o ambiente): a engine só
+ * sobrepõe as chaves que precisa, ex.: KIMI_CODE_HOME do projeto. O marcador do
+ * terminal (`CLAUDINEI_TERMINAL`) nunca vem do serviço: só vale o que `extra`
+ * trouxer. Sem isso, uma instância aberta de dentro de um terminal do Claudinei
+ * passaria o marcador DELA aos servidores que uma ação sobe, e eles apareceriam
+ * (e seriam paráveis) no terminal errado.
+ */
+export function ptyEnv(extra: Record<string, string> | undefined, base: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  return { ...withMarker(base, undefined), ...extra } as Record<string, string>
+}
+
 export const nodePtyFactory: PtyFactory = (file, args, opts) => {
-  // opts.env é ADITIVO (não substitui o ambiente): a engine só sobrepõe as
-  // chaves que precisa, ex.: KIMI_CODE_HOME do projeto.
-  const env = { ...process.env, ...opts.env } as Record<string, string>
+  const env = ptyEnv(opts.env)
   // Só no Windows: o ConPTY NÃO procura no PATH — nome nu vira caminho vazio e o
   // spawn morre com "File not found: " (sem nome depois dos dois-pontos, que é o
   // sintoma). Resolvemos com o MESMO env que o processo vai receber. Em

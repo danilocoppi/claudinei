@@ -23,8 +23,8 @@ aprovação do Danilo para integrar, instalar e reiniciar. A ordem foi aprovada.
 | 12 | Goals | `/goal`: o agente segue até cumprir o critério de pronto | médio | entregue |
 | 13 | Página de uso | Tokens, economia com cache, custo estimado, por modelo e período | médio | entregue |
 | 14 | Atalhos configuráveis | Atalhos editáveis, com detecção de conflito | médio | entregue |
-| 15 | Respostas visuais | O agente responde com página HTML em sandbox (e MCP Apps) | médio | — |
-| 16 | Navegador embutido | O agente navega e o operador vê, anota e manda o recorte ao chat; servidores locais com Parar | grande | — |
+| 15 | Respostas visuais | O agente responde com página HTML em sandbox (e MCP Apps) | médio | entregue |
+| 16 | Navegador embutido | O agente navega e o operador vê, anota e manda o recorte ao chat; servidores locais com Parar | grande | entregue |
 
 ## Limites já conhecidos
 

@@ -13,6 +13,24 @@ import type { ChatItem, ClaudeEvent, EngineMeta, HistoryPage, SessionInfo } from
  * operador é simulada plantando `scrollTop`/`scrollHeight` na caixa e
  * disparando `scroll`, como faz o navegador.
  */
+/**
+ * A lista também solta o fim sem `scroll`: no navegador, o conteúdo que cresce
+ * abaixo da tela (um grupo de ações que abre) faz a lista avisar que a tela
+ * saiu do fim. O jsdom não tem layout para isso acontecer; a lista de verdade
+ * continua sendo usada, e o teste só guarda o aviso (`atBottomStateChange`)
+ * que a ChatView entregou a ela, para dá-lo como a lista daria.
+ */
+const lista = vi.hoisted(() => ({ avisaFim: null as ((noFim: boolean) => void) | null }))
+vi.mock('react-virtuoso', async (original) => {
+  const m = await original<typeof import('react-virtuoso')>()
+  const { forwardRef, createElement } = await import('react')
+  const Virtuoso = forwardRef<unknown, { atBottomStateChange?: (noFim: boolean) => void }>((props, ref) => {
+    lista.avisaFim = props.atBottomStateChange ?? null
+    return createElement(m.Virtuoso as never, { ...props, ref })
+  })
+  return { ...m, Virtuoso }
+})
+
 const CLAUDE: EngineMeta = {
   id: 'claude', label: 'Claude Code', icon: 'claude', models: [''], efforts: ['auto'],
   permissions: ['default'], slashSource: 'protocol', slashCommands: [],
@@ -483,6 +501,24 @@ describe('a largura da rolagem que muda', () => {
     redimensiona(800)
     g.medir(6400, 800)
     redimensiona(800, ALTURA_JANELA - 100)
+    expect(g.top()).toBe(6000 - ALTURA_JANELA)
+  })
+
+  it('a lista que soltou o fim sem rolagem não volta a prender quando a largura muda', async () => {
+    preparar(conversa(100))
+    await montar()
+    const g = geometria(6000 - ALTURA_JANELA, 6000, 800)
+    fireEvent.scroll(caixa())
+    redimensiona(800)
+    // O operador, no fim, abre um grupo de ações: a conversa cresce abaixo da
+    // tela sem nenhum `scroll`, e a lista avisa que a tela saiu do fim.
+    g.medir(6400, 800)
+    act(() => lista.avisaFim!(false))
+    expect(screen.getByTestId('chat-tofoot')).toBeTruthy()
+    // A coluna abre em seguida: quem lia o grupo aberto fica onde estava.
+    g.medir(7000, 500)
+    fireEvent.scroll(caixa())
+    redimensiona(500)
     expect(g.top()).toBe(6000 - ALTURA_JANELA)
   })
 

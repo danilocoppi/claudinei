@@ -360,6 +360,13 @@ export function ChatView() {
     // `scroll` que o próprio reflow provoca (a posição presa no limite, a
     // ancoragem do navegador) já chega na largura nova e não pode apagar o que
     // valia antes. A lista abre no fim, daí o `true` de partida.
+    //
+    // O `scroll` sozinho não basta: o conteúdo que cresce abaixo da tela sem
+    // rolar (um grupo de ações que o operador abre no fim) solta a lista — o
+    // botão "ir para o fim" aparece — sem nenhum `scroll`, e `noFim` seguiria
+    // valendo. Por isso a lista também precisa estar presa (`followingRef`).
+    // O aviso dela chega em lotes de 50 ms e passa por um render, então no
+    // instante da mudança de largura `followingRef` ainda é o de antes dela.
     let largura: number | undefined
     let noFim = true
     const rolou = () => {
@@ -374,7 +381,7 @@ export function ChatView() {
       if (largura === undefined) { largura = w; return }
       if (w === largura) return
       largura = w
-      if (noFim) el.scrollTop = el.scrollHeight
+      if (noFim && followingRef.current) el.scrollTop = el.scrollHeight
     })
     el.addEventListener('scroll', rolou, opts)
     observador.observe(el)
@@ -387,7 +394,8 @@ export function ChatView() {
       observador.disconnect()
     }
   }, [])
-  // A lista pode sair sem avisar o `scrollerRef`: a desmontagem solta o que ficou.
+  // Garantia redundante: a lista já chama `scrollerRef(null)` ao desmontar, o
+  // que solta tudo acima; se um dia deixar de chamar, a desmontagem solta aqui.
   useEffect(() => () => { soltarGestos.current?.(); soltarGestos.current = null }, [])
 
   /**

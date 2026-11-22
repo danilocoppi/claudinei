@@ -6,7 +6,7 @@
 // e as ferramentas da própria CLI (servidores MCP, LSP), veja `ownedByClaudinei`.
 import { realpathSync } from 'node:fs'
 import { basename, resolve, sep } from 'node:path'
-import { ENGINES_FILTERING_ENV, terminalMarker } from './marker.js'
+import { ENGINES_FILTERING_ENV, markerInstance, terminalMarker } from './marker.js'
 import {
   listPids, listeningSockets, processLabel, readCmdline, readCwd, readMarker, readStat, socketOwners, type ProcStat,
 } from './proc.js'
@@ -141,6 +141,8 @@ export interface ServerScannerOptions {
   now?: () => number
   /** Motores que filtram o ambiente (padrão `ENGINES_FILTERING_ENV`); o teste injeta. */
   filteringEngines?: ReadonlySet<string>
+  /** O id da instância (padrão `markerInstance()`, lido a cada varredura); o teste injeta. */
+  instance?: string
 }
 
 export function createServerScanner(o: ServerScannerOptions): {
@@ -153,6 +155,7 @@ export function createServerScanner(o: ServerScannerOptions): {
   const ttlMs = o.ttlMs ?? 2000
   const now = o.now ?? Date.now
   const filtering = o.filteringEngines ?? ENGINES_FILTERING_ENV
+  const inst = () => o.instance ?? markerInstance()
   /** As pastas de projeto já pedidas por um motor do plano B (o caminho real). */
   const cwdRoots = new Set<string>()
   let cache: { at: number; seen: Seen[]; roots: ReadonlySet<string> } | null = null
@@ -161,13 +164,16 @@ export function createServerScanner(o: ServerScannerOptions): {
     const sockets = listeningSockets(procRoot).filter((s) => s.port !== o.servicePort)
     if (sockets.length === 0) return []
     // Antes do `fd/` (a parte cara: um readlink por fd de cada processo), o
-    // filtro barato: só pode entrar quem tem o marcador, com qualquer valor,
-    // ou, no plano B, quem não tem nenhum e trabalha numa pasta pedida.
+    // filtro barato: só pode entrar quem tem o marcador desta instância, de
+    // qualquer terminal, ou, no plano B, quem não tem nenhum e trabalha numa
+    // pasta pedida. Marcador de outra instância, ou o antigo sem id, fica fora
+    // (nem pelo plano B: tem marcador, só não é desta).
+    const mine = `${inst()}:`
     const markers = new Map<number, string | null>()
     const cwds = new Map<number, string>()
     for (const pid of listPids(procRoot)) {
       const marker = readMarker(procRoot, pid)
-      if (marker !== null) { markers.set(pid, marker); continue }
+      if (marker !== null) { if (marker.startsWith(mine)) markers.set(pid, marker); continue }
       if (roots.size === 0) continue
       const cwd = readCwd(procRoot, pid)
       if (cwd !== null && [...roots].some((r) => isInside(r, cwd))) { markers.set(pid, null); cwds.set(pid, cwd) }
@@ -217,7 +223,7 @@ export function createServerScanner(o: ServerScannerOptions): {
 
   return {
     forTerminal(projectId, engine, projectPath) {
-      const marker = terminalMarker(projectId, engine)
+      const marker = terminalMarker(projectId, engine, inst())
       const byCwd = filtering.has(engine)
       // O `cwd` do /proc é o caminho real: a pasta do projeto também, se for um link.
       let root = projectPath
@@ -225,7 +231,7 @@ export function createServerScanner(o: ServerScannerOptions): {
       const out: LocalServer[] = []
       for (const s of current(byCwd ? root : undefined)) {
         const base = { pid: s.pid, port: s.port, host: s.host, label: s.label, startTime: s.startTime }
-        // O marcador conta só se for exatamente o do terminal: `4:claude` ≠ `42:claude`.
+        // O marcador conta só se for exatamente o do terminal nesta instância: `…:4:claude` ≠ `…:42:claude`.
         if (s.marker === marker) out.push({ ...base, marker: 'exact' })
         else if (byCwd && s.marker === null && s.cwd !== null && isInside(root, s.cwd)) out.push({ ...base, marker: 'cwd' })
       }

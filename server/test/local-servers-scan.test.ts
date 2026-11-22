@@ -20,7 +20,11 @@ vi.mock('node:fs', async (importOriginal) => {
 
 const SELF = 100
 const SERVICE_PORT = 9105
-const mark = (m: string) => ({ CLAUDINEI_TERMINAL: m, PATH: '/usr/bin' })
+// A instância desta varredura e a de outra (a de ensaio, ou a produção vista do ensaio).
+const INST = 'aaaaaaaaaaaa'
+const OUTRA = 'bbbbbbbbbbbb'
+/** O marcador desta instância para `<projeto>:<motor>`. */
+const mark = (m: string) => ({ CLAUDINEI_TERMINAL: `${INST}:${m}`, PATH: '/usr/bin' })
 
 let fp: FakeProcRoot
 let project: string
@@ -40,7 +44,7 @@ afterEach(() => {
 })
 
 const scanner = (extra: Partial<Parameters<typeof createServerScanner>[0]> = {}) =>
-  createServerScanner({ procRoot: fp.root, selfPid: SELF, servicePort: SERVICE_PORT, ...extra })
+  createServerScanner({ procRoot: fp.root, selfPid: SELF, servicePort: SERVICE_PORT, instance: INST, ...extra })
 
 describe('leitura do /proc', () => {
   it('lê só os sockets em LISTEN, do tcp e do tcp6, com host legível', () => {
@@ -112,6 +116,24 @@ describe('varredura dos servidores do terminal', () => {
     expect(s.forTerminal(4, 'claude', project).map((x) => x.pid)).toEqual([301])
     expect(s.forTerminal(42, 'claude', project).map((x) => x.pid)).toEqual([300])
     expect(s.forTerminal(4, 'codex', project)).toEqual([])
+  })
+
+  it('o servidor de outra instância e o do marcador antigo (sem id) ficam fora, e o fd/ deles não é lido', () => {
+    fp.proc({ pid: 300, ppid: 1, env: { CLAUDINEI_TERMINAL: `${OUTRA}:4:claude` }, cwd: project })
+    fp.listen(300, 5173)
+    fp.proc({ pid: 301, ppid: 1, env: { CLAUDINEI_TERMINAL: '4:claude' }, cwd: project })
+    fp.listen(301, 5174)
+    fp.proc({ pid: 302, ppid: 1, env: mark('4:claude') })
+    fp.listen(302, 5175)
+    fsLog.readdirs.length = 0
+    expect(scanner().forTerminal(4, 'claude', project).map((x) => x.pid)).toEqual([302])
+    const fdDirs = fsLog.readdirs.filter((d) => d.endsWith('/fd')).map((d) => Number(d.split('/').at(-2)))
+    expect(fdDirs).toEqual([302])
+    // A outra instância vê o dela, e só o dela.
+    expect(scanner({ instance: OUTRA }).forTerminal(4, 'claude', project).map((x) => x.pid)).toEqual([300])
+    // Nem pelo plano B: marcador de outra instância não é "sem marcador".
+    const b = scanner({ filteringEngines: new Set(['claude']) })
+    expect(b.forTerminal(4, 'claude', project).map((x) => x.pid)).toEqual([302])
   })
 
   /**

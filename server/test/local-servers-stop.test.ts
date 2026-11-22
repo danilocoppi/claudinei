@@ -17,7 +17,9 @@ vi.mock('node:fs', async (importOriginal) => {
 // Nenhum sinal de verdade sai daqui: o `kill` é um dublê que só anota, e o
 // /proc é uma pasta temporária.
 const SELF = 100
-const MARK = '4:claude'
+// O marcador do terminal 4:claude desta instância; OUTRA é o mesmo terminal de outra instância.
+const MARK = 'aaaaaaaaaaaa:4:claude'
+const OUTRA = 'bbbbbbbbbbbb:4:claude'
 const env = (m: string | undefined): Record<string, string> => (m === undefined ? { PATH: '/usr/bin' } : { CLAUDINEI_TERMINAL: m, PATH: '/usr/bin' })
 
 let fp: FakeProcRoot
@@ -68,6 +70,28 @@ describe('Parar um servidor local', () => {
     fp.proc({ pid: 230, ppid: 220, pgrp: 220, startTime: '5555', env: env('42:claude') })
     await expect(stop()).rejects.toBeInstanceOf(NotSameProcessError)
     expect(calls).toEqual([])
+  })
+
+  it('marcador do mesmo terminal em outra instância, ou o antigo sem id → NotSameProcessError e nenhum kill', async () => {
+    for (const m of [OUTRA, '4:claude']) {
+      fp.proc({ pid: 230, ppid: 220, pgrp: 220, startTime: '5555', env: env(m) })
+      await expect(stop(), m).rejects.toBeInstanceOf(NotSameProcessError)
+    }
+    expect(calls).toEqual([])
+  })
+
+  it('o Parar exige o id da instância no marcador pedido: o formato antigo é recusado sem olhar o processo', async () => {
+    // Mesmo que o processo tenha exatamente esse valor antigo.
+    fp.proc({ pid: 230, ppid: 220, pgrp: 220, startTime: '5555', env: env('4:claude') })
+    await expect(stop({ marker: '4:claude' })).rejects.toBeInstanceOf(NoMarkerError)
+    expect(calls).toEqual([])
+  })
+
+  it('grupo com um membro de outra instância → só o pid', async () => {
+    fp.proc({ pid: 231, ppid: 220, pgrp: 220, env: env(OUTRA) })
+    onKill = (pid) => { if (pid === 230) fp.kill(230) }
+    expect(await settle(stop())).toEqual({ target: 'pid' })
+    expect(calls).toEqual([[230, 'SIGTERM']])
   })
 
   it('grupo todo com o mesmo marcador → kill(-pgrp, SIGTERM)', async () => {

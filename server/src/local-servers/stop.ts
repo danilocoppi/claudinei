@@ -4,6 +4,7 @@
 // CLIs e as ferramentas delas, como os servidores MCP). SIGTERM ao grupo só se todos os
 // membros tiverem o mesmo marcador; senão só ao PID. SIGKILL depois de
 // `graceMs` se ainda for o mesmo processo. Só `fs` e `process.kill`.
+import { hasInstanceId } from './marker.js'
 import { listPids, readMarker, readStat } from './proc.js'
 import { ownedByClaudinei, selfAndAncestors } from './scan.js'
 
@@ -32,7 +33,10 @@ export interface StopServerOptions {
   selfPid?: number
   pid: number
   startTime: string
-  /** O marcador do terminal (`terminalMarker`), que o processo tem de ter, exato. */
+  /**
+   * O marcador do terminal (`terminalMarker`, com o id desta instância), que o
+   * processo tem de ter, exato. Sem o id (o formato antigo), nada se para.
+   */
   marker: string
   kill?: (pid: number, sig: NodeJS.Signals) => void
   graceMs?: number
@@ -50,7 +54,7 @@ export async function stopServer(o: StopServerOptions): Promise<{ target: 'group
   const st = readStat(procRoot, o.pid)
   if (!st || st.state === 'Z' || st.startTime !== o.startTime) throw new NotSameProcessError()
   const marker = readMarker(procRoot, o.pid)
-  if (marker === null || !o.marker) throw new NoMarkerError()
+  if (marker === null || !o.marker || !hasInstanceId(o.marker)) throw new NoMarkerError()
   if (marker !== o.marker) throw new NotSameProcessError()
 
   const ancestors = selfAndAncestors(procRoot, selfPid)

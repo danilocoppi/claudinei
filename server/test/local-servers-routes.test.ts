@@ -9,6 +9,7 @@ import { COOKIE_NAME, registerAuth } from '../src/auth/plugin.js'
 import { registerAuthRoutes } from '../src/auth/routes.js'
 import { createProjectsService } from '../src/projects.js'
 import { registerLocalServerRoutes } from '../src/local-servers/routes.js'
+import { markerInstance } from '../src/local-servers/marker.js'
 import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { createSessionManager } from '../src/claude/manager.js'
@@ -56,7 +57,7 @@ beforeEach(async () => {
   adminCookie = await login('root')
   anaCookie = await login('ana')
   // Um vite do terminal p1/claude, readotado.
-  fp.proc({ pid: 300, ppid: 1, pgrp: 300, startTime: '5555', cmdline: ['node', '/x/.bin/vite'], env: { CLAUDINEI_TERMINAL: `${p1.id}:claude` } })
+  fp.proc({ pid: 300, ppid: 1, pgrp: 300, startTime: '5555', cmdline: ['node', '/x/.bin/vite'], env: { CLAUDINEI_TERMINAL: `${markerInstance()}:${p1.id}:claude` } })
   fp.listen(300, 5173)
 })
 
@@ -110,12 +111,28 @@ describe('rotas dos servidores locais', () => {
     expect((await app.inject({ method: 'GET', url: listUrl(p1.id), cookies: anaCookie })).json()).toEqual({ servers: [] })
   })
 
+  it('o servidor do mesmo terminal em outra instância, ou com o marcador antigo, não se lista nem se para', async () => {
+    fp.kill(300)
+    const outra = markerInstance() === 'bbbbbbbbbbbb' ? 'cccccccccccc' : 'bbbbbbbbbbbb'
+    fp.proc({ pid: 310, ppid: 1, pgrp: 310, startTime: '5555', env: { CLAUDINEI_TERMINAL: `${outra}:${p1.id}:claude` } })
+    fp.listen(310, 5180)
+    fp.proc({ pid: 311, ppid: 1, pgrp: 311, startTime: '5555', env: { CLAUDINEI_TERMINAL: `${p1.id}:claude` } })
+    fp.listen(311, 5181)
+    expect((await app.inject({ method: 'GET', url: listUrl(p1.id), cookies: anaCookie })).json()).toEqual({ servers: [] })
+    for (const pid of [310, 311]) {
+      const res = await app.inject({ method: 'POST', url: stopUrl(p1.id, pid), cookies: anaCookie, payload: { startTime: '5555' } })
+      expect(res.statusCode, String(pid)).toBe(409)
+      expect(res.json().code).toBe('not_same_process')
+    }
+    expect(calls).toEqual([])
+  })
+
   it('POST sem marcador → 403 no_marker; da CLI → 403 protected_process; corpo ruim → 400', async () => {
     fp.proc({ pid: 301, ppid: 1, startTime: '5555', env: { PATH: '/usr/bin' } })
     const noMarker = await app.inject({ method: 'POST', url: stopUrl(p1.id, 301), cookies: anaCookie, payload: { startTime: '5555' } })
     expect(noMarker.statusCode).toBe(403)
     expect(noMarker.json().code).toBe('no_marker')
-    fp.proc({ pid: 200, ppid: SELF, pgrp: 200, startTime: '5555', env: { CLAUDINEI_TERMINAL: `${p1.id}:claude` } })
+    fp.proc({ pid: 200, ppid: SELF, pgrp: 200, startTime: '5555', env: { CLAUDINEI_TERMINAL: `${markerInstance()}:${p1.id}:claude` } })
     const cli = await app.inject({ method: 'POST', url: stopUrl(p1.id, 200), cookies: anaCookie, payload: { startTime: '5555' } })
     expect(cli.statusCode).toBe(403)
     expect(cli.json().code).toBe('protected_process')

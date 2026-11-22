@@ -134,6 +134,12 @@ if (process.argv.includes('--hermes')) {
   // O Chromium do navegador embutido: um host só, aberto sob demanda (nada sobe aqui).
   const browserHost = createBrowserHost({ log: (l) => console.log(`[navegador] ${l}`) })
   const db = openDb(config.dbPath)
+  // O id desta instância no marcador dos terminais (`CLAUDINEI_TERMINAL`), pelo
+  // banco: a lista e o Parar dos servidores locais só veem os desta instância,
+  // nunca os de outra na mesma máquina (ver local-servers/marker.ts). Antes de
+  // qualquer sessão: o manager e as rotas leem o marcador daqui.
+  const { markerInstanceId, setMarkerInstance } = await import('./local-servers/marker.js')
+  setMarkerInstance(markerInstanceId(config.dbPath))
   const auth = createAuthService({ db, secretPath: join(dirname(config.dbPath), 'jwt-secret') })
   // O guard de exposição roda DEPOIS do openDb: authConfigured depende de já
   // haver usuários cadastrados no banco (auth.configured() consulta a tabela).

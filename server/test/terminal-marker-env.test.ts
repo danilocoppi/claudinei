@@ -52,6 +52,7 @@ const { openDb } = await import('../src/db.js')
 const { createProjectsService } = await import('../src/projects.js')
 const { createSessionManager } = await import('../src/claude/manager.js')
 const { createSideService } = await import('../src/branch/side.js')
+const { markerInstance } = await import('../src/local-servers/marker.js')
 await import('../src/engine/index.js')
 type EngineSession = import('../src/engine/types.js').EngineSession
 type EngineSessionOptions = import('../src/engine/types.js').EngineSessionOptions
@@ -167,9 +168,9 @@ describe('marcador nas sessões do manager e no terminal interativo', () => {
     return { db, project, fakes, launches, mgr }
   }
 
-  it.each(['claude', 'codex'])('%s: create, revive e relaunch passam <id>:<motor>', async (engine) => {
+  it.each(['claude', 'codex'])('%s: create, revive e relaunch passam <instância>:<id>:<motor>', async (engine) => {
     const { project, fakes, mgr } = montar()
-    const marker = `${project.id}:${engine}`
+    const marker = `${markerInstance()}:${project.id}:${engine}`
     const info = mgr.start(project, { engine })
     expect(fakes.at(-1)!.opts.terminalMarker).toBe(marker)
 
@@ -188,20 +189,20 @@ describe('marcador nas sessões do manager e no terminal interativo', () => {
     const info = mgr.start(project, { engine: 'claude' })
     await mgr.openInTerminal(info.localId)
     expect(launches).toHaveLength(1)
-    expect(launches[0].env.CLAUDINEI_TERMINAL).toBe(`${project.id}:claude`)
+    expect(launches[0].env.CLAUDINEI_TERMINAL).toBe(`${markerInstance()}:${project.id}:claude`)
   })
 
   it('openInTerminal do kimi: o env da engine (KIMI_CODE_HOME) continua junto do marcador', async () => {
     const { project, launches, mgr } = montar()
     const info = mgr.start(project, { engine: 'kimi' })
     await mgr.openInTerminal(info.localId)
-    expect(launches[0].env.CLAUDINEI_TERMINAL).toBe(`${project.id}:kimi`)
+    expect(launches[0].env.CLAUDINEI_TERMINAL).toBe(`${markerInstance()}:${project.id}:kimi`)
     expect(launches[0].env.KIMI_CODE_HOME).toBeTruthy()
   })
 })
 
 describe('marcador na conversa lateral', () => {
-  it.each(['claude', 'codex', 'kimi'])('%s: side.base leva <id>:<motor>', async (engine) => {
+  it.each(['claude', 'codex', 'kimi'])('%s: side.base leva <instância>:<id>:<motor>', async (engine) => {
     const db = openDb(':memory:')
     const project = createProjectsService(db).create({ name: 'P1', path: tmp })
     const made: EngineSessionOptions[] = []
@@ -217,7 +218,7 @@ describe('marcador na conversa lateral', () => {
     })
     await svc.open(project.id, engine, null)
     expect(made).toHaveLength(1)
-    expect(made[0].terminalMarker).toBe(`${project.id}:${engine}`)
+    expect(made[0].terminalMarker).toBe(`${markerInstance()}:${project.id}:${engine}`)
     await svc.close(project.id, engine, { shutdown: true })
   })
 })

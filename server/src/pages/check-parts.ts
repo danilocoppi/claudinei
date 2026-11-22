@@ -204,6 +204,9 @@ export function orderConsole(entries: CheckConsoleEntry[], max = CHECK_CONSOLE_M
 
 // --- Cópias temporárias --------------------------------------------------------
 
+/** O nome que o `save` dá às cópias; a varredura só apaga esses (a pasta pode guardar outros .png). */
+const SHOT_NAME_RE = /^check-[0-9a-f]{16}\.png$/
+
 export function createCheckShots(opts: { dir?: string; ttlMs?: number; now?: () => number } = {}): {
   save(png: Buffer): string
   sweep(): number
@@ -216,14 +219,14 @@ export function createCheckShots(opts: { dir?: string; ttlMs?: number; now?: () 
     try { unlinkSync(path); return true } catch { return false }
   }
 
-  /** Apaga as cópias (.png) mais velhas que o ttl; devolve quantas. */
+  /** Apaga as cópias (só os nomes do `save`) mais velhas que o ttl; devolve quantas. */
   function sweep(): number {
     let names: string[]
     try { names = readdirSync(dir) } catch { return 0 }
     const limit = now() - ttlMs
     let n = 0
     for (const name of names) {
-      if (!name.endsWith('.png')) continue
+      if (!SHOT_NAME_RE.test(name)) continue
       const path = join(dir, name)
       try {
         const st = statSync(path)

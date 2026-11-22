@@ -245,6 +245,20 @@ describe('createCheckShots', () => {
     expect(readdirSync(dir)).toEqual(['outro.txt'])
   })
 
+  it('sweep só apaga os nomes que o save cria: outro .png velho na pasta fica', () => {
+    base = mkdtempSync(join(tmpdir(), 'check-shots-'))
+    const dir = join(base, 'claudinei-check')
+    const shots = createCheckShots({ dir, ttlMs: 1000, now: () => Date.now() + 60_000 })
+    const nosso = shots.save(Buffer.from('x'))
+    expect(basename(nosso)).toMatch(/^check-[0-9a-f]{16}\.png$/)
+    // Mais velhos que o ttl, com nome parecido mas fora do formato do save.
+    const alheios = ['foto.png', 'check-123.png', 'check-0123456789abcdef.png.bak', 'xcheck-0123456789abcdef.png']
+    for (const n of alheios) writeFileSync(join(dir, n), 'y')
+    expect(shots.sweep()).toBe(1)
+    expect(existsSync(nosso)).toBe(false)
+    expect(readdirSync(dir).sort()).toEqual([...alheios].sort())
+  })
+
   it('o arquivo some sozinho depois do ttl (timer com unref)', async () => {
     base = mkdtempSync(join(tmpdir(), 'check-shots-'))
     const shots = createCheckShots({ dir: join(base, 'claudinei-check'), ttlMs: 50 })

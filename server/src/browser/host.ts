@@ -9,7 +9,7 @@
 // No código do Claudinei, `evaluate` só com string (o pkg perde o texto das funções).
 import { createRequire } from 'node:module'
 import type { Browser, BrowserContext, Page } from 'playwright-core'
-import { INSTALL_COMMAND, resolveChromium } from './chromium.js'
+import { envMissingText, INSTALL_COMMAND, resolveChromium } from './chromium.js'
 import { createTerminalTab, DEFAULT_VIEWPORT, type TerminalTab } from './terminal-tab.js'
 import { allowedUrl } from './url-policy.js'
 import { BrowserRestartingError, keyOf, TEXTS, TooManyTabsError, type ConsoleEntry, type LaunchFn, type TerminalKey } from './types.js'
@@ -206,7 +206,8 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
       reason = found.reason
       if (found.reason === 'env_missing') {
         // Instalar não resolve: a variável aponta um arquivo que não existe.
-        throw new BrowserUnavailableError('browser_not_installed', `Browser not found: CLAUDINEI_CHROMIUM=${found.expected} does not exist; fix or unset it`, `fix or unset CLAUDINEI_CHROMIUM (${found.expected})`)
+        const t = envMissingText(found.expected)
+        throw new BrowserUnavailableError('browser_not_installed', t.message, t.hint)
       }
       throw new BrowserUnavailableError('browser_not_installed', TEXTS.NOT_INSTALLED, INSTALL_COMMAND)
     }

@@ -139,6 +139,41 @@ describe('revogação', () => {
     expect((await root.closed).code).toBe(1008)
   })
 
+  it('socket revogado (em CLOSING) não manda entrada à página', async () => {
+    const { tab, page } = await openTab()
+    const ana = connect({ cookies: f.anaCookie })
+    await ana.opened
+    await until(() => !!lastState(ana))
+    // As mensagens saem do cliente agora e só chegam ao servidor depois do
+    // closeUser, com o socket já em CLOSING (a revogação não troca o token).
+    ana.send({ type: 'pointer', phase: 'down', x: 1, y: 1, button: 'left', clickCount: 1 })
+    ana.send({ type: 'text', text: 'depois da revogação' })
+    ana.send({ type: 'take' })
+    ana.send({ type: 'navigate', url: 'http://localhost:1/x' })
+    f.feature!.closeUser(anaId())
+    expect((await ana.closed).code).toBe(1008)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(page.calls).toEqual([])
+    expect(page.navigations).toEqual([])
+    expect(tab.baton.state()).toEqual({ kind: 'free' })
+  })
+
+  it('closeUser tira o espectador na hora, sem esperar o fechamento', async () => {
+    const { tab } = await openTab()
+    const ana = connect({ cookies: f.anaCookie })
+    await ana.opened
+    ana.send({ type: 'visible', visible: true })
+    ana.send({ type: 'take' })
+    await until(() => tab.baton.state().kind === 'operator' && tab.isVisible())
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    f.feature!.closeUser(anaId())
+    // Síncrono: a coluna sumiu e a presença do bastão já conta os 30 s.
+    expect(tab.isVisible()).toBe(false)
+    expect((await ana.closed).code).toBe(1008)
+    vi.advanceTimersByTime(30_000)
+    expect(tab.baton.state()).toEqual({ kind: 'free' })
+  })
+
   it('revogação com o operador no comando: 30 s depois o bastão volta ao agente', async () => {
     const { tab } = await openTab()
     const ana = connect({ cookies: f.anaCookie })
@@ -209,6 +244,69 @@ describe('tela', () => {
     expect(page.screenshots).toContainEqual({ type: 'png' })
     await new Promise((r) => setTimeout(r, 50))
     expect(b.bins.filter((x) => x.header.kind === 'still')).toEqual([])
+  })
+
+  it('rajada de freeze on: um screenshot em voo por vez e um still só', async () => {
+    const { page } = await openTab()
+    const c = connect({ cookies: f.adminCookie })
+    await c.opened
+    c.send({ type: 'visible', visible: true })
+    // O screenshot fica pendurado até o teste soltar.
+    let inFlight = 0
+    let maxInFlight = 0
+    const gates: Array<() => void> = []
+    page.screenshot = (opts?: Record<string, unknown>) => {
+      page.screenshots.push(opts)
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      return new Promise<Buffer>((resolve) => { gates.push(() => { inFlight--; resolve(Buffer.from('png')) }) })
+    }
+    for (let i = 0; i < 5; i++) c.send({ type: 'freeze', on: true })
+    await until(() => page.screenshots.length === 1)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(page.screenshots).toHaveLength(1)
+    gates.shift()!()
+    await until(() => c.bins.some((x) => x.header.kind === 'still'))
+    // off + on com um em voo: o PNG velho é descartado e sai um novo ao fim.
+    c.send({ type: 'freeze', on: false })
+    c.send({ type: 'freeze', on: true })
+    await until(() => page.screenshots.length === 2)
+    c.send({ type: 'freeze', on: false })
+    c.send({ type: 'freeze', on: true })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(page.screenshots).toHaveLength(2)
+    gates.shift()!()
+    await until(() => page.screenshots.length === 3)
+    gates.shift()!()
+    await until(() => c.bins.filter((x) => x.header.kind === 'still').length === 2)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(page.screenshots).toHaveLength(3)
+    expect(c.bins.filter((x) => x.header.kind === 'still')).toHaveLength(2)
+    expect(maxInFlight).toBe(1)
+  })
+
+  it('rajada de navigate/history: uma navegação por vez, e a mais recente vence', async () => {
+    const { page } = await openTab()
+    const c = connect({ cookies: f.adminCookie })
+    await c.opened
+    page.navigation = 'hang'
+    c.send({ type: 'navigate', url: 'http://localhost:1/a' })
+    c.send({ type: 'navigate', url: 'http://localhost:1/b' })
+    c.send({ type: 'history', action: 'reload' })
+    c.send({ type: 'navigate', url: 'http://localhost:1/d' })
+    await until(() => page.navigations.length === 1)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(page.navigations.map((n) => n.arg)).toEqual(['http://localhost:1/a'])
+    page.release()
+    await until(() => page.navigations.length === 2)
+    page.release()
+    await new Promise((r) => setTimeout(r, 50))
+    // b e o reload, do meio, foram descartados.
+    expect(page.navigations.map((n) => `${n.kind} ${n.arg}`)).toEqual(['goto http://localhost:1/a', 'goto http://localhost:1/d'])
+    // Livre de novo: o próximo pedido vai na hora.
+    c.send({ type: 'history', action: 'back' })
+    await until(() => page.navigations.length === 3)
+    expect(page.navigations[2].kind).toBe('back')
   })
 
   it('a entrada do operador chega à página e o state diz quem está no comando', async () => {

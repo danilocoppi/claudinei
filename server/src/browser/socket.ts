@@ -9,8 +9,9 @@
 //    e fecha 1000; com o Chromium indisponível, manda um `state` com
 //    `unavailable` e mantém o socket.
 // O cookie e o 401 já vêm do `onRequest` do plugin de auth (`/ws/` é guardado).
-// A revogação (`closeUser`/`closeAll`) fecha com 1008 'revoked'. A saída do
-// espectador entra na presença do bastão (volta ao agente em 30 s).
+// A revogação (`closeUser`/`closeAll`) fecha com 1008 'revoked'. Na mesma hora o
+// socket para de aceitar entrada e o espectador sai (a presença do bastão começa
+// a contar: volta ao agente em 30 s), sem esperar o fim do fechamento.
 import type { FastifyInstance } from 'fastify'
 import type { WebSocket } from 'ws'
 import type { BrowserClientMsg, BrowserStateMsg } from '../../../shared/browser.js'
@@ -20,7 +21,7 @@ import { canAccessProject } from '../auth/guards.js'
 import { watchSocketAccess } from '../auth/socket-access.js'
 import { isAllowedOrigin } from '../routes/terminal.js'
 import { hasEngine } from '../engine/index.js'
-import { INSTALL_COMMAND, resolveChromium } from './chromium.js'
+import { envMissingText, INSTALL_COMMAND, resolveChromium } from './chromium.js'
 import type { BrowserHost, TerminalTab } from './host.js'
 import { applyInput, createMoveLimiter, parseClientMessage } from './input.js'
 import { DEFAULT_VIEWPORT, type Actor } from './terminal-tab.js'
@@ -39,6 +40,17 @@ const STEP_CAP_MS = 5_000
 const MAX_QUEUED = 64
 /** Com a fila acima disto, os movimentos do mouse são descartados (o clique leva a posição final). */
 const MOVE_QUEUE_LIMIT = 4
+/**
+ * Teto da vez de uma navegação: o `goto` desiste em 10 s e espera o `load` da
+ * página de erro por mais 1,5 s; uma subida de Chromium presa não segura as
+ * navegações seguintes do socket para sempre.
+ */
+const NAV_CAP_MS = 15_000
+/**
+ * Depois do `close(1008)` da revogação, o `ws` espera a resposta do cliente por
+ * até 30 s; sem ela em 1 s, o socket é derrubado (`terminate`).
+ */
+const REVOKE_TERMINATE_MS = 1_000
 
 export interface BrowserSocketDeps {
   host: BrowserHost
@@ -59,25 +71,46 @@ function emptyState(host: BrowserHost, extra: Pick<BrowserStateMsg, 'closed' | '
 /** Por que o Chromium não está disponível, nos mesmos textos que as ferramentas dão. */
 function unavailableInfo(): NonNullable<BrowserStateMsg['unavailable']> {
   const found = resolveChromium(process.env)
-  if (!found.ok && found.reason === 'env_missing') {
-    return {
-      code: 'browser_not_installed',
-      message: `Browser not found: CLAUDINEI_CHROMIUM=${found.expected} does not exist; fix or unset it`,
-      hint: `fix or unset CLAUDINEI_CHROMIUM (${found.expected})`,
-    }
-  }
+  if (!found.ok && found.reason === 'env_missing') return { code: 'browser_not_installed', ...envMissingText(found.expected) }
   if (!found.ok) return { code: 'browser_not_installed', message: TEXTS.NOT_INSTALLED, hint: INSTALL_COMMAND }
   // O executável existe e a subida falhou: a mensagem do Chromium ficou no log do serviço.
   return { code: 'launch_failed', message: 'the browser failed to start; see the server log', hint: `executable: ${found.path}` }
 }
 
-/** Vão à página na hora, sem esperar a fila do mouse e do teclado. */
-const IMMEDIATE = new Set<BrowserClientMsg['type']>(['take', 'release', 'dialog', 'navigate', 'history'])
+/**
+ * Não esperam a fila do mouse e do teclado:
+ * - bastão e diálogo: o clique que abriu um `confirm` fica preso no Playwright
+ *   até o diálogo ser respondido, e o `dialog` não pode ficar atrás dele;
+ * - navegação e histórico: o `navigate` dispensa o diálogo pendente (o mesmo
+ *   clique preso), e "Recarregar" é a saída de uma página que travou a fila.
+ *   Eles têm a própria vez (uma navegação por socket; ver `navigateSlot`).
+ */
+const IMMEDIATE = new Set<BrowserClientMsg['type']>(['take', 'release', 'dialog'])
+
+/** `p` ou o teto, o que vier primeiro (o que passou do teto segue sozinho). */
+function capped(p: Promise<void>, ms: number): Promise<void> {
+  let cap: ReturnType<typeof setTimeout> | undefined
+  const t = new Promise<void>((resolve) => { cap = setTimeout(resolve, ms) })
+  return Promise.race([p, t]).finally(() => clearTimeout(cap))
+}
+
+/** Uma revogação em curso: fecha o socket com 1008 e, sem resposta, o derruba. */
+function revokeSocket(socket: WebSocket): void {
+  if (socket.readyState === socket.CLOSED) return
+  if (socket.readyState === socket.OPEN) socket.close(1008, 'revoked')
+  const t = setTimeout(() => { if (socket.readyState !== socket.CLOSED) socket.terminate() }, REVOKE_TERMINATE_MS)
+  t.unref?.()
+}
 
 export function registerBrowserSocket(app: FastifyInstance, d: BrowserSocketDeps): { closeUser(userId: number): void; closeAll(): void } {
   const projects = createProjectsService(d.db)
-  /** Os sockets abertos (com aba ou não), para a revogação. */
-  const live = new Set<{ socket: WebSocket; userId: number | null }>()
+  /**
+   * Os sockets abertos (com aba ou não), para a revogação. `shutdown` corta a
+   * entrada e tira o espectador na hora, depois fecha com 1008: o `close()` só
+   * põe o socket em CLOSING, e o `ws` segue entregando mensagens até o fim do
+   * fechamento (até 30 s sem resposta do cliente).
+   */
+  const live = new Set<{ userId: number | null; shutdown: () => void }>()
 
   app.get('/ws/browser/:projectId/:engine', { websocket: true }, (socket, req) => {
     if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
@@ -91,7 +124,7 @@ export function registerBrowserSocket(app: FastifyInstance, d: BrowserSocketDeps
     if (!ENGINE_RE.test(engine) || !hasEngine(engine)) { socket.close(1008, 'engine'); return }
 
     const user = req.authUser?.kind === 'user' ? req.authUser : undefined
-    const entry = { socket, userId: user?.id ?? null }
+    const entry = { userId: user?.id ?? null, shutdown: () => revokeSocket(socket) }
     live.add(entry)
     socket.once('close', () => { live.delete(entry) })
 
@@ -119,11 +152,14 @@ export function registerBrowserSocket(app: FastifyInstance, d: BrowserSocketDeps
     let closed = false
     // Os espectadores já mandaram o último state (com `closed`); aqui só fecha.
     const offClosed = tab.onClosed(() => { if (socket.readyState === socket.OPEN) socket.close(1000) })
-    socket.once('close', () => {
+    /** Sem entrada nem espectador a partir daqui (o `remove` repetido não faz nada). */
+    function stop(): void {
       closed = true
       offClosed()
       vs.remove(v.id)
-    })
+    }
+    socket.once('close', stop)
+    entry.shutdown = () => { stop(); revokeSocket(socket) }
 
     const canMove = createMoveLimiter()
     /** A entrada falhou (página travada, tecla recusada): o socket segue; a aba avisa da queda. */
@@ -139,39 +175,85 @@ export function registerBrowserSocket(app: FastifyInstance, d: BrowserSocketDeps
       queued++
       chain = chain.then(() => {
         if (closed) return
-        let cap: ReturnType<typeof setTimeout> | undefined
-        const capped = new Promise<void>((resolve) => { cap = setTimeout(resolve, STEP_CAP_MS) })
-        return Promise.race([run(msg), capped]).finally(() => clearTimeout(cap))
+        return capped(run(msg), STEP_CAP_MS)
       }).finally(() => { queued-- })
     }
 
-    /** Congelar: PNG do viewport só a este espectador. Um pedido novo vence o anterior. */
+    /**
+     * Congelar: PNG do viewport só a este espectador, no máximo um screenshot em
+     * voo. Repetir `on` com ele em voo não tira outro (o em voo serve); um `off`
+     * no meio descarta o PNG atrasado e, se vier outro `on`, tira um novo ao fim.
+     */
+    let wantFrozen = false
     let freezeGen = 0
-    async function freeze(on: boolean): Promise<void> {
-      const g = ++freezeGen
+    let shooting = false
+    function freeze(on: boolean): void {
+      if (on !== wantFrozen) freezeGen++
+      wantFrozen = on
       vs.update(v.id, { frozen: on })
-      if (!on) return
+      if (on && !shooting) void shoot()
+    }
+    async function shoot(): Promise<void> {
+      shooting = true
       try {
-        const png = await tab!.page().screenshot({ type: 'png' })
-        if (g === freezeGen && !closed) vs.sendStill(v.id, png, tab!.state().viewport)
-      } catch {
-        // Sem o PNG (página travada ou fechando), a tela volta a andar.
-        if (g === freezeGen && !closed) vs.update(v.id, { frozen: false })
+        while (wantFrozen && !closed) {
+          const g = freezeGen
+          let png: Buffer | null = null
+          try { png = await tab!.page().screenshot({ type: 'png' }) } catch { png = null }
+          if (closed) return
+          if (g !== freezeGen) continue // descongelou no meio: o PNG é velho
+          if (png) vs.sendStill(v.id, png, tab!.state().viewport)
+          else {
+            // Sem o PNG (página travada ou fechando), a tela volta a andar.
+            wantFrozen = false
+            freezeGen++
+            vs.update(v.id, { frozen: false })
+          }
+          return
+        }
+      } finally {
+        shooting = false
       }
     }
 
+    /**
+     * Uma navegação (`navigate`/`history`) por vez neste socket: rajadas não
+     * disparam `goto` concorrentes. Com uma em curso, o pedido novo espera a
+     * vez e substitui o que já esperava: o mais recente vence, os do meio são
+     * descartados. Cada vez tem o teto `NAV_CAP_MS`.
+     */
+    let navigating = false
+    let nextNav: BrowserClientMsg | null = null
+    function navigateSlot(msg: BrowserClientMsg): void {
+      if (navigating) { nextNav = msg; return }
+      navigating = true
+      void (async () => {
+        let m: BrowserClientMsg | null = msg
+        while (m && !closed) {
+          await capped(run(m), NAV_CAP_MS)
+          m = nextNav
+          nextNav = null
+        }
+        nextNav = null
+        navigating = false
+      })()
+    }
+
     socket.on('message', (data: Buffer, isBinary: boolean) => {
-      if (!access.allowed() || closed) return
+      // CLOSING também barra: o `ws` entrega mensagens até o fim do fechamento.
+      if (socket.readyState !== socket.OPEN || !access.allowed() || closed) return
       if (isBinary || data.length > MAX_MESSAGE_BYTES) return
       const msg = parseClientMessage(data.toString('utf8'))
       if (!msg) return
       switch (msg.type) {
         case 'visible': vs.update(v.id, { visible: msg.visible }); return
+        // A troca de viewport já é uma por vez em `viewers` (a do meio roda depois, com o valor do momento).
         case 'resize': vs.update(v.id, { size: { width: msg.width, height: msg.height } }); return
-        case 'freeze': void freeze(msg.on); return
+        case 'freeze': freeze(msg.on); return
+        case 'navigate':
+        case 'history': navigateSlot(msg); return
         default:
-          // Bastão, diálogo e navegação não esperam a fila: o clique que abriu um
-          // `confirm` fica preso até o diálogo ser respondido.
+          // Bastão e diálogo vão na hora; o resto (mouse, teclado, texto) entra na fila.
           if (IMMEDIATE.has(msg.type)) void run(msg)
           else enqueue(msg)
       }
@@ -180,10 +262,10 @@ export function registerBrowserSocket(app: FastifyInstance, d: BrowserSocketDeps
 
   return {
     closeUser(userId) {
-      for (const e of [...live]) if (e.userId === userId) e.socket.close(1008, 'revoked')
+      for (const e of [...live]) if (e.userId === userId) e.shutdown()
     },
     closeAll() {
-      for (const e of [...live]) e.socket.close(1008, 'revoked')
+      for (const e of [...live]) e.shutdown()
     },
   }
 }

@@ -15,6 +15,18 @@ export type ChromiumResolution =
   | { ok: true; path: string; source: 'env' | 'cache' }
   | { ok: false; expected: string; reason: 'env_missing' | 'not_installed' }
 
+/**
+ * O texto de `env_missing` (a variável aponta um arquivo que não existe), igual
+ * no erro das ferramentas (`host.ts`) e no `unavailable` do socket da tela.
+ * Instalar não resolve: a dica manda corrigir ou tirar a variável.
+ */
+export function envMissingText(expected: string): { message: string; hint: string } {
+  return {
+    message: `Browser not found: CLAUDINEI_CHROMIUM=${expected} does not exist; fix or unset it`,
+    hint: `fix or unset CLAUDINEI_CHROMIUM (${expected})`,
+  }
+}
+
 function isRegularFile(p: string): boolean {
   try { return statSync(p).isFile() } catch { return false }
 }

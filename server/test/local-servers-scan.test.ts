@@ -1,10 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fakeProc, type FakeProcRoot } from './fake-proc.js'
 import { listeningSockets, processLabel, readCmdline, readCwd, readMarker, readStat, socketOwners } from '../src/local-servers/proc.js'
 import { createServerScanner } from '../src/local-servers/scan.js'
+
+// O `readdirSync` de verdade, com cada pasta lida anotada: prova que a
+// varredura não lê o `fd/` de quem não tem o marcador.
+const fsLog = vi.hoisted(() => ({ readdirs: [] as string[] }))
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  const readdirSync = ((path: Parameters<typeof fs.readdirSync>[0], ...rest: unknown[]) => {
+    fsLog.readdirs.push(String(path))
+    return (fs.readdirSync as (...a: unknown[]) => unknown)(path, ...rest)
+  }) as typeof fs.readdirSync
+  return { ...fs, default: { ...fs, readdirSync }, readdirSync }
+})
 
 const SELF = 100
 const SERVICE_PORT = 9105
@@ -102,24 +114,117 @@ describe('varredura dos servidores do terminal', () => {
     expect(s.forTerminal(4, 'codex', project)).toEqual([])
   })
 
-  it('filho direto da CLI (MCP com porta) fica fora; neto entra; readotado (ppid 1) entra', () => {
-    // A CLI (200), aberta pelo Claudinei, escuta ela mesma também.
-    fp.proc({ pid: 200, ppid: SELF, pgrp: 90, comm: 'claude', env: mark('4:claude') })
-    fp.listen(200, 7000)
-    // O servidor MCP do operador: filho direto da CLI, com porta.
-    fp.proc({ pid: 210, ppid: 200, comm: 'statewright', cmdline: ['statewright', 'mcp'], env: mark('4:claude') })
-    fp.listen(210, 47615)
-    // O Bash da CLI (220) sobe o vite (230): neto da CLI.
-    fp.proc({ pid: 220, ppid: 200, comm: 'bash', env: mark('4:claude') })
+  /**
+   * As árvores reais desta máquina (lidas do /proc em 21/11/2026):
+   * - o Bash do Claude: `claude → /bin/bash -c …` (o shell é líder do próprio grupo);
+   * - os MCP do operador: `claude → npm exec statewright mcp → sh -c statewright → node`,
+   *   escutando em 127.0.0.1:47615–47621, no grupo da CLI.
+   * `cliPgrp` é o grupo da CLI: o do Claudinei (90) nas conversas, o dela no pty.
+   */
+  const claudeTree = (cliPgrp: number) => {
+    fp.proc({ pid: 200, ppid: SELF, pgrp: cliPgrp, comm: 'claude', cmdline: ['claude', '-p'], env: mark('4:claude') })
+    // MCP: npm exec → sh → node, todos no grupo da CLI.
+    fp.proc({ pid: 210, ppid: 200, pgrp: cliPgrp, comm: 'npm exec statew', cmdline: ['npm exec statewright mcp'], env: mark('4:claude') })
+    fp.proc({ pid: 211, ppid: 210, pgrp: cliPgrp, comm: 'sh', cmdline: ['sh', '-c', "'statewright' mcp"], env: mark('4:claude') })
+    fp.proc({ pid: 212, ppid: 211, pgrp: cliPgrp, comm: 'node-MainThread', cmdline: ['node', '/usr/local/bin/statewright', 'mcp'], env: mark('4:claude') })
+    fp.listen(212, 47615)
+    // O Bash do Claude (220, líder do grupo 220) sobe o vite (230).
+    fp.proc({ pid: 220, ppid: 200, pgrp: 220, comm: 'bash', cmdline: ['/bin/bash', '-c', 'npm run dev'], env: mark('4:claude') })
     fp.proc({ pid: 230, ppid: 220, pgrp: 220, comm: 'node', cmdline: ['node', '/p/node_modules/.bin/vite'], startTime: '5555', env: mark('4:claude') })
     fp.listen(230, 5173)
+  }
+
+  for (const [caso, cliPgrp] of [['grupo do Claudinei (conversa)', 90], ['grupo da CLI (pty)', 200]] as const) {
+    it(`MCP (CLI → npm exec → sh → node) fica fora; o servidor do Bash entra — ${caso}`, () => {
+      claudeTree(cliPgrp)
+      // A CLI escuta ela mesma também: fora.
+      fp.listen(200, 7000)
+      expect(scanner().forTerminal(4, 'claude', project)).toEqual([
+        { pid: 230, port: 5173, host: '127.0.0.1', label: 'vite', startTime: '5555', marker: 'exact' },
+      ])
+    })
+  }
+
+  it('CLI → bash → sh → npm → node entra (o shell do agente decide, não o npm abaixo dele)', () => {
+    claudeTree(90)
+    fp.proc({ pid: 240, ppid: 220, pgrp: 220, comm: 'sh', env: mark('4:claude') })
+    fp.proc({ pid: 241, ppid: 240, pgrp: 220, comm: 'npm run dev', cmdline: ['npm run dev'], env: mark('4:claude') })
+    fp.proc({ pid: 242, ppid: 241, pgrp: 220, comm: 'node', cmdline: ['node', '/p/server.js'], env: mark('4:claude') })
+    fp.listen(242, 3000)
+    // O próprio shell do agente escutando (`bash -c 'exec 3<>/dev/tcp…'` à parte): é do agente, entra.
+    fp.listen(220, 4000)
+    expect(scanner().forTerminal(4, 'claude', project).map((x) => [x.pid, x.port])).toEqual([[242, 3000], [220, 4000], [230, 5173]])
+  })
+
+  it('shell de login (`-bash`) pelo argv0, com o comm de outro nome, também é do agente', () => {
+    fp.proc({ pid: 200, ppid: SELF, pgrp: 200, comm: 'claude', env: mark('4:claude') })
+    fp.proc({ pid: 220, ppid: 200, pgrp: 220, comm: 'sandbox', cmdline: ['-bash'], env: mark('4:claude') })
+    fp.proc({ pid: 230, ppid: 220, pgrp: 220, env: mark('4:claude') })
+    fp.listen(230, 5173)
+    expect(scanner().forTerminal(4, 'claude', project).map((x) => x.pid)).toEqual([230])
+  })
+
+  it('outras ferramentas da CLI (node, uvx, python direto) ficam fora', () => {
+    fp.proc({ pid: 200, ppid: SELF, pgrp: 200, comm: 'claude', env: mark('4:claude') })
+    fp.proc({ pid: 210, ppid: 200, pgrp: 200, comm: 'node', cmdline: ['node', '/x/lsp.js'], env: mark('4:claude') })
+    fp.listen(210, 6001)
+    fp.proc({ pid: 211, ppid: 200, pgrp: 200, comm: 'uvx', cmdline: ['uvx', 'mcp-x'], env: mark('4:claude') })
+    fp.proc({ pid: 212, ppid: 211, pgrp: 200, comm: 'python3', cmdline: ['python3', '-m', 'mcp_x'], env: mark('4:claude') })
+    fp.listen(212, 6002)
+    expect(scanner().forTerminal(4, 'claude', project)).toEqual([])
+  })
+
+  it('Codex do npm (node → codex nativo): o shell abaixo do binário entra; o MCP dele fica fora', () => {
+    // `codex` é um script node que abre o binário nativo de mesmo nome.
+    fp.proc({ pid: 200, ppid: SELF, pgrp: 200, comm: 'node-MainThread', cmdline: ['node', '/usr/local/bin/codex', 'app-server'], env: mark('4:codex') })
+    fp.proc({ pid: 201, ppid: 200, pgrp: 200, comm: 'codex', cmdline: ['/x/vendor/codex/codex', 'app-server'], env: mark('4:codex') })
+    fp.listen(201, 7001)
+    fp.proc({ pid: 220, ppid: 201, pgrp: 220, comm: 'bash', cmdline: ['/bin/bash', '-lc', 'npm run dev'], env: mark('4:codex') })
+    fp.proc({ pid: 230, ppid: 220, pgrp: 220, env: mark('4:codex') })
+    fp.listen(230, 5173)
+    fp.proc({ pid: 210, ppid: 201, pgrp: 200, comm: 'npm exec statew', cmdline: ['npm exec statewright mcp'], env: mark('4:codex') })
+    fp.proc({ pid: 211, ppid: 210, pgrp: 200, comm: 'sh', env: mark('4:codex') })
+    fp.proc({ pid: 212, ppid: 211, pgrp: 200, comm: 'node', cmdline: ['node', '/usr/local/bin/statewright', 'mcp'], env: mark('4:codex') })
+    fp.listen(212, 47616)
+    expect(scanner().forTerminal(4, 'codex', project).map((x) => [x.pid, x.port])).toEqual([[230, 5173]])
+  })
+
+  it('readotado (ppid 1), ciclo e ancestral ilegível: não acha a CLI e entra', () => {
     // `nohup … &`: readotado pelo init.
     fp.proc({ pid: 240, ppid: 1, comm: 'python3', cmdline: ['python3', '-m', 'http.server', '8000'], env: mark('4:claude') })
     fp.listen(240, 8000, { host: '00000000' })
+    // Ciclo de ppid (o /proc mudou no meio da subida).
+    fp.proc({ pid: 250, ppid: 251, env: mark('4:claude') })
+    fp.proc({ pid: 251, ppid: 250, env: mark('4:claude') })
+    fp.listen(250, 8001)
+    // Pai que já não existe no /proc.
+    fp.proc({ pid: 260, ppid: 999, env: mark('4:claude') })
+    fp.listen(260, 8002)
     expect(scanner().forTerminal(4, 'claude', project)).toEqual([
-      { pid: 230, port: 5173, host: '127.0.0.1', label: 'vite', startTime: '5555', marker: 'exact' },
       { pid: 240, port: 8000, host: '0.0.0.0', label: 'http.server', startTime: '1000', marker: 'exact' },
+      { pid: 250, port: 8001, host: '127.0.0.1', label: 'node', startTime: '1000', marker: 'exact' },
+      { pid: 260, port: 8002, host: '127.0.0.1', label: 'node', startTime: '1000', marker: 'exact' },
     ])
+  })
+
+  it('só lê o fd/ de quem tem o marcador', () => {
+    claudeTree(90)
+    // Sem marcador, com porta: o fd/ dele não é lido.
+    fp.proc({ pid: 300, ppid: 1, env: { PATH: '/usr/bin' } })
+    fp.listen(300, 9000)
+    // environ ilegível também não.
+    fp.proc({ pid: 301, ppid: 1, env: null })
+    fp.listen(301, 9001)
+    fsLog.readdirs.length = 0
+    expect(scanner().forTerminal(4, 'claude', project).map((x) => x.pid)).toEqual([230])
+    const fdDirs = fsLog.readdirs.filter((d) => d.endsWith('/fd')).map((d) => Number(d.split('/').at(-2))).sort((a, b) => a - b)
+    expect(fdDirs).toEqual([200, 210, 211, 212, 220, 230])
+    // Ninguém com o marcador: nem um fd/.
+    const outro = scanner()
+    fsLog.readdirs.length = 0
+    for (const pid of [200, 210, 211, 212, 220, 230]) fp.kill(pid)
+    expect(outro.forTerminal(4, 'claude', project)).toEqual([])
+    expect(fsLog.readdirs.filter((d) => d.endsWith('/fd'))).toEqual([])
   })
 
   it('selfPid, ancestrais e porta do serviço ficam fora', () => {
@@ -162,6 +267,28 @@ describe('varredura dos servidores do terminal', () => {
       ])
       expect(s.forTerminal(4, 'claude', project)).toEqual([])
     } finally { rmSync(vizinha, { recursive: true, force: true }) }
+  })
+
+  it('plano B: pasta pedida pela primeira vez refaz a varredura; sem marcador fora dela, o fd/ não é lido', () => {
+    const outra = mkdtempSync(join(tmpdir(), 'ls-projeto-b-'))
+    try {
+      let t = 1_000_000
+      const s = scanner({ filteringEngines: new Set(['kimi']), now: () => t })
+      fp.proc({ pid: 300, ppid: 1, env: { PATH: '/usr/bin' }, cwd: project })
+      fp.listen(300, 5173)
+      fp.proc({ pid: 301, ppid: 1, env: { PATH: '/usr/bin' }, cwd: outra })
+      fp.listen(301, 5174)
+      fp.proc({ pid: 302, ppid: 1, env: { PATH: '/usr/bin' }, cwd: '/' })
+      fp.listen(302, 5175)
+      fsLog.readdirs.length = 0
+      expect(s.forTerminal(4, 'kimi', project).map((x) => x.pid)).toEqual([300])
+      expect(fsLog.readdirs.filter((d) => d.endsWith('/fd'))).toEqual([join(fp.root, '300', 'fd')])
+      // Dentro dos 2 s, outra pasta: a varredura guardada não olhou para ela.
+      t += 10
+      expect(s.forTerminal(5, 'kimi', outra).map((x) => x.pid)).toEqual([301])
+      // A primeira continua servida pela mesma varredura.
+      expect(s.forTerminal(4, 'kimi', project).map((x) => x.pid)).toEqual([300])
+    } finally { rmSync(outra, { recursive: true, force: true }) }
   })
 
   it('environ ilegível (arquivo ausente) não quebra a varredura', () => {

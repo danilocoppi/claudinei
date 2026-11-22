@@ -2,6 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeProc, type FakeProcRoot } from './fake-proc.js'
 import { NoMarkerError, NotSameProcessError, ProtectedProcessError, stopServer } from '../src/local-servers/stop.js'
 
+// O `readdirSync` de verdade, que pode esconder nomes da listagem do /proc
+// (como o /proc real esconde os ids de thread, legíveis mas fora do readdir).
+const fsHide = vi.hoisted(() => ({ names: new Set<string>() }))
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  const readdirSync = ((path: Parameters<typeof fs.readdirSync>[0], ...rest: unknown[]) => {
+    const out = (fs.readdirSync as (...a: unknown[]) => unknown)(path, ...rest)
+    return Array.isArray(out) && fsHide.names.size ? out.filter((n) => !fsHide.names.has(String(n))) : out
+  }) as typeof fs.readdirSync
+  return { ...fs, default: { ...fs, readdirSync }, readdirSync }
+})
+
 // Nenhum sinal de verdade sai daqui: o `kill` é um dublê que só anota, e o
 // /proc é uma pasta temporária.
 const SELF = 100
@@ -17,6 +29,7 @@ const kill = (pid: number, sig: NodeJS.Signals) => { calls.push([pid, sig]); onK
 beforeEach(() => {
   vi.useFakeTimers()
   fp = fakeProc()
+  fsHide.names.clear()
   calls = []
   onKill = () => {}
   fp.proc({ pid: 1, ppid: 0, comm: 'systemd' })
@@ -121,14 +134,80 @@ describe('Parar um servidor local', () => {
     expect(calls).toEqual([])
   })
 
-  it('selfPid, ancestrais, a CLI e o filho direto da CLI → recusa sem kill', async () => {
+  it('selfPid, ancestrais e a CLI → recusa sem kill', async () => {
     fp.proc({ pid: SELF, ppid: 50, pgrp: 90, comm: 'node', env: env(MARK) })
     fp.proc({ pid: 50, ppid: 1, pgrp: 50, comm: 'bash', env: env(MARK) })
     fp.proc({ pid: 200, ppid: SELF, pgrp: 200, comm: 'claude', env: env(MARK) })
-    for (const pid of [SELF, 50, 200, 220]) {
+    for (const pid of [SELF, 50, 200]) {
       await expect(stop({ pid, startTime: '1000' }), String(pid)).rejects.toBeInstanceOf(ProtectedProcessError)
     }
     expect(calls).toEqual([])
+  })
+
+  for (const [caso, cliPgrp] of [['grupo do Claudinei (conversa)', 90], ['grupo da CLI (pty)', 200]] as const) {
+    it(`MCP (CLI → npm exec → sh → node) → ProtectedProcessError, nenhum kill — ${caso}`, async () => {
+      fp.proc({ pid: 200, ppid: SELF, pgrp: cliPgrp, comm: 'claude', env: env(MARK) })
+      fp.proc({ pid: 210, ppid: 200, pgrp: cliPgrp, comm: 'npm exec statew', cmdline: ['npm exec statewright mcp'], env: env(MARK) })
+      fp.proc({ pid: 211, ppid: 210, pgrp: cliPgrp, comm: 'sh', env: env(MARK) })
+      fp.proc({ pid: 212, ppid: 211, pgrp: cliPgrp, comm: 'node-MainThread', cmdline: ['node', '/usr/local/bin/statewright', 'mcp'], env: env(MARK) })
+      for (const pid of [210, 211, 212]) {
+        await expect(stop({ pid, startTime: '1000' }), String(pid)).rejects.toBeInstanceOf(ProtectedProcessError)
+      }
+      expect(calls).toEqual([])
+    })
+  }
+
+  it('MCP no grupo do servidor deixa o grupo de fora (só o pid)', async () => {
+    fp.proc({ pid: 210, ppid: 200, pgrp: 220, comm: 'npm', cmdline: ['npm', 'exec', 'x'], env: env(MARK) })
+    fp.proc({ pid: 211, ppid: 210, pgrp: 220, comm: 'node', env: env(MARK) })
+    onKill = (pid) => { if (pid === 230) fp.kill(230) }
+    expect(await settle(stop())).toEqual({ target: 'pid' })
+    expect(calls).toEqual([[230, 'SIGTERM']])
+  })
+
+  it('stat do Claudinei ilegível → recusa sem kill (falha fechado)', async () => {
+    fp.kill(SELF)
+    await expect(stop()).rejects.toBeInstanceOf(ProtectedProcessError)
+    expect(calls).toEqual([])
+  })
+
+  it('o próprio PID fora da listagem do grupo (id de thread) → só o pid', async () => {
+    fsHide.names.add('230')
+    onKill = (pid) => { if (pid === 230) fp.kill(230) }
+    expect(await settle(stop())).toEqual({ target: 'pid' })
+    expect(calls).toEqual([[230, 'SIGTERM']])
+  })
+
+  it('marcador trocado (exec) durante a espera → NotSameProcessError, sem SIGKILL', async () => {
+    const p = stop()
+    const done = expect(p).rejects.toBeInstanceOf(NotSameProcessError)
+    await vi.advanceTimersByTimeAsync(1000)
+    // `exec` com outro ambiente: mesmo PID e mesmo início.
+    fp.proc({ pid: 230, ppid: 220, pgrp: 220, startTime: '5555', env: env('42:claude') })
+    await vi.advanceTimersByTimeAsync(4000)
+    await done
+    expect(calls).toEqual([[-220, 'SIGTERM']])
+  })
+
+  it('o grupo muda durante a espera → SIGKILL só ao pid', async () => {
+    const cases: Array<() => void> = [
+      // Entrou um membro sem o marcador.
+      () => fp.proc({ pid: 231, ppid: 220, pgrp: 220, env: env(undefined) }),
+      // Entrou um membro com o marcador de outro terminal.
+      () => fp.proc({ pid: 231, ppid: 220, pgrp: 220, env: env('42:claude') }),
+      // Entrou um MCP da CLI (CLI → npm → node).
+      () => { fp.proc({ pid: 231, ppid: 200, pgrp: 220, comm: 'npm', env: env(MARK) }); fp.proc({ pid: 232, ppid: 231, pgrp: 220, env: env(MARK) }) },
+    ]
+    for (const change of cases) {
+      calls = []
+      const p = stop()
+      await vi.advanceTimersByTimeAsync(1000)
+      change()
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(await p).toEqual({ target: 'group' })
+      expect(calls).toEqual([[-220, 'SIGTERM'], [230, 'SIGKILL']])
+      fp.kill(231); fp.kill(232)
+    }
   })
 
   it('grupo que contém a CLI → só o pid', async () => {

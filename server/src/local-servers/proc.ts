@@ -73,11 +73,12 @@ export function listPids(procRoot: string): number[] {
 /**
  * inode → PID, pelos links `socket:[inode]` de `/proc/<pid>/fd`. Um socket
  * herdado por vários processos (fork) fica com o de menor PID. Com `wanted`,
- * ignora os demais inodes.
+ * ignora os demais inodes; com `pids`, só lê o `fd/` desses (ler o `fd/` de
+ * todos os processos da máquina é a parte cara da varredura).
  */
-export function socketOwners(procRoot: string, wanted?: ReadonlySet<string>): Map<string, number> {
+export function socketOwners(procRoot: string, wanted?: ReadonlySet<string>, pids?: readonly number[]): Map<string, number> {
   const out = new Map<string, number>()
-  for (const pid of listPids(procRoot)) {
+  for (const pid of pids ? [...pids].sort((a, b) => a - b) : listPids(procRoot)) {
     const fdDir = join(procRoot, String(pid), 'fd')
     let fds: string[]
     try { fds = readdirSync(fdDir) } catch { continue }

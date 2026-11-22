@@ -1,7 +1,7 @@
 // O Parar de um servidor local. Logo antes do sinal relê o início do processo
 // (contra PID reaproveitado) e o marcador: se mudou, não é mais o mesmo e nada
 // é sinalizado. Nunca atinge o Claudinei (ele, os ancestrais, o grupo dele, as
-// CLIs e as ferramentas diretas delas). SIGTERM ao grupo só se todos os
+// CLIs e as ferramentas delas, como os servidores MCP). SIGTERM ao grupo só se todos os
 // membros tiverem o mesmo marcador; senão só ao PID. SIGKILL depois de
 // `graceMs` se ainda for o mesmo processo. Só `fs` e `process.kill`.
 import { listPids, readMarker, readStat } from './proc.js'
@@ -18,7 +18,7 @@ export class NoMarkerError extends Error {
   constructor() { super('o processo não tem o marcador do terminal') }
 }
 
-/** O alvo é o próprio Claudinei, do grupo dele, uma CLI ou uma ferramenta direta dela. */
+/** O alvo é o próprio Claudinei, do grupo dele, uma CLI ou uma ferramenta dela (MCP, LSP). */
 export class ProtectedProcessError extends Error {
   readonly code = 'protected_process'
   constructor() { super('o processo é do próprio Claudinei') }
@@ -55,21 +55,34 @@ export async function stopServer(o: StopServerOptions): Promise<{ target: 'group
 
   const ancestors = selfAndAncestors(procRoot, selfPid)
   if (ownedByClaudinei(procRoot, selfPid, ancestors, o.pid, st)) throw new ProtectedProcessError()
+  // Sem o grupo do Claudinei não dá para garantir que o alvo não é dele: recusa.
   const self = readStat(procRoot, selfPid)
-  if (self && st.pgrp === self.pgrp) throw new ProtectedProcessError()
+  if (!self || st.pgrp === self.pgrp) throw new ProtectedProcessError()
 
-  // O grupo: todos com o mesmo marcador e nenhum do Claudinei (uma CLI líder do
-  // grupo, por exemplo, ficaria junto no sinal). Senão, só o PID.
-  let target: 'group' | 'pid' = 'pid'
-  if (st.pgrp > 1) {
-    let all = true
+  /**
+   * O grupo `pgrp` pode levar o sinal: o próprio PID está nele, todos os
+   * membros têm o mesmo marcador e nenhum é do Claudinei (uma CLI líder do
+   * grupo, como no pty, ou uma ferramenta dela ficaria junto no sinal). Relê o
+   * /proc a cada chamada.
+   */
+  const groupIsOurs = (pgrp: number): boolean => {
+    if (pgrp <= 1) return false
+    let sawTarget = false
     for (const pid of listPids(procRoot)) {
       const m = readStat(procRoot, pid)
-      if (!m || m.pgrp !== st.pgrp) continue
-      if (ancestors.has(pid) || m.ppid === selfPid || readMarker(procRoot, pid) !== o.marker) { all = false; break }
+      if (!m || m.pgrp !== pgrp) continue
+      if (pid === o.pid) sawTarget = true
+      if (readMarker(procRoot, pid) !== o.marker) return false
+      if (ownedByClaudinei(procRoot, selfPid, ancestors, pid, m)) return false
     }
-    if (all) target = 'group'
+    return sawTarget
   }
+
+  const target: 'group' | 'pid' = groupIsOurs(st.pgrp) ? 'group' : 'pid'
+  // No Claude, o líder do grupo é o shell da ferramenta Bash (`/bin/bash -c …`,
+  // filho direto da CLI, com o marcador): o SIGTERM ao grupo o leva junto.
+  // Aceito: é o shell que subiu o servidor, não a CLI, que só vê o comando
+  // terminar.
   const signalTo = target === 'group' ? -st.pgrp : o.pid
 
   try {
@@ -92,8 +105,12 @@ export async function stopServer(o: StopServerOptions): Promise<{ target: 'group
   }
   const still = sameAlive()
   if (still) {
-    // Se o processo saiu do grupo no meio, o grupo pode não ser mais o dele: só o PID.
-    const to = target === 'group' && still.pgrp !== st.pgrp ? o.pid : signalTo
+    // A reconferência de novo, logo antes do SIGKILL. Um `exec` mantém o PID e
+    // o início mas troca o ambiente: sem o marcador, não é mais o mesmo.
+    if (readMarker(procRoot, o.pid) !== o.marker) throw new NotSameProcessError()
+    // O grupo também: se o processo saiu dele, ou entrou alguém sem o marcador
+    // ou do Claudinei, só o PID.
+    const to = target === 'group' && still.pgrp === st.pgrp && groupIsOurs(st.pgrp) ? signalTo : o.pid
     try { kill(to, 'SIGKILL') } catch (err) { if (errCode(err) !== 'ESRCH') throw err }
   }
   return { target }

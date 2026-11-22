@@ -74,6 +74,7 @@ export const ServersStrip = memo(function ServersStrip({ projectId, engine, visi
               <span className="browser-servers__nomark" title={t('localServers.noMarkerTitle')}>{t('localServers.noMarker')}</span>
             )}
           </span>
+          <span className="browser-servers__sep" aria-hidden="true">—</span>
           <span className="browser-servers__actions">
             <button type="button" className="link-btn" title={t('localServers.openTitle', { port: s.port })}
                     onClick={() => onOpen(`http://127.0.0.1:${s.port}`)}>{t('localServers.open')}</button>

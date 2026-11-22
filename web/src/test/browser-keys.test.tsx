@@ -163,4 +163,67 @@ describe('teclas com o foco na tela do navegador', () => {
     const msgs = sock.conns.at(-1)!.sent.filter((m) => ['text', 'key'].includes((m as BrowserClientMsg).type))
     expect(msgs).toEqual([{ type: 'text', text: 'olá mundo' }, { type: 'text', text: 'あ' }])
   })
+
+  const textos = () => sock.conns.at(-1)!.sent.filter((m) => (m as BrowserClientMsg).type === 'text')
+
+  it('Ctrl+V, ⌘V e Shift+Insert não são cancelados nem vão como key; o paste manda text', async () => {
+    await preparar()
+    const t = tecla()
+    for (const c of [
+      { key: 'v', code: 'KeyV', ctrlKey: true },
+      { key: 'v', code: 'KeyV', metaKey: true },
+      { key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true },
+      { key: 'Insert', code: 'Insert', shiftKey: true },
+    ]) {
+      // Não cancelado: o navegador do operador solta o `paste` com a área de transferência dele.
+      expect(fireEvent.keyDown(t, c)).toBe(true)
+      fireEvent.keyUp(t, c)
+    }
+    expect(keys()).toEqual([])
+    const colar = new Event('paste', { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown }
+    colar.clipboardData = { getData: (tipo: string) => (tipo === 'text/plain' ? 'copiado' : '') }
+    act(() => { t.dispatchEvent(colar) })
+    expect(textos()).toEqual([{ type: 'text', text: 'copiado' }])
+  })
+
+  it('caractere fora do teclado americano (ç, €) e o AltGr vão como text, sem key nem up', async () => {
+    await preparar()
+    const t = tecla()
+    expect(fireEvent.keyDown(t, { key: 'ç', code: 'Semicolon' })).toBe(false)
+    fireEvent.keyUp(t, { key: 'ç', code: 'Semicolon' })
+    fireEvent.keyDown(t, { key: '€', code: 'KeyE', altKey: true, ctrlKey: true })
+    fireEvent.keyUp(t, { key: '€', code: 'KeyE', altKey: true, ctrlKey: true })
+    // AltGr + Q num teclado alemão: '@', que é ASCII, mas com Ctrl+Alt a página não o digitaria.
+    const altGr = new KeyboardEvent('keydown', {
+      key: '@', code: 'KeyQ', ctrlKey: true, altKey: true, modifierAltGraph: true, bubbles: true, cancelable: true,
+    } as KeyboardEventInit)
+    act(() => { t.dispatchEvent(altGr) })
+    expect(altGr.defaultPrevented).toBe(true)
+    fireEvent.keyUp(t, { key: '@', code: 'KeyQ', ctrlKey: true, altKey: true })
+    // Uma tecla comum continua indo como key.
+    fireEvent.keyDown(t, { key: 'a', code: 'KeyA' })
+    fireEvent.keyUp(t, { key: 'a', code: 'KeyA' })
+    expect(textos()).toEqual([{ type: 'text', text: 'ç' }, { type: 'text', text: '€' }, { type: 'text', text: '@' }])
+    expect(keys().map((k) => [k.phase, k.key])).toEqual([['down', 'a'], ['up', 'a']])
+  })
+
+  it('teclado virtual do celular: depois do keydown 229/Unidentified, o input sem composição manda o data', async () => {
+    await preparar()
+    const t = tecla()
+    // O keydown fica com o navegador (sem preventDefault), senão o input nem viria.
+    expect(fireEvent.keyDown(t, { key: 'Unidentified', keyCode: 229 })).toBe(true)
+    fireEvent.input(t, { data: ' ', inputType: 'insertText', isComposing: false })
+    fireEvent.keyUp(t, { key: 'Unidentified', keyCode: 229 })
+    fireEvent.keyDown(t, { key: 'Unidentified', keyCode: 229 })
+    fireEvent.input(t, { data: ',', inputType: 'insertText', isComposing: false })
+    // Um input sem o keydown pulado antes (a tecla já foi como key) não repete nada.
+    fireEvent.keyDown(t, { key: 'a', code: 'KeyA' })
+    fireEvent.input(t, { data: 'a', inputType: 'insertText', isComposing: false })
+    // O input que vem depois do fim da composição também não repete.
+    fireEvent.keyDown(t, { key: 'Process', keyCode: 229, isComposing: true })
+    fireEvent.compositionEnd(t, { data: 'olá' })
+    fireEvent.input(t, { data: 'olá', inputType: 'insertText', isComposing: false })
+    expect(textos()).toEqual([{ type: 'text', text: ' ' }, { type: 'text', text: ',' }, { type: 'text', text: 'olá' }])
+    expect(keys().map((k) => [k.phase, k.key])).toEqual([['down', 'a']])
+  })
 })

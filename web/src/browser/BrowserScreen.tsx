@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BrowserClientMsg, FrameHeader } from '../../../shared/browser'
 import { matchShortcut } from '../shortcuts/active'
@@ -11,6 +11,41 @@ export type FrameSink = (f: Frame) => void
 
 /** A espera do `resize` depois da última mudança da área. */
 const RESIZE_WAIT_MS = 250
+
+/**
+ * O `resize` da aba: mede `el` (a área estável da vista, que inclui as faixas
+ * variáveis acima da tela) e manda o tamanho em px CSS arredondados 250 ms
+ * depois da última mudança, só se mudou. Uma faixa que aparece ou some (aviso
+ * de senha, servidores, última ação, avisos) não muda a medida: só o palco da
+ * tela encolhe pela escala, e a página do agente não reflui.
+ */
+export function useResizeSender(el: HTMLElement | null, send: (m: BrowserClientMsg) => void): void {
+  useLayoutEffect(() => {
+    if (!el) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let sent = ''
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[entries.length - 1]?.contentRect
+      if (!r) return
+      const rw = Math.round(r.width)
+      const rh = Math.round(r.height)
+      if (!(rw > 0 && rh > 0)) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        const k = `${rw}x${rh}`
+        if (k === sent) return
+        sent = k
+        send({ type: 'resize', width: rw, height: rh })
+      }, RESIZE_WAIT_MS)
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      if (timer) clearTimeout(timer)
+    }
+  }, [el, send])
+}
 /** O intervalo mínimo entre dois `move` (e entre duas rolagens): no máximo 20 por segundo. */
 const MOVE_MS = 50
 /** A marca da ação do agente some no primeiro quadro depois disto. */
@@ -38,11 +73,27 @@ type Props = {
   /** Quem fecha o socket chama antes: solta as teclas que a página acha que estão apertadas. */
   releaseRef: React.MutableRefObject<(() => void) | null>
   onIntersect(on: boolean): void
-  /** O que cobre a tela (diálogo, página travada, navegador fechado). */
-  children?: ReactNode
 }
 
 const BUTTONS = ['left', 'middle', 'right'] as const
+
+/** Ctrl+V, ⌘V (com ou sem Shift) e Shift+Insert: o colar do navegador do operador. */
+export function isPasteKey(e: KeyboardEvent): boolean {
+  if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Insert') return true
+  return (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V' || e.code === 'KeyV')
+}
+
+/**
+ * A tecla que vai como `text`, e não como `key`: um único caractere fora de
+ * U+0020–U+007E (o teclado americano do Playwright não o conhece) ou montado
+ * com AltGr (no Windows o AltGr chega como Ctrl+Alt, e a página não o digitaria).
+ */
+export function isTextKey(e: KeyboardEvent): boolean {
+  const chars = [...e.key]
+  if (chars.length !== 1) return false
+  const c = chars[0].codePointAt(0)!
+  return c < 0x20 || c > 0x7e || !!e.getModifierState?.('AltGraph')
+}
 
 /**
  * Agenda `run` para no máximo uma vez a cada `ms`: a primeira chamada roda na
@@ -71,9 +122,12 @@ function throttle(run: () => void, ms: number) {
  * toda tecla vai à página, menos a combinação de `view.browser`, que sobe ao
  * atalho global. Clicar fora devolve o teclado ao Claudinei.
  *
- * A área mede a si mesma (`ResizeObserver`) e manda o `resize` 250 ms depois da
- * última mudança; o canvas cabe nela sem passar da escala 1. O
- * `IntersectionObserver` diz se a tela está na vista.
+ * A área mede a si mesma (`ResizeObserver`) só para a escala: o canvas cabe
+ * nela sem passar da escala 1. O `resize` da aba sai da área estável da coluna
+ * (`useResizeSender`). O `IntersectionObserver` diz se a tela está na vista.
+ * O que cobre a tela (diálogo, página travada, navegador fechado) fica fora
+ * daqui, na coluna: as props são estáveis e o `memo` evita redesenhar a tela a
+ * cada `state`.
  */
 export const BrowserScreen = memo(function BrowserScreen(p: Props) {
   const { t } = useTranslation()
@@ -88,30 +142,17 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
   const live = useRef(p)
   live.current = p
 
-  // Medida da área e o `resize` com espera.
-  const { send, onIntersect } = p
+  // A medida da área (só a escala do palco: o `resize` sai da coluna, ver `useResizeSender`).
+  const { onIntersect } = p
   useLayoutEffect(() => {
     const el = areaRef.current
     if (!el) return
-    let timer: ReturnType<typeof setTimeout> | null = null
-    let sent = ''
-    const measure = (w: number, h: number) => {
-      const rw = Math.round(w)
-      const rh = Math.round(h)
-      if (!(rw > 0 && rh > 0)) return
-      setArea((cur) => (cur && cur.w === rw && cur.h === rh ? cur : { w: rw, h: rh }))
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        timer = null
-        const k = `${rw}x${rh}`
-        if (k === sent) return
-        sent = k
-        send({ type: 'resize', width: rw, height: rh })
-      }, RESIZE_WAIT_MS)
-    }
     const ro = new ResizeObserver((entries) => {
       const r = entries[entries.length - 1]?.contentRect
-      if (r) measure(r.width, r.height)
+      if (!r) return
+      const rw = Math.round(r.width)
+      const rh = Math.round(r.height)
+      if (rw > 0 && rh > 0) setArea((cur) => (cur && cur.w === rw && cur.h === rh ? cur : { w: rw, h: rh }))
     })
     ro.observe(el)
     const io = new IntersectionObserver((entries) => {
@@ -122,9 +163,8 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
     return () => {
       ro.disconnect()
       io.disconnect()
-      if (timer) clearTimeout(timer)
     }
-  }, [send, onIntersect])
+  }, [onIntersect])
 
   // O pintor e a entrega dos quadros. Com a tela invisível, o quadro só fica
   // guardado (sem decodificar); ao voltar, o último guardado é desenhado.
@@ -170,18 +210,35 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
     if (!ta) return
     /** As teclas que a página recebeu apertadas (pelo `code`, ou pela `key`). */
     const pressed = new Map<string, { key: string; code: string }>()
-    const composing = (e: KeyboardEvent) => e.isComposing || e.key === 'Process' || e.key === 'Dead' || e.keyCode === 229
+    const composing = (e: KeyboardEvent) => e.isComposing || e.key === 'Process' || e.key === 'Dead' || e.key === 'Unidentified' || e.keyCode === 229
+    /**
+     * O último `keydown` foi deixado ao navegador do operador (composição, ou o
+     * 229/Unidentified do teclado virtual do celular): o `input` sem composição
+     * que vier depois traz o texto (no Android, espaço e pontuação chegam assim).
+     */
+    let skipped = false
     const keyMsg = (phase: 'down' | 'up', k: { key: string; code: string }, e?: KeyboardEvent): BrowserClientMsg => ({
       type: 'key', phase, key: k.key, code: k.code,
       alt: !!e?.altKey, ctrl: !!e?.ctrlKey, meta: !!e?.metaKey, shift: !!e?.shiftKey,
     })
+    const sendText = (text: string) => {
+      for (let i = 0; i < text.length; i += TEXT_MAX) live.current.send({ type: 'text', text: text.slice(i, i + TEXT_MAX) })
+    }
     const onKeyDown = (e: KeyboardEvent) => {
       // A combinação do Navegador sai da página: sobe ao atalho global, que fecha a vista.
       if (matchShortcut(e, 'view.browser')) return
       e.stopPropagation()
-      // Na composição (IME, tecla morta) o navegador do operador monta o texto; o fim dela vai como `text`.
-      if (composing(e)) return
+      // Na composição (IME, tecla morta, teclado virtual) o navegador do operador monta o texto;
+      // o fim dela (ou o `input` que vier) vai como `text`.
+      if (composing(e)) { skipped = true; return }
+      skipped = false
+      // Colar: o `keydown` não é cancelado, para o navegador do operador soltar o `paste`
+      // (com a área de transferência dele), que vai como `text`. A tecla não vai à página.
+      if (isPasteKey(e)) return
       e.preventDefault()
+      // Caractere fora do teclado americano (ç, €, °, ª…) ou montado com AltGr: o Playwright
+      // não o conhece como tecla ("Unknown key"); vai como `text`, sem `up` depois.
+      if (isTextKey(e)) { sendText(e.key); return }
       const k = { key: e.key, code: e.code }
       pressed.set(e.code || e.key, k)
       live.current.send(keyMsg('down', k, e))
@@ -200,9 +257,6 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
       for (const k of pressed.values()) live.current.send(keyMsg('up', k))
       pressed.clear()
     }
-    const sendText = (text: string) => {
-      for (let i = 0; i < text.length; i += TEXT_MAX) live.current.send({ type: 'text', text: text.slice(i, i + TEXT_MAX) })
-    }
     const onPaste = (e: ClipboardEvent) => {
       e.preventDefault()
       e.stopPropagation()
@@ -210,12 +264,20 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
       if (text) sendText(text)
     }
     const onCompositionEnd = (e: CompositionEvent) => {
+      // O `input` que alguns navegadores soltam depois do fim da composição não repete o texto.
+      skipped = false
       if (e.data) sendText(e.data)
       ta.value = ''
     }
-    // Sem composição, a tecla já foi como `key`: o que cair no campo é descartado.
+    // Sem composição, a tecla já foi como `key` e o que cair no campo é descartado; a
+    // exceção é o `keydown` deixado ao navegador (229/Unidentified do teclado virtual):
+    // aí o texto vem só aqui, no `data` do `input`.
     const onInput = (e: Event) => {
-      if (!(e as InputEvent).isComposing) ta.value = ''
+      const ie = e as InputEvent
+      if (ie.isComposing) return
+      if (skipped && ie.data && (!ie.inputType || ie.inputType === 'insertText')) sendText(ie.data)
+      skipped = false
+      ta.value = ''
     }
     ta.addEventListener('keydown', onKeyDown)
     ta.addEventListener('keyup', onKeyUp)
@@ -277,13 +339,16 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
         return
       }
       e.preventDefault()
+      // Os botões laterais (voltar/avançar do mouse) não são da página: o servidor só conhece três.
+      if (e.button < 0 || e.button > 2) return
       keysRef.current?.focus({ preventScroll: true })
-      const button = BUTTONS[e.button] ?? 'left'
+      const button = BUTTONS[e.button]
       const { x, y } = pos(e.clientX, e.clientY)
       const now = Date.now()
       const near = now - lastDown.at < DOUBLE_MS && lastDown.button === button
         && Math.abs(x - lastDown.x) <= DOUBLE_PX && Math.abs(y - lastDown.y) <= DOUBLE_PX
-      const count = near ? lastDown.count + 1 : 1
+      // 1, 2, 3, 1, 2, 3…: o servidor recusa `clickCount` acima de 4 (e o clique sumiria).
+      const count = near ? (lastDown.count % 3) + 1 : 1
       lastDown = { at: now, x, y, button, count }
       down = { button, count }
       try { canvas.setPointerCapture?.(e.pointerId) } catch { /* ponteiro já solto */ }
@@ -302,11 +367,12 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
         live.current.send({ type: 'pointer', phase: 'up', x, y, button: 'left', clickCount: 1 })
         return
       }
+      if (e.button < 0 || e.button > 2) { e.preventDefault(); return }
       if (!down) return
       const { x, y } = pos(e.clientX, e.clientY)
       const d = down
       down = null
-      // O último `move` pendente sai antes do `up`.
+      // O `move` pendente é descartado: o `up` leva a posição (o servidor move antes de soltar).
       mover.cancel()
       movePos = null
       live.current.send({ type: 'pointer', phase: 'up', x, y, button: d.button, clickCount: d.count })
@@ -344,6 +410,8 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
     const onContextMenu = (e: Event) => e.preventDefault()
     // Sem isto o clique no canvas tiraria o foco do textarea (e selecionaria texto).
     const onMouseDown = (e: MouseEvent) => e.preventDefault()
+    // Os botões laterais do mouse não voltam nem avançam o Claudinei.
+    const onMouseUp = (e: MouseEvent) => { if (e.button > 2) e.preventDefault() }
 
     canvas.addEventListener('pointerdown', onPointerDown)
     canvas.addEventListener('pointerup', onPointerUp)
@@ -352,6 +420,8 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
     canvas.addEventListener('wheel', onWheel, { passive: false })
     canvas.addEventListener('contextmenu', onContextMenu)
     canvas.addEventListener('mousedown', onMouseDown)
+    canvas.addEventListener('mouseup', onMouseUp)
+    canvas.addEventListener('auxclick', onMouseUp)
     return () => {
       mover.cancel()
       roller.cancel()
@@ -362,6 +432,8 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
       canvas.removeEventListener('wheel', onWheel)
       canvas.removeEventListener('contextmenu', onContextMenu)
       canvas.removeEventListener('mousedown', onMouseDown)
+      canvas.removeEventListener('mouseup', onMouseUp)
+      canvas.removeEventListener('auxclick', onMouseUp)
     }
   }, [])
 
@@ -382,7 +454,6 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
         <textarea ref={keysRef} className="browser-screen__keys" data-testid="browser-keys" aria-label={t('browser.screen')}
                   autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
       </div>
-      {p.children}
     </div>
   )
 })

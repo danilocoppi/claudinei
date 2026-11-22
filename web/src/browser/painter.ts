@@ -28,15 +28,19 @@ export function createPainter(canvas: HTMLCanvasElement, d: { createImageBitmap?
   function start(image: Blob, header: FrameHeader): void {
     busy = true
     decode(image).then((bmp) => {
-      // Desmontado no meio, ou um quadro mais novo já foi desenhado: só fecha.
-      if (!disposed && header.seq > drawn) {
-        // O contexto só na primeira vez: sem quadro, o canvas nem é tocado.
-        ctx ??= canvas.getContext('2d')
-        ctx?.drawImage(bmp, 0, 0, canvas.width, canvas.height)
-        drawn = header.seq
+      // O bitmap é fechado mesmo se o desenho lançar (canvas sem contexto, bitmap inválido).
+      try {
+        // Desmontado no meio, ou um quadro mais novo já foi desenhado: só fecha.
+        if (!disposed && header.seq > drawn) {
+          // O contexto só na primeira vez: sem quadro, o canvas nem é tocado.
+          ctx ??= canvas.getContext('2d')
+          ctx?.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+          drawn = header.seq
+        }
+      } finally {
+        bmp.close()
       }
-      bmp.close()
-    }, () => { /* imagem ruim: fica a anterior */ }).finally(() => {
+    }).catch(() => { /* imagem ruim ou desenho que falhou: fica a anterior */ }).finally(() => {
       busy = false
       const next = waiting
       waiting = null

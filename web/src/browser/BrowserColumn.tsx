@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BrowserClientMsg, BrowserStateMsg } from '../../../shared/browser'
 import { progressKey } from '../store'
@@ -9,7 +9,7 @@ import {
   type BrowserFailure,
 } from './browserStore'
 import { useEffectiveView } from './columnStore'
-import { BrowserScreen, type FrameSink } from './BrowserScreen'
+import { BrowserScreen, useResizeSender, type FrameSink } from './BrowserScreen'
 import { ServersStrip } from './ServersStrip'
 
 type Props = { projectId: number; engine: string }
@@ -139,6 +139,15 @@ function BrowserLive({ projectId, engine }: Props) {
     connRef.current?.send(m)
   }, [])
 
+  /** A raiz da vista ao vivo (o foco do diálogo só sai de dentro dela). */
+  const rootRef = useRef<HTMLDivElement>(null)
+  /** A capa do diálogo pendente. */
+  const dialogRef = useRef<HTMLDivElement>(null)
+  // O `resize` mede a área estável (faixas variáveis + tela): uma faixa que aparece
+  // ou some não muda o viewport da página; só o palco encolhe pela escala.
+  const [body, setBody] = useState<HTMLDivElement | null>(null)
+  useResizeSender(body, send)
+
   useEffect(() => {
     const onVis = () => setDocHidden(document.hidden)
     document.addEventListener('visibilitychange', onVis)
@@ -227,12 +236,34 @@ function BrowserLive({ projectId, engine }: Props) {
   const dialog = st?.dialog && st.dialog.id !== answered ? st.dialog : null
   const vp = st?.viewport ?? DEFAULT_VIEWPORT
   const la = st?.lastAction ?? null
-  const mark = la?.point ? { x: la.point.x, y: la.point.y, at: la.at } : null
+  // A marca muda só com os campos (o `state` chega novo a cada mudança): a tela, com `memo`, não redesenha à toa.
+  const mx = la?.point?.x
+  const my = la?.point?.y
+  const mat = la?.at
+  const mark = useMemo(
+    () => (mx !== undefined && my !== undefined && mat !== undefined ? { x: mx, y: my, at: mat } : null),
+    [mx, my, mat],
+  )
+
+  // O diálogo da página chegou: o foco vai ao campo do `prompt` (ou ao OK), senão
+  // as teclas iriam à tela, que a página não atende até a resposta. Só quando o
+  // foco já estava na vista (ou em lugar nenhum): quem digita no chat não o perde.
+  const dialogId = dialog?.id
+  useEffect(() => {
+    if (dialogId === undefined) return
+    const at = document.activeElement
+    if (at && at !== document.body && !rootRef.current?.contains(at)) return
+    dialogRef.current?.querySelector<HTMLElement>('.browser-dialog__input, .browser-dialog__ok')?.focus()
+  }, [dialogId])
 
   const answer = (accept: boolean) => {
     if (!dialog) return
     setAnswered(dialog.id)
     send(accept && dialog.type === 'prompt' ? { type: 'dialog', accept, text: promptText } : { type: 'dialog', accept })
+    // Respondido de dentro do diálogo: o teclado volta à tela.
+    if (dialogRef.current?.contains(document.activeElement)) {
+      rootRef.current?.querySelector<HTMLElement>('.browser-screen__keys')?.focus({ preventScroll: true })
+    }
   }
 
   if (st?.unavailable) {
@@ -245,7 +276,7 @@ function BrowserLive({ projectId, engine }: Props) {
   }
 
   return (
-    <div className="browser-col browser-col--live" data-testid="browser-live">
+    <div ref={rootRef} className="browser-col browser-col--live" data-testid="browser-live">
       <div className="browser-head">
         <button type="button" className="ghost browser-head__btn" aria-label={t('browser.back')} title={t('browser.back')}
                 onClick={() => send({ type: 'history', action: 'back' })}>←</button>
@@ -280,53 +311,58 @@ function BrowserLive({ projectId, engine }: Props) {
           <span className="browser-meta__nosandbox" title={t('browser.noSandboxTitle')}>{t('browser.noSandbox')}</span>
         )}
       </div>
-      {you && !warned && (
-        <div className="browser-warning" role="note">
-          <span>{t('browser.passwordWarning')}</span>
-          <button type="button" className="ghost browser-meta__btn" onClick={() => {
-            try { localStorage.setItem(PASSWORD_WARNED_KEY, '1') } catch { /* só não lembra */ }
-            setWarned(true)
-          }}>{t('browser.passwordOk')}</button>
-        </div>
-      )}
-      <ServersStrip projectId={projectId} engine={engine} visible={visible} onOpen={openUrl} />
-      {la && <div className="browser-last" data-testid="browser-last-action">{t('browser.lastAction', { text: la.text })}</div>}
-      {(!!st?.notices.length || closeError) && (
-        <ul className="browser-notices" aria-label={t('browser.notices.label')}>
-          {st?.notices.slice(-3).map((n, i) => (
-            <li key={`${i}:${n}`}>{n === SCHEME_REFUSED ? t('browser.notices.schemeRefused') : n}</li>
-          ))}
-          {closeError && <li>{closeError}</li>}
-        </ul>
-      )}
-      <BrowserScreen viewportWidth={vp.width} viewportHeight={vp.height} you={you} visible={visible} mark={mark}
-                     send={send} frameRef={frameRef} releaseRef={releaseRef} onIntersect={onIntersect}>
-        {closedShown ? (
-          <div className="browser-cover" role="alert">
-            <p>{t('browser.closed')}</p>
-            <button type="button" className="ghost" disabled={busy} onClick={() => { void doReopen() }}>{t('browser.reopen')}</button>
+      {/* A área estável: o `resize` mede esta caixa, e não só a tela. */}
+      <div ref={setBody} className="browser-body">
+        {you && !warned && (
+          <div className="browser-warning" role="note">
+            <span>{t('browser.passwordWarning')}</span>
+            <button type="button" className="ghost browser-meta__btn" onClick={() => {
+              try { localStorage.setItem(PASSWORD_WARNED_KEY, '1') } catch { /* só não lembra */ }
+              setWarned(true)
+            }}>{t('browser.passwordOk')}</button>
           </div>
-        ) : refused ? (
-          <div className="browser-cover" role="alert"><p>{t('browser.refused')}</p></div>
-        ) : st?.crashed ? (
-          <div className="browser-cover" role="alert" data-testid="browser-crashed">
-            <p>{t('browser.crashed')}</p>
-            <button type="button" className="ghost" onClick={() => send({ type: 'history', action: 'reload' })}>{t('browser.reload')}</button>
-          </div>
-        ) : dialog ? (
-          <div className="browser-cover browser-dialog" role="dialog" aria-label={t('browser.dialog.label')}>
-            <p className="browser-dialog__msg">{dialog.message}</p>
-            {dialog.type === 'prompt' && (
-              <PromptField key={dialog.id} label={dialog.message} initial={dialog.defaultValue ?? ''} onChange={setPromptText}
-                           onEnter={() => answer(true)} />
-            )}
-            <div className="browser-dialog__actions">
-              <button type="button" className="ghost" onClick={() => answer(false)}>{t('browser.dialog.cancel')}</button>
-              <button type="button" onClick={() => answer(true)}>{t('browser.dialog.ok')}</button>
+        )}
+        <ServersStrip projectId={projectId} engine={engine} visible={visible} onOpen={openUrl} />
+        {la && <div className="browser-last" data-testid="browser-last-action">{t('browser.lastAction', { text: la.text })}</div>}
+        {(!!st?.notices.length || closeError) && (
+          <ul className="browser-notices" aria-label={t('browser.notices.label')}>
+            {st?.notices.slice(-3).map((n, i) => (
+              <li key={`${i}:${n}`}>{n === SCHEME_REFUSED ? t('browser.notices.schemeRefused') : n}</li>
+            ))}
+            {closeError && <li>{closeError}</li>}
+          </ul>
+        )}
+        <div className="browser-view">
+          <BrowserScreen viewportWidth={vp.width} viewportHeight={vp.height} you={you} visible={visible} mark={mark}
+                         send={send} frameRef={frameRef} releaseRef={releaseRef} onIntersect={onIntersect} />
+          {/* O que cobre a tela fica fora dela: a tela (memo) não redesenha a cada `state`. */}
+          {closedShown ? (
+            <div className="browser-cover" role="alert">
+              <p>{t('browser.closed')}</p>
+              <button type="button" className="ghost" disabled={busy} onClick={() => { void doReopen() }}>{t('browser.reopen')}</button>
             </div>
-          </div>
-        ) : null}
-      </BrowserScreen>
+          ) : refused ? (
+            <div className="browser-cover" role="alert"><p>{t('browser.refused')}</p></div>
+          ) : st?.crashed ? (
+            <div className="browser-cover" role="alert" data-testid="browser-crashed">
+              <p>{t('browser.crashed')}</p>
+              <button type="button" className="ghost" onClick={() => send({ type: 'history', action: 'reload' })}>{t('browser.reload')}</button>
+            </div>
+          ) : dialog ? (
+            <div ref={dialogRef} key={dialog.id} className="browser-cover browser-dialog" role="dialog" aria-label={t('browser.dialog.label')}>
+              <p className="browser-dialog__msg">{dialog.message}</p>
+              {dialog.type === 'prompt' && (
+                <PromptField label={dialog.message} initial={dialog.defaultValue ?? ''} onChange={setPromptText}
+                             onEnter={() => answer(true)} />
+              )}
+              <div className="browser-dialog__actions">
+                <button type="button" className="ghost" onClick={() => answer(false)}>{t('browser.dialog.cancel')}</button>
+                <button type="button" className="browser-dialog__ok" onClick={() => answer(true)}>{t('browser.dialog.ok')}</button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }
@@ -338,7 +374,7 @@ function PromptField({ label, initial, onChange, onEnter }: {
   const [v, setV] = useState(initial)
   useEffect(() => { onChange(initial) }, [initial, onChange])
   return (
-    <input className="browser-dialog__input" aria-label={label} value={v} autoFocus
+    <input className="browser-dialog__input" aria-label={label} value={v}
            onChange={(e) => { setV(e.target.value); onChange(e.target.value) }}
            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter() } }} />
   )

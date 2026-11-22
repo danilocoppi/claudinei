@@ -61,6 +61,31 @@ describe('painter', () => {
     expect(p.lastSeq()).toBe(4)
   })
 
+  it('drawImage que lança: o bitmap é fechado e o próximo quadro ainda é desenhado', async () => {
+    const d = decoder()
+    const { canvas, ctx } = canvasFalso()
+    ctx.drawImage.mockImplementationOnce(() => { throw new Error('InvalidStateError') })
+    const naoTratado = vi.fn()
+    process.on('unhandledRejection', naoTratado)
+    try {
+      const p = createPainter(canvas, { createImageBitmap: d.createImageBitmap })
+      p.push(blob('a'), header(1))
+      await d.finish()
+      expect(d.bitmaps[0].close).toHaveBeenCalledTimes(1)
+      expect(p.lastSeq()).toBe(-1)
+      p.push(blob('b'), header(2))
+      expect(d.createImageBitmap).toHaveBeenCalledTimes(2)
+      await d.finish()
+      expect(ctx.drawImage).toHaveBeenCalledTimes(2)
+      expect(d.bitmaps[1].close).toHaveBeenCalledTimes(1)
+      expect(p.lastSeq()).toBe(2)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(naoTratado).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', naoTratado)
+    }
+  })
+
   it('drawImage chamado por bitmap e close() logo depois', async () => {
     const d = decoder()
     const { canvas, ctx } = canvasFalso()

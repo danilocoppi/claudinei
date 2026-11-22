@@ -471,7 +471,6 @@ export const en = {
       tabs: { progress: 'Progress', side: 'Side chat', browser: 'Browser' },
       fullscreen: 'Full screen', exitFullscreen: 'Exit full screen',
       resize: 'Drag to widen the column',
-      placeholder: 'This terminal’s browser screen shows up here.',
       openFailed: 'Couldn’t open the browser.',
       notInstalled: 'Browser not installed. On the server, run',
       failureDetail: 'Details: {{detail}}',

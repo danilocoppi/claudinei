@@ -473,7 +473,6 @@ export const es: typeof en = {
       tabs: { progress: 'Seguimiento', side: 'Lateral', browser: 'Navegador' },
       fullscreen: 'Pantalla completa', exitFullscreen: 'Salir de la pantalla completa',
       resize: 'Arrastra para ensanchar la columna',
-      placeholder: 'Aquí aparece la pantalla del navegador de este terminal.',
       openFailed: 'No se pudo abrir el navegador.',
       notInstalled: 'Navegador no instalado. En el servidor, ejecuta',
       failureDetail: 'Detalle: {{detail}}',

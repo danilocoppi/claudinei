@@ -181,6 +181,42 @@ describe('vista Navegador', () => {
     }
   })
 
+  it('mostrar ou esconder uma faixa acima da tela não manda resize (mede a área estável)', () => {
+    vi.useFakeTimers()
+    const obs = new Map<Element, (e: Array<{ contentRect: { width: number; height: number } }>) => void>()
+    vi.stubGlobal('ResizeObserver', class {
+      cb: (e: Array<{ contentRect: { width: number; height: number } }>) => void
+      constructor(cb: (e: Array<{ contentRect: { width: number; height: number } }>) => void) { this.cb = cb }
+      observe(el: Element) { obs.set(el, this.cb) }
+      unobserve() {} disconnect() {}
+    })
+    try {
+      montar()
+      emitir(estado())
+      const tela = document.querySelector('.browser-screen')!
+      const mede = (el: Element, width: number, height: number) => act(() => { obs.get(el)?.([{ contentRect: { width, height } }]) })
+      // A caixa medida para o resize contém a tela.
+      const estavel = [...obs.keys()].find((el) => el !== tela && el.contains(tela) && el.closest('.browser-col'))!
+      expect(estavel).toBeTruthy()
+      mede(estavel, 600, 400)
+      mede(tela, 600, 400)
+      act(() => { vi.advanceTimersByTime(250) })
+      expect(sent('resize')).toEqual([{ type: 'resize', width: 600, height: 400 }])
+      // A faixa da última ação aparece dentro da caixa estável: só a tela encolhe.
+      emitir(estado({ lastAction: { text: 'clicou', at: Date.now() } }))
+      expect(estavel.contains(screen.getByTestId('browser-last-action'))).toBe(true)
+      mede(tela, 600, 372)
+      act(() => { vi.advanceTimersByTime(1000) })
+      // Some de novo: a tela volta, e nada de resize.
+      emitir(estado())
+      mede(tela, 600, 400)
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(sent('resize')).toHaveLength(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('servidores: Abrir manda navigate para http://127.0.0.1:5173; Parar com 409 mostra \'o processo já não é o mesmo\'; \'cwd\' sem Parar', async () => {
     servers = [
       { pid: 230, port: 5173, host: '0.0.0.0', label: 'vite', startTime: '5555', marker: 'exact' },
@@ -192,6 +228,7 @@ describe('vista Navegador', () => {
     const vite = await screen.findByTestId('server-5173')
     expect(vite.textContent).toContain(':5173')
     expect(vite.textContent).toContain('vite')
+    expect(vite.textContent).toMatch(/:5173 vite\s*—\s*Abrir · Parar/)
     fireEvent.click(within(vite).getByRole('button', { name: 'Abrir' }))
     expect(sent('navigate')).toEqual([{ type: 'navigate', url: 'http://127.0.0.1:5173' }])
 
@@ -321,6 +358,32 @@ describe('vista Navegador', () => {
     ])
   })
 
+  it('diálogo da página com o foco na tela: o foco vai ao OK (ou ao campo do prompt) e volta à tela depois', () => {
+    montar()
+    emitir(estado())
+    act(() => { screen.getByTestId('browser-keys').focus() })
+    emitir(estado({ dialog: { id: 1, type: 'confirm', message: 'Apagar?' } }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'OK' }))
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+    expect(document.activeElement).toBe(screen.getByTestId('browser-keys'))
+    emitir(estado({ dialog: { id: 2, type: 'prompt', message: 'Nome?' } }))
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Nome?' }))
+  })
+
+  it('diálogo da página com o foco fora da vista: o foco fica onde estava', () => {
+    montar()
+    emitir(estado())
+    const fora = document.createElement('input')
+    document.body.append(fora)
+    try {
+      act(() => { fora.focus() })
+      emitir(estado({ dialog: { id: 1, type: 'prompt', message: 'Nome?' } }))
+      expect(document.activeElement).toBe(fora)
+    } finally {
+      fora.remove()
+    }
+  })
+
   it('avisos, sem sandbox e a última ação do agente', () => {
     montar()
     emitir(estado({
@@ -416,5 +479,37 @@ describe('tela', () => {
     expect(moves.length).toBeGreaterThanOrEqual(2)
     expect(moves.length).toBeLessThanOrEqual(3)
     expect(moves.at(-1)).toMatchObject({ x: 38, y: 20 })
+  })
+
+  const clicar = (canvas: HTMLCanvasElement, tipo: string, button = 0) => {
+    const e = new MouseEvent(tipo, { clientX: 100, clientY: 100, button, bubbles: true, cancelable: true })
+    act(() => { canvas.dispatchEvent(e) })
+    return e
+  }
+
+  it('cinco cliques rápidos: o clickCount volta a 1 depois do 3 (o servidor recusa acima de 4)', () => {
+    montar()
+    emitir(estado())
+    const canvas = document.querySelector('canvas')!
+    for (let i = 0; i < 5; i++) {
+      clicar(canvas, 'pointerdown')
+      clicar(canvas, 'pointerup')
+    }
+    const downs = sent('pointer').filter((m) => (m as { phase: string }).phase === 'down')
+    expect(downs.map((m) => (m as { clickCount: number }).clickCount)).toEqual([1, 2, 3, 1, 2])
+    const ups = sent('pointer').filter((m) => (m as { phase: string }).phase === 'up')
+    expect(ups.map((m) => (m as { clickCount: number }).clickCount)).toEqual([1, 2, 3, 1, 2])
+  })
+
+  it('os botões laterais do mouse (3 e 4) não viram clique nem voltam o Claudinei', () => {
+    montar()
+    emitir(estado())
+    const canvas = document.querySelector('canvas')!
+    for (const b of [3, 4]) {
+      expect(clicar(canvas, 'pointerdown', b).defaultPrevented).toBe(true)
+      expect(clicar(canvas, 'pointerup', b).defaultPrevented).toBe(true)
+      expect(clicar(canvas, 'mouseup', b).defaultPrevented).toBe(true)
+    }
+    expect(sent('pointer')).toEqual([])
   })
 })

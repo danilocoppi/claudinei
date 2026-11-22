@@ -100,7 +100,8 @@ const GUARD_TIMEOUT_MS = 35_000
 const PASSWORD_READ_TIMEOUT_MS = 5_000
 
 const MASK = '••••'
-const CRASHED = 'page crashed; use browser_navigate action=reload'
+/** A página travou (`crash`): o reload a recria. A rota do hermes responde 409 page_crashed. */
+export const PAGE_CRASHED = 'page crashed; use browser_navigate action=reload'
 /** A página não respondeu no prazo (o reload também não a solta: só uma aba nova). */
 export const PAGE_BUSY = 'the page is not responding (busy?); call browser_close, then browser_open'
 /**
@@ -272,7 +273,7 @@ export function agentOps(
   }
 
   const assertNoDialog = () => { if (tab.state().dialog) throw new DialogPendingError() }
-  const assertAlive = () => { if (tab.state().crashed) throw new Error(CRASHED) }
+  const assertAlive = () => { if (tab.state().crashed) throw new Error(PAGE_CRASHED) }
 
   /**
    * Corre `work` contra o fechamento da aba, contra o prazo geral e, com

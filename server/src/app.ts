@@ -60,6 +60,7 @@ import { registerBranchRoutes } from './routes/branch.js'
 import { createUndo, type Undo } from './undo/index.js'
 import { registerUndoRoutes } from './routes/undo.js'
 import type { BrowserHost } from './browser/host.js'
+import { createBrowserFeature, type BrowserFeature } from './browser/feature.js'
 
 export interface AppDeps {
   config: Config
@@ -80,6 +81,8 @@ export interface AppDeps {
   usageIndexer?: Pick<UsageIndexer, 'status'>
   /** Navegador do 16 (o Chromium do serviço); o 15 usa `withIsolatedPage`. */
   browserHost?: BrowserHost
+  /** Recebe o navegador embutido montado (com `browserHost`): index.ts o chama na revogação. */
+  onBrowserReady?: (browser: BrowserFeature) => void
   /** Caminho absoluto de web/dist (SPA buildado). Se ausente, o static não é registrado. */
   webDist?: string
   /**
@@ -406,6 +409,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerUsageReportRoutes(app, { db: deps.db, usageIndexer: deps.usageIndexer })
   if (deps.terminalManager) registerTerminalRoutes(app, { manager: deps.manager, terminalManager: deps.terminalManager })
   if (deps.wsHub) deps.wsHub.register(app, { manager: deps.manager, db: deps.db })
+  // O navegador embutido (16): rotas do hermes e do operador; o `browser_tab` passa pelo hub.
+  if (deps.browserHost) {
+    const browser = createBrowserFeature({ host: deps.browserHost, db: deps.db, uploadsDir: deps.config.uploadsDir, broadcast: (m) => deps.wsHub?.broadcast(m) })
+    browser.register(app); deps.onBrowserReady?.(browser)
+  }
 
   // Static (SPA) por ÚLTIMO: garante que as rotas /api já existem antes do
   // notFoundHandler entrar em cena (o fallback SPA usa setNotFoundHandler).

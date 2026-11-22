@@ -211,6 +211,8 @@ if (process.argv.includes('--hermes')) {
   let branch: import('./branch/service.js').BranchService | undefined
   // E para o desfazer turno: o rastreador vê cada mensagem, status e evento do manager.
   let undo: import('./undo/index.js').Undo | undefined
+  // E para o navegador embutido: a revogação fecha os sockets da tela.
+  let browserFeature: import('./browser/feature.js').BrowserFeature | undefined
   /** Um gancho que falha não pode impedir os outros (aceita N): cada serviço cuida do seu estado. */
   const both = (label: string, ...calls: Array<() => void>): void => {
     for (const call of calls) {
@@ -320,13 +322,15 @@ if (process.argv.includes('--hermes')) {
     onGoalReady: (g) => { goal = g },
     onBranchReady: (b) => { branch = b },
     onUndoReady: (u) => { undo = u },
+    onBrowserReady: (b) => { browserFeature = b },
     onRevokeAll: () => {
       wsHub.closeAll()
+      browserFeature?.closeAll()
       // Reassina com a versão nova e reescreve o arquivo: o hermes lê o token
       // do arquivo a cada chamada, então sessões vivas continuam funcionando.
       writeFileSync(serviceTokenFile, auth.tokens.signService(auth.users.serviceTokenVersion()), { mode: 0o600 })
     },
-    onUserInvalidated: (id) => wsHub.closeUser(id),
+    onUserInvalidated: (id) => { wsHub.closeUser(id); browserFeature?.closeUser(id) },
   })
   await app.listen({ port, host })
   // Depois do listen: a subida dos terminais (retomadas e "iniciar com o

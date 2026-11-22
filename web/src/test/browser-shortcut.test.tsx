@@ -110,6 +110,49 @@ describe('Alt+B e o botão do Navegador', () => {
     }
   })
 
+  it('com um modal aberto (a tela cheia da página) Alt+B não age', async () => {
+    render(<App />)
+    await waitFor(() => expect(document.querySelector('.chat-layout')).toBeTruthy())
+    // Como o PageFullscreen: um aria-modal sobre a página, com o foco nele.
+    const modal = document.createElement('div')
+    modal.setAttribute('role', 'dialog')
+    modal.setAttribute('aria-modal', 'true')
+    const botao = document.createElement('button')
+    modal.appendChild(botao)
+    document.body.appendChild(modal)
+    try {
+      for (const alvo of [botao, window] as const) {
+        if (alvo === botao) botao.focus()
+        // A tecla segue para o modal: nada abre por trás dele.
+        expect(altB(alvo)).toBe(true)
+      }
+      await new Promise((r) => setTimeout(r, 0))
+      expect(coluna()).toBeNull()
+      expect(posts()).toHaveLength(0)
+    } finally {
+      modal.remove()
+    }
+    // Fechado o modal, o atalho volta a valer.
+    altB()
+    await waitFor(() => expect(coluna()?.dataset.view).toBe('browser'))
+  })
+
+  it('a tela cheia do próprio Navegador não é modal: Alt+B a fecha', async () => {
+    // A aba já existe no servidor: a lista que chega ao montar a mantém.
+    const base = fetchSpy.getMockImplementation()!
+    fetchSpy.mockImplementation(async (input, init) =>
+      String(input) === '/api/browser/tabs' ? json({ tabs: [{ projectId: 1, engine: 'claude' }] }) : base(input, init))
+    useBrowserStore.setState({ tabs: { '1:claude': true }, failed: {} })
+    useColumnStore.setState({ view: 'browser', fullscreen: true })
+    useStore.setState({ progressOpen: true })
+    render(<App />)
+    await waitFor(() => expect(coluna()?.dataset.view).toBe('browser'))
+    expect(coluna()?.className).toContain('right-column--full')
+    expect(document.querySelector('[aria-modal="true"]')).toBeNull()
+    expect(altB()).toBe(false)
+    await waitFor(() => expect(coluna()).toBeNull())
+  })
+
   it('a aba Atalhos lista \'view.browser\' com Alt+B editável', () => {
     useStore.setState({ appearance: DEFAULT_APPEARANCE })
     render(<AppearancePanel onClose={() => {}} />)

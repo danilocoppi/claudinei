@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { modalOpen } from '../keyboard'
 import { inShortcutScope, matchShortcut } from '../shortcuts/active'
 import { activeTerminal, toggleBrowserView } from './columnStore'
 
@@ -7,13 +8,16 @@ import { activeTerminal, toggleBrowserView } from './columnStore'
  * Navegador do terminal do chat à vista, como o botão do cabeçalho. Vale no
  * campo do chat e fora dele, mas não no terminal interativo, onde a tecla é do
  * shell (o escopo do registro). Tecla que alguém já tratou (`defaultPrevented`)
- * não é dele; sem chat à vista, a tecla segue para a página.
+ * não é dele; sem chat à vista, a tecla segue para a página. Com um modal aberto
+ * (a tela cheia de uma página, o desfazer), também: a vista mudaria por trás
+ * dele. A tela cheia do próprio Navegador não é modal (é a coluna da direita
+ * ampliada), e o atalho continua a fechá-la.
  */
 export function useBrowserShortcut(): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || !matchShortcut(e, 'view.browser')) return
-      if (!inShortcutScope('view.browser', e.target, null)) return
+      if (!inShortcutScope('view.browser', e.target, null) || modalOpen(e.target)) return
       const target = activeTerminal()
       if (!target) return
       e.preventDefault()

@@ -84,6 +84,11 @@ describe('annotate (puro)', () => {
       .toBe('Anotação de http://127.0.0.1:5173/ (viewport 1280×800):')
   })
 
+  it('annotationText não deixa marcadores na URL virarem números', () => {
+    const url = 'http://h/?q={{width}}&r={{height}}&s=$&'
+    expect(annotationText(url, { width: 1, height: 2 })).toBe(`Anotação de ${url} (viewport 1×2):`)
+  })
+
   it('annotationText sai na língua da interface (en, es), sem escapar a URL', async () => {
     const url = 'http://127.0.0.1:5173/a?b=1&c=<2>'
     try {

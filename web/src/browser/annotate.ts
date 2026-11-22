@@ -36,7 +36,11 @@ export function undoMark(s: AnnotationState): AnnotationState {
  * lê (e pode editar) antes de mandar, e o agente a recebe como parte da fala dele.
  */
 export function annotationText(url: string, viewport: Viewport): string {
-  return i18n.t('browser.annotate.message', { url, width: viewport.width, height: viewport.height })
+  // A URL entra depois da tradução: o i18next trocaria um `{{width}}` que
+  // viesse na query dela. A função na troca impede `$&`/`$1` de valerem.
+  const vaga = '\u0000'
+  return i18n.t('browser.annotate.message', { url: vaga, width: viewport.width, height: viewport.height })
+    .replace(vaga, () => url)
 }
 
 const dois = (n: number) => String(n).padStart(2, '0')

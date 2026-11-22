@@ -193,6 +193,22 @@ export interface AppDeps {
   sweepPages?: boolean
 }
 
+/**
+ * Teto de uma mensagem recebida por WebSocket (/ws, /ws/terminal, /ws/browser).
+ * Sem ele valia o padrão do `ws`, 100 MiB, que o servidor junta inteiro na
+ * memória antes de olhar. As maiores mensagens legítimas:
+ * - colar no terminal: o xterm manda o texto colado num frame só (bytes crus);
+ * - send_message do chat: o texto vai em JSON, e os anexos sobem antes por
+ *   HTTP (/api/uploads) — no frame só entra o caminho. Um texto de 8 MiB já
+ *   passa de qualquer contexto de modelo (~4 MB de texto num 1M tokens), com
+ *   folga para o escape do JSON;
+ * - navegador: teclas, cliques e `text` em pedaços de até 10 000 caracteres.
+ * Acima do teto o `ws` fecha a conexão com 1009 (mensagem grande demais); o
+ * cliente reconecta e não reenvia o frame (a fila do /ws só guarda o que foi
+ * mandado com a conexão caída).
+ */
+export const WS_MAX_PAYLOAD = 8 * 1024 * 1024
+
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Respostas visuais: nasce depois do desfazer (o turno aberto vem dele).
   let pages: PagesService | undefined
@@ -202,7 +218,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = (deps.https
     ? Fastify({ logger: false, https: deps.https })
     : Fastify({ logger: false })) as unknown as FastifyInstance
-  await app.register(websocket)
+  await app.register(websocket, { options: { maxPayload: WS_MAX_PAYLOAD } })
   // FORA do `if (deps.auth)`: a decoração precisa existir mesmo sem auth
   // configurada (modo pré-setup). Dentro, `req.behindProxy` ficava undefined e
   // `isTrustedLocal` voltava a valer como `isLocalRequest` — o que reabria o

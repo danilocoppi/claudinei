@@ -14,13 +14,17 @@ const MIN_DELTA_PX = 4
 /**
  * A altura do conteúdo, como expressão JS (string): o maior entre a caixa do
  * `<html>` (com as margens do body) e o `scrollHeight` do `<body>` (conteúdo que
- * transborda), arredondado para cima. Não usa o `scrollHeight` do `<html>`, que
- * nunca fica abaixo do viewport. O mesmo texto serve ao script do cartão e ao
+ * transborda), arredondado para cima. O `scrollHeight` do `<html>` nunca fica
+ * abaixo do viewport, então só entra quando passa dele (há transbordo de
+ * verdade): é o que pega a página feita só de `position: absolute`, cuja caixa
+ * do `<html>` e do body fica em 0. O mesmo texto serve ao script do cartão e ao
  * `contentHeight` do navegador do `check_page` (que só aceita `evaluate` com
  * string, por causa do bytecode do pkg).
  */
 export const CONTENT_HEIGHT_EXPR = '(function(){var d=document.documentElement,b=document.body;'
-  + 'return Math.ceil(Math.max(d?d.getBoundingClientRect().height:0,b?b.scrollHeight:0));})()'
+  + 'var h=Math.max(d?d.getBoundingClientRect().height:0,b?b.scrollHeight:0);'
+  + 'if(d&&d.scrollHeight>window.innerHeight)h=Math.max(h,d.scrollHeight);'
+  + 'return Math.ceil(h);})()'
 
 /** Doctype no começo, depois de BOM, espaços e comentários (o resto do doctype não importa). */
 const LEADING_DOCTYPE_RE = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*<!doctype[\s>]/i

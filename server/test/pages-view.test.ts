@@ -421,7 +421,7 @@ describe('script de altura', () => {
 
 describe('expressão da altura do conteúdo', () => {
   const el = (rect: number, scroll: number) => ({ getBoundingClientRect: () => ({ height: rect }), scrollHeight: scroll })
-  const measure = (document: unknown) => runInNewContext(CONTENT_HEIGHT_EXPR, { document })
+  const measure = (document: unknown, innerHeight = 800) => runInNewContext(CONTENT_HEIGHT_EXPR, { document, window: { innerHeight } })
 
   it('o script de altura usa a mesma expressão (o texto não é duplicado)', () => {
     expect(HEIGHT_SCRIPT).toContain(CONTENT_HEIGHT_EXPR)
@@ -434,6 +434,17 @@ describe('expressão da altura do conteúdo', () => {
     expect(measure({ documentElement: el(100, 800), body: el(100, 2500) })).toBe(2500)
     expect(measure({ documentElement: el(8.2, 800), body: null })).toBe(9)
     expect(measure({ documentElement: null, body: null })).toBe(0)
+  })
+
+  it('com transbordo de verdade (scrollHeight do <html> acima do viewport), ele também conta: conteúdo absoluto mede a altura real', () => {
+    // Só conteúdo position:absolute: a caixa do <html> e o body ficam em 0,
+    // mas o documento rola até 1500.
+    expect(measure({ documentElement: el(0, 1500), body: el(0, 0) }, 800)).toBe(1500)
+    // Sem transbordo, o scrollHeight do <html> é o viewport e não conta.
+    expect(measure({ documentElement: el(0, 800), body: el(0, 0) }, 800)).toBe(0)
+    expect(measure({ documentElement: el(79.875, 800), body: el(0, 37) }, 800)).toBe(80)
+    // Com transbordo, nunca abaixo da caixa do <html> nem do body.
+    expect(measure({ documentElement: el(2000.5, 1900), body: el(0, 1800) }, 800)).toBe(2001)
   })
 })
 

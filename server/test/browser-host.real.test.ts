@@ -46,7 +46,7 @@ describe.skipIf(!resolveChromium().ok)('BrowserHost com o Chromium de verdade', 
     expect(await measure('<!doctype html><body><div style="height:3000px"></div></body>')).toBe(3016)
   }, 60_000)
 
-  it('contentHeight: página de 300 px; sem doctype, o modo quirks mede o viewport', async () => {
+  it('contentHeight: página de 300 px e conteúdo só absoluto; sem doctype, o modo quirks mede o viewport', async () => {
     const measure = (html: string) => host.withIsolatedPage({ viewport: { width: 1024, height: 800 } }, async (page) => {
       await page.setContent(html)
       return page.contentHeight()
@@ -57,6 +57,10 @@ describe.skipIf(!resolveChromium().ok)('BrowserHost com o Chromium de verdade', 
     // Sem doctype (modo quirks) o body estica até o viewport: é por isso que
     // show_page e check_page acrescentam o doctype.
     expect(await measure(page300)).toBe(800)
+    // Só conteúdo absoluto, mais alto que o viewport: a altura real, não 0.
+    expect(await measure('<!doctype html><div style="position:absolute;top:0;left:0;height:1500px;width:10px"></div>')).toBe(1500)
+    // Absoluto que cabe no viewport: sem transbordo, só a caixa do documento.
+    expect(await measure('<!doctype html><div style="position:absolute;top:0;height:300px"></div>')).toBeLessThan(40)
   }, 60_000)
 
   it('runCheck: o PNG da página baixa sai na altura do conteúdo, não na do viewport', async () => {

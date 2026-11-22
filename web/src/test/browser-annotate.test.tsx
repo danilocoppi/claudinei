@@ -302,6 +302,51 @@ describe('Anotar na vista Navegador', () => {
     expect(ctxs.at(-1)!.calls).toContainEqual(['fillText', ['botão torto', 64, 40]])
   })
 
+  it('texto: clicar em outro ponto com o campo aberto grava o texto no ponto antigo; o campo novo nasce vazio', async () => {
+    const { ctxs } = canvasFalso()
+    montar()
+    await anotar()
+    fireEvent.click(screen.getByRole('button', { name: 'Texto' }))
+    const canvas = screen.getByTestId('annotate-canvas')
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 800, right: 1280, bottom: 800, x: 0, y: 0, toJSON() {} })
+    const clique = (x: number, y: number) => act(() => {
+      canvas.dispatchEvent(new MouseEvent('pointerdown', { clientX: x, clientY: y, button: 0, bubbles: true, cancelable: true }))
+    })
+    clique(64, 40)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Texto da anotação' }), { target: { value: 'primeiro' } })
+    clique(300, 200)
+    const campo = screen.getByRole('textbox', { name: 'Texto da anotação' }) as HTMLInputElement
+    expect(campo.value).toBe('')
+    expect(document.activeElement).toBe(campo)
+    fireEvent.change(campo, { target: { value: 'segundo' } })
+    fireEvent.keyDown(campo, { key: 'Enter' })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Mandar ao campo' })) })
+    await waitFor(() => expect(useSideStore.getState().appendRequest).not.toBeNull())
+    const textos = ctxs.at(-1)!.calls.filter(([n]) => n === 'fillText').map(([, a]) => a)
+    expect(textos).toEqual([['primeiro', 64, 40], ['segundo', 300, 200]])
+  })
+
+  it('o erro da anotação some no ×, e quando a URL muda', async () => {
+    canvasFalso()
+    vi.useFakeTimers()
+    montar()
+    const falhar = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Anotar' }))
+      act(() => { vi.advanceTimersByTime(10_000) })
+      expect(screen.getByText('Não deu para congelar a tela.')).toBeTruthy()
+    }
+    act(() => { conn().h.onState(estado()) })
+    falhar()
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar o aviso' }))
+    expect(screen.queryByText('Não deu para congelar a tela.')).toBeNull()
+    falhar()
+    // O mesmo endereço não apaga; outro, sim.
+    act(() => { conn().h.onState(estado({ title: 'Outra' })) })
+    expect(screen.getByText('Não deu para congelar a tela.')).toBeTruthy()
+    act(() => { conn().h.onState(estado({ url: 'http://127.0.0.1:5173/outra' })) })
+    expect(screen.queryByText('Não deu para congelar a tela.')).toBeNull()
+  })
+
   it('recorte: a imagem mandada tem o tamanho do recorte', async () => {
     const { canvases } = canvasFalso()
     montar()
@@ -371,7 +416,7 @@ describe('Anotar na vista Navegador', () => {
       for (const k of ['browser.annotate.open', 'browser.annotate.send', 'browser.annotate.cancel', 'browser.annotate.undo',
         'browser.annotate.rect', 'browser.annotate.arrow', 'browser.annotate.text', 'browser.annotate.crop',
         'browser.annotate.waiting', 'browser.annotate.freezeFailed', 'browser.annotate.sendFailed', 'browser.annotate.label',
-        'browser.annotate.textField'] as const) {
+        'browser.annotate.textField', 'browser.annotate.dismissError'] as const) {
         expect(i18n.t(k), `${k} em ${lng}`).not.toBe(k)
       }
     }

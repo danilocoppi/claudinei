@@ -30,6 +30,9 @@ vi.mock('../components/ProgressColumn', () => ({ ProgressColumn: () => <aside cl
 import { RightColumn } from '../browser/RightColumn'
 import { useColumnStore } from '../browser/columnStore'
 import { applyBrowserMessage, useBrowserStore } from '../browser/browserStore'
+import { noticeText } from '../browser/notices'
+import { serverUrl } from '../browser/ServersStrip'
+import i18n from '../i18n'
 import { useSideStore } from '../branch/sideStore'
 import { useStore } from '../store'
 
@@ -335,6 +338,24 @@ describe('vista Navegador', () => {
     await waitFor(() => expect(screen.getByTestId('server-5173').textContent).toContain('o processo já não é o mesmo'))
   })
 
+  it('servidor só em ::1: Abrir vai por http://[::1]:<porta>', async () => {
+    servers = [{ pid: 250, port: 4321, host: '::1', label: 'astro', startTime: '7777', marker: 'exact' }]
+    montar()
+    const el = await screen.findByTestId('server-4321')
+    fireEvent.click(within(el).getByRole('button', { name: 'Abrir' }))
+    expect(sent('navigate')).toEqual([{ type: 'navigate', url: 'http://[::1]:4321' }])
+  })
+
+  it('serverUrl: loopback do IPv6 entre colchetes; o resto por 127.0.0.1', () => {
+    expect(serverUrl({ host: '::1', port: 5173 })).toBe('http://[::1]:5173')
+    expect(serverUrl({ host: '0:0:0:0:0:0:0:1', port: 5173 })).toBe('http://[::1]:5173')
+    expect(serverUrl({ host: '[::1]', port: 80 })).toBe('http://[::1]:80')
+    expect(serverUrl({ host: '127.0.0.1', port: 3000 })).toBe('http://127.0.0.1:3000')
+    expect(serverUrl({ host: '0.0.0.0', port: 3000 })).toBe('http://127.0.0.1:3000')
+    expect(serverUrl({ host: '::', port: 3000 })).toBe('http://127.0.0.1:3000')
+    expect(serverUrl({ host: '::ffff:127.0.0.1', port: 3000 })).toBe('http://127.0.0.1:3000')
+  })
+
   it('servidores só são lidos com a vista visível, a cada 5 s', async () => {
     vi.useFakeTimers()
     const lidas = () => fetchSpy.mock.calls.filter(([u]) => String(u) === SERVERS).length
@@ -395,6 +416,31 @@ describe('vista Navegador', () => {
     expect(fetchSpy.mock.calls.some(([u, i]) => String(u) === BROWSER && i?.method === 'POST')).toBe(true)
     expect(useBrowserStore.getState().tabs['1:claude']).toBe(true)
     expect(screen.queryByText('O navegador fechou')).toBeNull()
+  })
+
+  it('browser_closed e o agente reabre (browser_tab aberto): a tela conecta de novo', () => {
+    montar()
+    emitir(estado())
+    emitir(estado({ closed: 'browser_closed' }))
+    act(() => { conn().h.onClose(1000, false) })
+    act(() => { applyBrowserMessage({ type: 'browser_tab', projectId: 1, engine: 'claude', open: false, by: 'system' }) })
+    expect(screen.getByText('O navegador fechou')).toBeTruthy()
+    const velha = conn()
+    act(() => { applyBrowserMessage({ type: 'browser_tab', projectId: 1, engine: 'claude', open: true, by: 'agent' }) })
+    expect(sock.conns).toHaveLength(2)
+    expect(velha.closed).toBe(true)
+    expect(conn().closed).toBe(false)
+    expect(screen.queryByText('O navegador fechou')).toBeNull()
+    // O `state` velho (com `closed`) saiu: o novo manda na vista.
+    emitir(estado({ url: 'http://127.0.0.1:3000/' }))
+    expect((screen.getByRole('textbox', { name: 'Endereço' }) as HTMLInputElement).value).toBe('http://127.0.0.1:3000/')
+  })
+
+  it('a aba aberta com o socket vivo não reconecta', () => {
+    montar()
+    emitir(estado())
+    act(() => { applyBrowserMessage({ type: 'browser_tab', projectId: 1, engine: 'claude', open: true, by: 'agent' }) })
+    expect(sock.conns).toHaveLength(1)
   })
 
   it('o browser_tab do sistema chegando antes do último state: a vista espera o motivo', () => {
@@ -484,11 +530,84 @@ describe('vista Navegador', () => {
     expect(marca.style.top).toBe('50%')
   })
 
+  it('Anotar fica desabilitado com diálogo pendente', () => {
+    montar()
+    emitir(estado())
+    const anotar = () => screen.getByRole('button', { name: 'Anotar' }) as HTMLButtonElement
+    expect(anotar().disabled).toBe(false)
+    emitir(estado({ dialog: { id: 1, type: 'confirm', message: 'Apagar?' } }))
+    expect(anotar().disabled).toBe(true)
+    fireEvent.click(anotar())
+    expect(sent('freeze')).toEqual([])
+    emitir(estado())
+    expect(anotar().disabled).toBe(false)
+  })
+
+  it('os avisos do servidor aparecem no idioma da tela; o desconhecido, como veio', () => {
+    montar()
+    emitir(estado({
+      notices: ['control returned to the agent', 'alert accepted: "Salvo!"', 'aviso que ninguém conhece'],
+    }))
+    const lista = screen.getByRole('list', { name: 'Avisos do navegador' })
+    expect([...lista.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'O comando voltou ao agente', 'Alerta aceito: "Salvo!"', 'aviso que ninguém conhece',
+    ])
+  })
+
   it('fechar a aba chama o DELETE', async () => {
     montar()
     emitir(estado())
     fireEvent.click(screen.getByRole('button', { name: 'Fechar o navegador' }))
     await waitFor(() => expect(fetchSpy.mock.calls.some(([u, i]) => String(u) === BROWSER && i?.method === 'DELETE')).toBe(true))
+  })
+})
+
+describe('avisos do servidor (noticeText)', () => {
+  /** Os textos reais do servidor (terminal-tab.ts, baton.ts, input.ts). */
+  const AVISOS = [
+    'dialog pending: confirm "Apagar tudo?"',
+    'dialog pending: prompt "Seu nome, por favor"',
+    'alert accepted: "Salvo, "de verdade""',
+    'beforeunload accepted',
+    'download blocked: relatório, final.pdf, from http://127.0.0.1:5173/r.pdf',
+    'file chooser cancelled (file upload is not supported)',
+    'navigation to file: blocked; back to about:blank',
+    'navigation to an unknown scheme blocked; back to about:blank',
+    'page crashed; use browser_navigate action=reload',
+    'control returned to the agent',
+    'only http:, https: and about:blank URLs are allowed',
+  ]
+  afterEach(async () => { await i18n.changeLanguage('pt-BR') })
+
+  it('pt-BR: cada padrão conhecido traduzido, com as partes variáveis', async () => {
+    await i18n.changeLanguage('pt-BR')
+    expect(AVISOS.map((n) => noticeText(n, i18n.t))).toEqual([
+      'Diálogo pendente (confirm): "Apagar tudo?"',
+      'Diálogo pendente (prompt): "Seu nome, por favor"',
+      'Alerta aceito: "Salvo, "de verdade""',
+      'Aviso de saída da página aceito',
+      'Download bloqueado: relatório, final.pdf, de http://127.0.0.1:5173/r.pdf',
+      'Escolha de arquivo cancelada (o envio de arquivos não é suportado)',
+      'Navegação para file: bloqueada; a aba voltou para about:blank',
+      'Navegação para um esquema desconhecido bloqueada; a aba voltou para about:blank',
+      'A página travou; recarregue para continuar',
+      'O comando voltou ao agente',
+      'Só endereços http:, https: e about:blank são aceitos.',
+    ])
+  })
+
+  it('en e es: nenhum aviso conhecido sai cru; o desconhecido sai como veio', async () => {
+    for (const lng of ['en', 'es'] as const) {
+      await i18n.changeLanguage(lng)
+      for (const n of AVISOS) {
+        const out = noticeText(n, i18n.t)
+        expect(out, `${n} em ${lng}`).not.toBe(n)
+        expect(out, `${n} em ${lng}`).not.toMatch(/browser\.notice/)
+      }
+      expect(noticeText('something new', i18n.t)).toBe('something new')
+    }
+    await i18n.changeLanguage('es')
+    expect(noticeText('download blocked: a.zip, from http://x/a.zip', i18n.t)).toBe('Descarga bloqueada: a.zip, desde http://x/a.zip')
   })
 })
 
@@ -520,6 +639,51 @@ describe('tela', () => {
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
     expect(decode).toHaveBeenCalledTimes(2)
     expect(new TextDecoder().decode(await (decode.mock.calls[1][0] as Blob).arrayBuffer())).toBe('c')
+  })
+
+  /** A aba fecha com `browser_closed`, e a vista mostra o Reabrir. */
+  const fecharNavegador = () => {
+    emitir(estado({ closed: 'browser_closed' }))
+    act(() => { conn().h.onClose(1000, false) })
+    act(() => { applyBrowserMessage({ type: 'browser_tab', projectId: 1, engine: 'claude', open: false, by: 'system' }) })
+  }
+
+  it('depois do Reabrir, o quadro com seq 1 da aba nova é desenhado (uma conexão só)', async () => {
+    montar()
+    emitir(estado())
+    await act(async () => { conn().h.onFrame({ header: header(30), image: new Blob(['a']) }) })
+    await waitFor(() => expect(ctx.drawImage).toHaveBeenCalledTimes(1))
+    fecharNavegador()
+    fireEvent.click(screen.getByRole('button', { name: 'Reabrir' }))
+    await waitFor(() => expect(sock.conns).toHaveLength(2))
+    emitir(estado())
+    await act(async () => { conn().h.onFrame({ header: header(1), image: new Blob(['b']) }) })
+    await waitFor(() => expect(ctx.drawImage).toHaveBeenCalledTimes(2))
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+    expect(sock.conns).toHaveLength(2)
+  })
+
+  it('o agente reabre depois de browser_closed: o seq 1 da aba nova é desenhado', async () => {
+    montar()
+    emitir(estado())
+    await act(async () => { conn().h.onFrame({ header: header(30), image: new Blob(['a']) }) })
+    await waitFor(() => expect(ctx.drawImage).toHaveBeenCalledTimes(1))
+    fecharNavegador()
+    act(() => { applyBrowserMessage({ type: 'browser_tab', projectId: 1, engine: 'claude', open: true, by: 'agent' }) })
+    expect(sock.conns).toHaveLength(2)
+    emitir(estado())
+    await act(async () => { conn().h.onFrame({ header: header(1), image: new Blob(['b']) }) })
+    await waitFor(() => expect(ctx.drawImage).toHaveBeenCalledTimes(2))
+  })
+
+  it('a reconexão do próprio socket (onOpen) também recomeça a contagem', async () => {
+    montar()
+    emitir(estado())
+    await act(async () => { conn().h.onFrame({ header: header(30), image: new Blob(['a']) }) })
+    await waitFor(() => expect(ctx.drawImage).toHaveBeenCalledTimes(1))
+    act(() => { (conn().h as { onOpen?(): void }).onOpen?.() })
+    await act(async () => { conn().h.onFrame({ header: header(1), image: new Blob(['b']) }) })
+    await waitFor(() => expect(ctx.drawImage).toHaveBeenCalledTimes(2))
   })
 
   it('a marca da ação some no primeiro quadro depois de 1,5 s', async () => {

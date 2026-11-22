@@ -40,6 +40,17 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('connectBrowser', () => {
+  it('onOpen a cada conexão aberta (a primeira e a da nova tentativa)', () => {
+    const h = { ...handlers(), onOpen: vi.fn() }
+    connectBrowser(7, 'claude', h)
+    ultimo().abrir()
+    expect(h.onOpen).toHaveBeenCalledTimes(1)
+    ultimo().fechar(1006)
+    vi.advanceTimersByTime(1000)
+    ultimo().abrir()
+    expect(h.onOpen).toHaveBeenCalledTimes(2)
+  })
+
   it('URL, visible e resize guardados e mandados ao abrir; estado e quadro', async () => {
     const h = handlers()
     const c = connectBrowser(7, 'codex', h)

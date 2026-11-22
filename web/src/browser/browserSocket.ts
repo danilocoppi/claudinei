@@ -7,6 +7,8 @@ const RETRY_MS = [1000, 2000, 5000, 10000]
 export interface BrowserSocketHandlers {
   onState(s: BrowserStateMsg): void
   onFrame(f: { header: FrameHeader; image: Blob }): void
+  /** Uma conexão abriu (a primeira ou uma nova tentativa): os quadros dela recomeçam a contagem. */
+  onOpen?(): void
   /** O socket fechou; `retrying`: outra tentativa já está marcada. */
   onClose(code: number, retrying: boolean): void
 }
@@ -44,6 +46,7 @@ export function connectBrowser(projectId: number, engine: string, h: BrowserSock
     ws = sock
     sock.onopen = () => {
       attempt = 0
+      if (!stopped) h.onOpen?.()
       for (const m of [visible, resize]) if (m) sock.send(JSON.stringify(m))
     }
     sock.onmessage = (e: MessageEvent) => {

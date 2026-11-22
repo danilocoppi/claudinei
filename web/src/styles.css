@@ -3740,6 +3740,8 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .browser-servers__error { flex-basis: 100%; color: var(--err); }
 .browser-last { flex: none; padding: 3px 10px; font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .browser-notices { flex: none; list-style: none; margin: 0; padding: 3px 10px; font-size: 12px; color: var(--warn); }
+.browser-notices--dismissable { display: flex; align-items: center; gap: 6px; }
+.browser-notices__close { flex: none; margin-left: auto; padding: 0 4px; font-size: 14px; line-height: 1; color: var(--text-dim); }
 /* A vista: a tela e o que fica sobre ela (a capa e o aviso de senha). */
 .browser-view { flex: 1 1 0; min-height: 0; min-width: 0; position: relative; display: flex; }
 /* A tela: a área mede o próprio content-box (sem a borda) para a escala e para o `resize`;

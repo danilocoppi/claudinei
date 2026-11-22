@@ -44,6 +44,12 @@ export function Annotator({ still, viewport: vp, url, localId, onExit }: Props) 
   const [s, setS] = useState<AnnotationState>({ marks: [], crop: null })
   const [tool, setTool] = useState<Tool>('rect')
   const [textAt, setTextAt] = useState<{ x: number; y: number } | null>(null)
+  /**
+   * O campo de texto aberto: a posição (o mesmo objeto de `textAt`) e o que já
+   * foi digitado. Um clique em outro ponto grava este na posição dele antes de
+   * abrir o novo; o fechamento de um campo que já não é o aberto é ignorado.
+   */
+  const field = useRef<{ at: { x: number; y: number }; text: string } | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [area, setArea] = useState<{ w: number; h: number } | null>(null)
@@ -133,7 +139,12 @@ export function Annotator({ still, viewport: vp, url, localId, onExit }: Props) 
     if (!ready || e.button !== 0 || sending) return
     e.preventDefault()
     const p = pos(e)
-    if (tool === 'text') { setTextAt(p); return }
+    if (tool === 'text') {
+      saveField()
+      field.current = { at: p, text: '' }
+      setTextAt(p)
+      return
+    }
     drag.current = { tool, x1: p.x, y1: p.y, x2: p.x, y2: p.y }
     try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch { /* ponteiro já solto */ }
   }
@@ -168,10 +179,20 @@ export function Annotator({ still, viewport: vp, url, localId, onExit }: Props) 
     redraw()
   }
 
-  const commitText = (text: string) => {
-    const at = textAt
+  /** Grava o texto do campo aberto na posição dele (vazio, nada) e o esquece. */
+  const saveField = () => {
+    const f = field.current
+    field.current = null
+    const text = f?.text.trim()
+    if (f && text) setS((cur) => addMark(cur, { kind: 'text', x: f.at.x, y: f.at.y, text }))
+  }
+
+  /** Enter ou sair do campo (`save`), ou Escape: só vale para o campo ainda aberto. */
+  const closeField = (at: { x: number; y: number }, save: boolean) => {
+    if (field.current?.at !== at) return
+    if (save) saveField()
+    else field.current = null
     setTextAt(null)
-    if (at && text.trim()) setS((cur) => addMark(cur, { kind: 'text', x: at.x, y: at.y, text: text.trim() }))
     rootRef.current?.focus({ preventScroll: true })
   }
 
@@ -241,9 +262,11 @@ export function Annotator({ still, viewport: vp, url, localId, onExit }: Props) 
                   width={vp.width} height={vp.height}
                   onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
                   onPointerCancel={onPointerCancel} />
+          {/* Um campo novo a cada ponto (a `key`): o texto de um não passa ao outro. */}
           {textAt && (
-            <TextField at={textAt} vp={vp} label={t('browser.annotate.textField')} onDone={commitText}
-                       onCancel={() => { setTextAt(null); rootRef.current?.focus({ preventScroll: true }) }} />
+            <TextField key={`${textAt.x},${textAt.y}`} at={textAt} vp={vp} label={t('browser.annotate.textField')}
+                       onChange={(v) => { if (field.current?.at === textAt) field.current.text = v }}
+                       onDone={() => closeField(textAt, true)} onCancel={() => closeField(textAt, false)} />
           )}
         </div>
       </div>
@@ -252,8 +275,8 @@ export function Annotator({ still, viewport: vp, url, localId, onExit }: Props) 
 }
 
 /** O campo do texto, no ponto clicado: Enter (ou sair do campo) põe a marca; Escape desiste. */
-function TextField({ at, vp, label, onDone, onCancel }: {
-  at: { x: number; y: number }; vp: Viewport; label: string; onDone(text: string): void; onCancel(): void
+function TextField({ at, vp, label, onChange, onDone, onCancel }: {
+  at: { x: number; y: number }; vp: Viewport; label: string; onChange(text: string): void; onDone(): void; onCancel(): void
 }) {
   const ref = useRef<HTMLInputElement>(null)
   const done = useRef(false)
@@ -262,11 +285,12 @@ function TextField({ at, vp, label, onDone, onCancel }: {
   return (
     <input ref={ref} className="browser-annot__text" aria-label={label} autoComplete="off" spellCheck={false}
            style={{ left: `${(at.x / vp.width) * 100}%`, top: `${(at.y / vp.height) * 100}%` }}
+           onChange={(e) => onChange(e.target.value)}
            onKeyDown={(e) => {
-             if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(() => onDone(e.currentTarget.value)) }
+             if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(onDone) }
              else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(onCancel) }
              else e.stopPropagation()
            }}
-           onBlur={(e) => finish(() => onDone(e.currentTarget.value))} />
+           onBlur={() => finish(onDone)} />
   )
 }

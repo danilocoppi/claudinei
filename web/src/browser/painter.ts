@@ -15,6 +15,12 @@ export function createPainter(canvas: HTMLCanvasElement, d: { createImageBitmap?
   lastSeq(): number
   /** Tira o quadro que esperava a vez (a tela saiu de vista): ele não é decodificado. */
   takeWaiting(): { image: Blob; header: FrameHeader } | null
+  /**
+   * Conexão nova (outra aba no servidor, com o `seq` de volta a 1): esquece o
+   * último desenhado e o que esperava; o que ainda decodifica, da conexão
+   * anterior, é fechado sem desenhar.
+   */
+  reset(): void
   /** Para de desenhar: o que estiver decodificando é fechado ao terminar. */
   dispose(): void
 } {
@@ -24,14 +30,17 @@ export function createPainter(canvas: HTMLCanvasElement, d: { createImageBitmap?
   let waiting: { image: Blob; header: FrameHeader } | null = null
   let drawn = -1
   let disposed = false
+  /** Muda a cada `reset`: a decodificação de antes dele não desenha. */
+  let epoch = 0
 
   function start(image: Blob, header: FrameHeader): void {
     busy = true
+    const ep = epoch
     decode(image).then((bmp) => {
       // O bitmap é fechado mesmo se o desenho lançar (canvas sem contexto, bitmap inválido).
       try {
-        // Desmontado no meio, ou um quadro mais novo já foi desenhado: só fecha.
-        if (!disposed && header.seq > drawn) {
+        // Desmontado no meio, conexão trocada (reset) ou um quadro mais novo já desenhado: só fecha.
+        if (!disposed && ep === epoch && header.seq > drawn) {
           // O contexto só na primeira vez: sem quadro, o canvas nem é tocado.
           ctx ??= canvas.getContext('2d')
           ctx?.drawImage(bmp, 0, 0, canvas.width, canvas.height)
@@ -60,6 +69,7 @@ export function createPainter(canvas: HTMLCanvasElement, d: { createImageBitmap?
       waiting = null
       return w
     },
+    reset() { epoch++; drawn = -1; waiting = null },
     dispose() { disposed = true; waiting = null },
   }
 }

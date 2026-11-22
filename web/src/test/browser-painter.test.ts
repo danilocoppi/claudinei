@@ -118,6 +118,29 @@ describe('painter', () => {
     expect(d.bitmaps[1].close).toHaveBeenCalledTimes(1)
   })
 
+  it('reset (conexão nova): o seq 1 da aba nova é desenhado; o que decodificava antes não desenha', async () => {
+    const d = decoder()
+    const { canvas, ctx } = canvasFalso()
+    const p = createPainter(canvas, { createImageBitmap: d.createImageBitmap })
+    p.push(blob('a'), header(40))
+    await d.finish()
+    expect(p.lastSeq()).toBe(40)
+    // Um quadro da conexão velha ainda decodificando, e outro esperando a vez.
+    p.push(blob('velho'), header(41))
+    p.push(blob('espera'), header(42))
+    p.reset()
+    expect(p.lastSeq()).toBe(-1)
+    p.push(blob('novo'), header(1))
+    await d.finish()
+    // O da conexão velha só fecha; o que esperava foi esquecido; o seq 1 é o próximo.
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1)
+    expect(d.bitmaps[1].close).toHaveBeenCalledTimes(1)
+    expect((d.createImageBitmap.mock.calls[2][0] as Blob & { tag: string }).tag).toBe('novo')
+    await d.finish()
+    expect(ctx.drawImage).toHaveBeenCalledTimes(2)
+    expect(p.lastSeq()).toBe(1)
+  })
+
   it('nenhuma chamada a requestAnimationFrame', async () => {
     const raf = vi.fn()
     const antes = window.requestAnimationFrame

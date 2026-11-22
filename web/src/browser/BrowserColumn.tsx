@@ -12,13 +12,12 @@ import { useEffectiveView } from './columnStore'
 import { BrowserScreen, type FrameSink } from './BrowserScreen'
 import { ServersStrip } from './ServersStrip'
 import { Annotator } from './Annotator'
+import { noticeText } from './notices'
 
 type Props = { projectId: number; engine: string; /** A sessão principal do terminal (o campo que recebe a anotação). */ localId?: string }
 
 /** O "Entendi" do aviso de senha, lembrado por navegador. */
 const PASSWORD_WARNED_KEY = 'claudinei:browserPasswordWarned'
-/** O aviso do servidor para esquema recusado (em inglês, o texto do agente): a tela traduz por igualdade. */
-const SCHEME_REFUSED = 'only http:, https: and about:blank URLs are allowed'
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 }
 /** Sem o congelado (PNG) neste prazo depois do `freeze`, a anotação desiste e descongela. */
 const STILL_WAIT_MS = 10_000
@@ -116,6 +115,7 @@ function BrowserLive({ projectId, engine, localId }: Props) {
   const { t } = useTranslation()
   const key = progressKey(projectId, engine)
   const failure = useBrowserStore((s) => s.failed[key])
+  const tabOpen = useBrowserStore((s) => !!s.tabs[key])
   const active = useEffectiveView(projectId, engine) === 'browser'
   const [st, setSt] = useState<BrowserStateMsg | null>(null)
   /** Muda para reconectar (Reabrir, Tentar de novo). */
@@ -136,6 +136,10 @@ function BrowserLive({ projectId, engine, localId }: Props) {
   const connRef = useRef<ReturnType<typeof connectBrowser> | null>(null)
   const frameRef = useRef<FrameSink | null>(null)
   const releaseRef = useRef<(() => void) | null>(null)
+  /** Esquece o último quadro desenhado: a aba nova recomeça o `seq` em 1. */
+  const resetRef = useRef<(() => void) | null>(null)
+  /** O socket desta geração terminou sem nova tentativa (aba fechada, recusa). */
+  const finalRef = useRef(false)
   const lastResize = useRef<BrowserClientMsg | null>(null)
   /** O motivo do fechamento da aba, dito pelo socket. */
   const closedReason = useRef<BrowserStateMsg['closed'] | null>(null)
@@ -171,8 +175,12 @@ function BrowserLive({ projectId, engine, localId }: Props) {
   // O socket da tela; reconecta quando `gen` muda.
   useEffect(() => {
     closedReason.current = null
+    finalRef.current = false
     setRefused(false)
+    // Conexão nova, talvez com outra aba no servidor: o pintor não descarta o `seq` 1 dela.
+    resetRef.current?.()
     const c = connectBrowser(projectId, engine, {
+      onOpen: () => resetRef.current?.(),
       onState: (s) => {
         setSt(s)
         if (!s.closed) return
@@ -197,7 +205,11 @@ function BrowserLive({ projectId, engine, localId }: Props) {
         }
         frameRef.current?.(f)
       },
-      onClose: (code, retrying) => { if (!retrying && code === 1008) setRefused(true) },
+      onClose: (code, retrying) => {
+        if (retrying) return
+        finalRef.current = true
+        if (code === 1008) setRefused(true)
+      },
     })
     connRef.current = c
     if (lastResize.current) c.send(lastResize.current)
@@ -229,15 +241,27 @@ function BrowserLive({ projectId, engine, localId }: Props) {
     else if (r || refused) clearBrowserFailure(key)
   }, [failureCode, key, refused])
 
+  /** Conexão nova, do zero (o `state` velho sai). */
+  const reconnect = useCallback(() => {
+    closedReason.current = null
+    finalRef.current = false
+    setSt(null)
+    setGen((g) => g + 1)
+  }, [])
+
+  // A aba voltou (o agente chamou browser_open depois de `browser_closed`, ou o
+  // Reabrir): com o socket já encerrado, a tela conecta de novo.
+  useEffect(() => {
+    if (tabOpen && (closedReason.current || finalRef.current)) reconnect()
+  }, [tabOpen, reconnect])
+
   const doReopen = async () => {
     if (busy) return
     setBusy(true)
     const ok = await reopen(projectId, engine)
     setBusy(false)
-    if (ok) {
-      setSt(null)
-      setGen((g) => g + 1)
-    }
+    // Uma só conexão nova: a aba aberta pode já ter reconectado pelo efeito acima.
+    if (ok && (closedReason.current || finalRef.current || stRef.current?.unavailable)) reconnect()
   }
 
   /** Sai da anotação (qualquer caminho) e descongela; com erro, o porquê fica no cabeçalho. */
@@ -251,6 +275,10 @@ function BrowserLive({ projectId, engine, localId }: Props) {
     setAnnot(null)
     setAnnotError(error ?? null)
   }, [send])
+
+  // O porquê da anotação que falhou é da página em que ela foi tentada.
+  const url = st?.url
+  useEffect(() => { setAnnotError(null) }, [url])
 
   const startAnnot = () => {
     if (annotRef.current || !st) return
@@ -347,7 +375,7 @@ function BrowserLive({ projectId, engine, localId }: Props) {
                onChange={(e) => setAddr(e.target.value)} onKeyDown={onAddrKey} onBlur={() => setAddr(null)} />
         <button type="button" className="ghost browser-head__btn" aria-label={t('browser.annotate.open')}
                 title={t('browser.annotate.openTitle')} aria-pressed={!!annot}
-                disabled={!st || !!st.closed || st.crashed || !!annot} onClick={startAnnot}>
+                disabled={!st || !!st.closed || st.crashed || !!st.dialog || !!annot} onClick={startAnnot}>
           {/* Um lápis. */}
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></svg>
@@ -384,15 +412,21 @@ function BrowserLive({ projectId, engine, localId }: Props) {
       {(!!st?.notices.length || closeError) && (
         <ul className="browser-notices" aria-label={t('browser.notices.label')}>
           {st?.notices.slice(-3).map((n, i) => (
-            <li key={`${i}:${n}`}>{n === SCHEME_REFUSED ? t('browser.notices.schemeRefused') : n}</li>
+            <li key={`${i}:${n}`}>{noticeText(n, t)}</li>
           ))}
           {closeError && <li>{closeError}</li>}
         </ul>
       )}
-      {annotError && <div className="browser-notices" role="status">{annotError}</div>}
+      {annotError && (
+        <div className="browser-notices browser-notices--dismissable" role="status">
+          <span>{annotError}</span>
+          <button type="button" className="ghost browser-notices__close" aria-label={t('browser.annotate.dismissError')}
+                  title={t('browser.annotate.dismissError')} onClick={() => setAnnotError(null)}>×</button>
+        </div>
+      )}
       <div className="browser-view">
         <BrowserScreen viewportWidth={vp.width} viewportHeight={vp.height} you={you} visible={visible} mark={mark}
-                       send={send} frameRef={frameRef} releaseRef={releaseRef} onIntersect={onIntersect} />
+                       send={send} frameRef={frameRef} releaseRef={releaseRef} resetRef={resetRef} onIntersect={onIntersect} />
         {/* O aviso de senha (só na primeira tomada do bastão) é uma camada sobre o topo
             da tela: não muda a medida, nem manda `resize`. */}
         {you && !warned && (

@@ -38,6 +38,11 @@ type Props = {
   frameRef: React.MutableRefObject<FrameSink | null>
   /** Quem fecha o socket chama antes: solta as teclas que a página acha que estão apertadas. */
   releaseRef: React.MutableRefObject<(() => void) | null>
+  /**
+   * Quem abre uma conexão nova chama antes do primeiro quadro: a aba nova do
+   * servidor recomeça o `seq` em 1, e o pintor esquece o último desenhado.
+   */
+  resetRef?: React.MutableRefObject<(() => void) | null>
   onIntersect(on: boolean): void
 }
 
@@ -165,8 +170,12 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
       if (m && Date.now() - m.at >= MARK_MS) setMarkGone((cur) => (cur === m.at ? cur : m.at))
     }
     const frameRef = p.frameRef
+    const resetRef = p.resetRef
+    const reset = () => { painter.reset(); heldRef.current = null }
+    if (resetRef) resetRef.current = reset
     return () => {
       if (frameRef.current) frameRef.current = null
+      if (resetRef?.current === reset) resetRef.current = null
       painter.dispose()
       painterRef.current = null
       heldRef.current = null

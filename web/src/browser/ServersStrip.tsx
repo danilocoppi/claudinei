@@ -18,10 +18,22 @@ const same = (a: LocalServer[], b: LocalServer[]) =>
   a.length === b.length && a.every((s, i) => s.pid === b[i].pid && s.port === b[i].port && s.label === b[i].label
     && s.startTime === b[i].startTime && s.marker === b[i].marker)
 
+/** `::1` (ou a forma longa, `0:0:0:0:0:0:0:1`): o loopback do IPv6. */
+const isIpv6Loopback = (host: string) => /^[0:]*:0*1$/.test(host.replace(/^\[|\]$/g, ''))
+
+/**
+ * O endereço do Abrir: o servidor que escuta só em `::1` não atende em
+ * 127.0.0.1, e vai por `http://[::1]:<porta>`; os outros, por 127.0.0.1.
+ */
+export function serverUrl(s: Pick<LocalServer, 'host' | 'port'>): string {
+  return isIpv6Loopback(s.host) ? `http://[::1]:${s.port}` : `http://127.0.0.1:${s.port}`
+}
+
 /**
  * A faixa dos servidores locais do terminal (":5173 vite — Abrir · Parar"),
  * lida a cada 5 s só com a vista visível (uma leitura na hora em que ela fica
- * visível). O Abrir navega a aba para `http://127.0.0.1:<porta>`. O Parar
+ * visível). O Abrir navega a aba para `http://127.0.0.1:<porta>` (ou
+ * `http://[::1]:<porta>`, com o servidor só no loopback do IPv6). O Parar
  * manda o início do processo (contra PID reaproveitado) e pode demorar até
  * ~5 s (o SIGKILL): mostra "parando…" e não repete. Sem marcador (achado pela
  * pasta), só Abrir. Sem servidores, a faixa some.
@@ -76,8 +88,8 @@ export const ServersStrip = memo(function ServersStrip({ projectId, engine, visi
           </span>
           <span className="browser-servers__sep" aria-hidden="true">—</span>
           <span className="browser-servers__actions">
-            <button type="button" className="link-btn" title={t('localServers.openTitle', { port: s.port })}
-                    onClick={() => onOpen(`http://127.0.0.1:${s.port}`)}>{t('localServers.open')}</button>
+            <button type="button" className="link-btn" title={t('localServers.openTitle', { url: serverUrl(s) })}
+                    onClick={() => onOpen(serverUrl(s))}>{t('localServers.open')}</button>
             {s.marker === 'exact' && (stopping[s.pid]
               ? <span className="browser-servers__stopping">{t('localServers.stopping')}</span>
               : <> · <button type="button" className="link-btn" onClick={() => stop(s)}>{t('localServers.stop')}</button></>)}

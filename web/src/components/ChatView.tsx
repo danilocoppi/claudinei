@@ -585,7 +585,7 @@ export function ChatView() {
           🖥 <span className="btn-label">{t('chat.openInTerminal')}</span>
         </button>
       </div>
-      {menuAt && <TerminalMenu project={project} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
+      {menuAt && <TerminalMenu project={project} localId={session.localId} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
       {findOpen && <FindBar key={`find:${session.localId}`} localId={session.localId} />}
       <div className="chat-scroll-wrap">
       {/* Lista virtual: só os nós perto da tela ficam montados. As sequências

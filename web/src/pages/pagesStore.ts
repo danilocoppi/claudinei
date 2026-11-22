@@ -8,10 +8,18 @@ import type { VisualPageDto } from '../../../shared/visual-pages'
  * pelo id (chamada `show_page` cuja página não está na lista), a página viva,
  * a única com iframe montado no chat, e a aberta em tela cheia.
  */
+/** Onde um cartão de página está desenhado. */
+export type PagePlace = 'chat' | 'list'
+
 interface PagesState {
   byLocal: Record<string, VisualPageDto[] | undefined>
   byId: Record<string, VisualPageDto | 'unavailable' | undefined>
   livePageId: string | null
+  /**
+   * Onde a viva está aberta: no chat ou na lista "Páginas desta conversa". A
+   * mesma página tem cartão nos dois lugares; só o do lugar dela monta o iframe.
+   */
+  livePlace: PagePlace
   /**
    * A página em tela cheia. Fica aqui, e não no cartão, porque a tela cheia é
    * desenhada fora da lista virtual (`PageFullscreenHost`): o cartão pode
@@ -22,7 +30,8 @@ interface PagesState {
   load(localId: string): Promise<void>
   /** 403 (sem acesso) e 404 (apagada) viram 'unavailable'; outra falha lança e não marca nada. */
   fetchOne(id: string): Promise<void>
-  setLive(id: string | null): void
+  /** `place`: onde o cartão que abriu está (padrão, o chat). */
+  setLive(id: string | null, place?: PagePlace): void
   /** Abre (ou fecha, com null) a tela cheia; a página aberta deixa de ser a viva, que tem o próprio iframe. */
   setFull(id: string | null): void
 }
@@ -57,6 +66,7 @@ export const usePagesStore = create<PagesState>((set) => ({
   byLocal: {},
   byId: {},
   livePageId: null,
+  livePlace: 'chat',
   fullPageId: null,
 
   load(localId) {
@@ -109,8 +119,8 @@ export const usePagesStore = create<PagesState>((set) => ({
     return run
   },
 
-  setLive(id) {
-    set({ livePageId: id })
+  setLive(id, place = 'chat') {
+    set({ livePageId: id, livePlace: place })
   },
 
   setFull(id) {
@@ -143,7 +153,7 @@ export function applyPagesWsMessage(msg: any): void {
     return {
       byId: { ...s.byId, [page.id]: page },
       ...(list ? { byLocal: { ...s.byLocal, [localId]: appendPage(list, page) } } : {}),
-      ...(live ? { livePageId: page.id } : {}),
+      ...(live ? { livePageId: page.id, livePlace: 'chat' as const } : {}),
     }
   })
 }

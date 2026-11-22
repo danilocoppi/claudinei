@@ -882,6 +882,19 @@ export const ptBR: typeof en = {
     close: 'Fechar',
     deleted: 'Página apagada',
     loadFailed: 'Não carregou — tentar de novo',
+    // Lista do menu do terminal (as páginas sem lugar na conversa também ficam aqui).
+    listItem: 'Páginas desta conversa ({{n}})',
+    listTitle: 'Páginas desta conversa',
+    listEmpty: 'Nenhuma página nesta conversa.',
+    // Configuração do admin: a rede das páginas.
+    settingsItem: 'Páginas visuais',
+    settingsTitle: 'Páginas visuais',
+    networkLegend: 'Rede das páginas',
+    networkCdn: 'Só as CDNs conhecidas (padrão)',
+    networkOpen: 'Liberar a rede',
+    openWarning: 'Com a rede liberada, o código de qualquer página visual pode mandar o que estiver nela (inclusive dados do projeto que o agente pôs ali) para qualquer endereço da internet, carregar código de qualquer site e tentar alcançar outros aparelhos da rede de quem a abrir. A página continua sem acesso à sua sessão e à API do Claudinei. Vale para todas as páginas, de todos os terminais e usuários, a partir da próxima vez que forem abertas.',
+    settingsLoadFailed: 'A configuração não carregou: {{message}}',
+    saveFailed: 'Não salvou: {{message}}',
   },
 }
 export default ptBR

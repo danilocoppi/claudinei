@@ -878,6 +878,17 @@ export const en = {
     close: 'Close',
     deleted: 'Page deleted',
     loadFailed: "Didn't load — try again",
+    listItem: 'Pages in this conversation ({{n}})',
+    listTitle: 'Pages in this conversation',
+    listEmpty: 'No pages in this conversation.',
+    settingsItem: 'Visual pages',
+    settingsTitle: 'Visual pages',
+    networkLegend: 'Page network access',
+    networkCdn: 'Only the known CDNs (default)',
+    networkOpen: 'Open the network',
+    openWarning: 'With the network open, the code of any visual page can send whatever is in it (including project data the agent put there) to any address on the internet, load code from any site and try to reach other devices on the network of whoever opens it. The page still has no access to your session or to the Claudinei API. This applies to every page, from every terminal and user, starting the next time they are opened.',
+    settingsLoadFailed: "The setting didn't load: {{message}}",
+    saveFailed: "Didn't save: {{message}}",
   },
 }
 export default en

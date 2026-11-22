@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { pageListSettled, usePagesStore } from '../pages/pagesStore'
+import { pageListSettled, usePagesStore, type PagePlace } from '../pages/pagesStore'
 import { viewPage } from '../pages/api'
 import { PAGE_HEIGHT_MESSAGE, type VisualPageDto } from '../../../shared/visual-pages'
 import { PageUrlStatus, usePageUrl } from './PageFullscreen'
@@ -88,11 +88,15 @@ function LiveFrame({ page, height, onHeight }: { page: VisualPageDto; height: nu
  *
  * `localId`: o terminal da conversa em que o cartão está.
  * `page`: o DTO, quando quem desenha já o tem (as ancoradas no turno).
+ * `place`: onde o cartão está, o chat (padrão) ou a lista "Páginas desta
+ * conversa"; a viva só abre no lugar em que foi aberta.
  */
-export function PageCard({ pageId, localId, page: given }: { pageId: string; localId: string; page?: VisualPageDto }) {
+export function PageCard({ pageId, localId, page: given, place = 'chat' }: {
+  pageId: string; localId: string; page?: VisualPageDto; place?: PagePlace
+}) {
   const { t } = useTranslation()
   const stored = usePagesStore(s => s.byId[pageId])
-  const live = usePagesStore(s => s.livePageId === pageId)
+  const live = usePagesStore(s => s.livePageId === pageId && s.livePlace === place)
   const page = given ?? (typeof stored === 'object' ? stored : undefined)
   const root = useRef<HTMLDivElement>(null)
   const onScreen = useOnScreen(root, live && !!page)
@@ -182,7 +186,7 @@ export function PageCard({ pageId, localId, page: given }: { pageId: string; loc
           <span className="page-card__icon" aria-hidden="true">▦</span>
           {title}
           <span className="page-card__size">{t('pages.size', { kb })}</span>
-          <button type="button" className="page-card__btn" onClick={() => setLive(page.id)}>{t('pages.view')}</button>
+          <button type="button" className="page-card__btn" onClick={() => setLive(page.id, place)}>{t('pages.view')}</button>
         </div>
       )}
     </div>

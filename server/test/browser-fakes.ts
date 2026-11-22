@@ -30,16 +30,21 @@ export function timeoutError(ms: number): Error {
   return err
 }
 
-/** O quadro principal do dublê: a aba compara por identidade com `page.mainFrame()`. */
+/** Um quadro do dublê (o principal ou um iframe): a aba compara por identidade com `page.mainFrame()`. */
 export class FakeFrame {
-  constructor(private readonly owner: FakePage) {}
+  /** Com true, `evaluate` nunca responde (a thread da página presa num laço). */
+  hang = false
+  /** Os valores de senha deste quadro; sem eles, os da página (`page.passwordValues`). */
+  passwordValues?: string[]
+  constructor(private readonly owner: FakePage, private readonly parent: FakeFrame | null = null) {}
   url(): string { return this.owner.currentUrl }
   page(): FakePage { return this.owner }
-  parentFrame(): null { return null }
+  parentFrame(): FakeFrame | null { return this.parent }
   /** A leitura dos campos de senha devolve `passwordValues`; o resto, `evalResult`. */
   evaluate(expr: string): Promise<unknown> {
     this.owner.evaluated.push(expr)
-    return Promise.resolve(/password/.test(expr) ? this.owner.passwordValues.slice() : this.owner.evalResult)
+    if (this.hang) return new Promise(() => {})
+    return Promise.resolve(/password/.test(expr) ? (this.passwordValues ?? this.owner.passwordValues).slice() : this.owner.evalResult)
   }
 }
 
@@ -103,11 +108,19 @@ export class FakePage extends Emitter {
     press: (key: string): Promise<void> => { this.calls.push({ target: 'keyboard', method: 'press', args: [key] }); return this.actResult() },
   }
   private readonly frame = new FakeFrame(this)
+  /** Os iframes da página (`addFrame`). */
+  readonly childFrames: FakeFrame[] = []
   private pending: Array<() => void> = []
 
   url(): string { return this.currentUrl }
   mainFrame(): FakeFrame { return this.frame }
-  frames(): FakeFrame[] { return [this.frame] }
+  frames(): FakeFrame[] { return [this.frame, ...this.childFrames] }
+  /** Um iframe novo, filho do quadro principal. */
+  addFrame(): FakeFrame {
+    const f = new FakeFrame(this, this.frame)
+    this.childFrames.push(f)
+    return f
+  }
 
   ariaSnapshot(opts?: Record<string, unknown>): Promise<string> {
     if (this.closed) return Promise.reject(new Error('Target page, context or browser has been closed'))

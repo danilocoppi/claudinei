@@ -420,7 +420,18 @@ describe('TerminalTab: viewport, avisos e estado', () => {
     expect(tab.consoleMessages().at(-1)).toEqual({ type: 'warning', text: 'nova' })
   })
 
-  it('onClosed depois do fechamento chama na hora com o motivo', async () => {
+  it('cada mensagem do console guardada tem no máximo 2000 caracteres (corte com …)', async () => {
+    const { page, tab } = await makeTab()
+    page.emit('console', { type: () => 'log', text: () => 'a'.repeat(5_000) })
+    page.emit('pageerror', new Error('b'.repeat(2_001)))
+    page.emit('console', { type: () => 'log', text: () => 'c'.repeat(2_000) })
+    const [log, err, exact] = tab.consoleMessages()
+    expect(log).toEqual({ type: 'log', text: `${'a'.repeat(2_000)}…` })
+    expect(err).toEqual({ type: 'pageerror', text: `${'b'.repeat(2_000)}…` })
+    expect(exact.text).toBe('c'.repeat(2_000))
+  })
+
+    it('onClosed depois do fechamento chama na hora com o motivo', async () => {
     const { tab } = await makeTab()
     await tab.close('idle')
     const fn = vi.fn()

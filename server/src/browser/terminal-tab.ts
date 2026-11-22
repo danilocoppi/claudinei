@@ -85,6 +85,8 @@ const SETTLE_MS = 1_500
 const MESSAGE_MAX = 500
 /** As mensagens do console guardadas (o que a `browser_console` devolve). */
 const CONSOLE_MAX = 50
+/** Caracteres de cada mensagem do console guardada (o resto sai cortado com '…'). */
+const CONSOLE_TEXT_MAX = 2_000
 
 const isTimeout = (err: unknown): boolean => err instanceof Error && err.name === 'TimeoutError'
 
@@ -155,6 +157,8 @@ export function createTerminalTab(o: {
   }
 
   function pushConsole(e: ConsoleEntry): void {
+    // Cada mensagem tem teto: 50 mensagens enormes iriam inteiras ao agente.
+    if (e.text.length > CONSOLE_TEXT_MAX) e = { ...e, text: `${e.text.slice(0, CONSOLE_TEXT_MAX)}…` }
     consoleLog.push(e)
     if (consoleLog.length > CONSOLE_MAX) consoleLog.splice(0, consoleLog.length - CONSOLE_MAX)
   }

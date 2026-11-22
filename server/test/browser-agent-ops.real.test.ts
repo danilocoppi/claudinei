@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { resolveChromium } from '../src/browser/chromium.js'
 import { createBrowserHost } from '../src/browser/host.js'
-import { agentOps, statusLine, type AgentOps } from '../src/browser/agent-ops.js'
+import { agentOps, statusLine, PAGE_BUSY, type AgentOps } from '../src/browser/agent-ops.js'
 import type { TerminalTab } from '../src/browser/terminal-tab.js'
 import type { TabCloseReason } from '../src/browser/types.js'
 
@@ -16,6 +16,18 @@ const PAGE = `<!doctype html><title>Formulario</title>
 <button onclick="document.title = 'enviado'">Enviar</button>
 <button onclick="document.title = confirm('certeza?') ? 'sim' : 'nao'">Confirmar</button>
 <script>document.getElementById('pw').value = 'hunter2'; console.log('pronto')</script>`
+
+// Senha dentro de uma shadow root aberta (a snapshot ARIA desce nela).
+const SHADOW = `<!doctype html><title>Sombra</title><div id="host"></div>
+<script>const r = document.getElementById('host').attachShadow({ mode: 'open' })
+r.innerHTML = '<label>Senha <input type="password" id="pw"></label>'
+r.getElementById('pw').value = 'segredoShadow'</script>`
+
+// A thread principal presa num laço logo depois do load.
+const BUSY = `<!doctype html><title>Ocupada</title><p>ocupada</p>
+<script>setTimeout(() => { for (;;) {} }, 200)</script>`
+
+const PAGES: Record<string, string> = { '/': PAGE, '/shadow': SHADOW, '/busy': BUSY }
 
 /** A ref da linha com o papel e o nome dados. */
 function refOf(snapshot: string, role: string, name: string): string {
@@ -35,9 +47,10 @@ describe.skipIf(!resolveChromium().ok)('agentOps com o Chromium de verdade', () 
 
   beforeAll(async () => {
     server = createServer((req, res) => {
-      if (req.url !== '/') { res.writeHead(404); return res.end() }
+      const html = PAGES[req.url ?? '']
+      if (!html) { res.writeHead(404); return res.end() }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end(PAGE)
+      res.end(html)
     })
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -85,6 +98,13 @@ describe.skipIf(!resolveChromium().ok)('agentOps com o Chromium de verdade', () 
     expect(png.subarray(1, 4).toString()).toBe('PNG')
   }, 30_000)
 
+  it('a senha dentro de uma shadow root aberta sai mascarada', async () => {
+    await ops.navigate({ url: `${base}/shadow` })
+    const snap = await ops.snapshot()
+    expect(snap).toMatch(/textbox "Senha" \[ref=\w+\]: ••••/)
+    expect(snap).not.toContain('segredoShadow')
+  }, 30_000)
+
   it('a ref de antes da navegação falha na hora com stale_ref', async () => {
     await ops.navigate({ url: `${base}/` })
     const ref = refOf(await ops.snapshot(), 'button', 'Enviar')
@@ -105,5 +125,17 @@ describe.skipIf(!resolveChromium().ok)('agentOps com o Chromium de verdade', () 
     expect(reasons).toEqual(['closed_by_agent'])
     expect(host.existingTab(KEY)).toBeUndefined()
     await expect(ops.snapshot()).rejects.toMatchObject({ code: 'tab_gone' })
+  }, 30_000)
+
+  it('página presa num laço: a snapshot recusa com PAGE_BUSY no prazo curto, e o close solta a aba', async () => {
+    tab = await host.tab(KEY)
+    ops = agentOps(tab, { closeTab: (reason) => host.closeTab(KEY, reason) })
+    await ops.open(`${base}/busy`)
+    await new Promise((r) => setTimeout(r, 500))
+    const t0 = Date.now()
+    await expect(ops.snapshot()).rejects.toThrow(PAGE_BUSY)
+    expect(Date.now() - t0).toBeLessThan(8_000)
+    await ops.close()
+    expect(host.existingTab(KEY)).toBeUndefined()
   }, 30_000)
 })

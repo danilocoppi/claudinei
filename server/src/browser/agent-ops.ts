@@ -12,7 +12,11 @@
 //   com DIALOG_PENDING; a snapshot descreve o diálogo sem tocar na página, e o
 //   console vem da memória. Um diálogo que abre no meio de uma ação a encerra;
 // - a aba que some (ociosidade, despejo, Chromium caído): a operação em curso
-//   corre contra o `onClosed` e volta com TabGoneError, sem pendurar.
+//   corre contra o `onClosed` e volta com TabGoneError, sem pendurar;
+// - a página ocupada (script em laço): `frame.evaluate` e `locator.count` não têm
+//   prazo, e a thread principal presa não dispara o `crash`. Toda operação tem um
+//   prazo geral (PAGE_BUSY ao fim dele). Ensaio com o 1255: com a página em laço,
+//   `reload` e `goto` estouram o prazo e só fechar o contexto solta a aba.
 //
 // No código do Claudinei, `evaluate` só com string (o pkg perde o texto das funções).
 import type { Locator, Page } from 'playwright-core'
@@ -61,6 +65,12 @@ export class BadArgsError extends Error {
   }
 }
 
+/** A operação em curso: encerrada (resposta já dada ao agente), o resto dela para. */
+interface Run {
+  /** Lança se a operação já foi encerrada (diálogo, prazo, aba fechada). */
+  check(): void
+}
+
 export interface AgentOps {
   /** Sem url: leitura. Com url: muda a página (bastão). */
   open(url?: string): Promise<string>
@@ -84,18 +94,35 @@ const WAIT_MAX_MS = 30_000
 const ACT_TIMEOUT_MS = 10_000
 const SNAPSHOT_TIMEOUT_MS = 10_000
 const SCREENSHOT_TIMEOUT_MS = 20_000
+/** Prazo geral de uma operação: acima do teto de 30 s do wait e dos prazos do Playwright. */
+const GUARD_TIMEOUT_MS = 35_000
+/** Prazo de cada leitura dos valores de senha: a do quadro principal sem resposta recusa a snapshot. */
+const PASSWORD_READ_TIMEOUT_MS = 5_000
 
 const MASK = '••••'
 const CRASHED = 'page crashed; use browser_navigate action=reload'
-/** Os valores dos campos de senha de um quadro: expressão em string, nunca função. */
-const PASSWORD_VALUES = "Array.from(document.querySelectorAll('input[type=password]'), (e) => e.value)"
+/** A página não respondeu no prazo (o reload também não a solta: só uma aba nova). */
+export const PAGE_BUSY = 'the page is not responding (busy?); call browser_close, then browser_open'
+/**
+ * Os valores dos campos de senha de um quadro: expressão em string, nunca função.
+ * Desce pelas shadow roots abertas, que a snapshot ARIA também mostra (as
+ * fechadas ficam fora das duas).
+ */
+const PASSWORD_VALUES = "(() => { const out = []; const walk = (r) => { for (const e of r.querySelectorAll('*')) { if (e.matches('input[type=password]')) out.push(e.value); if (e.shadowRoot) walk(e.shadowRoot) } }; walk(document); return out })()"
 /** A referência da snapshot (`e6`, `f1e3` num iframe): nada além disso entra no seletor. */
 const REF = /^[A-Za-z0-9]+$/
 
 /**
+ * Os marcadores que o Playwright 1.65 põe depois do papel e do nome
+ * (`[ref=e6]`, `[level=1]`, `[cursor=pointer]`…): a máscara não entra neles,
+ * senão a senha "6" estragaria a ref `e6`.
+ */
+const ARIA_MARK = / \[(?:checked(?:=mixed)?|disabled|expanded|active|invalid(?:=grammar|=spelling)?|level=\d+|pressed(?:=mixed)?|selected|aria-hidden|ref=[A-Za-z0-9]+|cursor=pointer|box=[-\d.,]+)\]/g
+
+/**
  * Cada valor não vazio vira '••••' em toda a snapshot (redução de dano: sobra
- * mascarado a mais, nunca a menos). Vale também a forma escapada que o YAML da
- * snapshot usa para valores com aspas ou barra.
+ * mascarado a mais, nunca a menos), menos dentro dos marcadores ARIA. Vale também
+ * a forma escapada que o YAML da snapshot usa para valores com aspas ou barra.
  */
 export function maskPasswords(snapshot: string, values: string[]): string {
   const forms = new Set<string>()
@@ -105,9 +132,28 @@ export function maskPasswords(snapshot: string, values: string[]): string {
     forms.add(JSON.stringify(v).slice(1, -1))
     forms.add(v.replace(/'/g, "''"))
   }
-  // O mais longo primeiro: um valor contido no outro não deixa sobra.
-  let out = snapshot
-  for (const f of [...forms].sort((a, b) => b.length - a.length)) out = out.split(f).join(MASK)
+  if (forms.size === 0) return snapshot
+  // Onde estão os marcadores: uma ocorrência inteira dentro de um deles fica.
+  const markEnd = new Int32Array(snapshot.length).fill(-1)
+  for (const m of snapshot.matchAll(ARIA_MARK)) {
+    for (let i = m.index; i < m.index + m[0].length; i++) markEnd[i] = m.index + m[0].length
+  }
+  // Marca cada caractere coberto por alguma ocorrência (sobrepostas também): a
+  // união sai como uma máscara só, sem sobra entre dois valores que se cruzam.
+  const covered = new Uint8Array(snapshot.length)
+  for (const f of forms) {
+    for (let at = snapshot.indexOf(f); at !== -1; at = snapshot.indexOf(f, at + 1)) {
+      const end = at + f.length
+      if (markEnd[at] !== -1 && end <= markEnd[at]) continue
+      covered.fill(1, at, end)
+    }
+  }
+  let out = ''
+  for (let i = 0; i < snapshot.length;) {
+    if (!covered[i]) { out += snapshot[i++]; continue }
+    while (i < snapshot.length && covered[i]) i++
+    out += MASK
+  }
   return out
 }
 
@@ -184,10 +230,26 @@ function dialogText(d: PendingDialog): string {
     '[the page is blocked until the dialog is answered: browser_act action=dialog accept=true|false (text answers a prompt)]'
 }
 
-/** Os valores de senha de todos os quadros; quadro que sumiu ou falhou não impede os outros. */
+/** `p` com prazo: estourado, rejeita com `onTimeout()` (a promessa que sobra é descartada). */
+function withDeadline<T>(p: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(onTimeout()), ms)
+    p.then((v) => { clearTimeout(timer); resolve(v) }, (err: unknown) => { clearTimeout(timer); reject(err) })
+  })
+}
+
+/**
+ * Os valores de senha de todos os quadros, cada leitura com prazo curto. Quadro
+ * filho que sumiu ou falhou não impede os outros; o quadro principal que não
+ * responde recusa a snapshot (falha fechada: seguir sem os valores vazaria a senha).
+ */
 async function passwordValues(page: Page): Promise<string[]> {
-  const all = await Promise.all(page.frames().map((f) =>
-    f.evaluate(PASSWORD_VALUES).then((v) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []), () => [] as string[])))
+  const main = page.mainFrame()
+  const all = await Promise.all(page.frames().map((f) => {
+    const read = withDeadline(f.evaluate(PASSWORD_VALUES), PASSWORD_READ_TIMEOUT_MS, () => new Error(PAGE_BUSY))
+      .then((v) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []))
+    return f === main ? read : read.catch(() => [] as string[])
+  }))
   return all.flat()
 }
 
@@ -213,15 +275,20 @@ export function agentOps(
   const assertAlive = () => { if (tab.state().crashed) throw new Error(CRASHED) }
 
   /**
-   * Corre `work` contra o fechamento da aba e, com `onDialog`, contra um diálogo
-   * que abre no meio (o Playwright ficaria preso atrás dele): o que `onDialog`
-   * devolve (ou lança) vira o resultado. A promessa do Playwright que sobra é
-   * descartada; ela termina quando o diálogo for respondido ou a aba fechar.
+   * Corre `work` contra o fechamento da aba, contra o prazo geral e, com
+   * `onDialog`, contra um diálogo que abre no meio (o Playwright ficaria preso
+   * atrás dele): o que `onDialog` devolve (ou lança) vira o resultado. A promessa
+   * do Playwright que sobra é descartada; ela termina quando o diálogo for
+   * respondido ou a aba fechar. Encerrada a operação, `run.check()` lança entre
+   * os awaits de `work`: o que sobrou não segue fora do bastão.
    */
-  function guarded<T>(work: () => Promise<T>, onDialog?: () => T): Promise<T> {
+  function guarded<T>(work: (run: Run) => Promise<T>, onDialog?: () => T): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const offs: Array<() => void> = []
       let settled = false
+      const run: Run = {
+        check() { if (settled) throw new Error('operation abandoned') },
+      }
       const finish = (fn: () => void) => {
         if (settled) return
         settled = true
@@ -230,6 +297,8 @@ export function agentOps(
       }
       offs.push(tab.onClosed((reason) => finish(() => reject(new TabGoneError(reason)))))
       if (settled) return
+      const timer = setTimeout(() => finish(() => reject(new Error(PAGE_BUSY))), GUARD_TIMEOUT_MS)
+      offs.push(() => clearTimeout(timer))
       if (onDialog) {
         offs.push(tab.onState(() => {
           if (!tab.state().dialog) return
@@ -239,13 +308,13 @@ export function agentOps(
         }))
       }
       let p: Promise<T>
-      try { p = work() } catch (err) { finish(() => reject(legible(err))); return }
+      try { p = work(run) } catch (err) { finish(() => reject(legible(err))); return }
       p.then((v) => finish(() => resolve(v)), (err) => finish(() => reject(legible(err))))
     })
   }
 
   /** Operação que muda a página: bastão do agente durante ela; diálogo pendente recusa, exceto `dialog`. */
-  async function mutate<T>(work: () => Promise<T>, onDialog?: () => T, allowDialog = false): Promise<T> {
+  async function mutate<T>(work: (run: Run) => Promise<T>, onDialog?: () => T, allowDialog = false): Promise<T> {
     begin()
     tab.baton.beginAgent()
     try {
@@ -257,7 +326,7 @@ export function agentOps(
   }
 
   /** A referência vale contra a última snapshot e o epoch do bastão de quando foi tirada. */
-  async function resolveRef(ref: string): Promise<{ locator: Locator; name: string }> {
+  async function resolveRef(ref: string, run: Run): Promise<{ locator: Locator; name: string }> {
     const snap = tab.agentSnapshot
     if (!snap || snap.epoch !== tab.baton.epoch()) throw new StaleRefError()
     const locator = tab.page().locator(`aria-ref=${ref}`)
@@ -268,6 +337,7 @@ export function agentOps(
       if (err instanceof Error && err.message.includes('aria-ref')) return 0
       throw err
     })
+    run.check()
     if (found === 0) throw new StaleRefError()
     return { locator, name: nameOf(snap.text, ref) }
   }
@@ -304,14 +374,18 @@ export function agentOps(
       const pending = tab.state().dialog
       if (pending) return dialogText(pending)
       assertAlive()
-      return guarded(async () => {
+      return guarded(async (run) => {
         const page = tab.page()
         // O epoch antes da leitura: uma ação do operador no meio deixa a snapshot velha.
         const epoch = tab.baton.epoch()
         // Os valores antes e depois: o campo editado no meio também sai mascarado.
         const before = await passwordValues(page)
+        run.check()
         const raw = await page.ariaSnapshot({ mode: 'ai', ...(depth !== undefined ? { depth } : {}), timeout: SNAPSHOT_TIMEOUT_MS })
+        run.check()
         const after = await passwordValues(page)
+        // Abandonada (diálogo, prazo): o agente não viu esta snapshot, e as refs dele são da anterior.
+        run.check()
         let text = maskPasswords(raw, [...before, ...after])
         if (text.length > SNAPSHOT_MAX) text = text.slice(0, SNAPSHOT_MAX) + TEXTS.SNAPSHOT_CUT
         tab.agentSnapshot = { epoch, text }
@@ -333,6 +407,9 @@ export function agentOps(
       let text = ''
       let point: { x: number; y: number } | undefined
       let reported = false
+      // Ligada logo antes de chamar a ação do Playwright: só daí em diante um
+      // diálogo pode ter sido aberto por ela.
+      let dispatched = false
       // O diálogo aberto pela própria ação (um `confirm` no clique) encerra a
       // ação com sucesso: ela aconteceu, e o aviso vai na linha de estado. A
       // promessa do Playwright só termina depois da resposta ao diálogo: aí não
@@ -344,34 +421,39 @@ export function agentOps(
         }
         return text
       }
-      return mutate(async () => {
+      return mutate(async (run) => {
         assertAlive()
         const page = tab.page()
         let target: { locator: Locator; name: string } | undefined
-        if (a.ref) target = await resolveRef(a.ref)
+        if (a.ref) target = await resolveRef(a.ref, run)
         text = describe(a, target?.name ?? '')
         const timeout = ACT_TIMEOUT_MS
+        // Daqui em diante, nada de await antes da ação: `dispatched` vale a partir da chamada.
+        const go = () => { run.check(); dispatched = true }
         switch (a.action) {
           case 'click': {
             const box = await target!.locator.boundingBox({ timeout })
             if (box) point = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) }
+            go()
             await target!.locator.click({ timeout })
             break
           }
-          case 'type': await target!.locator.pressSequentially(a.text!, { timeout }); break
-          case 'fill': await target!.locator.fill(a.text!, { timeout }); break
+          case 'type': go(); await target!.locator.pressSequentially(a.text!, { timeout }); break
+          case 'fill': go(); await target!.locator.fill(a.text!, { timeout }); break
           case 'press':
+            go()
             if (target) await target.locator.press(a.key!, { timeout })
             else await page.keyboard.press(a.key!)
             break
-          case 'hover': await target!.locator.hover({ timeout }); break
-          case 'select': await target!.locator.selectOption(a.text!, { timeout }); break
-          case 'scroll': await page.mouse.wheel(a.dx ?? 0, a.dy ?? 0); break
+          case 'hover': go(); await target!.locator.hover({ timeout }); break
+          case 'select': go(); await target!.locator.selectOption(a.text!, { timeout }); break
+          case 'scroll': go(); await page.mouse.wheel(a.dx ?? 0, a.dy ?? 0); break
         }
         return done()
       }, () => {
-        // Diálogo antes de a ação começar de fato (ainda resolvendo a ref): não houve ação.
-        if (!text) throw new DialogPendingError()
+        // Diálogo antes de a ação ser disparada (resolvendo a ref, medindo a caixa):
+        // não houve ação, e o resto dela é abandonado (o `run.check()` a para).
+        if (!dispatched) throw new DialogPendingError()
         return done()
       })
     },

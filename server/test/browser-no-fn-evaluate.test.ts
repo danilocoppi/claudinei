@@ -18,7 +18,11 @@ const STR = String.raw`(?:'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|\x60(?:[^\x60\
 const FN_FIRST = new RegExp(CALL + FN)
 /** Função no segundo argumento, depois de um seletor em string: `$eval('sel', el => …)`. */
 const FN_SECOND = new RegExp(CALL + STR + String.raw`\s*,\s*` + FN)
-const hasFnArg = (code: string): boolean => FN_FIRST.test(code) || FN_SECOND.test(code)
+// Um seletor em constante ou membro: `SEL`, `this.sel`, `SELECTORS.title`, `sels[0]`, `a?.b`.
+const REF_ARG = String.raw`[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*|\[[^\]\n]*\])*`
+/** Só no `$eval`/`$$eval` (o 1º argumento é o seletor): `$eval(SEL, (el) => …)`. */
+const FN_SECOND_REF = new RegExp(String.raw`\.(?:\$eval|\$\$eval)(?:${GENERIC})?\(\s*` + REF_ARG + String.raw`\s*,\s*` + FN)
+const hasFnArg = (code: string): boolean => FN_FIRST.test(code) || FN_SECOND.test(code) || FN_SECOND_REF.test(code)
 
 const src = fileURLToPath(new URL('../src/', import.meta.url))
 
@@ -53,6 +57,12 @@ describe('evaluate só com string', () => {
       'page.evaluate<Array<string>>(() => [])',
       'page.evaluate<Map<string, Array<number>>>(async () => new Map())',
       "loc.evaluateAll<Array<string>>(\n  (els) => [])",
+      // Seletor em constante ou membro, função no segundo.
+      'page.$eval(SEL, (el) => el.textContent)',
+      'page.$$eval(this.sel, els => els.length)',
+      'page.$eval(SELECTORS.title, function (el) { return el.id })',
+      'page.$$eval(sels[0], async (els) => els.length)',
+      'page.$eval<string>(cfg?.sel, (el) => el.id)',
     ]
     for (const c of fn) expect(hasFnArg(c), c).toBe(true)
     const str = [
@@ -63,6 +73,9 @@ describe('evaluate só com string', () => {
       'page.evaluate<Array<string>>("Array.from(document.querySelectorAll(\'input[type=password]\'), e => e.value)")',
       "page.$eval('h1', 'el => el.textContent')",
       "page.$$eval('li', `els => els.length`)",
+      // Seletor em constante ou membro com a função em string.
+      "page.$eval(SEL, 'el => el.textContent')",
+      'page.$$eval(this.sel, `els => els.length`)',
       // Vírgula e parêntese dentro da string do primeiro argumento não enganam.
       "frame.evaluate(\"Array.from(document.querySelectorAll('a, b'), (e) => e.value)\")",
       "page.evaluate('f(1), (2)')",

@@ -4,7 +4,7 @@ import { createTerminalTab } from '../src/browser/terminal-tab.js'
 import { OperatorInControlError } from '../src/browser/baton.js'
 import { TEXTS, type TabCloseReason } from '../src/browser/types.js'
 import {
-  agentOps, maskPasswords, statusLine,
+  agentOps, maskPasswords, statusLine, PAGE_BUSY,
   BadArgsError, DialogPendingError, StaleRefError, TabGoneError,
 } from '../src/browser/agent-ops.js'
 import { FakeContext } from './browser-fakes.js'
@@ -66,6 +66,30 @@ describe('maskPasswords', () => {
     // Caractere especial de regex no valor não quebra nada.
     expect(maskPasswords('a: p.s$w(rd', ['p.s$w(rd'])).toBe('a: ••••')
   })
+
+  it('não mascara dentro dos marcadores da snapshot ([ref=e6], [level=1], [cursor=pointer])', () => {
+    const snap = [
+      '- heading "Título 1" [level=1] [ref=e2]',
+      '- textbox "PIN" [ref=e6]: 6',
+      '- button "Enviar" [ref=e16] [cursor=pointer]',
+      '- text: lote 6 [ref=e6]',
+    ].join('\n')
+    expect(maskPasswords(snap, ['6'])).toBe([
+      '- heading "Título 1" [level=1] [ref=e2]',
+      '- textbox "PIN" [ref=e6]: ••••',
+      '- button "Enviar" [ref=e16] [cursor=pointer]',
+      '- text: lote •••• [ref=e6]',
+    ].join('\n'))
+    expect(maskPasswords('- heading "Nível 1" [level=1] [ref=e3]', ['1'])).toBe('- heading "Nível ••••" [level=1] [ref=e3]')
+    expect(maskPasswords('- button "pointer" [ref=e1] [cursor=pointer]', ['pointer'])).toBe('- button "••••" [ref=e1] [cursor=pointer]')
+    // O mesmo texto fora de um marcador de verdade (sem o espaço antes, ou atributo que não existe) sai mascarado.
+    expect(maskPasswords('- text: x[ref=e6] [pw=e6]', ['e6'])).toBe('- text: x[ref=••••] [pw=••••]')
+  })
+
+  it('valores que se cruzam saem numa máscara só, sem sobra', () => {
+    expect(maskPasswords('a: abcd.', ['ab', 'bcd'])).toBe('a: ••••.')
+    expect(maskPasswords('a: abcde', ['cde', 'abc'])).toBe('a: ••••')
+  })
 })
 
 describe('agentOps: snapshot', () => {
@@ -89,6 +113,51 @@ describe('agentOps: snapshot', () => {
     // Sem corte, sem aviso.
     page.snapshotText = 'y'.repeat(60_000)
     expect(await ops.snapshot()).toBe('y'.repeat(60_000))
+  })
+
+  it('senha dentro de shadow root: a leitura desce pelas shadow roots abertas (expressão em string)', async () => {
+    const { page, ops } = await makeOps()
+    await ops.snapshot()
+    const expr = page.evaluated.find((e) => e.includes('input[type=password]'))!
+    expect(expr).toContain('shadowRoot')
+    // A expressão roda num DOM mínimo com uma shadow root aberta e devolve os dois valores.
+    const el = (tag: string, value: string, shadow?: unknown) => ({
+      matches: (sel: string) => sel === 'input[type=password]' && tag === 'pw',
+      value,
+      shadowRoot: shadow ?? null,
+    })
+    const shadow = { querySelectorAll: () => [el('pw', 'segredoShadow')] }
+    const document = { querySelectorAll: () => [el('div', ''), el('host', '', shadow), el('pw', 'hunter2')] }
+    expect(new Function('document', `return ${expr}`)(document)).toEqual(['segredoShadow', 'hunter2'])
+  })
+
+  it('quadro principal que não responde à leitura das senhas: recusa com PAGE_BUSY (falha fechada), sem snapshot', async () => {
+    vi.useFakeTimers()
+    const { page, tab, ops } = await makeOps()
+    page.passwordValues = ['hunter2']
+    page.mainFrame().hang = true
+    const p = ops.snapshot().catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(5_000)
+    const err = await p
+    expect((err as Error).message).toBe(PAGE_BUSY)
+    expect(page.snapshots).toHaveLength(0)
+    expect(tab.agentSnapshot).toBeFalsy()
+  })
+
+  it('iframe que não responde à leitura das senhas: a snapshot segue com as do quadro principal', async () => {
+    vi.useFakeTimers()
+    const { page, ops } = await makeOps()
+    page.passwordValues = ['hunter2']
+    page.addFrame().hang = true
+    page.addFrame().passwordValues = ['4321']
+    page.snapshotText = SNAP + '\n  - textbox "PIN" [ref=f1e2]: 4321'
+    const p = ops.snapshot()
+    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(5_000)
+    const out = await p
+    expect(out).not.toContain('hunter2')
+    expect(out).not.toContain('4321')
+    expect(out).toContain('[ref=f1e2]: ••••')
   })
 
   it('página travada: snapshot responde com o aviso, sem chamar o Playwright', async () => {
@@ -199,6 +268,46 @@ describe('agentOps: act', () => {
   })
 })
 
+describe('agentOps: prazo geral (página ocupada)', () => {
+  it('ação pendurada (Playwright sem resposta): rejeita com PAGE_BUSY em 35 s e solta o bastão', async () => {
+    vi.useFakeTimers()
+    const { page, tab, ops } = await makeOps()
+    await ops.snapshot()
+    page.actHang = true
+    let err: unknown
+    const p = ops.act({ action: 'click', ref: 'e6' }).catch((e: unknown) => { err = e })
+    await vi.advanceTimersByTimeAsync(34_999)
+    expect(err).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    await p
+    expect((err as Error).message).toBe(PAGE_BUSY)
+    expect(tab.baton.state()).toEqual({ kind: 'free' })
+  })
+
+  it('count() da ref sem resposta: PAGE_BUSY; quando ele volta, a ação abandonada não clica', async () => {
+    vi.useFakeTimers()
+    const { page, ops } = await makeOps()
+    await ops.snapshot()
+    let answer!: (n: number) => void
+    const real = page.locator.bind(page)
+    page.locator = ((sel: string) => Object.assign(real(sel), { count: () => new Promise<number>((r) => { answer = r }) })) as never
+    const p = ops.act({ action: 'click', ref: 'e6' }).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(35_000)
+    expect(((await p) as Error).message).toBe(PAGE_BUSY)
+    answer(1)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(page.calls).toHaveLength(0)
+  })
+
+  it('wait seconds 30 (o teto) termina antes do prazo geral', async () => {
+    vi.useFakeTimers()
+    const { ops } = await makeOps()
+    const p = ops.wait({ seconds: 30 })
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await p).toBe('waited 30 s')
+  })
+})
+
 describe('agentOps: bastão', () => {
   it('navigate, act, open com url e close com o operador no comando → OperatorInControlError; snapshot, screenshot, console e wait seguem', async () => {
     const { page, tab, ops, closeTab } = await makeOps()
@@ -302,6 +411,39 @@ describe('agentOps: diálogo pendente', () => {
     await ops.act({ action: 'dialog', accept: true })
     page.releaseActs()
     await flush()
+    expect(tab.state().lastAction?.text).toBe('answered dialog: accept')
+  })
+
+  it('diálogo enquanto a ref é resolvida: DIALOG_PENDING, e a ação abandonada não clica depois da resposta', async () => {
+    const { page, ops } = await makeOps()
+    await ops.snapshot()
+    let answer!: (n: number) => void
+    const real = page.locator.bind(page)
+    page.locator = ((sel: string) => Object.assign(real(sel), { count: () => new Promise<number>((r) => { answer = r }) })) as never
+    const p = ops.act({ action: 'click', ref: 'e6' })
+    await flush()
+    page.emit('dialog', fakeDialog('confirm', 'de outro script'))
+    await expect(p).rejects.toBeInstanceOf(DialogPendingError)
+    await ops.act({ action: 'dialog', accept: true })
+    answer(1)
+    await flush()
+    expect(page.calls).toHaveLength(0)
+  })
+
+  it('diálogo enquanto a caixa é medida: DIALOG_PENDING (não "clicked"), e o clique não sai depois', async () => {
+    const { page, tab, ops } = await makeOps()
+    await ops.snapshot()
+    let box!: (b: null) => void
+    const real = page.locator.bind(page)
+    page.locator = ((sel: string) => Object.assign(real(sel), { boundingBox: () => new Promise<null>((r) => { box = r }) })) as never
+    const p = ops.act({ action: 'click', ref: 'e6' })
+    await flush()
+    page.emit('dialog', fakeDialog('confirm', 'de outro script'))
+    await expect(p).rejects.toBeInstanceOf(DialogPendingError)
+    await ops.act({ action: 'dialog', accept: true })
+    box(null)
+    await flush()
+    expect(page.calls).toHaveLength(0)
     expect(tab.state().lastAction?.text).toBe('answered dialog: accept')
   })
 

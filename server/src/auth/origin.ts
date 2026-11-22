@@ -11,8 +11,10 @@ import type { IncomingHttpHeaders } from 'node:http'
  * porta de um agente) mandaria o cookie do operador junto e abriria /ws, o
  * terminal ou o navegador do agente. O desenvolvimento da interface pelo Vite
  * continua passando porque o proxy dele não reescreve o Host (sem
- * `changeOrigin`): o servidor vê `Host: localhost:9100` e `Origin:
- * http://localhost:9100`.
+ * `changeOrigin`): o servidor recebe o Host do endereço pelo qual o navegador
+ * abriu o Vite, igual ao host:porta do `Origin` — por exemplo, `Host:
+ * localhost:9100` e `Origin: http://localhost:9100` para quem abre por
+ * localhost:9100 (por 127.0.0.1:9100 ou pelo IP da máquina, é esse o Host).
  *
  * Sem `Origin` passa: não é navegador (Hermes com token de serviço, curl).
  * `Origin: null` (páginas em sandbox) não é URL com host e é recusada.

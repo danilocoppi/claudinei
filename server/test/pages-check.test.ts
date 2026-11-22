@@ -154,6 +154,43 @@ describe('runCheck', () => {
     expect(Buffer.from(s.png, 'base64').equals(small)).toBe(true)
   })
 
+  it('o PNG vai até a altura do conteúdo: o fullPage nunca fica abaixo do viewport (800)', async () => {
+    // Conteúdo de 300 px: o PNG de 800 sai com 300.
+    const f = fakeHost({ png: encodePng(1024, 800), height: 300 })
+    const r = await runCheck(f.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 })
+    expect(r).toMatchObject({ height: 300, cropped: false })
+    expect(pngSize(Buffer.from(r.png, 'base64'))).toEqual({ width: 1024, height: 300 })
+
+    // Abaixo de 120 (body vazio dá 8): o PNG fica com 120, a altura informada é a medida.
+    const g = fakeHost({ png: encodePng(1024, 800), height: 8 })
+    const s = await runCheck(g.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 })
+    expect(s).toMatchObject({ height: 8, cropped: false })
+    expect(pngSize(Buffer.from(s.png, 'base64'))).toEqual({ width: 1024, height: 120 })
+
+    // Altura 0 (medida falhou): 120 também.
+    const z = fakeHost({ png: encodePng(1024, 800), height: 0 })
+    const zr = await runCheck(z.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 })
+    expect(pngSize(Buffer.from(zr.png, 'base64')).height).toBe(120)
+  })
+
+  it('cropped só quando a altura passa de 2000, mesmo se o PNG for cortado na altura do conteúdo', async () => {
+    // PNG um pouco maior que o conteúdo (arredondamento): corta em 1990, sem cropped.
+    const f = fakeHost({ png: encodePng(1024, 2010), height: 1990 })
+    const r = await runCheck(f.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 })
+    expect(r).toMatchObject({ height: 1990, cropped: false })
+    expect(pngSize(Buffer.from(r.png, 'base64')).height).toBe(1990)
+
+    // Altura exatamente 2000: não é corte.
+    const g = fakeHost({ png: encodePng(1024, 2000), height: 2000 })
+    expect(await runCheck(g.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 })).toMatchObject({ cropped: false })
+
+    // Altura 2001 com PNG que não passa de 2000 (nada a cortar): cropped segue a altura.
+    const h = fakeHost({ png: encodePng(1024, 2000), height: 2001 })
+    const hr = await runCheck(h.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 })
+    expect(hr).toMatchObject({ height: 2001, cropped: true })
+    expect(pngSize(Buffer.from(hr.png, 'base64')).height).toBe(2000)
+  })
+
   it('console: erros primeiro, no máximo 50', async () => {
     const f = fakeHost()
     const r = await runCheck(f.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 })

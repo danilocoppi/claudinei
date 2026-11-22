@@ -16,7 +16,7 @@ import { createProjectsService } from '../src/projects.js'
 import { createSettingsService } from '../src/settings.js'
 import { createPreviewStore } from '../src/files/preview.js'
 import { createPagesService, registerPageRoutes, type PagesService } from '../src/pages/service.js'
-import { HEIGHT_SCRIPT, withHeightScript } from '../src/pages/height-script.js'
+import { CONTENT_HEIGHT_EXPR, HEIGHT_SCRIPT, withHeightScript } from '../src/pages/height-script.js'
 import type { PageNetwork } from '../../shared/visual-pages.js'
 
 /**
@@ -416,5 +416,23 @@ describe('script de altura', () => {
     const ats = h.sent.map((s) => s.at)
     for (let i = 1; i < ats.length; i++) expect(ats[i] - ats[i - 1]).toBeGreaterThanOrEqual(200)
     expect(h.sent.at(-1)!.msg.height).toBe(700)
+  })
+})
+
+describe('expressão da altura do conteúdo', () => {
+  const el = (rect: number, scroll: number) => ({ getBoundingClientRect: () => ({ height: rect }), scrollHeight: scroll })
+  const measure = (document: unknown) => runInNewContext(CONTENT_HEIGHT_EXPR, { document })
+
+  it('o script de altura usa a mesma expressão (o texto não é duplicado)', () => {
+    expect(HEIGHT_SCRIPT).toContain(CONTENT_HEIGHT_EXPR)
+  })
+
+  it('o maior entre a caixa do <html> e o scrollHeight do <body>, arredondado para cima; sem body, só o <html>', () => {
+    // Página baixa: o scrollHeight do <html> seria o viewport; a caixa dele, não.
+    expect(measure({ documentElement: el(79.875, 800), body: el(0, 37) })).toBe(80)
+    // Conteúdo que transborda o body (altura fixa menor que o conteúdo).
+    expect(measure({ documentElement: el(100, 800), body: el(100, 2500) })).toBe(2500)
+    expect(measure({ documentElement: el(8.2, 800), body: null })).toBe(9)
+    expect(measure({ documentElement: null, body: null })).toBe(0)
   })
 })

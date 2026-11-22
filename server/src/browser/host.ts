@@ -14,6 +14,7 @@ import { createTerminalTab, DEFAULT_VIEWPORT, type TerminalTab } from './termina
 import { allowedUrl } from './url-policy.js'
 import { BrowserRestartingError, keyOf, TEXTS, TooManyTabsError, type ConsoleEntry, type LaunchFn, type TerminalKey } from './types.js'
 import { withMarker } from '../local-servers/marker.js'
+import { CONTENT_HEIGHT_EXPR } from '../pages/height-script.js'
 
 export type { TerminalTab } from './terminal-tab.js'
 export type { ConsoleEntry, LaunchFn, TerminalKey } from './types.js'
@@ -122,7 +123,8 @@ function previewOf(page: Page): PreviewPage {
       return untilLoad((timeout) => page.goto(url, { waitUntil: 'load', timeout }), o?.loadTimeoutMs)
     },
     screenshot: ({ fullPage }) => page.screenshot({ type: 'png', fullPage }),
-    contentHeight: async () => Number(await page.evaluate('document.documentElement.scrollHeight')) || 0,
+    // A medida do script de altura do cartão: o scrollHeight do <html> nunca fica abaixo do viewport.
+    contentHeight: async () => Number(await page.evaluate(CONTENT_HEIGHT_EXPR)) || 0,
     consoleMessages: () => messages.slice(),
   }
 }

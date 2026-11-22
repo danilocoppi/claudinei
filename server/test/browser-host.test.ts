@@ -5,6 +5,7 @@ import { BrowserRestartingError, TEXTS, TooManyTabsError, type TabCloseReason } 
 import { browserSelfTest } from '../src/browser/selftest.js'
 import { viewersFor } from '../src/browser/viewers.js'
 import { fakeLaunch, lastPage, type FakeLaunch } from './browser-fakes.js'
+import { CONTENT_HEIGHT_EXPR } from '../src/pages/height-script.js'
 
 const KEY = { projectId: 1, engine: 'claude' }
 const VIEW = { viewport: { width: 800, height: 600 } }
@@ -280,13 +281,14 @@ describe('BrowserHost: páginas isoladas', () => {
     ])
   })
 
-  it('contentHeight lê scrollHeight por evaluate com string', async () => {
+  it('contentHeight mede com a expressão do script de altura, por evaluate com string', async () => {
     const h = await host.withIsolatedPage(VIEW, async (page) => {
       lastPage(fl).evalResult = 1234
       return page.contentHeight()
     })
     expect(h).toBe(1234)
-    expect(lastPage(fl).evaluated).toEqual(['document.documentElement.scrollHeight'])
+    // O scrollHeight do <html> nunca fica abaixo do viewport: a página baixa media 800.
+    expect(lastPage(fl).evaluated).toEqual([CONTENT_HEIGHT_EXPR])
   })
 })
 

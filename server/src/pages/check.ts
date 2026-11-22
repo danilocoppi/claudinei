@@ -14,6 +14,8 @@ export const CHECK_WIDTH_MAX = 1920
 export const CHECK_SETTLE_MS = 1500
 
 const VIEWPORT_HEIGHT = 800
+/** Altura mínima da imagem da página baixa. */
+const CHECK_MIN_HEIGHT = 120
 const PAGE_TIMEOUT_MS = 20_000
 const QUEUE_TIMEOUT_MS = 30_000
 const LOAD_TIMEOUT_MS = 10_000
@@ -45,13 +47,16 @@ export async function runCheck(
     },
   )
   // O corte e a cópia depois de fechar a página: a vaga do host fica livre antes.
-  const cut = cropPngHeight(shot.png, CHECK_MAX_HEIGHT)
+  // O fullPage nunca fica abaixo do viewport: a imagem vai até a altura do
+  // conteúdo (no mínimo CHECK_MIN_HEIGHT, para o body vazio não virar uma
+  // tira), e no máximo CHECK_MAX_HEIGHT. `cropped` diz só se o conteúdo passou do teto.
+  const cut = cropPngHeight(shot.png, Math.min(CHECK_MAX_HEIGHT, Math.max(CHECK_MIN_HEIGHT, Math.ceil(shot.height))))
   // Sem a cópia, a imagem ainda serve: a conferência não falha por isso.
   let file = ''
   let fileError: string | undefined
   try { file = shots.save(cut.png) } catch (err) { fileError = (err as Error).message }
   return {
-    png: cut.png.toString('base64'), height: shot.height, cropped: cut.cropped,
+    png: cut.png.toString('base64'), height: shot.height, cropped: shot.height > CHECK_MAX_HEIGHT,
     loaded: shot.loaded, console: shot.console, file, ...(fileError ? { fileError } : {}),
   }
 }

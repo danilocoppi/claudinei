@@ -56,6 +56,13 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   const [stoppingServers, setStoppingServers] = useState(false)
   // Muda ao cancelar: a consulta que volta depois do Cancelar não encerra nada.
   const stopRun = useRef(0)
+  // Desmontado com a consulta em voo, a pergunta já não pode ser exibida; o
+  // operador confirmou o encerramento, então ele segue direto.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
 
   // A conversa fica no histórico e a engine pode ser revivida pelo ▶ da aba —
   // encerrar não descarta nada, só libera o processo.
@@ -70,6 +77,7 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
     // encerramento segue como antes.
     const servers = await serversOf(projectId, [engine])
     if (stopRun.current !== run) return
+    if (!mounted.current) { endSession(localId); return }
     setCheckingServers(false)
     setStopFor(null)
     if (servers.length === 0) endSession(localId)

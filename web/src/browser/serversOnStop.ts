@@ -16,7 +16,9 @@ export async function serversOf(projectId: number, engines: string[]): Promise<E
       const r = await fetchServers(projectId, engine)
       const servers = Array.isArray(r?.servers) ? r.servers : []
       return servers.filter((s) => s.marker === 'exact').map((s) => ({ ...s, engine }))
-    } catch {
+    } catch (err) {
+      // Sem rastro, uma consulta quebrada pareceria "nenhum servidor".
+      console.warn('[servidores] consulta falhou; segue sem perguntar', projectId, engine, err)
       return []
     }
   }))
@@ -42,5 +44,12 @@ export async function stopAll(projectId: number, list: EngineServer[]): Promise<
     seen.add(key)
     return true
   })
-  await Promise.allSettled(targets.map((s) => stopLocalServer(projectId, s.engine, s.pid, s.startTime)))
+  const results = await Promise.allSettled(targets.map((s) => stopLocalServer(projectId, s.engine, s.pid, s.startTime)))
+  // A falha não interrompe nada, mas fica registrada: o servidor segue no ar.
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      const s = targets[i]
+      console.warn('[servidores] parar falhou; segue o encerramento', projectId, s.engine, s.pid, r.reason)
+    }
+  })
 }

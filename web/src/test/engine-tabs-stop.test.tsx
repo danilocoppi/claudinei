@@ -3,6 +3,7 @@ import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { EngineTabs } from '../components/EngineTabs'
 import { useStore } from '../store'
 import * as api from '../api'
+import * as browserApi from '../browser/api'
 import type { EngineMeta, Project, SessionInfo, SessionStatus } from '../types'
 
 const CLAUDE: EngineMeta = {
@@ -30,7 +31,11 @@ const stopBtn = (label: RegExp) => screen.getByTitle(label)
 // As abas seguem a lista de motores do terminal: aqui ela tem os dois.
 const PROJECT: Project = { id: 1, name: 'T', path: '/tmp/t', color: '#000', icon: 'x', engines: ['claude', 'kimi'] }
 
-beforeEach(() => { useStore.setState({ projects: [PROJECT], terminalStates: {}, chat: {}, unread: {}, streaming: {}, historyLoadedFor: {} }) })
+beforeEach(() => {
+  useStore.setState({ projects: [PROJECT], terminalStates: {}, chat: {}, unread: {}, streaming: {}, historyLoadedFor: {} })
+  // Antes do encerrar vem a consulta dos servidores de pé: aqui, nenhum.
+  vi.spyOn(browserApi, 'fetchServers').mockResolvedValue({ servers: [] })
+})
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('EngineTabs — encerrar sessão por engine', () => {

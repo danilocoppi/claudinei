@@ -77,18 +77,23 @@ describe('encerrar com servidores de pé (EngineTabs)', () => {
 
   it('Parar e encerrar para os dois e depois encerra', async () => {
     mockServers({ kimi: [VITE, NODE] })
-    const order: string[] = []
-    const stopSrv = vi.spyOn(browserApi, 'stopLocalServer').mockImplementation(async (_p, _e, pid) => {
-      order.push(`srv:${pid}`)
-      return { ok: true, target: 'group' }
-    })
-    const stop = vi.spyOn(api, 'stopSession').mockImplementation(async (id) => { order.push(`sess:${id}`) })
+    // Cada Parar fica pendente até o teste soltar: o encerramento tem de esperar.
+    const pending: Array<() => void> = []
+    const stopSrv = vi.spyOn(browserApi, 'stopLocalServer').mockImplementation(() =>
+      new Promise((r) => { pending.push(() => r({ ok: true, target: 'group' })) }))
+    const stop = vi.spyOn(api, 'stopSession').mockResolvedValue(undefined as never)
     endKimi()
     fireEvent.click(await screen.findByRole('button', { name: 'Parar e encerrar' }))
-    await waitFor(() => expect(stop).toHaveBeenCalledWith('k1'))
+    await waitFor(() => expect(stopSrv).toHaveBeenCalledTimes(2))
     expect(stopSrv).toHaveBeenCalledWith(1, 'kimi', 101, 'st101')
     expect(stopSrv).toHaveBeenCalledWith(1, 'kimi', 102, 'st102')
-    expect(order).toEqual(['srv:101', 'srv:102', 'sess:k1'])
+    await new Promise((r) => setTimeout(r, 20))
+    expect(stop).not.toHaveBeenCalled()
+    pending[0]()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(stop).not.toHaveBeenCalled()
+    pending[1]()
+    await waitFor(() => expect(stop).toHaveBeenCalledWith('k1'))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
@@ -128,6 +133,19 @@ describe('encerrar com servidores de pé (EngineTabs)', () => {
     expect(screen.queryByRole('button', { name: /^encerrar$/i })).toBeNull()
   })
 
+  it('desmontado com a consulta em voo e servidores de pé: encerra direto', async () => {
+    let answer: (v: { servers: LocalServer[] }) => void = () => {}
+    vi.spyOn(browserApi, 'fetchServers').mockImplementation(() => new Promise((r) => { answer = r }))
+    const stopSrv = vi.spyOn(browserApi, 'stopLocalServer').mockResolvedValue({ ok: true, target: 'pid' })
+    const stop = vi.spyOn(api, 'stopSession').mockResolvedValue(undefined as never)
+    endKimi()
+    cleanup()
+    answer({ servers: [VITE, NODE] })
+    await waitFor(() => expect(stop).toHaveBeenCalledWith('k1'))
+    expect(stopSrv).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('Esc no diálogo é o Cancelar', async () => {
     mockServers({ kimi: [VITE, NODE] })
     const stop = vi.spyOn(api, 'stopSession').mockResolvedValue(undefined as never)
@@ -153,12 +171,15 @@ describe('encerrar com servidores de pé (EngineTabs)', () => {
     expect(screen.queryByText(/Parar também\?/)).toBeNull()
   })
 
-  it('a consulta falhou: encerra como antes, sem pergunta', async () => {
-    vi.spyOn(browserApi, 'fetchServers').mockRejectedValue(Object.assign(new Error('proibido'), { status: 403 }))
+  it('a consulta falhou: encerra como antes, sem pergunta, e deixa rastro no console', async () => {
+    const err = Object.assign(new Error('proibido'), { status: 403 })
+    vi.spyOn(browserApi, 'fetchServers').mockRejectedValue(err)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const stop = vi.spyOn(api, 'stopSession').mockResolvedValue(undefined as never)
     endKimi()
     await waitFor(() => expect(stop).toHaveBeenCalledWith('k1'))
     expect(screen.queryByRole('dialog')).toBeNull()
+    expect(warn).toHaveBeenCalledWith('[servidores] consulta falhou; segue sem perguntar', 1, 'kimi', err)
   })
 
   it('um só servidor: a frase no singular', async () => {
@@ -239,20 +260,28 @@ describe('serversOnStop', () => {
     expect(await serversOf(1, ['claude', 'kimi'])).toEqual([{ ...VITE, engine: 'claude' }, { ...NODE, engine: 'kimi' }])
   })
 
-  it('serversOf: um motor que falha não esconde os outros', async () => {
+  it('serversOf: um motor que falha não esconde os outros, e a falha vai ao console', async () => {
+    const err = new Error('rede')
     vi.spyOn(browserApi, 'fetchServers').mockImplementation(async (_p, engine) => {
-      if (engine === 'claude') throw new Error('rede')
+      if (engine === 'claude') throw err
       return { servers: [NODE] }
     })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     expect(await serversOf(1, ['claude', 'kimi'])).toEqual([{ ...NODE, engine: 'kimi' }])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[servidores] consulta falhou; segue sem perguntar', 1, 'claude', err)
   })
 
-  it('stopAll: uma falha não interrompe as outras', async () => {
+  it('stopAll: uma falha não interrompe as outras, e vai ao console', async () => {
+    const err = Object.assign(new Error('o processo já não é o mesmo'), { status: 409 })
     const stopSrv = vi.spyOn(browserApi, 'stopLocalServer').mockImplementation(async (_p, _e, pid) => {
-      if (pid === 101) throw Object.assign(new Error('o processo já não é o mesmo'), { status: 409 })
+      if (pid === 101) throw err
       return { ok: true, target: 'group' }
     })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await expect(stopAll(1, [{ ...VITE, engine: 'kimi' }, { ...NODE, engine: 'kimi' }])).resolves.toBeUndefined()
     expect(stopSrv).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('[servidores] parar falhou; segue o encerramento', 1, 'kimi', 101, err)
   })
 })

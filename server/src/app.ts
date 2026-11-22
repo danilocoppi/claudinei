@@ -289,7 +289,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
   }
   const pageSettings = createSettingsService(deps.db)
-  registerPageRoutes(app, { pages, manager: deps.manager, settings: pageSettings, network: () => readNetwork(pageSettings) })
+  registerPageRoutes(app, { pages, manager: deps.manager, settings: pageSettings, network: () => readNetwork(pageSettings), browserHost: deps.browserHost })
   const queueStore = createOperatorQueueStore(deps.db)
   const queue = createOperatorQueueService({
     store: queueStore, manager: deps.manager,

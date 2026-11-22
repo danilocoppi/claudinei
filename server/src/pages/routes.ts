@@ -5,14 +5,17 @@ import type { SessionManager } from '../claude/manager.js'
 import type { SettingsService } from '../settings.js'
 import { requireAdmin, requireProjectAccess } from '../auth/guards.js'
 import { createPreviewStore, type PreviewStore } from '../files/preview.js'
-import { UserError, errorBody } from '../user-error.js'
+import { UserError, errorBody, fail } from '../user-error.js'
 import type { PageNetwork } from '../../../shared/visual-pages.js'
+import type { BrowserHost } from '../browser/host.js'
+import { checkDocument, createCheckShots } from './check-parts.js'
+import { CHECK_WIDTH_DEFAULT, CHECK_WIDTH_MAX, CHECK_WIDTH_MIN, checkFailure, runCheck } from './check.js'
 import { PAGE_PERMISSIONS_POLICY, pageCsp } from './csp.js'
 import { withHeightScript } from './height-script.js'
 import { PAGE_NETWORK_KEY, readNetwork } from './settings.js'
 import type { PagesService } from './service.js'
 
-/** Corpo do `POST /api/hermes/pages`: o `html` vai até 512 K caracteres, que em UTF-8 e JSON passam de 512 KB. */
+/** Corpo do `POST /api/hermes/pages` e do `/check`: o `html` vai até 512 K caracteres, que em UTF-8 e JSON passam de 512 KB. */
 const PUBLISH_BODY_LIMIT = 2 * 1024 * 1024
 
 /** Status das recusas que não são 400. */
@@ -50,9 +53,16 @@ export function registerPageRoutes(
     views?: PreviewStore
     /** Lida a cada pedido: a mudança vale na próxima abertura. */
     network: () => PageNetwork
+    /** O navegador do 16, criado uma vez em index.ts. Sem ele, o check_page responde 503. */
+    browserHost?: Pick<BrowserHost, 'withIsolatedPage'>
+    /** Cópias do PNG do check_page; os testes passam uma pasta própria. */
+    shots?: ReturnType<typeof createCheckShots>
+    /** Espera depois do `load` no check_page (testes: 0). */
+    checkSettleMs?: number
   },
 ): void {
   const views = deps.views ?? createPreviewStore()
+  const shots = deps.shots ?? createCheckShots()
 
   // A rede das páginas: global da instalação, todos leem, só o admin muda (como
   // o auto-compact). Vale na próxima abertura: a rota de exibição lê a cada pedido.
@@ -85,6 +95,36 @@ export function registerPageRoutes(
       if (err instanceof UserError) return reply.code(STATUS[err.code] ?? 400).send(errorBody(err))
       console.error('[páginas] publicar falhou', err)
       return reply.code(500).send({ error: 'could not publish the page' })
+    }
+  })
+
+  // O check_page do Hermes: monta como o show_page publicaria e renderiza no
+  // navegador sem tela. Nada vai a visual_pages nem ao broadcast.
+  app.post('/api/hermes/pages/check', { bodyLimit: PUBLISH_BODY_LIMIT }, async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const projectId = Number(body.projectId)
+    if (!Number.isInteger(projectId) || projectId <= 0) return reply.code(400).send({ error: 'projectId is required' })
+    if (!requireProjectAccess(req, reply, projectId)) return
+    const width = body.width ?? CHECK_WIDTH_DEFAULT
+    if (typeof width !== 'number' || !Number.isInteger(width) || width < CHECK_WIDTH_MIN || width > CHECK_WIDTH_MAX) {
+      return reply.code(400).send(fail('page_width', `width must be an integer from ${CHECK_WIDTH_MIN} to ${CHECK_WIDTH_MAX}`))
+    }
+    let doc: string
+    try {
+      doc = checkDocument(deps.pages.buildDocument(projectId, { html: body.html, path: body.path }).html, deps.network())
+    } catch (err) {
+      if (err instanceof UserError) return reply.code(STATUS[err.code] ?? 400).send(errorBody(err))
+      console.error('[páginas] montar para o check_page falhou', err)
+      return reply.code(500).send({ error: 'could not build the page' })
+    }
+    if (!deps.browserHost) return reply.code(503).send({ error: 'browser not available' })
+    try {
+      return await runCheck(deps.browserHost, doc, width, shots, { settleMs: deps.checkSettleMs })
+    } catch (err) {
+      const known = checkFailure(err)
+      if (known) return reply.code(known.status).send({ error: known.error, code: known.code })
+      console.error('[páginas] check_page falhou', err)
+      return reply.code(500).send({ error: `could not check the page: ${err instanceof Error ? err.message : String(err)}` })
     }
   })
 

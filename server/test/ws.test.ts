@@ -67,8 +67,18 @@ describe('websocket hub', () => {
     ws.close()
   })
 
-  it('aceita conexão com Origin loopback (dev via Vite)', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { origin: 'http://localhost:9100' } })
+  it('rejeita Origin de outra porta do localhost (servidor de dev de um projeto)', async () => {
+    for (const origin of ['http://localhost:9100', `http://127.0.0.1:${port + 1}`, `http://localhost:${port}`]) {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { origin } })
+      const msgs = collect(ws)
+      const code = await new Promise<number>((r) => ws.once('close', (c) => r(c)))
+      expect(code, origin).toBe(1008)
+      expect(msgs.some((m: any) => m.type === 'sessions_snapshot')).toBe(false)
+    }
+  })
+
+  it('aceita dev via Vite: o proxy preserva o Host do navegador', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { host: 'localhost:9100', origin: 'http://localhost:9100' } })
     const msgs = collect(ws)
     await waitUntil(() => msgs.some((m: any) => m.type === 'sessions_snapshot'))
     ws.close()

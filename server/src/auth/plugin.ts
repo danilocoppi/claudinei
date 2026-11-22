@@ -4,6 +4,7 @@
 import cookie from '@fastify/cookie'
 import type { FastifyInstance } from 'fastify'
 import type { AuthService } from './index.js'
+import { originAllowed } from './origin.js'
 
 export type AuthUser =
   | { kind: 'user'; id: number; username: string; isAdmin: boolean; projectIds: number[] }
@@ -213,7 +214,31 @@ export function registerSecurityHeaders(app: FastifyInstance, secureTransport: b
       return reply.code(403).send({ error: 'opaque_origin' })
     }
   })
+
+  /**
+   * Escrita em /api só da mesma origem (`originAllowed`). O navegador manda o
+   * cookie junto num POST `no-cors` de qualquer página — inclusive de outra
+   * porta do localhost, como o servidor de desenvolvimento de um projeto — e
+   * a resposta opaca não importa: o efeito (abrir a aba do navegador, mandar
+   * mensagem) já aconteceu. GET/HEAD/OPTIONS não mudam nada e seguem livres.
+   * Sem `Origin` não é navegador (Hermes, curl) e segue como sempre. Depois do
+   * gancho do `Origin: null`, que responde primeiro com o erro dele.
+   */
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.headers.origin === undefined || SAFE_METHODS.has(req.method)) return
+    let path: string
+    try {
+      path = decodeURIComponent(req.url.split('?')[0])
+    } catch {
+      return reply.code(403).send({ error: 'cross_origin' })
+    }
+    if (path.startsWith('/api/') && !originAllowed(req)) {
+      return reply.code(403).send({ error: 'cross_origin' })
+    }
+  })
 }
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean; secureTransport?: boolean }): Promise<void> {
   await app.register(cookie)

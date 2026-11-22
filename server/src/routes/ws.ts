@@ -4,7 +4,7 @@ import type { SessionManager } from '../claude/manager.js'
 import type { AuthUser } from '../auth/plugin.js'
 import { canAccessProject } from '../auth/guards.js'
 import { isTrustedLocal } from '../auth/plugin.js'
-import { isAllowedOrigin } from './terminal.js'
+import { originAllowed } from '../auth/origin.js'
 import { runShell } from '../shell.js'
 import { createProjectsService, type ProjectsService } from '../projects.js'
 import type { Db } from '../db.js'
@@ -112,7 +112,7 @@ export function createWsHub() {
         // hook libera loopback sem credencial, então sem essa checagem qualquer
         // site visitado pelo usuário abriria um WS para 127.0.0.1 e controlaria
         // as sessões (que rodam com --dangerously-skip-permissions).
-        if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
+        if (!originAllowed(req)) { socket.close(1008, 'origin'); return }
         // A autenticação aconteceu no hook onRequest (401 aborta o upgrade);
         // aqui só capturamos QUEM conectou para filtrar broadcasts.
         const access = watchSocketAccess(socket, req)

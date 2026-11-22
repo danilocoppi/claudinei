@@ -18,8 +18,12 @@ export default defineConfig({
   server: {
     port: 9100,
     strictPort: true,
+    // Objeto, não string: na forma de string o Vite liga `changeOrigin` e
+    // reescreve o Host para 127.0.0.1:9105. O servidor só aceita escrita em /api
+    // e WebSocket da MESMA origem (Origin igual ao Host), então o Host do
+    // navegador (localhost:9100) precisa chegar intacto.
     proxy: {
-      '/api': 'http://127.0.0.1:9105',
+      '/api': { target: 'http://127.0.0.1:9105' },
       '/ws': { target: 'ws://127.0.0.1:9105', ws: true },
     },
   },

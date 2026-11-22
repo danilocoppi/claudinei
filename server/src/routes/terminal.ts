@@ -4,26 +4,11 @@ import type { TerminalManager } from '../terminal/manager.js'
 import { requireProjectAccess } from '../auth/guards.js'
 import { watchSocketAccess } from '../auth/socket-access.js'
 import { errorBody, fail } from '../user-error.js'
+import { originAllowed } from '../auth/origin.js'
 
 export interface TerminalRouteDeps {
   manager: Pick<SessionManager, 'openInTerminal' | 'get'>
   terminalManager: Pick<TerminalManager, 'close' | 'closeAndWait' | 'attach' | 'detach' | 'write' | 'resize' | 'refreshToken'>
-}
-
-/**
- * Origin permitido no WS do terminal: loopback (dev/vite) ou o MESMO host:porta
- * da requisição (acesso via LAN autenticado). Bloqueia sites de terceiros
- * tentando cross-site WebSocket hijacking.
- */
-export function isAllowedOrigin(origin: string | undefined, host: string | undefined): boolean {
-  if (!origin) return true
-  try {
-    const u = new URL(origin)
-    if (['localhost', '127.0.0.1', '::1', '[::1]'].includes(u.hostname)) return true
-    return host !== undefined && u.host === host
-  } catch {
-    return false
-  }
 }
 
 export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRouteDeps): void {
@@ -58,7 +43,7 @@ export function registerTerminalRoutes(app: FastifyInstance, deps: TerminalRoute
   app.get('/ws/terminal/:localId', { websocket: true }, (socket, req) => {
     const { localId } = req.params as { localId: string }
     const token = (req.query as { token?: string }).token ?? ''
-    if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
+    if (!originAllowed(req)) { socket.close(1008, 'origin'); return }
     const access = watchSocketAccess(socket, req)
     if (!access.allowed()) return
     if (!deps.terminalManager.attach(localId, access, token)) {

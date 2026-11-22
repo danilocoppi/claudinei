@@ -89,6 +89,22 @@ describe('acesso', () => {
     expect(c.texts).toEqual([])
   })
 
+  it('origem de outra porta do localhost → fecha 1008', async () => {
+    await openTab()
+    for (const origin of [`http://127.0.0.1:${port + 1}`, 'http://localhost:3000']) {
+      const c = connect({ cookies: f.adminCookie, origin })
+      expect(await c.closed, origin).toEqual({ code: 1008, reason: 'origin' })
+      expect(c.texts).toEqual([])
+    }
+  })
+
+  it('mesma origem → abre', async () => {
+    await openTab()
+    const c = connect({ cookies: f.adminCookie, origin: `http://127.0.0.1:${port}` })
+    await c.opened
+    await until(() => c.texts.some((t) => t.type === 'state'))
+  })
+
   it('usuário sem acesso ao projeto → 1008', async () => {
     await openTab(f.p2.id)
     const c = connect({ cookies: f.anaCookie, projectId: f.p2.id })

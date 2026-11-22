@@ -1,6 +1,6 @@
 // O WebSocket da tela do navegador embutido: `GET /ws/browser/:projectId/:engine`.
 // Um socket é uma coluna aberta (um espectador da aba do terminal). Na ordem:
-// 1. origem permitida (`isAllowedOrigin`), senão fecha 1008 'origin';
+// 1. origem permitida (`originAllowed`: a mesma origem da interface), senão fecha 1008 'origin';
 // 2. horário de acesso (`watchSocketAccess`: conferido a cada segundo, a cada
 //    mensagem e a cada envio; fora dele, fecha 1008 'access_hours');
 // 3. projeto existe e o usuário tem acesso, senão 1008 'forbidden'; motor
@@ -19,7 +19,7 @@ import type { Db } from '../db.js'
 import { createProjectsService } from '../projects.js'
 import { canAccessProject } from '../auth/guards.js'
 import { watchSocketAccess } from '../auth/socket-access.js'
-import { isAllowedOrigin } from '../routes/terminal.js'
+import { originAllowed } from '../auth/origin.js'
 import { hasEngine } from '../engine/index.js'
 import { envMissingText, INSTALL_COMMAND, resolveChromium } from './chromium.js'
 import type { BrowserHost, TerminalTab } from './host.js'
@@ -113,7 +113,7 @@ export function registerBrowserSocket(app: FastifyInstance, d: BrowserSocketDeps
   const live = new Set<{ userId: number | null; shutdown: () => void }>()
 
   app.get('/ws/browser/:projectId/:engine', { websocket: true }, (socket, req) => {
-    if (!isAllowedOrigin(req.headers.origin, req.headers.host)) { socket.close(1008, 'origin'); return }
+    if (!originAllowed(req)) { socket.close(1008, 'origin'); return }
     const access = watchSocketAccess(socket, req)
     if (!access.allowed()) return
     const params = req.params as { projectId: string; engine: string }

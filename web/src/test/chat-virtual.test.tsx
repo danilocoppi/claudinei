@@ -391,3 +391,107 @@ describe('o rodapé que cresce durante o streaming', () => {
     expect(g.top()).toBe(ALTURA_ITEM * 20)
   })
 })
+
+/**
+ * A coluna da direita que abre ou fecha (o `browser_open` do agente, Alt+B, o
+ * Acompanhamento) muda a LARGURA da rolagem: o texto refaz as quebras de linha,
+ * a altura da conversa muda e a tela deixava de estar no fim. Presa no fim
+ * antes da mudança, a tela volta ao fim; lendo mais acima, fica onde estava.
+ */
+describe('a largura da rolagem que muda', () => {
+  type Cb = (entries: { target: Element; contentRect: { width: number; height: number } }[]) => void
+  let observados: { cb: Cb; alvo: Element }[]
+  beforeEach(() => {
+    observados = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: Cb) {}
+      observe(alvo: Element) { observados.push({ cb: this.cb, alvo }) }
+      unobserve() {}
+      disconnect() { observados = observados.filter((o) => o.cb !== this.cb) }
+    })
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  /** Caixa com geometria controlada (largura, altura do conteúdo, posição). */
+  const geometria = (scrollTop: number, scrollHeight: number, largura: number) => {
+    const el = caixa()
+    let top = scrollTop
+    Object.defineProperty(el, 'scrollTop', { get: () => top, set: (v: number) => { top = v }, configurable: true })
+    Object.defineProperty(el, 'clientHeight', { value: ALTURA_JANELA, configurable: true })
+    const medir = (h: number, w: number) => {
+      Object.defineProperty(el, 'scrollHeight', { value: h, configurable: true })
+      Object.defineProperty(el, 'clientWidth', { value: w, configurable: true })
+    }
+    medir(scrollHeight, largura)
+    return { top: () => top, medir }
+  }
+  /** O observador da caixa de rolagem avisa o tamanho atual dela. */
+  const redimensiona = (largura: number, altura = ALTURA_JANELA) => act(() => {
+    for (const o of observados.filter((o) => o.alvo === caixa())) {
+      o.cb([{ target: o.alvo, contentRect: { width: largura, height: altura } }])
+    }
+  })
+
+  it('presa no fim, a coluna que abre devolve a tela ao fim', async () => {
+    preparar(conversa(100))
+    await montar()
+    expect(observados.some((o) => o.alvo === caixa()), 'a caixa de rolagem não é observada').toBe(true)
+    const g = geometria(6000 - ALTURA_JANELA, 6000, 800)
+    fireEvent.scroll(caixa())
+    redimensiona(800)
+    // A coluna abre: a rolagem estreita, o texto quebra em mais linhas e a
+    // conversa cresce sem a posição andar.
+    g.medir(7200, 500)
+    // O `scroll` que o próprio reflow provoca não conta como "saiu do fim".
+    fireEvent.scroll(caixa())
+    redimensiona(500)
+    expect(g.top()).toBe(7200)
+  })
+
+  it('presa no fim, a coluna que fecha também devolve a tela ao fim', async () => {
+    preparar(conversa(100))
+    await montar()
+    const g = geometria(7200 - ALTURA_JANELA, 7200, 500)
+    fireEvent.scroll(caixa())
+    redimensiona(500)
+    // Mais largura: menos linhas e a conversa encolhe. A ancoragem de rolagem
+    // do navegador segura o trecho que estava na tela e deixa a posição no meio.
+    g.medir(6600, 800)
+    caixa().scrollTop = 5500
+    fireEvent.scroll(caixa())
+    redimensiona(800)
+    expect(g.top()).toBe(6600)
+  })
+
+  it('lendo mais acima, a largura que muda não leva a tela ao fim', async () => {
+    preparar(conversa(100))
+    await montar()
+    await rolar(ALTURA_ITEM * 20)
+    const g = geometria(ALTURA_ITEM * 20, 6000, 800)
+    redimensiona(800)
+    g.medir(7200, 500)
+    fireEvent.scroll(caixa())
+    redimensiona(500)
+    expect(g.top()).toBe(ALTURA_ITEM * 20)
+  })
+
+  it('só a altura que muda não mexe na tela (o rodapé e a lista cuidam dela)', async () => {
+    preparar(conversa(100))
+    await montar()
+    const g = geometria(6000 - ALTURA_JANELA, 6000, 800)
+    fireEvent.scroll(caixa())
+    redimensiona(800)
+    g.medir(6400, 800)
+    redimensiona(800, ALTURA_JANELA - 100)
+    expect(g.top()).toBe(6000 - ALTURA_JANELA)
+  })
+
+  it('o observador da caixa sai junto com a conversa', async () => {
+    preparar(conversa(100))
+    await montar()
+    const el = caixa()
+    expect(observados.some((o) => o.alvo === el)).toBe(true)
+    cleanup()
+    expect(observados.some((o) => o.alvo === el), 'o observador ficou ligado depois de desmontar').toBe(false)
+  })
+})

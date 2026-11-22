@@ -349,13 +349,46 @@ export function ChatView() {
     el.addEventListener('touchmove', gesto, opts)
     el.addEventListener('mousedown', gesto, opts)
     el.addEventListener('keydown', tecla)
+    // A coluna da direita que abre ou fecha (o `browser_open` do agente, Alt+B,
+    // o Acompanhamento) muda a LARGURA da rolagem: o texto refaz as quebras de
+    // linha, a altura da conversa muda e a tela deixava de estar no fim. Quem
+    // estava no fim ANTES da mudança volta para lá, sem animação; quem lia mais
+    // acima fica onde estava.
+    //
+    // "No fim antes" é a última leitura feita na largura antiga: cada `scroll`
+    // lê de novo, mas só enquanto a largura é a que o observador conhece — o
+    // `scroll` que o próprio reflow provoca (a posição presa no limite, a
+    // ancoragem do navegador) já chega na largura nova e não pode apagar o que
+    // valia antes. A lista abre no fim, daí o `true` de partida.
+    let largura: number | undefined
+    let noFim = true
+    const rolou = () => {
+      if (largura === undefined || el.clientWidth === largura) noFim = isAtBottom(el)
+    }
+    // Só a largura interessa: a altura que muda sozinha (rodapé do streaming,
+    // item novo) já tem quem cuide (onFooterGrow e `followOutput`). O observador
+    // só chama quando o tamanho muda de fato, nada roda a cada quadro.
+    const observador = new ResizeObserver(() => {
+      const w = el.clientWidth
+      // A primeira medida é a de partida (a lista pode ainda nem ter descido ao fim).
+      if (largura === undefined) { largura = w; return }
+      if (w === largura) return
+      largura = w
+      if (noFim) el.scrollTop = el.scrollHeight
+    })
+    el.addEventListener('scroll', rolou, opts)
+    observador.observe(el)
     soltarGestos.current = () => {
       el.removeEventListener('wheel', gesto)
       el.removeEventListener('touchmove', gesto)
       el.removeEventListener('mousedown', gesto)
       el.removeEventListener('keydown', tecla)
+      el.removeEventListener('scroll', rolou)
+      observador.disconnect()
     }
   }, [])
+  // A lista pode sair sem avisar o `scrollerRef`: a desmontagem solta o que ficou.
+  useEffect(() => () => { soltarGestos.current?.(); soltarGestos.current = null }, [])
 
   /**
    * Página anterior ao chegar no topo, pelo carregador único da conversa

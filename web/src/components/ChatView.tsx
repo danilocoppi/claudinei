@@ -326,6 +326,11 @@ export function ChatView() {
     if (!isAtBottom(el, SLACK + grew)) return
     el.scrollTop = el.scrollHeight
   }, [])
+  // A página viva que cresce dentro do cartão puxa do mesmo jeito (listHandle.ts).
+  useEffect(() => {
+    chatFollow.grew = onFooterGrow
+    return () => { chatFollow.grew = () => {} }
+  }, [onFooterGrow])
   // Gestos de rolagem do operador (não as rolagens da própria lista): a busca
   // usa para não levar a tela a uma ocorrência que chegou depois de ele voltar a ler.
   const soltarGestos = useRef<(() => void) | null>(null)

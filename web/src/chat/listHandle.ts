@@ -13,11 +13,17 @@ import type { VirtuosoHandle } from 'react-virtuoso'
 export const chatListRef: MutableRefObject<VirtuosoHandle | null> = { current: null }
 
 /**
- * Solta o "grudado no fim" da conversa aberta. Quem registra é o ChatView;
- * quem chama é a busca, ao levar a tela a uma ocorrência — pedido do operador,
- * e evento novo que chegar depois não pode arrancá-lo de lá.
+ * O "grudado no fim" da conversa aberta. Quem registra é o ChatView.
+ *
+ * `release` solta: quem chama é a busca, ao levar a tela a uma ocorrência —
+ * pedido do operador, e evento novo que chegar depois não pode arrancá-lo de lá.
+ *
+ * `grew` avisa que algo dentro de um item cresceu `px` (a página viva, pela
+ * altura que ela manda): com a tela presa no fim, puxa junto, como o rodapé do
+ * streaming. A lista virtual só puxa quando o crescimento passa da folga do
+ * "no fim"; abaixo dela, a tela ficaria parada a alguns pixels do fim.
  */
-export const chatFollow: { release: () => void } = { release: () => {} }
+export const chatFollow: { release: () => void; grew: (px: number) => void } = { release: () => {}, grew: () => {} }
 
 /**
  * Gestos de rolagem do operador na conversa aberta (roda, toque, teclas de

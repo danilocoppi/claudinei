@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { pageListSettled, usePagesStore, type PagePlace } from '../pages/pagesStore'
 import { viewPage } from '../pages/api'
 import { PAGE_HEIGHT_MESSAGE, type VisualPageDto } from '../../../shared/visual-pages'
 import { PageUrlStatus, usePageUrl } from './PageFullscreen'
+import { chatFollow } from '../chat/listHandle'
 import '../pages/pages.css'
 
 /** Altura de quem não sugeriu nenhuma. */
@@ -131,6 +132,19 @@ export function PageCard({ pageId, localId, page: given, place = 'chat' }: {
   }, [missing, pageId, localId, fetchAttempt])
 
   const onHeight = useCallback((h: number) => setReported(h), [])
+  const height = page ? reported ?? clampHeight(page.height ?? DEFAULT_HEIGHT) : null
+
+  // A viva do chat que cresce (a altura que a página manda) avisa o chat, que
+  // puxa a tela se ela estava presa no fim. Depois do layout, antes da pintura:
+  // a tela não chega a aparecer fora do fim. A primeira altura de cada abertura
+  // é só a de partida; encolher não puxa.
+  const lastHeight = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (!live || place !== 'chat' || height === null) { lastHeight.current = null; return }
+    const prev = lastHeight.current
+    lastHeight.current = height
+    if (prev !== null && height > prev) chatFollow.grew(height - prev)
+  }, [live, place, height])
 
   if (!page) {
     return (
@@ -146,7 +160,6 @@ export function PageCard({ pageId, localId, page: given, place = 'chat' }: {
     )
   }
 
-  const height = reported ?? clampHeight(page.height ?? DEFAULT_HEIGHT)
   const { setLive, setFull } = usePagesStore.getState()
   // A tela cheia fica fora da lista virtual (`PageFullscreenHost`) e tem o
   // próprio iframe: o cartão deixa de ser o vivo (o store solta).
@@ -178,8 +191,8 @@ export function PageCard({ pageId, localId, page: given, place = 'chat' }: {
             <button type="button" className="page-card__btn" onClick={() => setLive(null)}>{t('pages.close')}</button>
           </div>
           {onScreen
-            ? <LiveFrame page={page} height={height} onHeight={onHeight} />
-            : <div className="page-card__slot" style={{ height }} />}
+            ? <LiveFrame page={page} height={height!} onHeight={onHeight} />
+            : <div className="page-card__slot" style={{ height: height! }} />}
         </>
       ) : (
         <div className="page-card__bar">

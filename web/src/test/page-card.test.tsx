@@ -16,6 +16,7 @@ import { applyPagesWsMessage, usePagesStore } from '../pages/pagesStore'
 import { useStore } from '../store'
 import { useUndoStore } from '../undo/undoStore'
 import { WsContext } from '../wsContext'
+import { chatFollow } from '../chat/listHandle'
 import { renderComJanela } from './viewport'
 import { PAGE_HEIGHT_MESSAGE, type VisualPageDto } from '../../../shared/visual-pages'
 import { turnKey } from '../../../shared/undo'
@@ -195,6 +196,44 @@ describe('PageCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ver página' }))
     tela(true)
     expect((await frameUrl(container)).style.height).toBe('240px')
+  })
+
+  it('a viva do chat que cresce pela altura da página avisa o chat (chatFollow.grew) com quanto cresceu; encolher, a primeira altura e a da lista não avisam', async () => {
+    const grew = vi.fn()
+    const antes = chatFollow.grew
+    chatFollow.grew = grew
+    try {
+      usePagesStore.setState({ byId: { [PG1]: page(PG1, 'a', { height: 200 }) } })
+      const { container, unmount } = render(<PageCard pageId={PG1} localId="a" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Ver página' }))
+      tela(true)
+      const f = await frameUrl(container)
+      const post = (height: number, frame = f) =>
+        act(() => { window.dispatchEvent(new MessageEvent('message', { data: { type: PAGE_HEIGHT_MESSAGE, height }, source: frame.contentWindow })) })
+      // Abrir (a primeira altura) não avisa: a lista virtual acompanha o item que muda.
+      expect(grew).not.toHaveBeenCalled()
+      post(365)
+      expect(grew).toHaveBeenCalledTimes(1)
+      expect(grew).toHaveBeenLastCalledWith(165)
+      post(300)
+      expect(grew).toHaveBeenCalledTimes(1)
+      post(320)
+      expect(grew).toHaveBeenLastCalledWith(20)
+      unmount()
+
+      // Na lista "Páginas desta conversa" o chat não tem nada com isso.
+      grew.mockClear()
+      act(() => usePagesStore.getState().setLive(null))
+      const lista = render(<PageCard pageId={PG1} localId="a" place="list" />)
+      fireEvent.click(within(lista.container).getByRole('button', { name: 'Ver página' }))
+      tela(true)
+      const g = await frameUrl(lista.container)
+      post(500, g)
+      expect(g.style.height).toBe('500px')
+      expect(grew).not.toHaveBeenCalled()
+    } finally {
+      chatFollow.grew = antes
+    }
   })
 
   it('tela cheia: token novo, o cartão volta a parado, Esc fecha', async () => {
@@ -505,6 +544,49 @@ describe('PageCard no ChatView', () => {
     tela(true)
     await frameUrl(cardOf('Gráfico vivo'))
     expect(document.querySelectorAll('iframe')).toHaveLength(1)
+  })
+})
+
+describe('a viva que cresce no chat (ensaio B2)', () => {
+  /** A caixa de rolagem do chat com a geometria plantada; devolve o scrollTop que ela recebeu. */
+  const geometria = (scrollTop: number, scrollHeight: number, clientHeight: number) => {
+    const el = screen.getByTestId('chat-scroll')
+    let top = scrollTop
+    Object.defineProperty(el, 'scrollTop', { get: () => top, set: (v: number) => { top = v }, configurable: true })
+    Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true, writable: true })
+    Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true })
+    return () => top
+  }
+  const post = (f: HTMLIFrameElement, height: number) =>
+    act(() => { window.dispatchEvent(new MessageEvent('message', { data: { type: PAGE_HEIGHT_MESSAGE, height }, source: f.contentWindow })) })
+
+  async function vivaNoChat() {
+    setupChat(
+      { a: [{ kind: 'user_text', text: 'faça', key: 'a0' }, call('a1', shown(PG1))] },
+      { a: [page(PG1, 'a', { title: 'Página A', height: 200 })] },
+      'working',
+    )
+    renderChat()
+    await screen.findByText('Página A')
+    act(() => applyPagesWsMessage(event(page(PG1, 'a', { title: 'Página A', height: 200 }))))
+    tela(true)
+    return frameUrl(cardOf('Página A'))
+  }
+
+  it('preso no fim, a página que cresce dentro do cartão puxa a tela ao fim, mesmo dentro da folga', async () => {
+    const f = await vivaNoChat()
+    // O chat cabia na tela; a página cresceu 165 px e ficou 50 px além do fim,
+    // menos que a folga do "no fim": a lista virtual não puxa sozinha.
+    const top = geometria(0, 808, 758)
+    post(f, 365)
+    expect(top()).toBe(808)
+  })
+
+  it('lendo mais acima, a página que cresce não puxa a tela', async () => {
+    const f = await vivaNoChat()
+    const top = geometria(0, 3000, 758)
+    post(f, 365)
+    expect(top()).toBe(0)
   })
 })
 

@@ -887,7 +887,7 @@ export const es: typeof en = {
     settingsTitle: 'Páginas visuales',
     networkLegend: 'Red de las páginas',
     networkCdn: 'Solo las CDN conocidas (predeterminado)',
-    networkOpen: 'Liberar la red',
+    networkOpen: 'Permitir todo el acceso a la red',
     openWarning: 'Con la red liberada, el código de cualquier página visual puede enviar lo que contenga (incluidos datos del proyecto que el agente puso allí) a cualquier dirección de internet, cargar código de cualquier sitio e intentar alcanzar otros dispositivos de la red de quien la abra. La página sigue sin acceso a tu sesión ni a la API de Claudinei. Vale para todas las páginas, de todos los terminales y usuarios, a partir de la próxima vez que se abran.',
     settingsLoadFailed: 'La configuración no cargó: {{message}}',
     saveFailed: 'No se guardó: {{message}}',

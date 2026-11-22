@@ -66,11 +66,14 @@ describe('pagesStore', () => {
     expect(usePagesStore.getState().livePageId).toBeNull()
   })
 
-  it('tela cheia: setFull guarda a página e solta a viva se era ela; null fecha', () => {
+  it('tela cheia: setFull guarda a página e solta qualquer viva (uma viva por vez); null fecha', () => {
     usePagesStore.getState().setLive(PG1)
     usePagesStore.getState().setFull(PG2)
     expect(usePagesStore.getState().fullPageId).toBe(PG2)
-    expect(usePagesStore.getState().livePageId).toBe(PG1)
+    // Outra página em tela cheia: a viva sai também, senão seriam dois iframes.
+    expect(usePagesStore.getState().livePageId).toBeNull()
+    usePagesStore.getState().setFull(null)
+    usePagesStore.getState().setLive(PG1)
     usePagesStore.getState().setFull(PG1)
     expect(usePagesStore.getState().fullPageId).toBe(PG1)
     expect(usePagesStore.getState().livePageId).toBeNull()
@@ -78,9 +81,15 @@ describe('pagesStore', () => {
     expect(usePagesStore.getState().fullPageId).toBeNull()
   })
 
-  it('fetchOne com 403 e com 404 vira unavailable', async () => {
+  it('fetchOne com 403 de horário de acesso não marca unavailable (vale tentar depois)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(errJson(403, 'access_hours_restricted'))
+    await expect(usePagesStore.getState().fetchOne(PG1)).rejects.toThrow()
+    expect(usePagesStore.getState().byId[PG1]).toBeUndefined()
+  })
+
+  it('fetchOne com 403 (sem acesso ao projeto) e com 404 vira unavailable', async () => {
     const spy = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(errJson(403, 'forbidden'))
+      .mockResolvedValueOnce(errJson(403, 'forbidden_project'))
       .mockResolvedValueOnce(errJson(404, 'not_found'))
       .mockResolvedValueOnce(okJson(page(PG3)))
     await usePagesStore.getState().fetchOne(PG1)

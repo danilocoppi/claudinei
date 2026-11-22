@@ -885,7 +885,7 @@ export const en = {
     settingsTitle: 'Visual pages',
     networkLegend: 'Page network access',
     networkCdn: 'Only the known CDNs (default)',
-    networkOpen: 'Open the network',
+    networkOpen: 'Allow all network access',
     openWarning: 'With the network open, the code of any visual page can send whatever is in it (including project data the agent put there) to any address on the internet, load code from any site and try to reach other devices on the network of whoever opens it. The page still has no access to your session or to the Claudinei API. This applies to every page, from every terminal and user, starting the next time they are opened.',
     settingsLoadFailed: "The setting didn't load: {{message}}",
     saveFailed: "Didn't save: {{message}}",

@@ -199,7 +199,7 @@ export function PageCard({ pageId, localId, page: given, place = 'chat' }: {
           <span className="page-card__icon" aria-hidden="true">▦</span>
           {title}
           <span className="page-card__size">{t('pages.size', { kb })}</span>
-          <button type="button" className="page-card__btn" onClick={() => setLive(page.id, place)}>{t('pages.view')}</button>
+          <button type="button" className="page-card__btn" data-page-view="" onClick={() => setLive(page.id, place)}>{t('pages.view')}</button>
         </div>
       )}
     </div>

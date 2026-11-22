@@ -279,5 +279,9 @@ describe('i18n das páginas', () => {
     await i18n.changeLanguage('pt-BR')
     expect(i18n.t('pages.openWarning')).toBe(AVISO)
     expect(i18n.t('pages.listItem', { n: 3 })).toBe('Páginas desta conversa (3)')
+    // "Abrir a rede" em inglês soava como abrir uma rede; a opção libera todo acesso à rede.
+    expect(i18n.t('pages.networkOpen')).toBe('Liberar a rede')
+    expect(en.pages.networkOpen).toBe('Allow all network access')
+    expect(es.pages.networkOpen).toBe('Permitir todo el acceso a la red')
   })
 })

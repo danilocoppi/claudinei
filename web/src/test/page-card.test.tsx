@@ -269,6 +269,31 @@ describe('PageCard', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('tela cheia: ao fechar, o foco volta ao "Ver página" do cartão (o "Tela cheia" sumiu com a viva)', async () => {
+    usePagesStore.setState({ byId: { [PG1]: page(PG1) } })
+    const { container } = render(<><PageCard pageId={PG1} localId="a" /><PageFullscreenHost /></>)
+    fireEvent.click(screen.getByRole('button', { name: 'Ver página' }))
+    tela(true)
+    await frameUrl(container)
+    const full = screen.getByRole('button', { name: 'Tela cheia' })
+    act(() => full.focus())
+    fireEvent.click(full)
+    const dialog = await screen.findByRole('dialog')
+    expect(full.isConnected).toBe(false)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Fechar tela cheia' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(within(container).getByRole('button', { name: 'Ver página' }))
+
+    // Esc também devolve o foco ao cartão.
+    fireEvent.click(within(container).getByRole('button', { name: 'Ver página' }))
+    tela(true)
+    await frameUrl(container)
+    fireEvent.click(screen.getByRole('button', { name: 'Tela cheia' }))
+    await screen.findByRole('dialog')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(document.activeElement).toBe(within(container).getByRole('button', { name: 'Ver página' }))
+  })
+
   it('nova aba: window.open com a url do token novo, _blank e noopener,noreferrer', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     usePagesStore.setState({ byId: { [PG1]: page(PG1) } })

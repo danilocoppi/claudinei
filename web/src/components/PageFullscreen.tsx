@@ -69,6 +69,15 @@ export function PageFullscreen({ page, onClose }: { page: VisualPageDto; onClose
   const dialog = useRef<HTMLDivElement>(null)
   const closeBtn = useRef<HTMLButtonElement>(null)
   const onKeyDown = useDialogKeys(dialog, onClose)
+  // Depois do `useDialogKeys` (a limpeza dele roda antes desta): quem abriu foi
+  // o "Tela cheia" do cartão vivo, que sumiu quando o cartão deixou de ser vivo.
+  // Sem para onde voltar, o foco vai ao "Ver página" do cartão dessa página.
+  useEffect(() => () => {
+    if (document.activeElement && document.activeElement !== document.body) return
+    // Compara o atributo em vez de pôr o id no seletor: nada de escapar.
+    const card = [...document.querySelectorAll<HTMLElement>('.page-card[data-page-id]')].find(el => el.dataset.pageId === page.id)
+    card?.querySelector<HTMLElement>('[data-page-view]')?.focus({ preventScroll: true })
+  }, [page.id])
 
   return createPortal(
     <div className="page-card-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>

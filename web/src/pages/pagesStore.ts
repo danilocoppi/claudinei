@@ -28,11 +28,14 @@ interface PagesState {
   fullPageId: string | null
   /** A última carga vence (contador por localId, como o undoStore). */
   load(localId: string): Promise<void>
-  /** 403 (sem acesso) e 404 (apagada) viram 'unavailable'; outra falha lança e não marca nada. */
+  /**
+   * 404 (apagada) e 403 sem acesso ao projeto viram 'unavailable'; outra falha
+   * (inclusive o 403 do horário de acesso) lança e não marca nada.
+   */
   fetchOne(id: string): Promise<void>
   /** `place`: onde o cartão que abriu está (padrão, o chat). */
   setLive(id: string | null, place?: PagePlace): void
-  /** Abre (ou fecha, com null) a tela cheia; a página aberta deixa de ser a viva, que tem o próprio iframe. */
+  /** Abre (ou fecha, com null) a tela cheia; ao abrir, nenhuma página fica viva (a tela cheia tem o próprio iframe). */
   setFull(id: string | null): void
 }
 
@@ -108,8 +111,8 @@ export const usePagesStore = create<PagesState>((set) => ({
         const page = await getPage(id)
         set(s => ({ byId: { ...s.byId, [id]: page } }))
       } catch (e) {
-        const status = (e as { status?: number } | null)?.status
-        if (status !== 403 && status !== 404) throw e
+        const { status, serverError } = (e ?? {}) as { status?: number; serverError?: string }
+        if (status !== 404 && !(status === 403 && serverError === 'forbidden_project')) throw e
         set(s => ({ byId: { ...s.byId, [id]: 'unavailable' } }))
       } finally {
         fetching.delete(id)
@@ -124,7 +127,8 @@ export const usePagesStore = create<PagesState>((set) => ({
   },
 
   setFull(id) {
-    set(s => (id !== null && s.livePageId === id ? { fullPageId: id, livePageId: null } : { fullPageId: id }))
+    // Uma viva por vez: a tela cheia de qualquer página solta a viva, seja ela ou outra.
+    set(id !== null ? { fullPageId: id, livePageId: null } : { fullPageId: null })
   },
 }))
 

@@ -3,8 +3,8 @@ import type { PageNetwork, VisualPageDto } from '../../../shared/visual-pages'
 
 /**
  * Rotas das respostas visuais (server/src/pages/routes.ts). Os erros saem do
- * `req` com `status`: 403 (sem acesso) e 404 (apagada) o store trata como
- * página indisponível.
+ * `req` com `status` e `serverError`: 403 `forbidden_project` (sem acesso) e
+ * 404 (apagada) o store trata como página indisponível.
  */
 const enc = encodeURIComponent
 

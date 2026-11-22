@@ -1,4 +1,5 @@
 import type { ChatItem } from '../types'
+import { isShowPageName } from '../../../shared/visual-pages'
 
 /**
  * Agrupamento de "ações" no chat: sequências de tool_call/thinking (a
@@ -16,7 +17,9 @@ export type ChatNode =
 
 export const MIN_GROUP = 3
 
-const isAction = (it: ChatItem): boolean => it.kind === 'tool_call' || it.kind === 'thinking'
+// O `show_page` vira o cartão da página (pages/anchors.ts): fica fora do grupo, à vista.
+const isAction = (it: ChatItem): boolean =>
+  (it.kind === 'tool_call' && !isShowPageName(it.name)) || it.kind === 'thinking'
 
 export function groupActions(items: ChatItem[], working: boolean): ChatNode[] {
   const nodes: ChatNode[] = []

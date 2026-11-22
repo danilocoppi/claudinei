@@ -300,7 +300,9 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
     const failed = (tool: string, err: unknown) => {
       const e = err as Error & { code?: string; hint?: string }
       const code = e.code ? ` (${e.code})` : ''
-      return { ...text(`${tool} failed${code}: ${e.message}${e.hint ? `\n${e.hint}` : ''}`), isError: true }
+      // A dica que já está na mensagem (o `browser_not_installed` traz o comando nas duas) não se repete.
+      const hint = e.hint && !e.message.includes(e.hint) ? `\n${e.hint}` : ''
+      return { ...text(`${tool} failed${code}: ${e.message}${hint}`), isError: true }
     }
     /** O handler comum: chama a rota e devolve o texto com a linha de estado. */
     const plain = (op: string) => async (args: Record<string, unknown>) => {
@@ -321,6 +323,7 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
           + 'Use it to see and test the web app you are working on: open your dev servers by http://127.0.0.1:<port> (the port the server printed), since the browser runs on the same machine as your shell. '
           + `${SCHEMES} `
           + 'Next, call browser_snapshot to read the page and get the refs that browser_act needs. The other browser_* tools work on the tab this one opens. '
+          + 'With url it changes the page, so it fails while the operator is in control (do not retry in a loop); without url it still works then. '
           + `${NO_EVAL} `
           + 'An unused tab closes by itself after 30 minutes; call browser_close when you are done. '
           + `${STATUS}`,
@@ -362,7 +365,8 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
         description:
           "Reads the page in this terminal's browser tab as an accessibility tree: one line per element with its role, its accessible name and a ref such as [ref=e6]. "
           + "Pass that ref to browser_act to use the element (ref 'e6'). Refs belong to the latest snapshot: after the page changes, take a new one. "
-          + 'Password field values come out as ••••. A pending dialog (alert, confirm, prompt) shows at the top, and the page stays blocked until browser_act action=dialog answers it. '
+          + 'Password field values come out as ••••. '
+          + 'While a confirm or prompt dialog is pending, it returns only the description of the dialog (no tree, no refs): answer it with browser_act action=dialog. alert and beforeunload dialogs are accepted by themselves and reported as notices. '
           + 'The output is cut at 60000 characters with a notice; pass a smaller depth to read fewer levels of the tree. '
           + `${READS} `
           + 'Prefer it to browser_screenshot to find elements: it is text, cheaper and gives refs. '
@@ -381,7 +385,7 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
         description:
           "Acts on the page in this terminal's browser tab as a user would. action is one of: "
           + 'click; type (key by key, appending to the field); fill (replaces the field value); press (a key or chord such as Enter or Control+A, sent to the ref element or, without ref, to the page); '
-          + 'hover; select (picks the option whose value or label is text); scroll (mouse wheel by dx, dy pixels); dialog (answers a pending alert, confirm or prompt with accept=true|false; text answers a prompt). '
+          + 'hover; select (picks the option whose value or label is text); scroll (mouse wheel by dx, dy pixels); dialog (answers a pending confirm or prompt with accept=true|false; text answers a prompt; alert and beforeunload are accepted by themselves). '
           + 'click, type, fill, hover and select need a ref from the latest browser_snapshot ([ref=e6] → ref e6). A ref from before the page changed is refused: take a new browser_snapshot and use the new ref. '
           + 'While a dialog is pending, every action except dialog fails at once. '
           + 'Fails while the operator is in control: do not retry in a loop, ask the operator to hand control back if you need it. '
@@ -407,7 +411,8 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
       {
         description:
           "Waits on this terminal's browser tab for one condition: text appears on the page, textGone disappears, the URL matches url (exact or a glob such as **/login), or a number of seconds passes. Give exactly one. "
-          + 'Capped at 30 seconds: past that it fails with a timeout, and you can check the page with browser_snapshot and wait again. '
+          + 'Capped at 30 seconds: seconds above 30 waits 30 and succeeds; text, textGone and url fail with a timeout after 30 s, and you can check the page with browser_snapshot and wait again. '
+          + 'Fails at once while a dialog is pending. '
           + 'Use it after an action that loads or updates the page, instead of sleeping in the shell. '
           + `${READS} `
           + `${LIVE} `
@@ -439,9 +444,11 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
       async ({ fullPage }) => {
         try {
           const r = await browser('screenshot', { fullPage })
+          // Sem a imagem, erro: um bloco de imagem vazio não diz nada ao agente.
+          if (!r.png) return { ...text(`browser_screenshot failed: the server returned no image\n${r.status ?? ''}`.trimEnd()), isError: true }
           return {
             content: [
-              { type: 'image' as const, data: r.png ?? '', mimeType: 'image/png' },
+              { type: 'image' as const, data: r.png, mimeType: 'image/png' },
               { type: 'text' as const, text: `saved at ${r.path}\n${r.status}` },
             ],
           }
@@ -472,6 +479,7 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
           "Closes this terminal's browser tab and discards its cookies and session; closing a tab that is already closed is fine. "
           + "The page also leaves the operator's live view in Claudinei's side column. "
           + 'Call it when you are done with the browser; the next browser_open starts a new tab. '
+          + 'Fails while the operator is in control: do not retry in a loop, ask the operator to hand control back if you need it. '
           + 'Keep the tab open while you still need it, for instance to stay logged in.',
         inputSchema: {},
       },

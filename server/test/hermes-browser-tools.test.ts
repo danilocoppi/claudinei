@@ -96,11 +96,18 @@ describe('ferramentas browser_* do hermes', () => {
     expect(all).toContain('about:blank')
     expect(all).toMatch(/https?:/)
     expect(byName.get('browser_act').description).toMatch(/ref.*browser_snapshot/)
-    expect(all).toMatch(/operator.*control/i)
+    expect(all).toMatch(/works even while the operator is in control/)
     expect(all).toMatch(/evaluate/)
     expect(all).toMatch(/curl/)
     expect(byName.get('browser_open').description).toContain('http://127.0.0.1:<port>')
     expect(byName.get('browser_navigate').inputSchema.properties.action.enum).toEqual(['back', 'forward', 'reload'])
+    // O comportamento real (agent-ops.ts): diálogo na snapshot, alert aceito sozinho, teto do wait, bastão no open/close.
+    expect(byName.get('browser_snapshot').description).toMatch(/returns only the description of the dialog \(no tree, no refs\)/)
+    expect(all).not.toMatch(/pending alert/)
+    expect(byName.get('browser_wait').description).toMatch(/seconds above 30 waits 30 and succeeds/)
+    expect(byName.get('browser_wait').description).toMatch(/Fails at once while a dialog is pending/)
+    expect(byName.get('browser_open').description).toMatch(/fails while the operator is in control/)
+    expect(byName.get('browser_close').description).toMatch(/Fails while the operator is in control/)
   }, 20000)
 
   it('as instructions geradas são idênticas às de antes', async () => {
@@ -161,6 +168,25 @@ describe('ferramentas browser_* do hermes', () => {
     expect(r.result.isError).toBe(true)
     expect(r.result.content[0].text).toContain('Browser not installed')
     expect(r.result.content[0].text).toContain('run the install command')
+  }, 20000)
+
+  it('a dica já contida na mensagem não se repete', async () => {
+    const cmd = 'npx -y playwright-core@1.65.1 install --no-remove chromium-headless-shell'
+    const msg = `Browser not installed. On the server, run \`${cmd}\``
+    const api = await fakeApi(() => [503, { error: msg, code: 'browser_not_installed', hint: cmd }])
+    const { results: [r] } = await hermes(api.url, {}, [call('browser_open', {})])
+    api.close()
+    expect(r.result.isError).toBe(true)
+    expect(r.result.content[0].text).toBe(`browser_open failed (browser_not_installed): ${msg}`)
+  }, 20000)
+
+  it('browser_screenshot sem png → isError, sem bloco de imagem vazio', async () => {
+    const api = await fakeApi(() => [200, { text: 'screenshot of x', status: 'Browser: x | t | control: agent', path: '/tmp/up/n.png' }])
+    const { results: [r] } = await hermes(api.url, {}, [call('browser_screenshot', {})])
+    api.close()
+    expect(r.result.isError).toBe(true)
+    expect(r.result.content.some((c: any) => c.type === 'image')).toBe(false)
+    expect(r.result.content[0].text).toMatch(/^browser_screenshot failed: the server returned no image/)
   }, 20000)
 
   it('servidor fora do ar vira isError, sem exceção', async () => {

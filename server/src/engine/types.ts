@@ -46,7 +46,7 @@ export interface EngineSessionOptions {
   /** Só o Kimi: data root próprio, no lugar do derivado da pasta do projeto. */
   dataRoot?: string
   /**
-   * `CLAUDINEI_TERMINAL=<projectId>:<motor>` no ambiente da CLI (ver
+   * `CLAUDINEI_TERMINAL=<instância>:<projectId>:<motor>` no ambiente da CLI (ver
    * local-servers/marker.ts). Ausente = a chave sai do ambiente (nunca herda a do serviço).
    */
   terminalMarker?: string

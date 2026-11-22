@@ -11,9 +11,8 @@
 //
 // Formato antigo (`<projectId>:<motor>`, sem id): recusado de propósito.
 // Aceitá-lo faria a instância de ensaio aceitá-lo também, reabrindo o buraco.
-// Consequência da atualização: um servidor que o agente subiu ANTES dela (e que
-// sobreviveu ao reinício) some da coluna e não se para pelo Claudinei; o
-// operador o para à mão uma vez. O que as CLIs sobem depois já leva o id.
+// Os servidores locais nunca saíram com o formato antigo; só um servidor
+// deixado por um ensaio anterior a este formato ficaria de fora (para à mão).
 import { createHash, randomBytes } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'

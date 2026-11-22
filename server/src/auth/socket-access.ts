@@ -18,5 +18,8 @@ export function watchSocketAccess(socket: WebSocket, req: FastifyRequest) {
     allowed,
     get readyState() { return socket.readyState },
     send(data: string) { if (allowed() && socket.readyState === socket.OPEN) socket.send(data) },
+    // Os quadros binários da tela do navegador passam pela mesma guarda do texto.
+    sendBinary(data: Buffer) { if (allowed() && socket.readyState === socket.OPEN) socket.send(data, { binary: true }) },
+    get bufferedAmount() { return socket.bufferedAmount },
   }
 }

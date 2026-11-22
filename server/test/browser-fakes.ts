@@ -101,11 +101,30 @@ export class FakePage extends Emitter {
   /** Com true, ações do locator, do mouse e do teclado ficam penduradas até `releaseActs()`. */
   actHang = false
   private hungActs: Array<{ resolve: () => void; reject: (err: Error) => void }> = []
+  /** Com um erro, mouse e teclado rejeitam com ele (a entrada que o Playwright recusa). */
+  inputError: Error | null = null
+  /** As teclas que o Playwright não conhece: `keyboard.down/up` lançam 'Unknown key'. */
+  readonly unknownKeys = new Set(['Unidentified', 'Dead', 'Process'])
+  private input(target: string, method: string, args: unknown[]): Promise<void> {
+    this.calls.push({ target, method, args })
+    if (this.inputError) return Promise.reject(this.inputError)
+    return this.actResult()
+  }
+  private key(method: 'down' | 'up', key: string): Promise<void> {
+    if (this.unknownKeys.has(key)) return Promise.reject(new Error(`Unknown key: "${key}"`))
+    return this.input('keyboard', method, [key])
+  }
   readonly mouse = {
-    wheel: (dx: number, dy: number): Promise<void> => { this.calls.push({ target: 'mouse', method: 'wheel', args: [dx, dy] }); return this.actResult() },
+    wheel: (dx: number, dy: number): Promise<void> => this.input('mouse', 'wheel', [dx, dy]),
+    move: (x: number, y: number, opts?: unknown): Promise<void> => this.input('mouse', 'move', opts === undefined ? [x, y] : [x, y, opts]),
+    down: (opts?: unknown): Promise<void> => this.input('mouse', 'down', [opts]),
+    up: (opts?: unknown): Promise<void> => this.input('mouse', 'up', [opts]),
   }
   readonly keyboard = {
-    press: (key: string): Promise<void> => { this.calls.push({ target: 'keyboard', method: 'press', args: [key] }); return this.actResult() },
+    press: (key: string): Promise<void> => this.input('keyboard', 'press', [key]),
+    down: (key: string): Promise<void> => this.key('down', key),
+    up: (key: string): Promise<void> => this.key('up', key),
+    insertText: (text: string): Promise<void> => this.input('keyboard', 'insertText', [text]),
   }
   private readonly frame = new FakeFrame(this)
   /** Os iframes da página (`addFrame`). */

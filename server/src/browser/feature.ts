@@ -1,5 +1,5 @@
 // O navegador embutido montado na app: as rotas do hermes (`browser_*`), as do
-// operador e (Task 10) o WebSocket da tela. Aqui mora o anúncio das abas: o
+// operador e o WebSocket da tela. Aqui mora o anúncio das abas: o
 // broadcast `browser_tab` sai quando uma aba nasce (por quem pediu) e quando
 // fecha. Ele leva `projectId` no topo, e o `canSee` do hub filtra por ele: só
 // quem tem acesso ao projeto recebe.
@@ -10,13 +10,15 @@ import type { BrowserHost, TerminalTab } from './host.js'
 import { keyOf, type TabCloseReason, type TerminalKey } from './types.js'
 import { registerBrowserHermesRoutes, type TabActor } from './hermes-routes.js'
 import { registerBrowserOperatorRoutes } from './operator-routes.js'
+import { registerBrowserSocket } from './socket.js'
+import { viewersFor } from './viewers.js'
 
 export interface BrowserFeature {
-  /** Rotas do hermes, do operador e (Task 10) o WebSocket. */
+  /** Rotas do hermes, do operador e o WebSocket da tela. */
   register(app: FastifyInstance): void
-  /** Revogação de um usuário: fecha os sockets da tela dele (Task 10; aqui no-op). */
+  /** Revogação de um usuário: fecha os sockets da tela dele com 1008. */
   closeUser(userId: number): void
-  /** Revogação geral: fecha todos os sockets da tela (Task 10; aqui no-op). */
+  /** Revogação geral: fecha todos os sockets da tela com 1008. */
   closeAll(): void
 }
 
@@ -31,6 +33,8 @@ export function createBrowserFeature(d: { host: BrowserHost; db: Db; uploadsDir:
   const projects = createProjectsService(d.db)
   /** As abas já anunciadas e ainda abertas (a lista do operador sai daqui). */
   const open = new Map<string, { key: TerminalKey; tab: TerminalTab }>()
+  /** Os sockets da tela (antes do `register`, a revogação não tem o que fechar). */
+  let sockets: ReturnType<typeof registerBrowserSocket> | undefined
 
   async function openTab(key: TerminalKey, by: Exclude<TabActor, 'system'>): Promise<TerminalTab> {
     const tab = await d.host.tab(key)
@@ -56,8 +60,9 @@ export function createBrowserFeature(d: { host: BrowserHost; db: Db; uploadsDir:
         host: d.host, projects, openTab,
         listTabs: () => [...open.values()].map((o) => o.key),
       })
+      sockets = registerBrowserSocket(app, { host: d.host, db: d.db, viewersFor })
     },
-    closeUser() {},
-    closeAll() {},
+    closeUser(userId) { sockets?.closeUser(userId) },
+    closeAll() { sockets?.closeAll() },
   }
 }

@@ -473,6 +473,8 @@ export const en = {
       resize: 'Drag to widen the column',
       placeholder: 'This terminal’s browser screen shows up here.',
       openFailed: 'Couldn’t open the browser.',
+      notInstalled: 'Browser not installed. On the server, run',
+      failureDetail: 'Details: {{detail}}',
     },
   },
   headsUp: { region: 'Claude heads-ups', close: 'Close heads-up' },

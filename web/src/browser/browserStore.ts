@@ -9,9 +9,17 @@ import { activeTerminal, useColumnStore } from './columnStore'
  * navegador embutido aberta. A aba vive no servidor; aqui só a presença, para
  * a coluna saber se mostra a vista Navegador. `failed`: a última tentativa do
  * operador de abrir a aba deu erro (sem Chromium, por exemplo), e a vista
- * mostra o porquê até a aba existir.
+ * mostra o porquê até a aba existir, o operador sair da vista (ou fechar a
+ * coluna), tentar de novo ou o WebSocket reconectar.
  */
-export interface BrowserFailure { message: string; hint?: string }
+export interface BrowserFailure {
+  /** O código do servidor (`browser_not_installed`, `launch_failed`, `too_many_tabs`…), quando veio. */
+  code?: string
+  /** O texto do servidor: o detalhe, que a vista mostra sob a mensagem do i18n. */
+  message: string
+  /** O comando de instalação (ou a correção da variável), quando há. */
+  hint?: string
+}
 
 interface BrowserState {
   tabs: Record<string, true>
@@ -34,7 +42,12 @@ export function setBrowserTab(key: string, open: boolean): void {
 }
 
 export function setBrowserFailure(key: string, failure: BrowserFailure): void {
+  touched?.add(key)
   useBrowserStore.setState((s) => ({ failed: { ...s.failed, [key]: failure } }))
+}
+
+export function clearBrowserFailure(key: string): void {
+  useBrowserStore.setState((s) => (key in s.failed ? { failed: withoutKey(s.failed, key) } : s))
 }
 
 function withoutKey<T>(rec: Record<string, T>, key: string): Record<string, T> {
@@ -53,7 +66,10 @@ export function applyBrowserMessage(msg: any): boolean {
   if (!msg || typeof msg !== 'object' || msg.type !== 'browser_tab') return false
   if (typeof msg.projectId !== 'number' || typeof msg.engine !== 'string') return true
   const open = msg.open === true
-  setBrowserTab(progressKey(msg.projectId, msg.engine), open)
+  const key = progressKey(msg.projectId, msg.engine)
+  setBrowserTab(key, open)
+  // A aba fechou: a marca dela, naquele terminal, vai junto.
+  if (!open) useColumnStore.getState().unmark(key, 'browser')
   if (open && msg.by === 'agent') {
     const t = activeTerminal()
     if (t && t.projectId === msg.projectId && t.engine === msg.engine) useColumnStore.getState().agentOpened()
@@ -64,7 +80,8 @@ export function applyBrowserMessage(msg: any): boolean {
 /**
  * Lê as abas abertas ao montar e a cada reconexão (`progressEpoch`): o que o
  * WebSocket mandou durante a queda se perdeu. O que ele mandar durante a
- * leitura vence a resposta.
+ * leitura vence a resposta. Os erros de abertura antigos saem (o servidor pode
+ * ter voltado com o Chromium), menos os que chegaram durante a leitura.
  */
 export function useBrowserTabsSync(): void {
   const ready = useStore((s) => s.authStatus === 'ready')
@@ -86,7 +103,9 @@ export function useBrowserTabsSync(): void {
           if (cur[key]) tabs[key] = true
           else delete tabs[key]
         }
-        useBrowserStore.setState({ tabs })
+        const failed: Record<string, BrowserFailure> = {}
+        for (const [key, f] of Object.entries(useBrowserStore.getState().failed)) if (mine.has(key)) failed[key] = f
+        useBrowserStore.setState({ tabs, failed })
       })
       .catch(() => { /* fica o que já havia: o WebSocket continua atualizando */ })
       .finally(() => { if (touched === mine) touched = null })

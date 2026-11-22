@@ -43,9 +43,9 @@ beforeEach(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
   localStorage.clear()
   fetchSpy = stubFetch()
-  useSideStore.setState({ sides: {}, replaceAsk: null, appendRequest: null })
+  useSideStore.setState({ sides: {}, replaceAsk: null, appendRequest: null, readAt: {} })
   useBrowserStore.setState({ tabs: {}, failed: {} })
-  useColumnStore.setState({ view: 'progress', previous: null, fullscreen: false, marked: [], widths: {} })
+  useColumnStore.setState({ view: 'progress', previous: null, fullscreen: false, marks: {}, widths: {} })
   useStore.setState({
     authStatus: 'ready',
     me: { setupRequired: false, id: 1, username: 'u', isAdmin: true },

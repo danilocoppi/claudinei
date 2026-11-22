@@ -476,6 +476,8 @@ export const ptBR: typeof en = {
       resize: 'Arraste para alargar a coluna',
       placeholder: 'A tela do navegador deste terminal aparece aqui.',
       openFailed: 'Não deu para abrir o navegador.',
+      notInstalled: 'Navegador não instalado. No servidor, rode',
+      failureDetail: 'Detalhe: {{detail}}',
     },
   },
   headsUp: { region: 'Avisos do Claude', close: 'Fechar aviso' },

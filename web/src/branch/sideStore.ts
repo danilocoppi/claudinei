@@ -20,9 +20,15 @@ interface SideState {
   replaceAsk: { projectId: number; engine: string; text: string } | null
   /** Texto (e anexos `[token, caminho]`) a acrescentar ao campo da principal: o Trazer de volta. */
   appendRequest: { localId: string; text: string; attachments: Array<[string, string]>; seq: number } | null
+  /**
+   * A conexão (`progressEpoch`) da última leitura completa de cada terminal. Sem
+   * leitura nesta conexão, o que está em `sides` pode ser velho: a coluna da
+   * direita não toma a lateral que a leitura traz por "nascida".
+   */
+  readAt: Record<string, number>
 }
 
-export const useSideStore = create<SideState>(() => ({ sides: {}, replaceAsk: null, appendRequest: null }))
+export const useSideStore = create<SideState>(() => ({ sides: {}, replaceAsk: null, appendRequest: null, readAt: {} }))
 
 /** Grava o estado da lateral. Lateral nova (outro id, o `replace`) começa sem os itens da antiga. */
 export function setSideInfo(info: SideInfo): void {
@@ -34,12 +40,13 @@ export function setSideInfo(info: SideInfo): void {
   })
 }
 
+function withoutKey<T>(rec: Record<string, T>, key: string): Record<string, T> {
+  const { [key]: _gone, ...rest } = rec
+  return rest
+}
+
 function removeSide(key: string): void {
-  useSideStore.setState((s) => {
-    if (!(key in s.sides)) return s
-    const { [key]: _gone, ...rest } = s.sides
-    return { sides: rest }
-  })
+  useSideStore.setState((s) => (key in s.sides ? { sides: withoutKey(s.sides, key) } : s))
 }
 
 /**
@@ -168,16 +175,27 @@ export function useSideRead(projectId: number, engine: string): void {
     getSide(projectId, engine)
       .then((snap) => {
         if (!alive) return
+        // A marca de lida vai no mesmo setState da lateral: quem olha as duas vê a troca de uma vez.
+        const lida = (s: SideState) => (s.readAt[key] === epoch ? s.readAt : { ...s.readAt, [key]: epoch })
         const cur = useSideStore.getState().sides[key]
         const mudou = cur?.info.id !== antes
         const side = snap?.side ?? null
-        if (!side) { if (!mudou) removeSide(key); return }
-        // A lateral sumiu ou virou outra enquanto a leitura vinha: o WebSocket é mais novo.
-        if (mudou && cur?.info.id !== side.id) return
+        if (!side || (mudou && cur?.info.id !== side.id)) {
+          // Sem lateral, some a que havia, se o WebSocket não mexeu nela durante a
+          // leitura. Se ela sumiu ou virou outra enquanto a leitura vinha, o WebSocket
+          // é mais novo e a resposta fica de fora.
+          const drop = !side && !mudou
+          useSideStore.setState((s) => {
+            const sides = drop && key in s.sides ? withoutKey(s.sides, key) : s.sides
+            const readAt = lida(s)
+            return sides === s.sides && readAt === s.readAt ? s : { sides, readAt }
+          })
+          return
+        }
         const arrived = log.events.filter((e) => e.sideId === side.id).map((e) => e.event)
         const items = mergeRead(snap.events ?? [], arrived).reduce(applySideEvent, [] as ChatItem[])
         const info = cur && cur.info.id === side.id && log.states.has(side.id) ? cur.info : side
-        useSideStore.setState((s) => ({ sides: { ...s.sides, [key]: { info, items } } }))
+        useSideStore.setState((s) => ({ sides: { ...s.sides, [key]: { info, items } }, readAt: lida(s) }))
       })
       .catch(() => { /* fica o que já havia: o WebSocket continua atualizando */ })
       .finally(done)

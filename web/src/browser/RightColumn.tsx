@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { progressKey } from '../store'
+import { progressKey, useStore } from '../store'
 import { useSideStore } from '../branch/sideStore'
 import type { SessionStatus } from '../types'
 import { ProgressColumn } from '../components/ProgressColumn'
@@ -23,19 +23,31 @@ const seenSide = new Map<string, string | null>()
  * A lateral do terminal nasceu (null → id) ou sumiu (id → null): ela toma a
  * coluna, e ao sumir volta a vista de antes. Trocar de terminal não conta: o
  * operador vai a outro terminal, não a outra vista.
+ *
+ * Só vale o que já foi lido nesta conexão (`readAt` do sideStore igual ao
+ * `progressEpoch`). Antes disso, "sem lateral" no store quer dizer "ainda não
+ * lido": a lateral que o terminal já tinha, trazida pela leitura depois de
+ * trocar de terminal, não é nascida. Por isso a troca para um terminal não lido
+ * esquece a última lateral vista dele, e a leitura só a anota.
  */
 function useSideTakesColumn(key: string): void {
   const sideId = useSideStore((s) => s.sides[key]?.info.id ?? null)
+  const epoch = useStore((s) => s.progressEpoch)
+  const known = useSideStore((s) => s.readAt[key] === epoch)
   const lastKey = useRef<string | null>(null)
   useLayoutEffect(() => {
     const switched = lastKey.current !== null && lastKey.current !== key
     lastKey.current = key
+    if (!known) {
+      if (switched) seenSide.delete(key)
+      return
+    }
     const before = seenSide.get(key)
     seenSide.set(key, sideId)
-    if (switched || before === sideId) return
+    if (switched || before === undefined || before === sideId) return
     if (sideId && !before) useColumnStore.getState().sideBorn()
     else if (!sideId && before) useColumnStore.getState().sideGone()
-  }, [key, sideId])
+  }, [key, sideId, known])
 }
 
 /**
@@ -75,13 +87,21 @@ export function RightColumn({ projectId, engine, localId, sessionStatus }: Props
   const hasSide = useSideStore((s) => !!s.sides[key])
   const hasBrowser = useBrowserStore((s) => !!s.tabs[key] || !!s.failed[key])
   const fullscreen = useColumnStore((s) => s.fullscreen)
-  const marked = useColumnStore((s) => s.marked)
+  const marked = useColumnStore((s) => s.marks[key])
   const stored = useColumnStore((s) => (view ? s.widths[view] : undefined))
   const ref = useRef<HTMLElement>(null)
   const area = useArea(ref, view !== null)
   /** A largura durante o arrasto, ainda sem gravar. */
   const [live, setLive] = useState<number | null>(null)
   useEffect(() => { setLive(null) }, [view])
+  // A vista num elemento guardado: o arrasto do puxador redesenha a coluna a cada
+  // `pointermove` (a largura), e o React pula a vista inteira quando o elemento é o mesmo.
+  const body = useMemo(() => (
+    view === 'progress' ? <ProgressColumn projectId={projectId} engine={engine} sessionStatus={sessionStatus} />
+      : view === 'side' ? <SideColumn projectId={projectId} engine={engine} localId={localId} />
+        : view === 'browser' ? <BrowserPlaceholder viewKey={key} />
+          : null
+  ), [view, projectId, engine, localId, sessionStatus, key])
 
   if (!view) return null
   const width = live ?? columnWidth(view, stored, area)
@@ -102,7 +122,7 @@ export function RightColumn({ projectId, engine, localId, sessionStatus }: Props
                     className={`right-column__tab${v === view ? ' right-column__tab--on' : ''}`}
                     onClick={() => selectView(v)}>
               {t(`browser.column.tabs.${v}`)}
-              {marked.includes(v) && v !== view && (
+              {marked?.includes(v) && v !== view && (
                 <span className="right-column__mark" aria-hidden="true" />
               )}
             </button>
@@ -114,29 +134,42 @@ export function RightColumn({ projectId, engine, localId, sessionStatus }: Props
                 onClick={toggleFullscreen}>
           {fullscreen ? '⤡' : '⤢'}
         </button>
-        <button type="button" className="ghost right-column__btn" aria-label={t('browser.column.close')}
-                title={t('browser.column.close')} onClick={closeColumn}>×</button>
+        {/* Na Lateral, o × logo abaixo (o da conversa) encerra a lateral: dois × lado a
+            lado confundiriam. Ali a coluna fecha pela aba Acompanhamento (ou pelo botão do cabeçalho). */}
+        {view !== 'side' && (
+          <button type="button" className="ghost right-column__btn" aria-label={t('browser.column.close')}
+                  title={t('browser.column.close')} onClick={closeColumn}>×</button>
+        )}
       </div>
-      <div className="right-column__view">
-        {view === 'progress' && <ProgressColumn projectId={projectId} engine={engine} sessionStatus={sessionStatus} />}
-        {view === 'side' && <SideColumn projectId={projectId} engine={engine} localId={localId} />}
-        {view === 'browser' && <BrowserPlaceholder viewKey={key} />}
-      </div>
+      <div className="right-column__view">{body}</div>
     </aside>
   )
 }
 
-/** O lugar da vista Navegador (a tela vem na Task 13): o erro da última abertura, quando houve. */
+/**
+ * O lugar da vista Navegador (a tela vem na Task 13): o erro da última abertura,
+ * quando houve, no idioma da tela. Sem Chromium, o texto do i18n com o comando de
+ * instalação; nos outros casos, a mensagem genérica com o detalhe do servidor.
+ * Com `CLAUDINEI_CHROMIUM` apontando arquivo ausente o código é o mesmo, mas a
+ * dica é corrigir a variável, não instalar: vai pela genérica.
+ */
 function BrowserPlaceholder({ viewKey }: { viewKey: string }) {
   const { t } = useTranslation()
   const failure = useBrowserStore((s) => s.failed[viewKey])
+  const notInstalled = failure?.code === 'browser_not_installed' && !!failure.hint && !failure.hint.includes('CLAUDINEI_CHROMIUM')
   return (
     <div className="browser-col" data-testid="browser-placeholder">
       {failure ? (
         <div className="browser-col__error" role="alert">
-          <p>{t('browser.column.openFailed')}</p>
-          <p>{failure.message}</p>
-          {failure.hint && <code>{failure.hint}</code>}
+          {notInstalled ? (
+            <p>{t('browser.column.notInstalled')} <code>{failure.hint}</code></p>
+          ) : (
+            <>
+              <p>{t('browser.column.openFailed')}</p>
+              <p>{t('browser.column.failureDetail', { detail: failure.message })}</p>
+              {failure.hint && <code>{failure.hint}</code>}
+            </>
+          )}
         </div>
       ) : (
         <p className="browser-col__empty">{t('browser.column.placeholder')}</p>

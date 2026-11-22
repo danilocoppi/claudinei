@@ -247,9 +247,34 @@ export class FakePage extends Emitter {
   }
 }
 
+/**
+ * Sessão CDP do dublê (`context.newCDPSession(page)`): registra os comandos e
+ * entrega eventos com `emit`. Com `failSend`, os comandos rejeitam.
+ */
+export class FakeCDPSession extends Emitter {
+  readonly sent: Array<{ method: string; params?: Record<string, unknown> }> = []
+  detached = false
+  failSend = false
+  constructor(readonly page: FakePage) { super() }
+  send(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    this.sent.push({ method, params })
+    if (this.failSend || this.detached) return Promise.reject(new Error('Target page, context or browser has been closed'))
+    return Promise.resolve({})
+  }
+  /** Os comandos com este nome. */
+  calls(method: string): Array<Record<string, unknown> | undefined> {
+    return this.sent.filter((s) => s.method === method).map((s) => s.params)
+  }
+  detach(): Promise<void> {
+    this.detached = true
+    return Promise.resolve()
+  }
+}
+
 export class FakeContext extends Emitter {
   closed = false
   readonly pages: FakePage[] = []
+  readonly cdpSessions: FakeCDPSession[] = []
   /** Com um portão, `newPage` só resolve quando ele abre (abertura de aba em curso). */
   gate: Promise<void> | null
   constructor(readonly options: Record<string, unknown> | undefined, gate: Promise<void> | null = null) {
@@ -265,6 +290,13 @@ export class FakeContext extends Emitter {
     // Como o Playwright: o evento 'page' sai antes de o newPage resolver.
     this.emit('page', page)
     return page
+  }
+
+  newCDPSession(page: FakePage): Promise<FakeCDPSession> {
+    if (this.closed) return Promise.reject(new Error('Target page, context or browser has been closed'))
+    const s = new FakeCDPSession(page)
+    this.cdpSessions.push(s)
+    return Promise.resolve(s)
   }
 
   /** Uma janela nova aberta pela página (target=_blank, window.open), já na URL dela. */

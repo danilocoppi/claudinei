@@ -3,6 +3,7 @@ import { createBrowserHost, BrowserBusyError, BrowserUnavailableError, type Brow
 import { INSTALL_COMMAND } from '../src/browser/chromium.js'
 import { BrowserRestartingError, TEXTS, TooManyTabsError, type TabCloseReason } from '../src/browser/types.js'
 import { browserSelfTest } from '../src/browser/selftest.js'
+import { viewersFor } from '../src/browser/viewers.js'
 import { fakeLaunch, lastPage, type FakeLaunch } from './browser-fakes.js'
 
 const KEY = { projectId: 1, engine: 'claude' }
@@ -393,6 +394,45 @@ describe('BrowserHost: abas dos terminais', () => {
     expect(reasons).toEqual(['idle'])
     expect(host.existingTab(KEY)).toBeUndefined()
     expect(host.existingTab({ projectId: 2, engine: 'codex' })).toBe(other)
+  })
+
+  it('coluna que deixa de ser visível depois de muito tempo não fecha a aba na varredura seguinte', async () => {
+    const t = await host.tab(KEY)
+    const reasons: TabCloseReason[] = []
+    t.onClosed((r) => reasons.push(r))
+    const vs = viewersFor(t)
+    const v = vs.add({ userId: 1, name: 'ana', sink: { bufferedAmount: 0, sendBinary() {}, sendText() {} }, visible: true, frozen: false, size: null })
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(reasons).toEqual([])
+    vs.update(v.id, { visible: false })
+    await vi.advanceTimersByTimeAsync(29 * 60_000)
+    expect(reasons).toEqual([])
+    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    expect(reasons).toEqual(['idle'])
+  })
+
+  it('o despejo da nona aba conta a última visibilidade como uso', async () => {
+    const tabs = []
+    for (let i = 1; i <= 8; i++) tabs.push(await host.tab({ projectId: i, engine: 'claude' }))
+    // A 1 tem o agente mais antigo, mas a coluna dela acabou de fechar.
+    for (const [i, t] of tabs.entries()) t.lastAgentAt = i
+    tabs[0].lastVisibleAt = Date.now()
+    const reasons: TabCloseReason[] = []
+    tabs[1].onClosed((r) => reasons.push(r))
+    await host.tab({ projectId: 9, engine: 'claude' })
+    expect(reasons).toEqual(['evicted'])
+    expect(host.existingTab({ projectId: 1, engine: 'claude' })).toBe(tabs[0])
+  })
+
+  it('a aba nova nasce com o viewport da última coluna visível (sem nenhuma, 1280×800)', async () => {
+    const t = await host.tab(KEY)
+    expect(fl.browsers[0].contexts[0].options?.viewport).toEqual({ width: 1280, height: 800 })
+    const vs = viewersFor(t)
+    vs.add({ userId: 1, name: 'ana', sink: { bufferedAmount: 0, sendBinary() {}, sendText() {} }, visible: true, frozen: false, size: { width: 700, height: 500 } })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(t.state().viewport).toEqual({ width: 700, height: 500 })
+    await host.tab({ projectId: 2, engine: 'claude' })
+    expect(fl.browsers[0].contexts[1].options?.viewport).toEqual({ width: 700, height: 500 })
   })
 
   it('uso do agente (lastAgentAt) adia o fechamento por ociosidade', async () => {

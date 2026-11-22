@@ -73,6 +73,9 @@ const MAX_CONSOLE = 500
 /** Falha de subida que conta como "a sandbox não deu": sobe de novo sem ela. */
 const SANDBOX_ERROR = /sandbox|namespace|setuid/i
 
+/** O último uso da aba: a ferramenta do agente ou a coluna que saiu de vista. */
+const lastUse = (tab: TerminalTab): number => Math.max(tab.lastAgentAt, tab.lastVisibleAt)
+
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 const isTimeout = (err: unknown): boolean => err instanceof Error && err.name === 'TimeoutError'
 
@@ -141,6 +144,8 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
   let sweepTimer: ReturnType<typeof setInterval> | undefined
 
   const tabs = new Map<string, TerminalTab>()
+  /** O viewport da última coluna visível de qualquer aba: o inicial das abas novas. */
+  let lastColumnViewport: { width: number; height: number } = { ...DEFAULT_VIEWPORT }
   const creating = new Map<string, Promise<TerminalTab>>()
   /** Abas em criação que já passaram da conferência do limite. */
   let reserved = 0
@@ -168,7 +173,7 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
   function sweep(): void {
     const t = now()
     for (const tab of [...tabs.values()]) {
-      if (!tab.isVisible() && t - tab.lastAgentAt >= TAB_IDLE_MS) void tab.close('idle')
+      if (!tab.isVisible() && t - lastUse(tab) >= TAB_IDLE_MS) void tab.close('idle')
     }
   }
 
@@ -283,15 +288,16 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
     const b = await ensureBrowser()
     while (tabs.size + reserved >= MAX_TABS) {
       // A mais ociosa entre as que ninguém está olhando sai para dar lugar.
-      const victim = [...tabs.values()].filter((t) => !t.isVisible()).sort((x, y) => x.lastAgentAt - y.lastAgentAt)[0]
+      const victim = [...tabs.values()].filter((t) => !t.isVisible()).sort((x, y) => lastUse(x) - lastUse(y))[0]
       if (!victim) throw new TooManyTabsError()
       await victim.close('evicted')
     }
     reserved++
     let context: BrowserContext | undefined
     try {
-      // O viewport inicial: 1280×800 (a Task 9 passa a informar o último pedido de coluna).
-      const viewport = { ...DEFAULT_VIEWPORT }
+      // O viewport inicial: o da última coluna visível (a coluna que vai abrir
+      // esta aba provavelmente tem o mesmo tamanho); sem nenhuma, 1280×800.
+      const viewport = { ...lastColumnViewport }
       context = await b.newContext({ viewport, deviceScaleFactor: 1, acceptDownloads: false, serviceWorkers: 'block' })
       const page = await context.newPage()
       // O processo caiu ou foi fechado enquanto a aba abria: a aba nasceria órfã
@@ -300,6 +306,10 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
       const tab = createTerminalTab({ key, context, page, now, viewport, sandbox: !noSandbox })
       const k = keyOf(key)
       tabs.set(k, tab)
+      // Com a coluna à vista, o viewport da aba é o da coluna (viewers.ts).
+      tab.onState(() => {
+        if (tab.isVisible()) lastColumnViewport = tab.state().viewport
+      })
       tab.onClosed(() => {
         if (tabs.get(k) === tab) tabs.delete(k)
         checkIdle()

@@ -32,8 +32,16 @@ export interface TerminalTab {
   page(): Page
   /** Hora da última ferramenta do agente nesta aba (a varredura de ociosidade lê). */
   lastAgentAt: number
-  /** Há coluna aberta e visível desta aba? A Task 9 liga aos espectadores; aqui: false. */
+  /**
+   * Hora em que a última coluna visível deixou de ser visível (0: nunca foi). A
+   * ociosidade e o despejo contam do maior entre este e `lastAgentAt`: a coluna
+   * que fecha depois de uma hora aberta não fecha a aba na varredura seguinte.
+   */
+  lastVisibleAt: number
+  /** Há coluna aberta e visível desta aba? (os espectadores informam, `setColumnVisible`). */
   isVisible(): boolean
+  /** Os espectadores (viewers.ts) dizem se alguma coluna desta aba está visível. */
+  setColumnVisible(visible: boolean): void
   /** Com a aba já fechada, chama `fn` na hora com o motivo. */
   onClosed(fn: (reason: TabCloseReason) => void): () => void
   /** O motivo do fechamento; aberta: null. */
@@ -351,13 +359,23 @@ export function createTerminalTab(o: {
   /** A página viva: com a queda, recria; senão, a atual. */
   const livePage = (): Promise<Page> => (crashed ? recover() : Promise.resolve(current))
 
-  return {
+  let columnVisible = false
+
+  const tab: TerminalTab = {
     key: o.key,
     context,
     baton,
     page: () => current,
     lastAgentAt: o.now(),
-    isVisible: () => false,
+    lastVisibleAt: 0,
+    isVisible: () => columnVisible,
+
+    setColumnVisible(visible) {
+      if (visible === columnVisible) return
+      columnVisible = visible
+      // A última coluna saiu de vista: a ociosidade conta daqui.
+      if (!visible) tab.lastVisibleAt = o.now()
+    },
 
     onClosed(fn) {
       // Quem chega depois do fechamento (uma ferramenta que pegou a aba antes de
@@ -470,4 +488,5 @@ export function createTerminalTab(o: {
 
     consoleMessages: () => consoleLog.slice(),
   }
+  return tab
 }

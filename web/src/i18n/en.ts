@@ -501,6 +501,10 @@ export const en = {
     label: 'This terminal’s servers', open: 'Open', stop: 'Stop', stopping: 'stopping…',
     openTitle: 'Open http://127.0.0.1:{{port}} in the browser',
     noMarker: 'no marker', noMarkerTitle: 'Found by the project folder, without the terminal’s marker: open only.',
+    ask_one: 'This terminal left {{count}} server running ({{list}}). Stop it too?',
+    ask_other: 'This terminal left {{count}} servers running ({{list}}). Stop them too?',
+    stopAndEnd: 'Stop and shut down', onlyEnd: 'Just shut down',
+    stopAndDelete: 'Stop and delete', onlyDelete: 'Just delete',
   },
   headsUp: { region: 'Claude heads-ups', close: 'Close heads-up' },
   triage: {

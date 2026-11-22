@@ -12,6 +12,8 @@ import { ContextMeter } from './ContextMeter'
 import { ViewportPopover } from './ViewportPopover'
 import { NewProjectModal } from './NewProjectModal'
 import { HandoffMenu } from './HandoffMenu'
+import { StopServersDialog } from '../browser/StopServersDialog'
+import { serversOf, stopAll, type EngineServer } from '../browser/serversOnStop'
 
 /**
  * Abas por engine de um projeto — usadas no header do ChatView E na barra do
@@ -47,14 +49,49 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
   // ⇄ Continuar noutro motor: o menu da aba ativa (o botão é a âncora).
   const [swapOpen, setSwapOpen] = useState(false)
   const swapRef = useRef<HTMLButtonElement>(null)
+  // Os servidores que o motor deixou no ar: consultados depois do "Encerrar"
+  // e antes do stopSession. Com algum, a pergunta "Parar também?".
+  const [checkingServers, setCheckingServers] = useState(false)
+  const [askServers, setAskServers] = useState<{ localId: string; servers: EngineServer[] } | null>(null)
+  const [stoppingServers, setStoppingServers] = useState(false)
+  // Muda ao cancelar: a consulta que volta depois do Cancelar não encerra nada.
+  const stopRun = useRef(0)
 
-  const confirmStop = () => {
-    if (!stopFor) return
-    const { localId } = stopFor.session
+  // A conversa fica no histórico e a engine pode ser revivida pelo ▶ da aba —
+  // encerrar não descarta nada, só libera o processo.
+  const endSession = (localId: string) => { void stopSession(localId).catch(() => {}) }
+
+  const confirmStop = async () => {
+    if (!stopFor || checkingServers) return
+    const { localId, engine } = stopFor.session
+    const run = ++stopRun.current
+    setCheckingServers(true)
+    // Nunca lança: consulta que falha (rede, 403) conta como lista vazia e o
+    // encerramento segue como antes.
+    const servers = await serversOf(projectId, [engine])
+    if (stopRun.current !== run) return
+    setCheckingServers(false)
     setStopFor(null)
-    // A conversa fica no histórico e a engine pode ser revivida pelo ▶ da aba —
-    // encerrar não descarta nada, só libera o processo.
-    void stopSession(localId).catch(() => {})
+    if (servers.length === 0) endSession(localId)
+    else setAskServers({ localId, servers })
+  }
+
+  const cancelStop = () => {
+    stopRun.current++
+    setCheckingServers(false)
+    setStopFor(null)
+  }
+
+  const answerServers = async (stop: boolean) => {
+    if (!askServers || stoppingServers) return
+    const { localId, servers } = askServers
+    if (stop) {
+      setStoppingServers(true)
+      await stopAll(projectId, servers)
+      setStoppingServers(false)
+    }
+    setAskServers(null)
+    endSession(localId)
   }
 
   const handleStartEngine = async (engineId: string) => {
@@ -280,9 +317,14 @@ export function EngineTabs({ projectId, activeLocalId }: { projectId: number; ac
             ? `${t('chat.stopEngineWorking')}\n\n${t('chat.stopEngineMsg')}`
             : t('chat.stopEngineMsg')}
           confirmLabel={t('chat.stopEngineConfirm')}
-          onConfirm={confirmStop}
-          onClose={() => setStopFor(null)}
+          confirmDisabled={checkingServers}
+          onConfirm={() => void confirmStop()}
+          onClose={cancelStop}
         />
+      )}
+      {askServers && (
+        <StopServersDialog servers={askServers.servers} mode="end" busy={stoppingServers}
+                           onChoose={(stop) => void answerServers(stop)} onCancel={() => setAskServers(null)} />
       )}
     </div>
   )

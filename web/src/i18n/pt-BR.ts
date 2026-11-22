@@ -504,6 +504,10 @@ export const ptBR: typeof en = {
     label: 'Servidores deste terminal', open: 'Abrir', stop: 'Parar', stopping: 'parando…',
     openTitle: 'Abrir http://127.0.0.1:{{port}} no navegador',
     noMarker: 'sem marcador', noMarkerTitle: 'Achado pela pasta do projeto, sem o marcador do terminal: só dá para abrir.',
+    ask_one: 'Este terminal deixou {{count}} servidor no ar ({{list}}). Parar também?',
+    ask_other: 'Este terminal deixou {{count}} servidores no ar ({{list}}). Parar também?',
+    stopAndEnd: 'Parar e encerrar', onlyEnd: 'Só encerrar',
+    stopAndDelete: 'Parar e excluir', onlyDelete: 'Só excluir',
   },
   headsUp: { region: 'Avisos do Claude', close: 'Fechar aviso' },
   triage: {

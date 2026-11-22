@@ -503,6 +503,10 @@ export const es: typeof en = {
     label: 'Servidores de este terminal', open: 'Abrir', stop: 'Detener', stopping: 'deteniendo…',
     openTitle: 'Abrir http://127.0.0.1:{{port}} en el navegador',
     noMarker: 'sin marcador', noMarkerTitle: 'Encontrado por la carpeta del proyecto, sin el marcador del terminal: solo abrir.',
+    ask_one: 'Este terminal dejó {{count}} servidor en marcha ({{list}}). ¿Detenerlo también?',
+    ask_other: 'Este terminal dejó {{count}} servidores en marcha ({{list}}). ¿Detenerlos también?',
+    stopAndEnd: 'Detener y finalizar', onlyEnd: 'Solo finalizar',
+    stopAndDelete: 'Detener y eliminar', onlyDelete: 'Solo eliminar',
   },
   headsUp: { region: 'Avisos de Claude', close: 'Cerrar aviso' },
   triage: {

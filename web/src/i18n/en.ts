@@ -507,6 +507,7 @@ export const en = {
       freezeFailed: 'Couldn’t freeze the screen.', sendFailed: 'Couldn’t send: {{detail}}',
       textField: 'Annotation text',
       dismissError: 'Dismiss',
+      message: 'Annotation of {{url}} (viewport {{width}}×{{height}}):',
     },
   },
   localServers: {

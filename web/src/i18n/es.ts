@@ -509,6 +509,7 @@ export const es: typeof en = {
       freezeFailed: 'No se pudo congelar la pantalla.', sendFailed: 'No se pudo enviar: {{detail}}',
       textField: 'Texto de la anotación',
       dismissError: 'Cerrar el aviso',
+      message: 'Anotación de {{url}} (viewport {{width}}×{{height}}):',
     },
   },
   localServers: {

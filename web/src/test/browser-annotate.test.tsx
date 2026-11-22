@@ -33,6 +33,7 @@ import { useColumnStore } from '../browser/columnStore'
 import { useBrowserStore } from '../browser/browserStore'
 import { useSideStore } from '../branch/sideStore'
 import { useStore } from '../store'
+import i18n from '../i18n'
 
 const vazio: AnnotationState = { marks: [], crop: null }
 const ret: Mark = { kind: 'rect', x1: 1, y1: 2, x2: 30, y2: 40 }
@@ -81,6 +82,35 @@ describe('annotate (puro)', () => {
   it('annotationText com a URL e o viewport', () => {
     expect(annotationText('http://127.0.0.1:5173/', { width: 1280, height: 800 }))
       .toBe('Anotação de http://127.0.0.1:5173/ (viewport 1280×800):')
+  })
+
+  it('annotationText sai na língua da interface (en, es), sem escapar a URL', async () => {
+    const url = 'http://127.0.0.1:5173/a?b=1&c=<2>'
+    try {
+      await i18n.changeLanguage('en')
+      expect(annotationText(url, { width: 1280, height: 800 })).toBe(`Annotation of ${url} (viewport 1280×800):`)
+      await i18n.changeLanguage('es')
+      expect(annotationText(url, { width: 1280, height: 800 })).toBe(`Anotación de ${url} (viewport 1280×800):`)
+    } finally {
+      await i18n.changeLanguage('pt-BR')
+    }
+  })
+
+  it('sendAnnotation em inglês: o texto acrescentado ao campo vai em inglês', async () => {
+    canvasFalso()
+    const upload = vi.fn(async (_f: File) => ({ path: '/up/anotacao-1.png', name: 'anotacao-1.png' }))
+    const append = vi.fn()
+    try {
+      await i18n.changeLanguage('en')
+      await sendAnnotation({
+        localId: 'a', still: bitmapFalso(), url: 'http://127.0.0.1:5173/', viewport: { width: 1280, height: 800 },
+        s: vazio, upload, append, color: '#f00',
+      })
+    } finally {
+      await i18n.changeLanguage('pt-BR')
+    }
+    const tok = '[📎 anotacao-1.png]'
+    expect(append).toHaveBeenCalledWith('a', `Annotation of http://127.0.0.1:5173/ (viewport 1280×800): ${tok}`, [[tok, '/up/anotacao-1.png']])
   })
 
   it('annotationFileName na hora local: anotacao-HHMMSS.png', () => {

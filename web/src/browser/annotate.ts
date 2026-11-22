@@ -1,5 +1,6 @@
 import { uploadFile } from '../api'
 import { requestAppend } from '../branch/sideStore'
+import i18n from '../i18n'
 
 /**
  * A anotação da tela do navegador, sem React: as marcas, o recorte, o desenho
@@ -30,8 +31,12 @@ export function undoMark(s: AnnotationState): AnnotationState {
   return s.marks.length ? { ...s, marks: s.marks.slice(0, -1) } : s
 }
 
+/**
+ * A linha que acompanha o anexo no campo, na língua da interface: o operador a
+ * lê (e pode editar) antes de mandar, e o agente a recebe como parte da fala dele.
+ */
 export function annotationText(url: string, viewport: Viewport): string {
-  return `Anotação de ${url} (viewport ${viewport.width}×${viewport.height}):`
+  return i18n.t('browser.annotate.message', { url, width: viewport.width, height: viewport.height })
 }
 
 const dois = (n: number) => String(n).padStart(2, '0')
@@ -97,7 +102,7 @@ export function accentColor(el: Element = document.documentElement): string {
  * Mandar ao campo: desenha a base e as marcas no recorte (ou no viewport
  * inteiro), gera o PNG, sobe como `anotacao-HHMMSS.png` e acrescenta ao campo
  * da sessão principal (`localId`) o texto "Anotação de <URL> (viewport L×A):"
- * com o token do anexo. Rejeita se o PNG ou o upload falharem (nada vai ao campo).
+ * (na língua da interface) com o token do anexo. Rejeita se o PNG ou o upload falharem (nada vai ao campo).
  */
 export async function sendAnnotation(o: {
   localId: string; still: ImageBitmap; s: AnnotationState; url: string; viewport: Viewport

@@ -510,6 +510,7 @@ export const ptBR: typeof en = {
       freezeFailed: 'Não deu para congelar a tela.', sendFailed: 'Não deu para mandar: {{detail}}',
       textField: 'Texto da anotação',
       dismissError: 'Fechar o aviso',
+      message: 'Anotação de {{url}} (viewport {{width}}×{{height}}):',
     },
   },
   localServers: {

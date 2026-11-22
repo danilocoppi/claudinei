@@ -16,7 +16,7 @@ import { createProjectsService } from '../src/projects.js'
 import { createSettingsService } from '../src/settings.js'
 import { createPreviewStore } from '../src/files/preview.js'
 import { createPagesService, registerPageRoutes, type PagesService } from '../src/pages/service.js'
-import { CONTENT_HEIGHT_EXPR, HEIGHT_SCRIPT, withHeightScript } from '../src/pages/height-script.js'
+import { CONTENT_HEIGHT_EXPR, HEIGHT_SCRIPT, withDoctype, withHeightScript } from '../src/pages/height-script.js'
 import type { PageNetwork } from '../../shared/visual-pages.js'
 
 /**
@@ -434,5 +434,29 @@ describe('expressão da altura do conteúdo', () => {
     expect(measure({ documentElement: el(100, 800), body: el(100, 2500) })).toBe(2500)
     expect(measure({ documentElement: el(8.2, 800), body: null })).toBe(9)
     expect(measure({ documentElement: null, body: null })).toBe(0)
+  })
+})
+
+describe('withDoctype', () => {
+  it('sem doctype no começo, acrescenta `<!doctype html>` (sem ele a página cai no modo quirks e mede o viewport)', () => {
+    expect(withDoctype('<h1>oi</h1>')).toBe('<!doctype html><h1>oi</h1>')
+    expect(withDoctype('<html><body>x</body></html>')).toBe('<!doctype html><html><body>x</body></html>')
+    expect(withDoctype('<!-- só comentário --><p>x</p>')).toBe('<!doctype html><!-- só comentário --><p>x</p>')
+    expect(withDoctype('')).toBe('<!doctype html>')
+    // BOM fica na frente.
+    expect(withDoctype('\uFEFF<p>x</p>')).toBe('\uFEFF<!doctype html><p>x</p>')
+    // Um doctype no meio do documento não conta.
+    expect(withDoctype('<p>x</p><!doctype html>')).toBe('<!doctype html><p>x</p><!doctype html>')
+  })
+
+  it('com doctype no começo (depois de espaços, comentários e BOM, sem diferenciar maiúsculas), não mexe', () => {
+    for (const html of [
+      '<!doctype html><p>x</p>',
+      '<!DOCTYPE html>\n<html></html>',
+      '  \n\t<!DocType html><p>x</p>',
+      '<!-- gerado --><!doctype html><p>x</p>',
+      '\uFEFF<!doctype html><p>x</p>',
+      '\uFEFF \n<!-- a -->\n<!-- b --> <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><p>x</p>',
+    ]) expect(withDoctype(html)).toBe(html)
   })
 })

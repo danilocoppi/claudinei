@@ -22,6 +22,21 @@ const MIN_DELTA_PX = 4
 export const CONTENT_HEIGHT_EXPR = '(function(){var d=document.documentElement,b=document.body;'
   + 'return Math.ceil(Math.max(d?d.getBoundingClientRect().height:0,b?b.scrollHeight:0));})()'
 
+/** Doctype no começo, depois de BOM, espaços e comentários (o resto do doctype não importa). */
+const LEADING_DOCTYPE_RE = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*<!doctype[\s>]/i
+
+/**
+ * Sem doctype a página cai no modo quirks, em que o body estica até o
+ * viewport e a altura medida vira a dele (800 no `check_page`). O `show_page`
+ * e o `check_page` acrescentam `<!doctype html>` ao documento que não começa
+ * com um (o BOM, se houver, fica na frente).
+ */
+export function withDoctype(html: string): string {
+  if (LEADING_DOCTYPE_RE.test(html)) return html
+  const bom = html.startsWith('\uFEFF') ? '\uFEFF' : ''
+  return `${bom}<!doctype html>${html.slice(bom.length)}`
+}
+
 export const HEIGHT_SCRIPT = `(function(){
 var last=-1,timer=null;
 function measure(){return ${CONTENT_HEIGHT_EXPR};}

@@ -70,8 +70,9 @@ describe('publicar página', () => {
     const r = publish({ height: 480 })
     expect(r.id).toMatch(/^pg_[0-9a-f]{16}$/)
     expect(r.warnings).toEqual([])
-    expect(readFileSync(join(dir, `${r.id}.html`), 'utf8')).toBe('<h1>oi</h1>')
-    expect(r.bytes).toBe(Buffer.byteLength('<h1>oi</h1>'))
+    // Sem doctype no que veio: o publicado ganha um (ver o teste do doctype).
+    expect(readFileSync(join(dir, `${r.id}.html`), 'utf8')).toBe('<!doctype html><h1>oi</h1>')
+    expect(r.bytes).toBe(Buffer.byteLength('<!doctype html><h1>oi</h1>'))
     expect(service.filePath(r.id)).toBe(join(dir, `${r.id}.html`))
 
     const [row] = rows()
@@ -82,6 +83,16 @@ describe('publicar página', () => {
     const page = service.get(r.id)!
     expect(page).toMatchObject({ id: r.id, conversationId: 'conv-1', turnId: 7, turnKey: 'k7', source: 'html' })
     expect(sent).toEqual([{ type: 'visual_page', projectId, engine: 'claude', localId: 'loc-1', page }])
+  })
+
+  it('documento sem doctype ganha `<!doctype html>` no começo (sem ele, modo quirks e a altura vira a do viewport); com doctype, fica como veio', () => {
+    const a = publish({ html: '<div style="height:300px">baixa</div>' })
+    expect(readFileSync(service.filePath(a.id), 'utf8')).toBe('<!doctype html><div style="height:300px">baixa</div>')
+    expect(a.bytes).toBe(Buffer.byteLength('<!doctype html><div style="height:300px">baixa</div>'))
+    const b = publish({ html: '<!-- c -->\n<!DOCTYPE html><p>x</p>' })
+    expect(readFileSync(service.filePath(b.id), 'utf8')).toBe('<!-- c -->\n<!DOCTYPE html><p>x</p>')
+    const c = publish({ html: undefined, path: put('docs/sem.html', '<p>arquivo</p>') })
+    expect(readFileSync(service.filePath(c.id), 'utf8')).toBe('<!doctype html><p>arquivo</p>')
   })
 
   it('broadcast que lança depois da linha gravada: publish devolve o id, a página fica e o erro vai ao log', () => {
@@ -107,9 +118,9 @@ describe('publicar página', () => {
     const a = publish({ html: undefined, path: 'docs/rel.html' })
     const b = publish({ html: undefined, path: abs })
     const c = publish({ html: undefined, path: 'docs/x.htm' })
-    expect(readFileSync(service.filePath(a.id), 'utf8')).toBe('<p>rel</p>')
-    expect(readFileSync(service.filePath(b.id), 'utf8')).toBe('<p>rel</p>')
-    expect(readFileSync(service.filePath(c.id), 'utf8')).toBe('<p>htm</p>')
+    expect(readFileSync(service.filePath(a.id), 'utf8')).toBe('<!doctype html><p>rel</p>')
+    expect(readFileSync(service.filePath(b.id), 'utf8')).toBe('<!doctype html><p>rel</p>')
+    expect(readFileSync(service.filePath(c.id), 'utf8')).toBe('<!doctype html><p>htm</p>')
     const byId = new Map(rows().map((x) => [x.id, x]))
     expect(byId.get(a.id)).toMatchObject({ source: 'path', source_path: abs })
     expect(byId.get(c.id).source).toBe('path')
@@ -118,7 +129,7 @@ describe('publicar página', () => {
   it('path: os recursos locais saem da pasta do .html', () => {
     put('docs/img/p.png', Buffer.from([1, 2, 3]))
     const r = publish({ html: undefined, path: put('docs/p.html', '<img src="img/p.png">') })
-    expect(readFileSync(service.filePath(r.id), 'utf8')).toBe('<img src="data:image/png;base64,AQID">')
+    expect(readFileSync(service.filePath(r.id), 'utf8')).toBe('<!doctype html><img src="data:image/png;base64,AQID">')
   })
 
   it('path fora do projeto, .txt e inexistente: page_path, nada gravado (pasta vazia, tabela vazia)', () => {
@@ -271,8 +282,8 @@ describe('POST /api/hermes/pages', () => {
       })
       expect(res.statusCode).toBe(201)
       const body = res.json()
-      expect(body).toEqual({ id: expect.stringMatching(/^pg_[0-9a-f]{16}$/), bytes: 9, warnings: [] })
-      expect(readFileSync(join(pagesDir, `${body.id}.html`), 'utf8')).toBe('<p>oi</p>')
+      expect(body).toEqual({ id: expect.stringMatching(/^pg_[0-9a-f]{16}$/), bytes: 24, warnings: [] })
+      expect(readFileSync(join(pagesDir, `${body.id}.html`), 'utf8')).toBe('<!doctype html><p>oi</p>')
       expect(rows()[0]).toMatchObject({ id: body.id, local_id: localId })
 
       // Recusa do serviço sai com o código e o status certos.

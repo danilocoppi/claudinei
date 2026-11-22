@@ -6,6 +6,7 @@ import { resolveInScope } from '../files/scope.js'
 import { UserError } from '../user-error.js'
 import type { VisualPageDto } from '../../../shared/visual-pages.js'
 import { embedLocalResources } from './embed.js'
+import { withDoctype } from './height-script.js'
 import { createPagesStore } from './store.js'
 
 export { registerPageRoutes } from './routes.js'
@@ -101,9 +102,11 @@ export function createPagesService(deps: PagesDeps) {
     }
 
     const out = embedLocalResources(html, { baseDir, projectRoot: project.path })
+    // Publicado e conferido com doctype: sem ele, modo quirks e a altura vira a do viewport.
+    const doc = withDoctype(out.html)
     // O documento final, e não a soma de `embedded`: o CSS conta as imagens que
     // embutiu e elas aparecem de novo como itens próprios.
-    const bytes = Buffer.byteLength(out.html, 'utf8')
+    const bytes = Buffer.byteLength(doc, 'utf8')
     if (bytes > PAGE_MAX_BYTES) {
       const byRef = new Map<string, number>()
       for (const e of out.embedded) byRef.set(e.ref, Math.max(byRef.get(e.ref) ?? 0, e.bytes))
@@ -118,7 +121,7 @@ export function createPagesService(deps: PagesDeps) {
     const warnings = n
       ? [`${n} local reference${n === 1 ? '' : 's'} not embedded: ${missing.slice(0, WARN_REFS).join(', ')}`]
       : []
-    return { html: out.html, bytes, source: (sourcePath ? 'path' : 'html') as 'html' | 'path', sourcePath, warnings }
+    return { html: doc, bytes, source: (sourcePath ? 'path' : 'html') as 'html' | 'path', sourcePath, warnings }
   }
 
   /** Grava atômico: temporário na mesma pasta e `rename`. Sem sobra se falhar. */

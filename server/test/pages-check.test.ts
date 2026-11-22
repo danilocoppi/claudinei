@@ -316,6 +316,14 @@ describe('POST /api/hermes/pages/check', () => {
     expect(f.calls[1].html).toContain(`<head><meta http-equiv="Content-Security-Policy" content="${metaCsp('open')}">`)
   })
 
+  it('documento sem doctype vai ao setContent com `<!doctype html>` no começo (sem modo quirks)', async () => {
+    const f = fakeHost()
+    expect((await check(bare(f.host), { html: '<div style="height:300px">baixa</div>' })).statusCode).toBe(200)
+    // A meta CSP entra logo depois do doctype acrescentado.
+    const meta = `<meta http-equiv="Content-Security-Policy" content="${metaCsp('cdn')}">`
+    expect(f.calls[0].html!.startsWith(`<!doctype html>${meta}<div style="height:300px">baixa</div>`)).toBe(true)
+  })
+
   it('path: monta como o show_page publicaria, com os recursos locais embutidos', async () => {
     writeFileSync(join(root, 'estilo.css'), 'p { color: red }')
     writeFileSync(join(root, 'rel.html'), '<html><head><link rel="stylesheet" href="estilo.css"></head><body><p>oi</p></body></html>')

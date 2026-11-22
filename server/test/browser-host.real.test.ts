@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { createBrowserHost } from '../src/browser/host.js'
 import { createCheckShots } from '../src/pages/check-parts.js'
 import { runCheck } from '../src/pages/check.js'
+import { withDoctype } from '../src/pages/height-script.js'
 
 // Chromium de verdade (chromium_headless_shell-1255): pulado na máquina que não o tem.
 describe.skipIf(!resolveChromium().ok)('BrowserHost com o Chromium de verdade', () => {
@@ -43,6 +44,19 @@ describe.skipIf(!resolveChromium().ok)('BrowserHost com o Chromium de verdade', 
     expect(margins).toBeLessThan(400)
     // Conteúdo alto: a altura inteira, com as margens.
     expect(await measure('<!doctype html><body><div style="height:3000px"></div></body>')).toBe(3016)
+  }, 60_000)
+
+  it('contentHeight: página de 300 px; sem doctype, o modo quirks mede o viewport', async () => {
+    const measure = (html: string) => host.withIsolatedPage({ viewport: { width: 1024, height: 800 } }, async (page) => {
+      await page.setContent(html)
+      return page.contentHeight()
+    })
+    const page300 = '<div style="height:300px"></div>'
+    // 300 px com as margens do body: abaixo do viewport.
+    expect(await measure(withDoctype(page300))).toBe(316)
+    // Sem doctype (modo quirks) o body estica até o viewport: é por isso que
+    // show_page e check_page acrescentam o doctype.
+    expect(await measure(page300)).toBe(800)
   }, 60_000)
 
   it('runCheck: o PNG da página baixa sai na altura do conteúdo, não na do viewport', async () => {

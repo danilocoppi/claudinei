@@ -3,14 +3,13 @@ import {
   chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync,
   statSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resolveRepo, type RepoInfo } from '../src/checkpoint/repo.js'
 import { takeSnapshot, type Snapshot } from '../src/checkpoint/snapshot.js'
 import { changedFiles } from '../src/checkpoint/diff.js'
 import {
   applyPrepared, blobStatesAt, planRestore, prepareRestore, staleEntries,
-  type RestoreAction, type RestoreItem, type RestorePlanItem,
+  type RestoreAction, type RestoreItem, type RestoreOptions, type RestorePlanItem,
 } from '../src/checkpoint/restore.js'
 import { makeRepo, makeTempDir } from './helpers/git-repo.js'
 
@@ -47,9 +46,9 @@ function expectedOf(plan: RestorePlanItem[]): Record<string, string | null> {
   return Object.fromEntries(plan.map(p => [p.path, p.nowDigest]))
 }
 /** Prévia, preparo e escrita, como o serviço fará. */
-async function undo(repoInfo: RepoInfo, items: RestoreItem[], decisions: Record<string, RestoreAction> = {}) {
-  const plan = await planRestore(repoInfo, items)
-  const prepared = await prepareRestore(repoInfo, items, decisions, expectedOf(plan))
+async function undo(repoInfo: RepoInfo, items: RestoreItem[], decisions: Record<string, RestoreAction> = {}, opts: RestoreOptions = {}) {
+  const plan = await planRestore(repoInfo, items, opts)
+  const prepared = await prepareRestore(repoInfo, items, decisions, expectedOf(plan), opts)
   const res = applyPrepared(prepared)
   return { plan: byPath(plan), results: Object.fromEntries(res.map(r => [r.path, r.result])) }
 }
@@ -473,16 +472,26 @@ describe('as três comparações e a escrita', () => {
   })
 
   it('não deixa arquivos temporários para trás', async () => {
-    const before = new Set(readdirSync(tmpdir()))
+    // Pasta própria no lugar do os.tmpdir(): outro arquivo de teste rodando
+    // em paralelo cria e apaga os seus `claudinei-restore-*` lá, e a conta
+    // aqui seria dos temporários dele.
+    const tmpRoot = tempDir()
     const r = repo({ 'a.txt': lines(12) })
     const repoInfo = await info(r.dir)
     const s1 = await takeSnapshot(repoInfo, 1)
     r.write('a.txt', lines(12, { 2: 'TURNO' }))
     const s2 = await takeSnapshot(repoInfo, 2)
     r.write('a.txt', lines(12, { 2: 'TURNO', 9: 'OPERADOR' }))
-    await undo(repoInfo, await itemsOf(repoInfo, s1, s2), { 'a.txt': 'merge' })
-    const left = readdirSync(tmpdir()).filter(n => !before.has(n) && n.startsWith('claudinei-restore-'))
-    expect(left).toEqual([])
+    const items = await itemsOf(repoInfo, s1, s2)
+    // Prova de que a prévia (merge e diff do conflito) e o preparo (merge) usam
+    // mesmo a pasta dada: apontada para uma que não existe, os dois falham.
+    const missing = join(tmpRoot, 'nao-existe')
+    await expect(planRestore(repoInfo, items, { tmpRoot: missing })).rejects.toThrow(/ENOENT/)
+    const plan = await planRestore(repoInfo, items)
+    await expect(prepareRestore(repoInfo, items, { 'a.txt': 'merge' }, expectedOf(plan), { tmpRoot: missing })).rejects.toThrow(/ENOENT/)
+    const { results } = await undo(repoInfo, items, { 'a.txt': 'merge' }, { tmpRoot })
+    expect(results).toEqual({ 'a.txt': 'merged' })
+    expect(readdirSync(tmpRoot)).toEqual([])
     expect(readdirSync(r.dir).filter(n => n.includes('claudinei'))).toEqual([])
   })
 })

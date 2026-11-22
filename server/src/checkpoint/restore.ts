@@ -29,7 +29,7 @@ export type { RestoreAction, RestoreResult, RestoreVerdict } from '../../../shar
  *
  * O git do operador fica intocado: aqui só rodam `ls-tree` e `cat-file` na
  * pasta dele, e `merge-file` e `diff --no-index` sobre arquivos temporários
- * em os.tmpdir(). A escrita é só no disco, nunca no índice, HEAD ou branches.
+ * em os.tmpdir() (ou no `tmpRoot` das opções). A escrita é só no disco, nunca no índice, HEAD ou branches.
  *
  * Nunca se escreve fora de `repo.top`: caminho absoluto, com `.`/`..`/vazio ou
  * dentro de `.git` é recusado, e um caminho cujas pastas-pai incluem um link
@@ -64,7 +64,15 @@ export interface RestorePlanItem {
 
 /** Teto de bytes de cada versão de um arquivo que o desfazer lê (o mesmo maxBuffer padrão do git()). */
 export const RESTORE_MAX_BYTES = 64 * 1024 * 1024
-export interface RestoreOptions { maxBytes?: number }
+export interface RestoreOptions {
+  maxBytes?: number
+  /**
+   * Onde criar as pastas temporárias do merge e do diff (padrão: os.tmpdir()).
+   * Só os testes mudam: assim conferem que sobra nada sem disputar o
+   * os.tmpdir() com outros arquivos de teste rodando em paralelo.
+   */
+  tmpRoot?: string
+}
 
 /** Uma das versões do arquivo passa do teto. */
 class TooBigError extends Error {
@@ -227,8 +235,8 @@ export async function blobStatesAt(repo: RepoInfo, commit: string, paths: string
 
 // ----------------------------------------------------------- temporários
 
-function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-  const dir = mkdtempSync(join(tmpdir(), 'claudinei-restore-'))
+function withTempDir<T>(root: string, fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(root, 'claudinei-restore-'))
   return fn(dir).finally(() => rmSync(dir, { recursive: true, force: true }))
 }
 
@@ -241,10 +249,10 @@ function isBinary(bytes: Buffer): boolean {
  * em cópias temporárias. null = não aplica limpo (choque, binário, link,
  * arquivo criado ou apagado no turno, ou o "agora" não é arquivo).
  */
-async function inverseMerge(now: NowState, after: Side | null, before: Side | null): Promise<Side | null> {
+async function inverseMerge(now: NowState, after: Side | null, before: Side | null, tmpRoot: string): Promise<Side | null> {
   if (now.kind !== 'file' || !after || !before || after.mode === LINK || before.mode === LINK) return null
   if (isBinary(now.bytes) || isBinary(after.bytes) || isBinary(before.bytes)) return null
-  return withTempDir(async dir => {
+  return withTempDir(tmpRoot, async dir => {
     const files = { agora: now.bytes, depois: after.bytes, antes: before.bytes }
     for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes)
     const res = await git(dir, [
@@ -276,13 +284,15 @@ function materialize(full: string, side: { mode: string; bytes: Buffer }): void 
  * Nenhum programa do operador roda (diff externo, textconv), e a cor fica
  * desligada. undefined: o "agora" não é arquivo nem link.
  */
-async function sinceTurn(path: string, after: Side | null, now: NowState): Promise<{ text: string; truncated: boolean } | undefined> {
+async function sinceTurn(
+  path: string, after: Side | null, now: NowState, tmpRoot: string,
+): Promise<{ text: string; truncated: boolean } | undefined> {
   let nowSide: Side | null
   if (now.kind === 'absent') nowSide = null
   else if (now.kind === 'file') nowSide = { mode: now.exec ? '100755' : '100644', bytes: now.bytes }
   else if (now.kind === 'link') nowSide = { mode: LINK, bytes: now.target }
   else return undefined
-  return withTempDir(async dir => {
+  return withTempDir(tmpRoot, async dir => {
     const a = `a/${path}`
     const b = `b/${path}`
     if (after) materialize(join(dir, a), after)
@@ -350,6 +360,7 @@ async function mapLimit<T, R>(list: T[], limit: number, fn: (item: T, i: number)
 export async function planRestore(repo: RepoInfo, items: RestoreItem[], opts: RestoreOptions = {}): Promise<RestorePlanItem[]> {
   const segsList = validate(items)
   const maxBytes = opts.maxBytes ?? RESTORE_MAX_BYTES
+  const tmpRoot = opts.tmpRoot ?? tmpdir()
   return mapLimit(items, CONCURRENCY, async (item, i) => {
     let a: Analysis
     try {
@@ -364,8 +375,8 @@ export async function planRestore(repo: RepoInfo, items: RestoreItem[], opts: Re
     }
     const plan: RestorePlanItem = { path: item.path, verdict: a.verdict, mergeable: false, nowDigest: a.digest }
     if (a.verdict === 'conflict') {
-      plan.mergeable = (await inverseMerge(a.now, a.after, a.before)) !== null
-      const since = await sinceTurn(item.path, a.after, a.now)
+      plan.mergeable = (await inverseMerge(a.now, a.after, a.before, tmpRoot)) !== null
+      const since = await sinceTurn(item.path, a.after, a.now, tmpRoot)
       if (since) {
         plan.sinceTurn = since.text
         if (since.truncated) plan.sinceTurnTruncated = true
@@ -391,6 +402,7 @@ export async function prepareRestore(
 ): Promise<PreparedRestore> {
   const segsList = validate(items)
   const maxBytes = opts.maxBytes ?? RESTORE_MAX_BYTES
+  const tmpRoot = opts.tmpRoot ?? tmpdir()
   for (const item of items) {
     if (!Object.prototype.hasOwnProperty.call(expected, item.path)) throw new Error(`sem o digest da prévia para ${JSON.stringify(item.path)}`)
   }
@@ -420,7 +432,7 @@ export async function prepareRestore(
     if (a.now.kind === 'dir' || a.now.kind === 'blocked' || a.now.kind === 'other') fail('só keep cabe aqui: o caminho não é arquivo nem link')
     if (action === 'force') return { ...base, op: toBefore(), result: 'forced', stale: false }
     if (action === 'merge') {
-      const merged = await inverseMerge(a.now, a.after, a.before)
+      const merged = await inverseMerge(a.now, a.after, a.before, tmpRoot)
       if (!merged) fail('merge sem conflito não é possível')
       return { ...base, op: { kind: 'write', mode: merged!.mode, bytes: merged!.bytes }, result: 'merged', stale: false }
     }

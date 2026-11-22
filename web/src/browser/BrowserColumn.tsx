@@ -9,7 +9,7 @@ import {
   type BrowserFailure,
 } from './browserStore'
 import { useEffectiveView } from './columnStore'
-import { BrowserScreen, useResizeSender, type FrameSink } from './BrowserScreen'
+import { BrowserScreen, type FrameSink } from './BrowserScreen'
 import { ServersStrip } from './ServersStrip'
 
 type Props = { projectId: number; engine: string }
@@ -143,11 +143,6 @@ function BrowserLive({ projectId, engine }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
   /** A capa do diálogo pendente. */
   const dialogRef = useRef<HTMLDivElement>(null)
-  // O `resize` mede a área estável (faixas variáveis + tela): uma faixa que aparece
-  // ou some não muda o viewport da página; só o palco encolhe pela escala.
-  const [body, setBody] = useState<HTMLDivElement | null>(null)
-  useResizeSender(body, send)
-
   useEffect(() => {
     const onVis = () => setDocHidden(document.hidden)
     document.addEventListener('visibilitychange', onVis)
@@ -311,8 +306,24 @@ function BrowserLive({ projectId, engine }: Props) {
           <span className="browser-meta__nosandbox" title={t('browser.noSandboxTitle')}>{t('browser.noSandbox')}</span>
         )}
       </div>
-      {/* A área estável: o `resize` mede esta caixa, e não só a tela. */}
-      <div ref={setBody} className="browser-body">
+      {/* As faixas que ficam (servidores; a última ação, que não volta a null; os avisos, que
+          o servidor não esvazia) vêm acima da tela, fora da área medida: quando uma aparece,
+          sai um único `resize` e a tela volta a 1:1. */}
+      <ServersStrip projectId={projectId} engine={engine} visible={visible} onOpen={openUrl} />
+      {la && <div className="browser-last" data-testid="browser-last-action">{t('browser.lastAction', { text: la.text })}</div>}
+      {(!!st?.notices.length || closeError) && (
+        <ul className="browser-notices" aria-label={t('browser.notices.label')}>
+          {st?.notices.slice(-3).map((n, i) => (
+            <li key={`${i}:${n}`}>{n === SCHEME_REFUSED ? t('browser.notices.schemeRefused') : n}</li>
+          ))}
+          {closeError && <li>{closeError}</li>}
+        </ul>
+      )}
+      <div className="browser-view">
+        <BrowserScreen viewportWidth={vp.width} viewportHeight={vp.height} you={you} visible={visible} mark={mark}
+                       send={send} frameRef={frameRef} releaseRef={releaseRef} onIntersect={onIntersect} />
+        {/* O aviso de senha (só na primeira tomada do bastão) é uma camada sobre o topo
+            da tela: não muda a medida, nem manda `resize`. */}
         {you && !warned && (
           <div className="browser-warning" role="note">
             <span>{t('browser.passwordWarning')}</span>
@@ -322,46 +333,32 @@ function BrowserLive({ projectId, engine }: Props) {
             }}>{t('browser.passwordOk')}</button>
           </div>
         )}
-        <ServersStrip projectId={projectId} engine={engine} visible={visible} onOpen={openUrl} />
-        {la && <div className="browser-last" data-testid="browser-last-action">{t('browser.lastAction', { text: la.text })}</div>}
-        {(!!st?.notices.length || closeError) && (
-          <ul className="browser-notices" aria-label={t('browser.notices.label')}>
-            {st?.notices.slice(-3).map((n, i) => (
-              <li key={`${i}:${n}`}>{n === SCHEME_REFUSED ? t('browser.notices.schemeRefused') : n}</li>
-            ))}
-            {closeError && <li>{closeError}</li>}
-          </ul>
-        )}
-        <div className="browser-view">
-          <BrowserScreen viewportWidth={vp.width} viewportHeight={vp.height} you={you} visible={visible} mark={mark}
-                         send={send} frameRef={frameRef} releaseRef={releaseRef} onIntersect={onIntersect} />
-          {/* O que cobre a tela fica fora dela: a tela (memo) não redesenha a cada `state`. */}
-          {closedShown ? (
-            <div className="browser-cover" role="alert">
-              <p>{t('browser.closed')}</p>
-              <button type="button" className="ghost" disabled={busy} onClick={() => { void doReopen() }}>{t('browser.reopen')}</button>
+        {/* O que cobre a tela fica fora dela: a tela (memo) não redesenha a cada `state`. */}
+        {closedShown ? (
+          <div className="browser-cover" role="alert">
+            <p>{t('browser.closed')}</p>
+            <button type="button" className="ghost" disabled={busy} onClick={() => { void doReopen() }}>{t('browser.reopen')}</button>
+          </div>
+        ) : refused ? (
+          <div className="browser-cover" role="alert"><p>{t('browser.refused')}</p></div>
+        ) : st?.crashed ? (
+          <div className="browser-cover" role="alert" data-testid="browser-crashed">
+            <p>{t('browser.crashed')}</p>
+            <button type="button" className="ghost" onClick={() => send({ type: 'history', action: 'reload' })}>{t('browser.reload')}</button>
+          </div>
+        ) : dialog ? (
+          <div ref={dialogRef} key={dialog.id} className="browser-cover browser-dialog" role="dialog" aria-label={t('browser.dialog.label')}>
+            <p className="browser-dialog__msg">{dialog.message}</p>
+            {dialog.type === 'prompt' && (
+              <PromptField label={dialog.message} initial={dialog.defaultValue ?? ''} onChange={setPromptText}
+                           onEnter={() => answer(true)} />
+            )}
+            <div className="browser-dialog__actions">
+              <button type="button" className="ghost" onClick={() => answer(false)}>{t('browser.dialog.cancel')}</button>
+              <button type="button" className="browser-dialog__ok" onClick={() => answer(true)}>{t('browser.dialog.ok')}</button>
             </div>
-          ) : refused ? (
-            <div className="browser-cover" role="alert"><p>{t('browser.refused')}</p></div>
-          ) : st?.crashed ? (
-            <div className="browser-cover" role="alert" data-testid="browser-crashed">
-              <p>{t('browser.crashed')}</p>
-              <button type="button" className="ghost" onClick={() => send({ type: 'history', action: 'reload' })}>{t('browser.reload')}</button>
-            </div>
-          ) : dialog ? (
-            <div ref={dialogRef} key={dialog.id} className="browser-cover browser-dialog" role="dialog" aria-label={t('browser.dialog.label')}>
-              <p className="browser-dialog__msg">{dialog.message}</p>
-              {dialog.type === 'prompt' && (
-                <PromptField label={dialog.message} initial={dialog.defaultValue ?? ''} onChange={setPromptText}
-                             onEnter={() => answer(true)} />
-              )}
-              <div className="browser-dialog__actions">
-                <button type="button" className="ghost" onClick={() => answer(false)}>{t('browser.dialog.cancel')}</button>
-                <button type="button" className="browser-dialog__ok" onClick={() => answer(true)}>{t('browser.dialog.ok')}</button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )

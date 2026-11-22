@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { BrowserClientMsg, BrowserStateMsg, FrameHeader } from '../../../shared/browser'
 
@@ -181,37 +184,118 @@ describe('vista Navegador', () => {
     }
   })
 
-  it('mostrar ou esconder uma faixa acima da tela não manda resize (mede a área estável)', () => {
-    vi.useFakeTimers()
-    const obs = new Map<Element, (e: Array<{ contentRect: { width: number; height: number } }>) => void>()
+  /** Um `ResizeObserver` dublê que guarda o alvo: o teste mede cada caixa à parte. */
+  const observarCaixas = () => {
+    type Cb = (e: Array<{ contentRect: { width: number; height: number } }>) => void
+    const obs = new Map<Element, Cb>()
     vi.stubGlobal('ResizeObserver', class {
-      cb: (e: Array<{ contentRect: { width: number; height: number } }>) => void
-      constructor(cb: (e: Array<{ contentRect: { width: number; height: number } }>) => void) { this.cb = cb }
+      cb: Cb
+      constructor(cb: Cb) { this.cb = cb }
       observe(el: Element) { obs.set(el, this.cb) }
       unobserve() {} disconnect() {}
     })
+    const mede = (el: Element, width: number, height: number) => act(() => { obs.get(el)?.([{ contentRect: { width, height } }]) })
+    /** As caixas medidas dentro da vista (a tela, e nada mais). */
+    const medidas = () => [...obs.keys()].filter((el) => el.closest('.browser-col'))
+    return { mede, medidas }
+  }
+  const palco = () => {
+    const st = document.querySelector<HTMLElement>('.browser-screen__stage')!.style
+    return { width: st.width, height: st.height }
+  }
+
+  it('sem faixa nenhuma: o resize é o tamanho da tela e a escala fica 1', () => {
+    vi.useFakeTimers()
+    const { mede, medidas } = observarCaixas()
     try {
       montar()
       emitir(estado())
       const tela = document.querySelector('.browser-screen')!
-      const mede = (el: Element, width: number, height: number) => act(() => { obs.get(el)?.([{ contentRect: { width, height } }]) })
-      // A caixa medida para o resize contém a tela.
-      const estavel = [...obs.keys()].find((el) => el !== tela && el.contains(tela) && el.closest('.browser-col'))!
-      expect(estavel).toBeTruthy()
-      mede(estavel, 600, 400)
+      // Uma caixa só, a tela: a escala e o resize leem o mesmo content-box (sem a borda de cima
+      // da tela), e nenhuma conta soma a borda numa e não na outra.
+      expect(medidas()).toEqual([tela])
+      // Content-box 600×400 (o border-box teria 401 de altura, com a borda de 1 px).
+      mede(tela, 600, 400)
+      // Antes do viewport mudar, a tela de 1280×800 cabe pela escala.
+      expect(palco()).toEqual({ width: '600px', height: '375px' })
+      act(() => { vi.advanceTimersByTime(250) })
+      expect(sent('resize')).toEqual([{ type: 'resize', width: 600, height: 400 }])
+      // O servidor ajusta o viewport ao pedido: o palco tem o tamanho do canvas (escala 1).
+      emitir(estado({ viewport: { width: 600, height: 400 } }))
+      expect(palco()).toEqual({ width: '600px', height: '400px' })
+      const canvas = document.querySelector('canvas')!
+      expect([canvas.width, canvas.height]).toEqual([600, 400])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('o aviso de senha aparecer e sumir não manda resize: é uma camada sobre a tela', () => {
+    vi.useFakeTimers()
+    const { mede, medidas } = observarCaixas()
+    try {
+      montar()
+      emitir(estado({ viewport: { width: 600, height: 400 } }))
+      const tela = document.querySelector('.browser-screen')!
+      mede(tela, 600, 400)
+      act(() => { vi.advanceTimersByTime(250) })
+      expect(sent('resize')).toHaveLength(1)
+      // A primeira tomada do bastão mostra o aviso, por cima da tela (na vista, fora da área medida).
+      emitir(estado({ viewport: { width: 600, height: 400 }, baton: { kind: 'operator', name: 'ana', you: true } }))
+      const aviso = screen.getByRole('note')
+      expect(aviso.parentElement?.classList.contains('browser-view')).toBe(true)
+      expect(tela.contains(aviso)).toBe(false)
+      expect(medidas()).toEqual([tela])
+      act(() => { vi.advanceTimersByTime(1000) })
+      fireEvent.click(screen.getByRole('button', { name: 'Entendi' }))
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(sent('resize')).toHaveLength(1)
+      expect(palco()).toEqual({ width: '600px', height: '400px' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a camada do aviso de senha fica fora do fluxo (CSS)', () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles.css'), 'utf8')
+    const regra = css.match(/^\.browser-warning \{([^}]*)\}/m)?.[1] ?? ''
+    expect(regra).toMatch(/position:\s*absolute/)
+    expect(css).toMatch(/^\.browser-view \{[^}]*position:\s*relative/m)
+  })
+
+  it('a faixa de servidores aparecer manda um resize com a altura menor, e a escala volta a 1', async () => {
+    vi.useFakeTimers()
+    const { mede, medidas } = observarCaixas()
+    try {
+      montar()
+      emitir(estado({ viewport: { width: 600, height: 400 } }))
+      const tela = document.querySelector('.browser-screen')!
       mede(tela, 600, 400)
       act(() => { vi.advanceTimersByTime(250) })
       expect(sent('resize')).toEqual([{ type: 'resize', width: 600, height: 400 }])
-      // A faixa da última ação aparece dentro da caixa estável: só a tela encolhe.
-      emitir(estado({ lastAction: { text: 'clicou', at: Date.now() } }))
-      expect(estavel.contains(screen.getByTestId('browser-last-action'))).toBe(true)
+      // Um servidor sobe: a próxima leitura (5 s) mostra a faixa, acima da tela.
+      servers = [{ pid: 230, port: 5173, host: '0.0.0.0', label: 'vite', startTime: '5555', marker: 'exact' }]
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+      const faixa = screen.getByTestId('server-5173').closest('.browser-servers')!
+      expect(faixa.closest('.browser-view')).toBeNull()
+      expect(medidas()).toEqual([tela])
+      // A tela perde a altura da faixa: até o viewport mudar, o palco cabe pela escala.
       mede(tela, 600, 372)
-      act(() => { vi.advanceTimersByTime(1000) })
-      // Some de novo: a tela volta, e nada de resize.
-      emitir(estado())
-      mede(tela, 600, 400)
-      act(() => { vi.advanceTimersByTime(1000) })
-      expect(sent('resize')).toHaveLength(1)
+      expect(palco()).toEqual({ width: '558px', height: '372px' })
+      act(() => { vi.advanceTimersByTime(250) })
+      expect(sent('resize')).toEqual([
+        { type: 'resize', width: 600, height: 400 },
+        { type: 'resize', width: 600, height: 372 },
+      ])
+      emitir(estado({ viewport: { width: 600, height: 372 } }))
+      expect(palco()).toEqual({ width: '600px', height: '372px' })
+      // A faixa fica: as leituras seguintes não mudam nada.
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
+      expect(sent('resize')).toHaveLength(2)
+      // A última ação e os avisos também ficam acima da tela, fora da área medida.
+      emitir(estado({ viewport: { width: 600, height: 372 }, lastAction: { text: 'clicou', at: Date.now() }, notices: ['x'] }))
+      expect(screen.getByTestId('browser-last-action').closest('.browser-view')).toBeNull()
+      expect(screen.getByRole('list', { name: /avisos/i }).closest('.browser-view')).toBeNull()
     } finally {
       vi.unstubAllGlobals()
     }

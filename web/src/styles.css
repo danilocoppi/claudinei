@@ -3725,7 +3725,8 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .browser-baton { padding: 1px 8px; border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--text); }
 .browser-baton--operator { color: var(--accent-2); }
 .browser-baton--free { color: var(--text-dim); }
-.browser-warning { flex: none; display: flex; align-items: center; gap: 8px; margin: 0 8px 6px; padding: 6px 10px; font-size: 12px; color: var(--text); border: 1px solid var(--warn); border-radius: var(--radius-sm); }
+/* O aviso de senha: uma camada sobre o topo da tela (fora do fluxo), para não mudar a área medida. */
+.browser-warning { position: absolute; top: 6px; left: 8px; right: 8px; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; color: var(--text); background: var(--surface-solid); border: 1px solid var(--warn); border-radius: var(--radius-sm); }
 .browser-warning > span { flex: 1; }
 .browser-servers { flex: none; list-style: none; margin: 0; padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; border-top: 1px solid var(--glass-border); }
 .browser-servers__item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
@@ -3739,11 +3740,10 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .browser-servers__error { flex-basis: 100%; color: var(--err); }
 .browser-last { flex: none; padding: 3px 10px; font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .browser-notices { flex: none; list-style: none; margin: 0; padding: 3px 10px; font-size: 12px; color: var(--warn); }
-/* A área estável (faixas variáveis + tela): o `resize` da aba mede esta caixa, e uma
-   faixa que aparece ou some só encolhe o palco pela escala. A capa fica sobre a tela. */
-.browser-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+/* A vista: a tela e o que fica sobre ela (a capa e o aviso de senha). */
 .browser-view { flex: 1 1 0; min-height: 0; min-width: 0; position: relative; display: flex; }
-/* A tela: a área mede a si mesma (a escala); o palco tem o tamanho do canvas na escala da área. */
+/* A tela: a área mede o próprio content-box (sem a borda) para a escala e para o `resize`;
+   o palco tem o tamanho do canvas na escala da área (1 depois que o viewport muda). */
 .browser-screen { flex: 1 1 0; min-height: 0; min-width: 0; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; background: var(--surface-solid); border-top: 1px solid var(--glass-border); }
 .browser-screen__stage { position: relative; flex: none; }
 .browser-screen__canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: default; }

@@ -12,40 +12,6 @@ export type FrameSink = (f: Frame) => void
 /** A espera do `resize` depois da última mudança da área. */
 const RESIZE_WAIT_MS = 250
 
-/**
- * O `resize` da aba: mede `el` (a área estável da vista, que inclui as faixas
- * variáveis acima da tela) e manda o tamanho em px CSS arredondados 250 ms
- * depois da última mudança, só se mudou. Uma faixa que aparece ou some (aviso
- * de senha, servidores, última ação, avisos) não muda a medida: só o palco da
- * tela encolhe pela escala, e a página do agente não reflui.
- */
-export function useResizeSender(el: HTMLElement | null, send: (m: BrowserClientMsg) => void): void {
-  useLayoutEffect(() => {
-    if (!el) return
-    let timer: ReturnType<typeof setTimeout> | null = null
-    let sent = ''
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[entries.length - 1]?.contentRect
-      if (!r) return
-      const rw = Math.round(r.width)
-      const rh = Math.round(r.height)
-      if (!(rw > 0 && rh > 0)) return
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        timer = null
-        const k = `${rw}x${rh}`
-        if (k === sent) return
-        sent = k
-        send({ type: 'resize', width: rw, height: rh })
-      }, RESIZE_WAIT_MS)
-    })
-    ro.observe(el)
-    return () => {
-      ro.disconnect()
-      if (timer) clearTimeout(timer)
-    }
-  }, [el, send])
-}
 /** O intervalo mínimo entre dois `move` (e entre duas rolagens): no máximo 20 por segundo. */
 const MOVE_MS = 50
 /** A marca da ação do agente some no primeiro quadro depois disto. */
@@ -122,9 +88,11 @@ function throttle(run: () => void, ms: number) {
  * toda tecla vai à página, menos a combinação de `view.browser`, que sobe ao
  * atalho global. Clicar fora devolve o teclado ao Claudinei.
  *
- * A área mede a si mesma (`ResizeObserver`) só para a escala: o canvas cabe
- * nela sem passar da escala 1. O `resize` da aba sai da área estável da coluna
- * (`useResizeSender`). O `IntersectionObserver` diz se a tela está na vista.
+ * A área mede a si mesma (`ResizeObserver`): o canvas cabe nela sem passar da
+ * escala 1, e o `resize` da aba pede o mesmo tamanho (1:1 depois que o
+ * viewport muda). As faixas que ficam (servidores, última ação, avisos) estão
+ * acima da área, na coluna; o aviso de senha é uma camada sobre o topo da
+ * tela e não muda a medida. O `IntersectionObserver` diz se a tela está na vista.
  * O que cobre a tela (diálogo, página travada, navegador fechado) fica fora
  * daqui, na coluna: as props são estáveis e o `memo` evita redesenhar a tela a
  * cada `state`.
@@ -142,17 +110,31 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
   const live = useRef(p)
   live.current = p
 
-  // A medida da área (só a escala do palco: o `resize` sai da coluna, ver `useResizeSender`).
+  // A medida da área: a mesma caixa (o content-box da área, sem a borda) dá a
+  // escala do palco na hora e o `resize` da aba 250 ms depois da última
+  // mudança, em px CSS arredondados, só se mudou. Como as duas contas leem o
+  // mesmo número, com o viewport já ajustado a escala é exatamente 1.
   const { onIntersect } = p
   useLayoutEffect(() => {
     const el = areaRef.current
     if (!el) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let sent = ''
     const ro = new ResizeObserver((entries) => {
       const r = entries[entries.length - 1]?.contentRect
       if (!r) return
       const rw = Math.round(r.width)
       const rh = Math.round(r.height)
-      if (rw > 0 && rh > 0) setArea((cur) => (cur && cur.w === rw && cur.h === rh ? cur : { w: rw, h: rh }))
+      if (!(rw > 0 && rh > 0)) return
+      setArea((cur) => (cur && cur.w === rw && cur.h === rh ? cur : { w: rw, h: rh }))
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        const k = `${rw}x${rh}`
+        if (k === sent) return
+        sent = k
+        live.current.send({ type: 'resize', width: rw, height: rh })
+      }, RESIZE_WAIT_MS)
     })
     ro.observe(el)
     const io = new IntersectionObserver((entries) => {
@@ -163,6 +145,7 @@ export const BrowserScreen = memo(function BrowserScreen(p: Props) {
     return () => {
       ro.disconnect()
       io.disconnect()
+      if (timer) clearTimeout(timer)
     }
   }, [onIntersect])
 

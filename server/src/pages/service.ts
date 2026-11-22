@@ -32,8 +32,8 @@ const WARN_REFS = 10
 const ID_RE = /^pg_[0-9a-f]{16}$/
 /** O arquivo de uma página, na pasta das páginas. */
 const PAGE_FILE_RE = /^(pg_[0-9a-f]{16})\.html$/
-/** O temporário do `writeAtomic` que uma gravação interrompida deixou. */
-const TEMP_FILE_RE = /^pg_.*\.tmp$/
+/** O temporário do `writeAtomic` que uma gravação interrompida deixou: `<id>.html.<pid>.<8 hex>.tmp`. */
+const TEMP_FILE_RE = /^pg_[0-9a-f]{16}\.html\.\d+\.[0-9a-f]{8}\.tmp$/
 
 export interface PageSourceInput { html?: unknown; path?: unknown }
 export interface PublishInput extends PageSourceInput { projectId: number; engine: string; title?: unknown; height?: unknown }

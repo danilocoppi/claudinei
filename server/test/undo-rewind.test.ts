@@ -57,6 +57,12 @@ const savedConfig = process.env.CLAUDE_CONFIG_DIR
 const cleanups: Array<() => void> = []
 
 beforeEach(async () => {
+  // O log das páginas (publicar, sair com o trecho) vai ao console.error: fora da saída dos testes.
+  const realError = console.error
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('[páginas]')) return
+    realError(...args)
+  })
   db = openDb(':memory:')
   configDir = mkdtempSync(join(tmpdir(), 'claudinei-rewind-cfg-'))
   process.env.CLAUDE_CONFIG_DIR = configDir
@@ -522,6 +528,67 @@ describe('editar a partir daqui: execute', () => {
     expect(existsSync(join(pagesDir, `${p2}.html`))).toBe(false)
     expect(pages.get(p1)).toMatchObject({ turnId: t1, conversationId: now })
     expect(existsSync(join(pagesDir, `${p1}.html`))).toBe(true)
+  })
+
+  /**
+   * Publica pelo `show_page` (a rota do Hermes) durante o primeiro turno da
+   * conversa nova: o id ainda está segurado, e a página nasce no id antigo.
+   */
+  async function publishInFirstNewTurn(p: Project, L: string, after: number): Promise<string> {
+    await waitUntil(() => (undo.tracker.openSegment(L) ?? 0) > after)
+    const res = await app.inject({
+      method: 'POST', url: '/api/hermes/pages',
+      payload: { projectId: p.id, engine: 'claude', title: 'nova', html: '<p>nova</p>' },
+    })
+    expect(res.statusCode).toBe(201)
+    return res.json().id as string
+  }
+
+  const listedPages = async (L: string) =>
+    ((await app.inject({ method: 'GET', url: `/api/sessions/${L}/pages` })).json() as { id: string }[]).map((x) => x.id)
+
+  it('Claude: a página publicada no primeiro turno da conversa nova acompanha o id novo', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); const t1 = await say(L, 'primeira')
+    tr.add('segunda'); const t2 = await say(L, 'segunda')
+    const pages = createPagesStore(db)
+    const p1 = pageOfTurn(p, L, t1)
+    spyRelaunch()
+    // "devagar": o turno da mensagem editada fica aberto 300 ms, tempo de publicar.
+    const res = await rewind(L, { target: { text: 'segunda', occurrence: 0 }, mode: 'conversation', editedText: 'segunda devagar' })
+    expect(res.json()).toEqual({ conversationRewound: true })
+    const fresh = await publishInFirstNewTurn(p, L, t2)
+    // Com o id segurado, a página nasce no id antigo.
+    expect(pages.get(fresh)!.conversationId).toBe(SID)
+    await waitUntil(() => undo.store.turn(t2)!.rewoundAt !== null)
+    await undo.idle()
+    const now = manager.get(L)!.engineSessionId
+    expect(now).not.toBe(SID)
+    expect(pages.get(fresh)).toMatchObject({ conversationId: now })
+    expect(await listedPages(L)).toEqual([p1, fresh])
+  })
+
+  it('Claude voltando à primeira mensagem: a página do primeiro turno da conversa nova acompanha o id novo', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); const t1 = await say(L, 'primeira')
+    const pages = createPagesStore(db)
+    const p1 = pageOfTurn(p, L, t1)
+    spyRelaunch()
+    const res = await rewind(L, { target: { text: 'primeira', occurrence: 0 }, mode: 'conversation', editedText: 'outra primeira devagar' })
+    expect(res.json()).toEqual({ conversationRewound: true })
+    const fresh = await publishInFirstNewTurn(p, L, t1)
+    await waitUntil(() => undo.store.turn(t1)!.rewoundAt !== null)
+    await undo.idle()
+    expect(manager.get(L)!.engineSessionId).toBe('fake-session-nova')
+    expect(pages.get(p1)).toBeUndefined()
+    expect(pages.get(fresh)).toMatchObject({ conversationId: 'fake-session-nova' })
+    expect(await listedPages(L)).toEqual([fresh])
   })
 
   it('Claude que morre antes do primeiro result: nenhum dos dois é chamado', async () => {
@@ -1014,7 +1081,8 @@ describe('createRewindService (unidade)', () => {
     expect(onRewound).toHaveBeenCalledTimes(1)
     expect(onRewound).toHaveBeenCalledWith([two])
     expect(onRelabeled).toHaveBeenCalledTimes(1)
-    expect(onRelabeled).toHaveBeenCalledWith([one], 'S2')
+    // O turno que confirmou vai junto: as páginas dele nasceram com o id segurado (o antigo).
+    expect(onRelabeled).toHaveBeenCalledWith([one, fresh], 'S2')
     expect(store.turn(one)!.conversationId).toBe('S2')
     // O segundo turno da conversa nova já não chama de novo.
     const next = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'operator', textKey: 'mais', conversationId: 'S2' })
@@ -1022,6 +1090,33 @@ describe('createRewindService (unidade)', () => {
     svc.onTurnClosed(next)
     expect(onRewound).toHaveBeenCalledTimes(1)
     expect(onRelabeled).toHaveBeenCalledTimes(1)
+  })
+
+  it('Claude voltando à primeira mensagem: onRelabeled recebe só o turno que confirmou', async () => {
+    const { store, one, two } = twoTurns('claude', 'S1')
+    const session = { localId: 'L', projectId: 1, engine: 'claude', status: 'idle', engineSessionId: 'S1' as string | null }
+    const adapter: RewindAdapter = {
+      locate: async () => ({ kind: 'claude', parentUuid: null }),
+      apply: vi.fn(async () => ({})),
+    }
+    const onRewound = vi.fn()
+    const onRelabeled = vi.fn()
+    const svc = createRewindService({
+      manager: { get: () => session as any, interrupt: vi.fn(), send: vi.fn() },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { claude: adapter },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
+      onRewound, onRelabeled,
+    })
+    const res = await svc.execute('L', { target: { text: 'um', occurrence: 0 }, mode: 'conversation', editedText: 'um editado' }, admin)
+    expect(res).toEqual({ conversationRewound: true })
+    session.engineSessionId = 'S2'
+    const fresh = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'operator', textKey: 'um editado', conversationId: 'S2' })
+    store.setEnd(fresh, null, 'result', 'S2')
+    svc.onTurnClosed(fresh)
+    expect(onRewound).toHaveBeenCalledWith([one, two])
+    expect(onRelabeled).toHaveBeenCalledTimes(1)
+    expect(onRelabeled).toHaveBeenCalledWith([fresh], 'S2')
   })
 
   it('onRewound que lança vai ao log e a volta segue', async () => {

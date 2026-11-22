@@ -159,17 +159,19 @@ export function createRewindService(deps: RewindDeps) {
 
   /**
    * Avisa quem acompanha a conversa (as páginas) depois de o banco mudar. Uma
-   * falha aqui vai ao log e não desfaz a volta, que já aconteceu.
+   * falha aqui vai ao log e não desfaz a volta, que já aconteceu. `moved`: os
+   * turnos cujas páginas passam ao id novo (os que ficaram e, no Claude, o
+   * turno que confirmou a conversa nova).
    */
-  function notifyMoved(rewound: number[], kept: number[], conversationId: string | null): void {
+  function notifyMoved(rewound: number[], moved: number[], conversationId: string | null): void {
     try {
       deps.onRewound?.(rewound)
     } catch (e) {
       log(`aviso do trecho cortado (${rewound.join(', ')}): ${errText(e)}`)
     }
-    if (!conversationId || !kept.length) return
+    if (!conversationId || !moved.length) return
     try {
-      deps.onRelabeled?.(kept, conversationId)
+      deps.onRelabeled?.(moved, conversationId)
     } catch (e) {
       log(`aviso da conversa nova ${conversationId}: ${errText(e)}`)
     }
@@ -490,7 +492,9 @@ export function createRewindService(deps: RewindDeps) {
         pendingLabel.delete(t.localId)
         store.markRewound(label.range)
         if (label.kept.length) store.setConversation(label.kept, now)
-        notifyMoved(label.range, label.kept, now)
+        // O turno que confirmou já está no id novo no desfazer, mas as páginas
+        // dele nasceram com o id segurado (o antigo, `holdEngineId`): vão junto.
+        notifyMoved(label.range, [...label.kept, t.id], now)
       } catch (e) {
         log(`rótulo da conversa nova (turno ${turnId}): ${errText(e)}`)
       }

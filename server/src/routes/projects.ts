@@ -277,7 +277,12 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
         await deps.terminalManager.closeAndWait(runKey(a.id))
       }
     }
-    deps.onRemoving?.(id)
+    // As páginas não impedem a exclusão: o que sobrar a varredura da subida limpa.
+    try {
+      deps.onRemoving?.(id)
+    } catch (e) {
+      console.error(`[projetos] apagar as páginas do terminal ${id}: ${(e as Error).message}`)
+    }
     svc.remove(id)
     return reply.code(204).send()
   })

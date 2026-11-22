@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -52,6 +52,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const d of temps.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
@@ -103,6 +104,23 @@ describe('retenção das páginas', () => {
     }
   })
 
+  it('DELETE /api/projects/:id: falha ao apagar as páginas vai ao log e o terminal sai mesmo assim', async () => {
+    const pagesDir = join(tmp('pg-ret-app-'), 'pages')
+    const manager = createSessionManager({ db, broadcast: () => {} })
+    const app = await buildApp({ config: loadConfig({ CLAUDINEI_PAGES: pagesDir }), db, manager })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      // Sem a tabela, a busca das páginas do terminal lança.
+      db.exec('DROP TABLE visual_pages')
+      const res = await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}` })
+      expect(res.statusCode).toBe(204)
+      expect(createProjectsService(db).get(projectId)).toBeUndefined()
+      expect(errors.mock.calls.some((c) => String(c[0]).includes(`páginas do terminal ${projectId}`))).toBe(true)
+    } finally {
+      await app.close()
+    }
+  })
+
   it('sweep: arquivo sem linha, .tmp esquecido e linha sem arquivo saem; o resto fica', () => {
     const fica = publishIn(1)
     const semArquivo = publishIn(2)
@@ -113,10 +131,13 @@ describe('retenção das páginas', () => {
     // O que não é página fica: outro nome, outra extensão, subpasta.
     writeFileSync(join(dir, 'notas.txt'), 'x')
     writeFileSync(join(dir, 'pg_curto.html'), 'x')
+    // Só o temporário com o nome do writeAtomic (`<id>.html.<pid>.<8 hex>.tmp`) sai.
+    writeFileSync(join(dir, 'pg_qualquer.tmp'), 'x')
+    writeFileSync(join(dir, `${orfao}.tmp`), 'x')
     mkdirSync(join(dir, 'sub'))
     expect(service.sweep()).toEqual({ files: 2, rows: 1 })
     expect(rowIds()).toEqual([fica])
-    expect(files()).toEqual([`${fica}.html`, 'notas.txt', 'pg_curto.html', 'sub'].sort())
+    expect(files()).toEqual([`${fica}.html`, `${orfao}.tmp`, 'notas.txt', 'pg_curto.html', 'pg_qualquer.tmp', 'sub'].sort())
     // Segunda passada: nada a fazer.
     expect(service.sweep()).toEqual({ files: 0, rows: 0 })
   })
@@ -143,8 +164,11 @@ describe('retenção das páginas', () => {
     const quieto = await buildApp({ config: loadConfig({ CLAUDINEI_PAGES: pagesDir }), db, manager })
     await quieto.close()
     expect(existsSync(orfao)).toBe(true)
+    // O log da varredura vai ao console.error: confere a linha e não suja a saída.
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const app = await buildApp({ config: loadConfig({ CLAUDINEI_PAGES: pagesDir }), db, manager, sweepPages: true })
     await app.close()
     expect(existsSync(orfao)).toBe(false)
+    expect(errors.mock.calls.map((c) => String(c[0]))).toContain('[páginas] varredura: 1 arquivo(s) e 0 linha(s) órfãos apagados')
   })
 })

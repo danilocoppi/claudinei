@@ -387,8 +387,12 @@ if (process.argv.includes('--hermes')) {
       await speech.stop()
       // Interrompe a passada na próxima fatia; o que já foi gravado fica coerente.
       await usageIndexer.stop()
-      // Fecha as abas e o Chromium antes de fechar o servidor.
-      await browserHost.shutdown()
+      // Fecha as abas e o Chromium antes de fechar o servidor, com teto de 5 s:
+      // um Chromium que não responde não segura o app.close().
+      await Promise.race([
+        browserHost.shutdown().catch((err) => console.error('[navegador] encerramento:', err)),
+        new Promise<void>((r) => setTimeout(r, 5000).unref()),
+      ])
       await app.close()
       process.exit(0)
     })

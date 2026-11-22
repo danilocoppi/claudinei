@@ -867,5 +867,17 @@ export const en = {
   editFromHere: {
     commandNotAllowed: "Commands can't be used while editing; use the message field",
   },
+  pages: {
+    loading: 'Loading page…',
+    unavailable: 'Page unavailable',
+    size: '{{kb}} KB',
+    view: 'View page',
+    fullscreen: 'Full screen',
+    closeFullscreen: 'Close full screen',
+    newTab: 'New tab',
+    close: 'Close',
+    deleted: 'Page deleted',
+    loadFailed: "Didn't load — try again",
+  },
 }
 export default en

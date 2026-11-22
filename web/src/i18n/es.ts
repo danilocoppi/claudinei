@@ -869,5 +869,17 @@ export const es: typeof en = {
   editFromHere: {
     commandNotAllowed: 'Los comandos no se pueden usar al editar; usa el campo de mensaje',
   },
+  pages: {
+    loading: 'Cargando página…',
+    unavailable: 'Página no disponible',
+    size: '{{kb}} KB',
+    view: 'Ver página',
+    fullscreen: 'Pantalla completa',
+    closeFullscreen: 'Cerrar pantalla completa',
+    newTab: 'Pestaña nueva',
+    close: 'Cerrar',
+    deleted: 'Página eliminada',
+    loadFailed: 'No cargó — intentar de nuevo',
+  },
 }
 export default es

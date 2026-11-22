@@ -10,6 +10,8 @@ import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import type { ChatItem, ClaudineiTaskResult } from '../types'
 import { ToolCallCard } from './ToolCallCard'
+import { PageCard } from './PageCard'
+import { pageIdOfToolCall } from '../pages/anchors'
 import { HandoffCard } from './HandoffCard'
 import { useStore } from '../store'
 import { COLLAPSE_LINES, useFold } from '../chat/folds'
@@ -548,8 +550,12 @@ function MessageContent({ item, currentLocalId, onEdit }: { item: ChatItem; curr
         )
       }
       return <ClaudineiMessageBubble item={item} currentLocalId={currentLocalId} />
-    case 'tool_call':
+    case 'tool_call': {
+      // O `show_page` com o id no resultado vira o cartão da página, no lugar da chamada.
+      const pageId = pageIdOfToolCall(item)
+      if (pageId) return <PageCard pageId={pageId} localId={currentLocalId ?? ''} />
       return <ToolCallCard item={item} currentLocalId={currentLocalId} />
+    }
   }
 }
 

@@ -871,5 +871,17 @@ export const ptBR: typeof en = {
   editFromHere: {
     commandNotAllowed: 'Comandos não podem ser usados ao editar; use o campo de mensagem',
   },
+  pages: {
+    loading: 'Carregando página…',
+    unavailable: 'Página indisponível',
+    size: '{{kb}} KB',
+    view: 'Ver página',
+    fullscreen: 'Tela cheia',
+    closeFullscreen: 'Fechar tela cheia',
+    newTab: 'Nova aba',
+    close: 'Fechar',
+    deleted: 'Página apagada',
+    loadFailed: 'Não carregou — tentar de novo',
+  },
 }
 export default ptBR

@@ -45,6 +45,7 @@ import { TurnLine } from './undo/TurnLine'
 import { ChangesPanel, type PanelFocus } from './undo/ChangesPanel'
 import { UndoDialog, type UndoRequest } from './undo/UndoDialog'
 import { EditFromHereDialog, editTargetOf } from './undo/EditFromHereDialog'
+import { useChatPages } from '../pages/useChatPages'
 import type { RewindTarget, TurnDto } from '../../../shared/undo'
 
 const EMPTY_ITEMS: ChatItem[] = []
@@ -264,6 +265,7 @@ export function ChatView() {
     }
     return byAfter
   }, [items, undoTurns, atStart])
+  const pagesAt = useChatPages(activeLocalId ?? null, session?.engineSessionId ?? null, items, undoTurns, atStart)
   const firstItemIndex = useFirstItemIndex(activeLocalId ?? undefined, nodes)
 
   // D4: (re)carrega o histórico sempre que a sessão ativa tiver um engineSessionId
@@ -497,15 +499,17 @@ export function ChatView() {
     const last = node.kind === 'group' ? node.items[node.items.length - 1].index : node.index
     return (
       <div className="chat-entry" data-key={nodeKey(node)}>
+        {first === 0 && pagesAt(-1)}
         {first === 0 && turnLinesAt(-1)}
         {node.kind === 'group'
           ? <ActionGroup items={node.items} currentLocalId={localId!} />
           : <MessageBlock item={node.item} currentLocalId={localId!}
                           editable={editableIdx.has(node.index)} onEdit={handleEdit} />}
+        {pagesAt(last)}
         {turnLinesAt(last)}
       </div>
     )
-  }, [localId, editableIdx, handleEdit, turnLinesAt])
+  }, [localId, editableIdx, handleEdit, turnLinesAt, pagesAt])
 
   const edge: ListContext['edge'] = nodes.length === 0 ? null
     : historyCursor?.atStart ? 'start'

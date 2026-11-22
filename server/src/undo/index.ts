@@ -41,6 +41,10 @@ export interface UndoDeps {
    * lateral, que nasce depois do desfazer): o desfazer espera por elas.
    */
   sides?(): Array<{ projectId: number; engine: string }>
+  /** "Editar a partir daqui" tirou esses turnos da conversa (as páginas deles saem). */
+  onTurnsRewound?(turnIds: number[]): void
+  /** Os turnos que ficaram passaram ao id novo da conversa (as páginas acompanham). */
+  onTurnsRelabeled?(turnIds: number[], conversationId: string): void
   log?(m: string): void
 }
 
@@ -137,6 +141,8 @@ export function createUndo(deps: UndoDeps) {
       pending: (info, projectPath) => forkPending(deps.db, info, projectPath),
       settled: (localId) => clearForkSource(deps.db, localId),
     },
+    onRewound: (ids) => deps.onTurnsRewound?.(ids),
+    onRelabeled: (ids, conversationId) => deps.onTurnsRelabeled?.(ids, conversationId),
     log,
   })
 

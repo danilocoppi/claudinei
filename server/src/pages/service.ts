@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import type { Db } from '../db.js'
 import { resolveInScope } from '../files/scope.js'
@@ -30,6 +30,10 @@ const HEIGHT_MAX = 2000
 /** Quantas referências o aviso cita pelo nome. */
 const WARN_REFS = 10
 const ID_RE = /^pg_[0-9a-f]{16}$/
+/** O arquivo de uma página, na pasta das páginas. */
+const PAGE_FILE_RE = /^(pg_[0-9a-f]{16})\.html$/
+/** O temporário do `writeAtomic` que uma gravação interrompida deixou. */
+const TEMP_FILE_RE = /^pg_.*\.tmp$/
 
 export interface PageSourceInput { html?: unknown; path?: unknown }
 export interface PublishInput extends PageSourceInput { projectId: number; engine: string; title?: unknown; height?: unknown }
@@ -165,9 +169,69 @@ export function createPagesService(deps: PagesDeps) {
     return { id, bytes: doc.bytes, warnings: doc.warnings }
   }
 
+  /** Apaga os arquivos dessas páginas; o que falhar vai ao log (a varredura da subida pega depois). */
+  function removeFiles(ids: string[]): void {
+    for (const id of ids) {
+      try {
+        rmSync(filePath(id), { force: true })
+      } catch (e) {
+        log(`apagar o arquivo da página ${id}: ${(e as Error).message}`)
+      }
+    }
+  }
+
+  /** "Editar a partir daqui" cortou esses turnos: as páginas deles saem (linha antes, arquivo depois). */
+  function onTurnsRewound(turnIds: number[]): void {
+    const ids = store.idsOfTurns(turnIds)
+    if (!ids.length) return
+    store.remove(ids)
+    removeFiles(ids)
+    log(`${ids.length} página(s) saíram com o trecho cortado`)
+  }
+
+  /** Os turnos que ficaram passaram à conversa nova (Claude: id novo; Codex: fork): as páginas vão junto. */
+  function onTurnsRelabeled(turnIds: number[], conversationId: string): void {
+    store.moveTurns(turnIds, conversationId)
+  }
+
+  /** O terminal vai ser excluído: os arquivos saem aqui; as linhas, pela cascata do `DELETE` do projeto. */
+  function removeProject(projectId: number): void {
+    removeFiles(store.idsOfProject(projectId))
+  }
+
+  /**
+   * Subida: apaga o arquivo de página sem linha, o temporário esquecido e a
+   * linha sem arquivo. Outros nomes na pasta ficam. Sem a pasta, nada sai: não
+   * há como distinguir página perdida de pasta desmontada ou trocada.
+   */
+  function sweep(): { files: number; rows: number } {
+    if (!existsSync(deps.dir)) return { files: 0, rows: 0 }
+    const known = new Set(store.allIds())
+    let files = 0
+    for (const entry of readdirSync(deps.dir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue
+      const page = PAGE_FILE_RE.exec(entry.name)
+      if (page ? known.has(page[1]) : !TEMP_FILE_RE.test(entry.name)) continue
+      try {
+        rmSync(join(deps.dir, entry.name), { force: true })
+        files++
+      } catch (e) {
+        log(`varredura: apagar ${entry.name}: ${(e as Error).message}`)
+      }
+    }
+    const lost = [...known].filter((id) => !existsSync(filePath(id)))
+    store.remove(lost)
+    if (files || lost.length) log(`varredura: ${files} arquivo(s) e ${lost.length} linha(s) órfãos apagados`)
+    return { files, rows: lost.length }
+  }
+
   return {
     buildDocument,
     publish,
+    onTurnsRewound,
+    onTurnsRelabeled,
+    removeProject,
+    sweep,
     get: (id: string): VisualPageDto | undefined => store.get(id),
     filePath,
     store,

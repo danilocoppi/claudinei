@@ -178,6 +178,12 @@ export interface AppDeps {
    * do listen, antes de religar as sessões.
    */
   onUndoReady?: (undo: Undo) => void
+  /**
+   * Varre a pasta das páginas na subida (index.ts). Fora do serviço (testes,
+   * ensaio com outro banco), a pasta padrão é a do serviço instalado, e a
+   * varredura apagaria as páginas dele por não ter as linhas.
+   */
+  sweepPages?: boolean
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -207,6 +213,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerProjectRoutes(app, {
     db: deps.db, manager: deps.manager, terminalManager: deps.terminalManager, scratchDir: deps.config.scratchDir,
     triage, broadcast: deps.wsHub?.broadcast,
+    onRemoving: (projectId) => pages?.removeProject(projectId),
   })
   registerTriageRoutes(app, { store: triage, db: deps.db, broadcast: deps.wsHub?.broadcast })
   const triageWaker = createTriageWaker({ store: triage, broadcast: (m) => deps.wsHub?.broadcast(m) })
@@ -234,6 +241,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     broadcast: (m) => deps.wsHub?.broadcast(m),
     poke: (projectId, engine) => nextSendRef?.poke(projectId, engine),
     sides: () => branchRef?.side.working() ?? [],
+    onTurnsRewound: (ids) => pages?.onTurnsRewound(ids),
+    onTurnsRelabeled: (ids, conversationId) => pages?.onTurnsRelabeled(ids, conversationId),
   })
   registerUndoRoutes(app, { undo, manager: deps.manager, db: deps.db })
   deps.onUndoReady?.(undo)
@@ -268,6 +277,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     broadcast: (m) => deps.wsHub?.broadcast(m),
   })
+  // Na subida do serviço, uma vez: arquivo sem linha, temporário esquecido e linha sem arquivo.
+  if (deps.sweepPages) {
+    try {
+      pages.sweep()
+    } catch (e) {
+      console.error(`[páginas] varredura da subida falhou: ${(e as Error).message}`)
+    }
+  }
   const pageSettings = createSettingsService(deps.db)
   registerPageRoutes(app, { pages, manager: deps.manager, settings: pageSettings, network: () => readNetwork(pageSettings) })
   const queueStore = createOperatorQueueStore(deps.db)

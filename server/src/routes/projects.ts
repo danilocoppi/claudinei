@@ -35,6 +35,8 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
   /** A ⭐ fixa para o usuário que clicou. */
   triage: TriageStore
   broadcast?: (msg: object) => void
+  /** O terminal vai ser excluído: o que não sai pela cascata (os arquivos das páginas) sai aqui. */
+  onRemoving?: (projectId: number) => void
 }) {
   const svc = createProjectsService(deps.db)
 
@@ -275,6 +277,7 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
         await deps.terminalManager.closeAndWait(runKey(a.id))
       }
     }
+    deps.onRemoving?.(id)
     svc.remove(id)
     return reply.code(204).send()
   })

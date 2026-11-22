@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +17,7 @@ import { createTerminalStateStore } from '../src/restart/terminal-state.js'
 import { observerOf, type Undo } from '../src/undo/index.js'
 import { createRewindService, type RewindAdapter } from '../src/undo/rewind.js'
 import { createUndoStore } from '../src/undo/store.js'
+import { createPagesStore } from '../src/pages/store.js'
 import { UserError } from '../src/user-error.js'
 import { CONVERSATION_REWOUND_NOTE, FILES_REVERTED_PREFIX, withNote } from '../../shared/undo.js'
 import { makeRepo, makeTempDir } from './helpers/git-repo.js'
@@ -51,6 +52,7 @@ let nextSend: NextSend | undefined
 let queue: OperatorQueueService | undefined
 let goal: GoalService | undefined
 let configDir: string
+let pagesDir: string
 const savedConfig = process.env.CLAUDE_CONFIG_DIR
 const cleanups: Array<() => void> = []
 
@@ -69,8 +71,9 @@ beforeEach(async () => {
     },
     onOperatorMessage: (projectId, engine, info) => goal?.onOperatorMessage(projectId, engine, info),
   })
+  pagesDir = join(mkdtempSync(join(tmpdir(), 'claudinei-rewind-pages-')), 'pages')
   app = await buildApp({
-    config: loadConfig({}), db, manager,
+    config: loadConfig({ CLAUDINEI_PAGES: pagesDir }), db, manager,
     onUndoReady: (u) => { undo = u },
     onNextSendReady: (n) => { nextSend = n },
     onQueueReady: (q) => { queue = q },
@@ -87,6 +90,7 @@ afterEach(async () => {
   if (savedConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR
   else process.env.CLAUDE_CONFIG_DIR = savedConfig
   rmSync(configDir, { recursive: true, force: true })
+  rmSync(dirname(pagesDir), { recursive: true, force: true })
   for (const c of cleanups.splice(0).reverse()) c()
 })
 
@@ -157,6 +161,18 @@ function spyRelaunch() {
     process.env.FAKE_SESSION_ID = at >= 0 ? opts.extraArgs![at + 1] : 'fake-session-nova'
     return real(localId, opts)
   })
+}
+
+/** Página com linha e arquivo no turno `turnId`, na conversa `SID`, como o publish deixaria. */
+function pageOfTurn(p: Project, localId: string, turnId: number): string {
+  const id = `pg_${turnId.toString(16).padStart(16, '0')}`
+  createPagesStore(db).insert({
+    id, projectId: p.id, engine: 'claude', localId, conversationId: SID, turnId, turnKey: null,
+    title: id, height: null, bytes: 1, source: 'html', sourcePath: null,
+  })
+  mkdirSync(pagesDir, { recursive: true })
+  writeFileSync(join(pagesDir, `${id}.html`), 'x')
+  return id
 }
 
 const sentTexts = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map(c => c[1] as string)
@@ -483,6 +499,56 @@ describe('editar a partir daqui: execute', () => {
     const again = await options(L, { turnId: t2, text: 'segunda', occurrence: 0 })
     expect(again.statusCode).toBe(200)
     expect(again.json().conversation).toEqual({ enabled: true })
+  })
+
+  it('Claude cuja conversa nova confirma (app): a página do trecho sai e a do turno anterior passa ao id novo', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); const t1 = await say(L, 'primeira')
+    tr.add('segunda'); const t2 = await say(L, 'segunda')
+    const pages = createPagesStore(db)
+    const p1 = pageOfTurn(p, L, t1)
+    const p2 = pageOfTurn(p, L, t2)
+    spyRelaunch()
+    const res = await rewind(L, { target: { text: 'segunda', occurrence: 0 }, mode: 'conversation', editedText: 'segunda de novo' })
+    expect(res.json()).toEqual({ conversationRewound: true })
+    await waitUntil(() => undo.store.turn(t2)!.rewoundAt !== null)
+    await undo.idle()
+    const now = manager.get(L)!.engineSessionId
+    expect(now).not.toBe(SID)
+    expect(pages.get(p2)).toBeUndefined()
+    expect(existsSync(join(pagesDir, `${p2}.html`))).toBe(false)
+    expect(pages.get(p1)).toMatchObject({ turnId: t1, conversationId: now })
+    expect(existsSync(join(pagesDir, `${p1}.html`))).toBe(true)
+  })
+
+  it('Claude que morre antes do primeiro result: nenhum dos dois é chamado', async () => {
+    const r = repo()
+    const p = project(r.dir)
+    const L = await start(p)
+    const tr = transcriptOf(p)
+    tr.add('primeira'); const t1 = await say(L, 'primeira')
+    tr.add('segunda'); const t2 = await say(L, 'segunda')
+    // Uma página em cada turno, com linha e arquivo (o app real liga os ganchos às páginas).
+    const pages = createPagesStore(db)
+    const p1 = pageOfTurn(p, L, t1)
+    const p2 = pageOfTurn(p, L, t2)
+    spyRelaunch()
+    const res = await rewind(L, { target: { text: 'segunda', occurrence: 0 }, mode: 'conversation', editedText: 'segunda crash' })
+    expect(res.json()).toEqual({ conversationRewound: true })
+    await waitUntil(() => manager.get(L)?.status === 'dead')
+    await undo.idle()
+    const sent = undo.store.terminalTurns(p.id, 'claude').at(-1)!
+    await waitUntil(() => undo.store.turn(sent.id)!.endedAt !== null)
+    await undo.idle()
+    // A volta não aconteceu: a página do trecho fica, e a do turno anterior segue na conversa antiga.
+    expect(undo.store.turn(t2)!.rewoundAt).toBeNull()
+    expect(pages.get(p2)).toMatchObject({ turnId: t2, conversationId: SID })
+    expect(pages.get(p1)).toMatchObject({ turnId: t1, conversationId: SID })
+    expect(existsSync(join(pagesDir, `${p1}.html`))).toBe(true)
+    expect(existsSync(join(pagesDir, `${p2}.html`))).toBe(true)
   })
 
   it('Claude com arquivos desfeitos que morre antes do primeiro result: a nota "files reverted" espera a próxima mensagem', async () => {
@@ -852,5 +918,135 @@ describe('createRewindService (unidade)', () => {
     expect(store.turn(t2)!.rewoundAt).not.toBeNull()
     expect(send).toHaveBeenCalledWith('L', 'dois editado', { echo: true })
     expect(poke).toHaveBeenCalledWith(1, 'codex')
+  })
+
+  /** Terminal com os turnos `um` e `dois` fechados na conversa `conv`; `two` é o alvo. */
+  function twoTurns(engine: 'claude' | 'codex', conv: string) {
+    const udb = openDb(':memory:')
+    const store = createUndoStore(udb)
+    const dir = makeTempDir('claudinei-rewind-unit-')
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    createProjectsService(udb).create({ name: 'P', path: dir })
+    const one = store.openTurn({ localId: 'L', projectId: 1, engine, origin: 'operator', textKey: 'um', conversationId: conv, anchor: 'a1' })
+    const two = store.openTurn({ localId: 'L', projectId: 1, engine, origin: 'operator', textKey: 'dois', conversationId: conv, anchor: 'a2' })
+    for (const t of [one, two]) store.setEnd(t, null, 'result', conv)
+    return { store, one, two }
+  }
+
+  it('codex com fork: onRelabeled recebe os turnos que ficam e o id novo; onRewound recebe o trecho', async () => {
+    const { store, one, two } = twoTurns('codex', 'T1')
+    const adapter: RewindAdapter = {
+      locate: async (ctx) => ({ kind: 'codex', beforeTurnId: ctx.turn!.anchor!, previousTurnId: 'a1', midTurn: false }),
+      apply: vi.fn(async () => ({ newConversationId: 'FORK-1' })),
+    }
+    const onRewound = vi.fn((ids: number[]) => {
+      // Chamado depois do markRewound.
+      expect(ids.every(id => store.turn(id)!.rewoundAt !== null)).toBe(true)
+    })
+    const onRelabeled = vi.fn()
+    const send = vi.fn()
+    const svc = createRewindService({
+      manager: { get: () => ({ localId: 'L', projectId: 1, engine: 'codex', status: 'idle', engineSessionId: 'T1' }) as any, interrupt: vi.fn(), send },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { codex: adapter },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
+      onRewound, onRelabeled,
+    })
+    const res = await svc.execute('L', { target: { text: 'dois', occurrence: 0 }, mode: 'conversation', editedText: 'dois editado' }, admin)
+    expect(res).toEqual({ conversationRewound: true })
+    expect(onRewound).toHaveBeenCalledTimes(1)
+    expect(onRewound).toHaveBeenCalledWith([two])
+    expect(onRelabeled).toHaveBeenCalledTimes(1)
+    expect(onRelabeled).toHaveBeenCalledWith([one], 'FORK-1')
+    // Antes do envio do texto editado: as páginas já estão no lugar quando o turno novo começa.
+    expect(onRelabeled.mock.invocationCallOrder[0]).toBeLessThan(send.mock.invocationCallOrder[0])
+  })
+
+  it('codex sem fork (revert no mesmo id): onRewound recebe o trecho e onRelabeled não é chamado', async () => {
+    const { store, two } = twoTurns('codex', 'T1')
+    const adapter: RewindAdapter = {
+      locate: async (ctx) => ({ kind: 'codex', beforeTurnId: ctx.turn!.anchor!, previousTurnId: 'a1', midTurn: false }),
+      apply: vi.fn(async () => ({})),
+    }
+    const onRewound = vi.fn()
+    const onRelabeled = vi.fn()
+    const svc = createRewindService({
+      manager: { get: () => ({ localId: 'L', projectId: 1, engine: 'codex', status: 'idle', engineSessionId: 'T1' }) as any, interrupt: vi.fn(), send: vi.fn() },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { codex: adapter },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
+      onRewound, onRelabeled,
+    })
+    await svc.execute('L', { target: { text: 'dois', occurrence: 0 }, mode: 'conversation', editedText: 'dois editado' }, admin)
+    expect(onRewound).toHaveBeenCalledWith([two])
+    expect(onRelabeled).not.toHaveBeenCalled()
+  })
+
+  it('Claude: onRewound e onRelabeled só no fim do primeiro turno da conversa nova que confirma o id', async () => {
+    const { store, one, two } = twoTurns('claude', 'S1')
+    const session = { localId: 'L', projectId: 1, engine: 'claude', status: 'idle', engineSessionId: 'S1' as string | null }
+    const adapter: RewindAdapter = {
+      locate: async () => ({ kind: 'claude', parentUuid: 'u1' }),
+      apply: vi.fn(async () => ({ newConversationId: 'S2' })),
+    }
+    const onRewound = vi.fn()
+    const onRelabeled = vi.fn()
+    const svc = createRewindService({
+      manager: { get: () => session as any, interrupt: vi.fn(), send: vi.fn() },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { claude: adapter },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: () => {},
+      onRewound, onRelabeled,
+    })
+    const res = await svc.execute('L', { target: { text: 'dois', occurrence: 0 }, mode: 'conversation', editedText: 'dois editado' }, admin)
+    expect(res).toEqual({ conversationRewound: true })
+    // O id novo ainda não chegou: nada muda.
+    expect(onRewound).not.toHaveBeenCalled()
+    expect(onRelabeled).not.toHaveBeenCalled()
+    // Um turno anterior à volta que fecha agora não conta.
+    svc.onTurnClosed(two)
+    expect(onRewound).not.toHaveBeenCalled()
+    // O primeiro turno da conversa nova fecha com o id dela.
+    session.engineSessionId = 'S2'
+    const fresh = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'operator', textKey: 'dois editado', conversationId: 'S2' })
+    store.setEnd(fresh, null, 'result', 'S2')
+    svc.onTurnClosed(fresh)
+    expect(onRewound).toHaveBeenCalledTimes(1)
+    expect(onRewound).toHaveBeenCalledWith([two])
+    expect(onRelabeled).toHaveBeenCalledTimes(1)
+    expect(onRelabeled).toHaveBeenCalledWith([one], 'S2')
+    expect(store.turn(one)!.conversationId).toBe('S2')
+    // O segundo turno da conversa nova já não chama de novo.
+    const next = store.openTurn({ localId: 'L', projectId: 1, engine: 'claude', origin: 'operator', textKey: 'mais', conversationId: 'S2' })
+    store.setEnd(next, null, 'result', 'S2')
+    svc.onTurnClosed(next)
+    expect(onRewound).toHaveBeenCalledTimes(1)
+    expect(onRelabeled).toHaveBeenCalledTimes(1)
+  })
+
+  it('onRewound que lança vai ao log e a volta segue', async () => {
+    const { store, one, two } = twoTurns('codex', 'T1')
+    const adapter: RewindAdapter = {
+      locate: async (ctx) => ({ kind: 'codex', beforeTurnId: ctx.turn!.anchor!, previousTurnId: 'a1', midTurn: false }),
+      apply: vi.fn(async () => ({ newConversationId: 'FORK-1' })),
+    }
+    const logs: string[] = []
+    const onRelabeled = vi.fn()
+    const send = vi.fn()
+    const svc = createRewindService({
+      manager: { get: () => ({ localId: 'L', projectId: 1, engine: 'codex', status: 'idle', engineSessionId: 'T1' }) as any, interrupt: vi.fn(), send },
+      store, undo: { preview: vi.fn(), apply: vi.fn() } as any, adapters: { codex: adapter },
+      projects: { get: () => ({ id: 1, name: 'P', path: '/nao/existe' }) },
+      resolver: { get: async () => null }, nextSend: () => undefined, log: (m) => { logs.push(m) },
+      onRewound: () => { throw new Error('disco cheio') }, onRelabeled,
+    })
+    const res = await svc.execute('L', { target: { text: 'dois', occurrence: 0 }, mode: 'conversation', editedText: 'dois editado' }, admin)
+    expect(res).toEqual({ conversationRewound: true })
+    expect(logs.some(m => m.includes('disco cheio'))).toBe(true)
+    // A volta não foi desfeita: o trecho saiu, os turnos que ficam estão no id novo, o texto foi enviado.
+    expect(store.turn(two)!.rewoundAt).not.toBeNull()
+    expect(store.turn(one)!.conversationId).toBe('FORK-1')
+    expect(onRelabeled).toHaveBeenCalledWith([one], 'FORK-1')
+    expect(send).toHaveBeenCalledWith('L', 'dois editado', { echo: true })
   })
 })

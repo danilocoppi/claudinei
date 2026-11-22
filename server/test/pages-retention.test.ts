@@ -20,6 +20,8 @@ let dir: string
 let projectId: number
 let service: PagesService
 let turn: { turnId: number; turnKey: string | null } | undefined
+/** O que o serviço transmitiu à tela. */
+let sent: any[]
 const temps: string[] = []
 
 const tmp = (prefix: string) => { const d = mkdtempSync(join(tmpdir(), prefix)); temps.push(d); return d }
@@ -32,10 +34,13 @@ function serviceOver(pagesDir: string): PagesService {
     projects: createProjectsService(db),
     liveSession: (pid, engine) => (engine === 'claude' ? { localId: `loc-${pid}`, engineSessionId: 'conv-1' } : undefined),
     openTurn: () => turn,
-    broadcast: () => {},
+    broadcast: (m) => { sent.push(m) },
     log: () => {},
   })
 }
+
+/** Os avisos de lista mudada, sem os `visual_page` da publicação. */
+const changed = () => sent.filter((m) => m.type === 'visual_pages_changed')
 
 /** Publica uma página no turno `turnId` do projeto `pid`. */
 function publishIn(turnId: number, pid = projectId, svc = service): string {
@@ -48,6 +53,7 @@ beforeEach(() => {
   dir = join(tmp('pg-ret-'), 'pages')
   projectId = createProjectsService(db).create({ name: 'Alfa', path: tmp('pg-ret-proj-') }).id
   turn = undefined
+  sent = []
   service = serviceOver(dir)
 })
 
@@ -82,6 +88,35 @@ describe('retenção das páginas', () => {
     expect(service.store.listConversation(projectId, 'claude', 'conv-1', local).map((p) => p.id)).toEqual([c])
     // Só o rótulo muda: os arquivos ficam.
     expect(files()).toEqual([a, b, c].map((id) => `${id}.html`).sort())
+  })
+
+  it('onTurnsRewound avisa a tela uma vez por terminal afetado; sem página afetada, não avisa', () => {
+    const other = createProjectsService(db).create({ name: 'Beta', path: tmp('pg-ret-beta-') }).id
+    publishIn(7)
+    publishIn(8)
+    publishIn(8)
+    publishIn(9, other)
+    sent = []
+    service.onTurnsRewound([42])
+    service.onTurnsRewound([])
+    expect(changed()).toEqual([])
+    service.onTurnsRewound([8, 9])
+    expect(changed()).toEqual([
+      { type: 'visual_pages_changed', projectId, localId: `loc-${projectId}` },
+      { type: 'visual_pages_changed', projectId: other, localId: `loc-${other}` },
+    ])
+  })
+
+  it('onTurnsRelabeled avisa a tela uma vez por terminal afetado; sem página afetada, não avisa', () => {
+    publishIn(7)
+    publishIn(8)
+    publishIn(9)
+    sent = []
+    service.onTurnsRelabeled([42], 'conv-2')
+    service.onTurnsRelabeled([], 'conv-2')
+    expect(changed()).toEqual([])
+    service.onTurnsRelabeled([7, 8], 'conv-2')
+    expect(changed()).toEqual([{ type: 'visual_pages_changed', projectId, localId: `loc-${projectId}` }])
   })
 
   it('DELETE /api/projects/:id apaga os arquivos das páginas e a cascata leva as linhas', async () => {

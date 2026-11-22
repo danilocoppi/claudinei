@@ -76,6 +76,14 @@ export function createPagesStore(db: Db) {
       return (rows as { id: string }[]).map((r) => r.id)
     },
 
+    /** Os terminais (projeto + local_id) que têm página nesses turnos, sem repetição. */
+    placesOfTurns(turnIds: number[]): { projectId: number; localId: string }[] {
+      if (turnIds.length === 0) return []
+      const rows = db.prepare(`SELECT DISTINCT project_id, local_id FROM visual_pages
+        WHERE turn_id IN (${marks(turnIds.length)}) ORDER BY project_id, local_id`).all(...turnIds)
+      return (rows as { project_id: number; local_id: string }[]).map((r) => ({ projectId: r.project_id, localId: r.local_id }))
+    },
+
     idsOfProject(projectId: number): string[] {
       return (q.idsOfProject.all(projectId) as { id: string }[]).map((r) => r.id)
     },

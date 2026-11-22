@@ -180,18 +180,36 @@ export function createPagesService(deps: PagesDeps) {
     }
   }
 
+  /**
+   * A lista de páginas desses terminais mudou fora de uma publicação (a volta
+   * cortou ou mudou a conversa delas): a tela recarrega a lista de cada um.
+   */
+  function notifyChanged(places: { projectId: number; localId: string }[]): void {
+    for (const p of places) deps.broadcast({ type: 'visual_pages_changed', projectId: p.projectId, localId: p.localId })
+  }
+
   /** "Editar a partir daqui" cortou esses turnos: as páginas deles saem (linha antes, arquivo depois). */
   function onTurnsRewound(turnIds: number[]): void {
     const ids = store.idsOfTurns(turnIds)
     if (!ids.length) return
+    // Lidos antes de apagar: depois, as linhas não dizem mais de qual terminal eram.
+    const places = store.placesOfTurns(turnIds)
     store.remove(ids)
     removeFiles(ids)
     log(`${ids.length} página(s) saíram com o trecho cortado`)
+    notifyChanged(places)
   }
 
-  /** Os turnos que ficaram passaram à conversa nova (Claude: id novo; Codex: fork): as páginas vão junto. */
+  /**
+   * Os turnos que ficaram passaram à conversa nova (Claude: id novo; Codex: fork): as páginas vão junto.
+   * A tela já pediu a lista pelo id novo antes disto (o id chega no primeiro `result`, o rótulo só no
+   * fechamento do turno): sem o aviso, ela ficaria vazia até recarregar.
+   */
   function onTurnsRelabeled(turnIds: number[], conversationId: string): void {
+    const places = store.placesOfTurns(turnIds)
+    if (!places.length) return
     store.moveTurns(turnIds, conversationId)
+    notifyChanged(places)
   }
 
   /** O terminal vai ser excluído: os arquivos saem aqui; as linhas, pela cascata do `DELETE` do projeto. */

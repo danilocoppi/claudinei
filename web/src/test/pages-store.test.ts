@@ -17,7 +17,7 @@ const errJson = (status: number, error: string) =>
 const event = (p: VisualPageDto) => ({ type: 'visual_page', projectId: p.projectId, engine: p.engine, localId: p.localId, page: p })
 
 beforeEach(() => {
-  usePagesStore.setState({ byLocal: {}, byId: {}, livePageId: null, fullPageId: null })
+  usePagesStore.setState({ byLocal: {}, byId: {}, livePageId: null, livePlace: 'chat', fullPageId: null })
   useStore.setState({ activeLocalId: 'A' })
 })
 afterEach(() => vi.restoreAllMocks())
@@ -128,5 +128,47 @@ describe('pagesStore', () => {
     useStore.setState(s => ({ progressEpoch: s.progressEpoch + 1 }))
     await vi.waitFor(() => expect(usePagesStore.getState().byLocal.A?.map(p => p.id)).toEqual([PG1]))
     expect(spy.mock.calls.map(c => c[0])).toEqual(['/api/sessions/A/pages', '/api/sessions/A/pages'])
+  })
+
+  it('visual_page com a tela cheia aberta só entra na lista, parada: nada de dois iframes', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => okJson([]))
+    await usePagesStore.getState().load('A')
+    usePagesStore.getState().setLive(PG1)
+    usePagesStore.getState().setFull(PG1)
+    applyPagesWsMessage(event(page(PG2, 'A')))
+    const s = usePagesStore.getState()
+    expect(s.byLocal.A?.map(p => p.id)).toEqual([PG2])
+    expect(s.livePageId).toBeNull()
+    expect(s.fullPageId).toBe(PG1)
+  })
+
+  it('visual_page com a viva aberta na lista da conversa não a rouba para o chat', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => okJson([]))
+    await usePagesStore.getState().load('A')
+    usePagesStore.getState().setLive(PG1, 'list')
+    applyPagesWsMessage(event(page(PG2, 'A')))
+    const s = usePagesStore.getState()
+    expect(s.byLocal.A?.map(p => p.id)).toEqual([PG2])
+    expect(s.livePageId).toBe(PG1)
+    expect(s.livePlace).toBe('list')
+    // Fechada a da lista, a próxima que chega volta a ser a viva do chat.
+    usePagesStore.getState().setLive(null)
+    applyPagesWsMessage(event(page(PG3, 'A')))
+    expect(usePagesStore.getState().livePageId).toBe(PG3)
+    expect(usePagesStore.getState().livePlace).toBe('chat')
+  })
+
+  it('visual_pages_changed recarrega a lista de um terminal carregado; de um não carregado, ignora', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(okJson([page(PG1)]))
+    await usePagesStore.getState().load('A')
+    // A volta passou as páginas à conversa nova: a lista recarregada as traz.
+    spy.mockResolvedValueOnce(okJson([page(PG1), page(PG2)]))
+    applyPagesWsMessage({ type: 'visual_pages_changed', projectId: 1, localId: 'A' })
+    await vi.waitFor(() => expect(usePagesStore.getState().byLocal.A?.map(p => p.id)).toEqual([PG1, PG2]))
+    applyPagesWsMessage({ type: 'visual_pages_changed', projectId: 1, localId: 'B' })
+    applyPagesWsMessage({ type: 'visual_pages_changed', projectId: 1 })
+    await Promise.resolve()
+    expect(spy.mock.calls.map(c => c[0])).toEqual(['/api/sessions/A/pages', '/api/sessions/A/pages'])
+    expect(usePagesStore.getState().byLocal.B).toBeUndefined()
   })
 })

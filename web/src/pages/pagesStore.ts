@@ -140,16 +140,29 @@ function reloadLoaded(): void {
 /**
  * Mensagens do WebSocket das páginas, ao lado do `applyUndoWsMessage`:
  * `visual_page` entra na lista da conversa (se carregada) e em `byId`; do
- * terminal aberto nesta aba, vira a página viva.
+ * terminal aberto nesta aba, vira a página viva, a menos que a tela cheia
+ * esteja aberta ou a viva esteja na lista "Páginas desta conversa" (aí ela só
+ * entra parada: uma viva por vez). `visual_pages_changed` (a volta cortou ou
+ * mudou a conversa das páginas) recarrega a lista do terminal, se carregada.
  */
 export function applyPagesWsMessage(msg: any): void {
-  if (!msg || typeof msg !== 'object' || msg.type !== 'visual_page' || !isPage(msg.page)) return
+  if (!msg || typeof msg !== 'object') return
+  if (msg.type === 'visual_pages_changed') {
+    if (typeof msg.localId !== 'string') return
+    const { byLocal, load } = usePagesStore.getState()
+    if (!byLocal[msg.localId]) return
+    load(msg.localId).catch(e => console.warn('[páginas] recarga da lista falhou', msg.localId, e))
+    return
+  }
+  if (msg.type !== 'visual_page' || !isPage(msg.page)) return
   const page = msg.page as VisualPageDto
   const localId = typeof msg.localId === 'string' ? msg.localId : page.localId
   pendingPages[localId]?.push(page)
-  const live = localId === useStore.getState().activeLocalId
+  const active = localId === useStore.getState().activeLocalId
   usePagesStore.setState(s => {
     const list = s.byLocal[localId]
+    // Tela cheia aberta ou viva na lista: a que chega iria viver por baixo, com um segundo iframe.
+    const live = active && s.fullPageId === null && !(s.livePageId !== null && s.livePlace === 'list')
     return {
       byId: { ...s.byId, [page.id]: page },
       ...(list ? { byLocal: { ...s.byLocal, [localId]: appendPage(list, page) } } : {}),

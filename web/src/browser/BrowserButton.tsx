@@ -14,7 +14,7 @@ export function BrowserButton({ projectId, engine }: Props) {
   const combo = useShortcutLabel('view.browser')
   const title = combo === null ? t('browser.open') : t('browser.openTitle', { combo })
   return (
-    <button type="button" className="ghost browser-btn" aria-label={t('browser.open')} aria-pressed={on}
+    <button type="button" className="ghost hdr-btn browser-btn" aria-label={t('browser.open')} aria-pressed={on}
             title={title} onClick={() => { void toggleBrowserView(projectId, engine) }}>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

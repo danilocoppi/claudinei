@@ -166,7 +166,7 @@ export const ptBR: typeof en = {
     revive: 'Reviver', startSession: 'Iniciar sessão', editTerminal: 'Editar', deleteTerminal: 'Excluir', options: 'Opções',
   },
   status: {
-    starting: 'pronta — envie uma mensagem', idle: 'ociosa', working: 'trabalhando',
+    starting: 'pronta', idle: 'ociosa', working: 'trabalhando',
     needs_attention: 'aguardando você', stopped: 'finalizada', dead: 'morta',
     in_terminal: 'no terminal',
     in_terminal_working: 'no terminal — processando…', in_terminal_waiting: 'no terminal — esperando você',

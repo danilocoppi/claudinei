@@ -65,7 +65,7 @@ export function ProgressButton({ projectId, engine, sessionStatus }: Props) {
   useProgressSync(projectId, engine)
   const running = hasOpenTask(progress) && !isHalted(sessionStatus)
   return (
-    <button className="ghost progress-btn" aria-label={t('progress.open')} aria-pressed={open}
+    <button className="ghost hdr-btn progress-btn" aria-label={t('progress.open')} aria-pressed={open}
             title={t('progress.open')} onClick={() => useColumnStore.getState().toggleView('progress')}>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

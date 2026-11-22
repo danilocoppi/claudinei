@@ -164,7 +164,7 @@ export const en = {
     revive: 'Revive', startSession: 'Start session', editTerminal: 'Edit', deleteTerminal: 'Delete', options: 'Options',
   },
   status: {
-    starting: 'ready — send a message', idle: 'idle', working: 'working',
+    starting: 'ready', idle: 'idle', working: 'working',
     needs_attention: 'waiting for you', stopped: 'finished', dead: 'dead',
     in_terminal: 'in terminal',
     in_terminal_working: 'in terminal — working…', in_terminal_waiting: 'in terminal — waiting for you',

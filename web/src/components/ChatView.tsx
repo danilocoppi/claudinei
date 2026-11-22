@@ -595,16 +595,26 @@ export function ChatView() {
         )}
         <ProgressButton projectId={session.projectId} engine={engine} sessionStatus={session.status} />
         <BrowserButton projectId={session.projectId} engine={engine} />
-        <button className="ghost"
+        {/* Ícones em SVG, do tamanho dos do Acompanhamento e do Navegador: com
+            emoji (⏱, 🖥) a altura de linha da fonte de emoji deixava o botão mais alto. */}
+        <button className="ghost hdr-btn"
                 title={t('schedules.openTitle')}
                 onClick={() => useStore.getState().openSchedules()}>
-          ⏱ <span className="btn-label">{t('schedules.open')}</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+               strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2" /><path d="M10 2h4" />
+          </svg>
+          <span className="btn-label">{t('schedules.open')}</span>
         </button>
-        <button className="ghost"
+        <button className="ghost hdr-btn"
                 disabled={!canOpenTerminal}
                 title={!canOpenTerminal ? t('chat.handoffUnavailable') : t('chat.openInTerminal')}
                 onClick={handleOpenTerminal}>
-          🖥 <span className="btn-label">{t('chat.openInTerminal')}</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+               strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 10 3 2-3 2" /><path d="M13 15h4" />
+          </svg>
+          <span className="btn-label">{t('chat.openInTerminal')}</span>
         </button>
       </div>
       {menuAt && <TerminalMenu project={project} localId={session.localId} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}

@@ -1953,7 +1953,7 @@ button.sidebar__info-btn { font-size: 14px; padding: 0 4px; line-height: 1.4; co
   .chat-header__project { display: none; }
   .chat-header .btn-label { display: none; }
   .chat-header .engine-tabs { flex: 1 1 auto; }
-  /* A aba da engine traz o status por extenso ("ready — send a message"). Numa
+  /* A aba da engine traz o status por extenso ("waiting for you"). Numa
      tela de 390px ela sozinha estoura o cabeçalho e aparece cortada no meio de
      uma palavra; o pontinho de status ao lado já diz a mesma coisa. */
   .engine-tab__status { display: none; }
@@ -3550,7 +3550,14 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
    "Agora" pulsa só por opacidade, e para com prefers-reduced-motion. */
 .chat-layout { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 .chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.chat-header .progress-btn { margin-left: auto; position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.chat-header .progress-btn { margin-left: auto; position: relative; }
+/* Os botões da direita do cabeçalho (Acompanhamento, Navegador, Agendamentos,
+   Abrir no terminal): compactos e da mesma altura, ícone SVG de 15px. */
+.chat-header .hdr-btn {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  height: 30px; padding: 0 10px; font-size: 12.5px; line-height: 1; white-space: nowrap;
+}
+.chat-header .hdr-btn svg { flex: none; }
 .chat-header .progress-btn[aria-pressed="true"] { color: var(--accent-2); border-color: var(--accent); }
 .progress-btn__dot {
   position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%;
@@ -3699,7 +3706,7 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 /* Puxador na borda esquerda: tira fina sobre a borda (sem transition). */
 .column-resizer { position: absolute; top: 0; bottom: 0; left: -4px; width: 7px; z-index: 5; cursor: col-resize; }
 .column-resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
-.chat-header .browser-btn { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.chat-header .browser-btn { position: relative; }
 .chat-header .browser-btn[aria-pressed="true"] { color: var(--accent-2); border-color: var(--accent); }
 /* A vista Navegador e o erro da abertura (sem Chromium: o comando). */
 .browser-col { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }

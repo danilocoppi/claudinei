@@ -491,6 +491,13 @@ export const es: typeof en = {
     refused: 'La pantalla del navegador rechazó la conexión. Recarga la página para intentarlo de nuevo.',
     dialog: { ok: 'OK', cancel: 'Cancelar', label: 'La página pregunta' },
     notices: { label: 'Avisos del navegador', schemeRefused: 'Solo se aceptan direcciones http:, https: y about:blank.' },
+    annotate: {
+      open: 'Anotar', openTitle: 'Anotar la pantalla y enviarla al campo de mensaje', label: 'Anotación de la pantalla',
+      rect: 'Rectángulo', arrow: 'Flecha', text: 'Texto', crop: 'Recorte', undo: 'Deshacer',
+      send: 'Enviar al campo', cancel: 'Cancelar', waiting: 'Congelando la pantalla…',
+      freezeFailed: 'No se pudo congelar la pantalla.', sendFailed: 'No se pudo enviar: {{detail}}',
+      textField: 'Texto de la anotación',
+    },
   },
   localServers: {
     label: 'Servidores de este terminal', open: 'Abrir', stop: 'Detener', stopping: 'deteniendo…',

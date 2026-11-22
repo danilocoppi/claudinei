@@ -492,6 +492,13 @@ export const ptBR: typeof en = {
     refused: 'A tela do navegador recusou a conexão. Recarregue a página para tentar de novo.',
     dialog: { ok: 'OK', cancel: 'Cancelar', label: 'A página pergunta' },
     notices: { label: 'Avisos do navegador', schemeRefused: 'Só endereços http:, https: e about:blank são aceitos.' },
+    annotate: {
+      open: 'Anotar', openTitle: 'Anotar a tela e mandar ao campo de mensagem', label: 'Anotação da tela',
+      rect: 'Retângulo', arrow: 'Seta', text: 'Texto', crop: 'Recorte', undo: 'Desfazer',
+      send: 'Mandar ao campo', cancel: 'Cancelar', waiting: 'Congelando a tela…',
+      freezeFailed: 'Não deu para congelar a tela.', sendFailed: 'Não deu para mandar: {{detail}}',
+      textField: 'Texto da anotação',
+    },
   },
   localServers: {
     label: 'Servidores deste terminal', open: 'Abrir', stop: 'Parar', stopping: 'parando…',

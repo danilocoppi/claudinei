@@ -11,14 +11,20 @@ import {
 import { useEffectiveView } from './columnStore'
 import { BrowserScreen, type FrameSink } from './BrowserScreen'
 import { ServersStrip } from './ServersStrip'
+import { Annotator } from './Annotator'
 
-type Props = { projectId: number; engine: string }
+type Props = { projectId: number; engine: string; /** A sessão principal do terminal (o campo que recebe a anotação). */ localId?: string }
 
 /** O "Entendi" do aviso de senha, lembrado por navegador. */
 const PASSWORD_WARNED_KEY = 'claudinei:browserPasswordWarned'
 /** O aviso do servidor para esquema recusado (em inglês, o texto do agente): a tela traduz por igualdade. */
 const SCHEME_REFUSED = 'only http:, https: and about:blank URLs are allowed'
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 }
+/** Sem o congelado (PNG) neste prazo depois do `freeze`, a anotação desiste e descongela. */
+const STILL_WAIT_MS = 10_000
+
+/** A anotação em curso: o congelado (null até chegar), a URL e o viewport dele. */
+type Annot = { still: Blob | null; url: string; viewport: { width: number; height: number } }
 
 const readWarned = () => {
   try { return !!localStorage.getItem(PASSWORD_WARNED_KEY) } catch { return false }
@@ -31,7 +37,7 @@ const readWarned = () => {
  * `browser_tab` que chegou antes do motivo) fica na tela ao vivo, que mostra
  * "O navegador fechou — Reabrir" ou sai, conforme o motivo.
  */
-export function BrowserColumn({ projectId, engine }: Props) {
+export function BrowserColumn({ projectId, engine, localId }: Props) {
   const key = progressKey(projectId, engine)
   const failure = useBrowserStore((s) => s.failed[key])
   if (failure && !isClosedFailure(failure)) {
@@ -41,7 +47,7 @@ export function BrowserColumn({ projectId, engine }: Props) {
       </div>
     )
   }
-  return <BrowserLive projectId={projectId} engine={engine} />
+  return <BrowserLive projectId={projectId} engine={engine} localId={localId} />
 }
 
 /** Os terminais com um `POST` de reabertura a caminho: um segundo aperto não abre outra. */
@@ -106,7 +112,7 @@ export function BrowserFailureNote({ failure, onRetry }: { failure: BrowserFailu
  * tela na vista (`IntersectionObserver`). Desmontar manda `visible: false` e
  * fecha o socket.
  */
-function BrowserLive({ projectId, engine }: Props) {
+function BrowserLive({ projectId, engine, localId }: Props) {
   const { t } = useTranslation()
   const key = progressKey(projectId, engine)
   const failure = useBrowserStore((s) => s.failed[key])
@@ -133,6 +139,19 @@ function BrowserLive({ projectId, engine }: Props) {
   const lastResize = useRef<BrowserClientMsg | null>(null)
   /** O motivo do fechamento da aba, dito pelo socket. */
   const closedReason = useRef<BrowserStateMsg['closed'] | null>(null)
+
+  /**
+   * A anotação: `annotRef` diz, na hora, se este espectador pediu o congelado
+   * (o socket e o desmontar leem sem esperar o render). Toda saída passa por
+   * `endAnnot`, que manda `freeze { on: false }`.
+   */
+  const [annot, setAnnot] = useState<Annot | null>(null)
+  const [annotError, setAnnotError] = useState<string | null>(null)
+  const annotRef = useRef(false)
+  const stillTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** O último `state`, para a URL do congelado. */
+  const stRef = useRef<BrowserStateMsg | null>(null)
+  stRef.current = st
 
   const send = useCallback((m: BrowserClientMsg) => {
     if (m.type === 'resize') lastResize.current = m
@@ -166,13 +185,32 @@ function BrowserLive({ projectId, engine }: Props) {
           setBrowserTab(key, false)
         }
       },
-      onFrame: (f) => frameRef.current?.(f),
+      onFrame: (f) => {
+        // O congelado é só da anotação (nem vai à tela ao vivo); fora dela, ou repetido, é descartado.
+        if (f.header.kind === 'still') {
+          if (!annotRef.current) return
+          if (stillTimer.current) clearTimeout(stillTimer.current)
+          stillTimer.current = null
+          const viewport = { width: f.header.width, height: f.header.height }
+          setAnnot((a) => (a && !a.still ? { still: f.image, url: stRef.current?.url ?? a.url, viewport } : a))
+          return
+        }
+        frameRef.current?.(f)
+      },
       onClose: (code, retrying) => { if (!retrying && code === 1008) setRefused(true) },
     })
     connRef.current = c
     if (lastResize.current) c.send(lastResize.current)
     return () => {
       releaseRef.current?.()
+      // A anotação aberta: descongela antes de fechar (desmontar, trocar de terminal, reconectar).
+      if (annotRef.current) {
+        annotRef.current = false
+        if (stillTimer.current) clearTimeout(stillTimer.current)
+        stillTimer.current = null
+        c.send({ type: 'freeze', on: false })
+        setAnnot(null)
+      }
       c.send({ type: 'visible', visible: false })
       c.close()
       if (connRef.current === c) connRef.current = null
@@ -200,6 +238,31 @@ function BrowserLive({ projectId, engine }: Props) {
       setSt(null)
       setGen((g) => g + 1)
     }
+  }
+
+  /** Sai da anotação (qualquer caminho) e descongela; com erro, o porquê fica no cabeçalho. */
+  const endAnnot = useCallback((error?: string) => {
+    if (stillTimer.current) clearTimeout(stillTimer.current)
+    stillTimer.current = null
+    if (annotRef.current) {
+      annotRef.current = false
+      send({ type: 'freeze', on: false })
+    }
+    setAnnot(null)
+    setAnnotError(error ?? null)
+  }, [send])
+
+  const startAnnot = () => {
+    if (annotRef.current || !st) return
+    annotRef.current = true
+    setAnnotError(null)
+    setAnnot({ still: null, url: st.url, viewport: st.viewport })
+    send({ type: 'freeze', on: true })
+    // O servidor descongela sozinho se a captura falhar, sem avisar: o prazo cobre esse caso.
+    stillTimer.current = setTimeout(() => {
+      stillTimer.current = null
+      endAnnot(t('browser.annotate.freezeFailed'))
+    }, STILL_WAIT_MS)
   }
 
   const closeTab = () => {
@@ -282,6 +345,13 @@ function BrowserLive({ projectId, engine }: Props) {
         <input className="browser-head__addr" aria-label={t('browser.address')} spellCheck={false} autoComplete="off"
                value={addr ?? st?.url ?? ''} aria-busy={st?.loading || undefined}
                onChange={(e) => setAddr(e.target.value)} onKeyDown={onAddrKey} onBlur={() => setAddr(null)} />
+        <button type="button" className="ghost browser-head__btn" aria-label={t('browser.annotate.open')}
+                title={t('browser.annotate.openTitle')} aria-pressed={!!annot}
+                disabled={!st || !!st.closed || st.crashed || !!annot} onClick={startAnnot}>
+          {/* Um lápis. */}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+               strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></svg>
+        </button>
         <button type="button" className="ghost browser-head__btn" aria-label={t('browser.closeTab')} title={t('browser.closeTab')}
                 onClick={closeTab}>
           {/* Desligar, e não ×: o × logo acima fecha só a coluna (a aba continua). */}
@@ -319,6 +389,7 @@ function BrowserLive({ projectId, engine }: Props) {
           {closeError && <li>{closeError}</li>}
         </ul>
       )}
+      {annotError && <div className="browser-notices" role="status">{annotError}</div>}
       <div className="browser-view">
         <BrowserScreen viewportWidth={vp.width} viewportHeight={vp.height} you={you} visible={visible} mark={mark}
                        send={send} frameRef={frameRef} releaseRef={releaseRef} onIntersect={onIntersect} />
@@ -359,6 +430,10 @@ function BrowserLive({ projectId, engine }: Props) {
             </div>
           </div>
         ) : null}
+        {/* A anotação cobre a tela (e o que a cobre): a tela fica montada, com a mesma medida. */}
+        {annot && (
+          <Annotator still={annot.still} viewport={annot.viewport} url={annot.url} localId={localId} onExit={endAnnot} />
+        )}
       </div>
     </div>
   )

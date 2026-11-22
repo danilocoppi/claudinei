@@ -489,6 +489,13 @@ export const en = {
     refused: 'The browser screen refused the connection. Reload the page to try again.',
     dialog: { ok: 'OK', cancel: 'Cancel', label: 'The page asks' },
     notices: { label: 'Browser notices', schemeRefused: 'Only http:, https: and about:blank addresses are allowed.' },
+    annotate: {
+      open: 'Annotate', openTitle: 'Annotate the screen and send it to the message field', label: 'Screen annotation',
+      rect: 'Rectangle', arrow: 'Arrow', text: 'Text', crop: 'Crop', undo: 'Undo',
+      send: 'Send to field', cancel: 'Cancel', waiting: 'Freezing the screen…',
+      freezeFailed: 'Couldn’t freeze the screen.', sendFailed: 'Couldn’t send: {{detail}}',
+      textField: 'Annotation text',
+    },
   },
   localServers: {
     label: 'This terminal’s servers', open: 'Open', stop: 'Stop', stopping: 'stopping…',

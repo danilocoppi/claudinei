@@ -100,7 +100,7 @@ export function RightColumn({ projectId, engine, localId, sessionStatus }: Props
   const body = useMemo(() => (
     view === 'progress' ? <ProgressColumn projectId={projectId} engine={engine} sessionStatus={sessionStatus} />
       : view === 'side' ? <SideColumn projectId={projectId} engine={engine} localId={localId} />
-        : view === 'browser' ? <BrowserColumn key={key} projectId={projectId} engine={engine} />
+        : view === 'browser' ? <BrowserColumn key={key} projectId={projectId} engine={engine} localId={localId} />
           : null
   ), [view, projectId, engine, localId, sessionStatus, key])
 

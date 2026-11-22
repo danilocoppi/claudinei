@@ -34,6 +34,7 @@ import { InlineFileView } from './InlineFileView'
 import { HeadsUpBand } from './HeadsUpBand'
 import { Icon } from './Icon'
 import { isAtBottom, SLACK } from '../scrollFollow'
+import { prenderFimNaLargura, type FimNaLargura } from '../chat/widthPin'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
 import { ProgressButton } from './ProgressColumn'
@@ -337,61 +338,32 @@ export function ChatView() {
   // Gestos de rolagem do operador (não as rolagens da própria lista): a busca
   // usa para não levar a tela a uma ocorrência que chegou depois de ele voltar a ler.
   const soltarGestos = useRef<(() => void) | null>(null)
+  // O "prender no fim" da largura que muda; a lista avisa a altura total que se acomoda.
+  const fimNaLargura = useRef<FimNaLargura | null>(null)
+  const onTotalHeight = useCallback(() => { fimNaLargura.current?.alturaMudou() }, [])
   const setScroller = useCallback((el: HTMLElement | Window | null) => {
     scrollerRef.current = el instanceof HTMLElement ? el : null
     soltarGestos.current?.()
     soltarGestos.current = null
     if (!(el instanceof HTMLElement)) return
-    const gesto = () => { chatUserScroll.n++ }
+    const gesto = () => { chatUserScroll.n++; fimNaLargura.current?.gesto() }
     const tecla = (e: KeyboardEvent) => { if (SCROLL_KEYS.has(e.key)) gesto() }
     const opts = { passive: true } as const
     el.addEventListener('wheel', gesto, opts)
     el.addEventListener('touchmove', gesto, opts)
     el.addEventListener('mousedown', gesto, opts)
     el.addEventListener('keydown', tecla)
-    // A coluna da direita que abre ou fecha (o `browser_open` do agente, Alt+B,
-    // o Acompanhamento) muda a LARGURA da rolagem: o texto refaz as quebras de
-    // linha, a altura da conversa muda e a tela deixava de estar no fim. Quem
-    // estava no fim ANTES da mudança volta para lá, sem animação; quem lia mais
-    // acima fica onde estava.
-    //
-    // "No fim antes" é a última leitura feita na largura antiga: cada `scroll`
-    // lê de novo, mas só enquanto a largura é a que o observador conhece — o
-    // `scroll` que o próprio reflow provoca (a posição presa no limite, a
-    // ancoragem do navegador) já chega na largura nova e não pode apagar o que
-    // valia antes. A lista abre no fim, daí o `true` de partida.
-    //
-    // O `scroll` sozinho não basta: o conteúdo que cresce abaixo da tela sem
-    // rolar (um grupo de ações que o operador abre no fim) solta a lista — o
-    // botão "ir para o fim" aparece — sem nenhum `scroll`, e `noFim` seguiria
-    // valendo. Por isso a lista também precisa estar presa (`followingRef`).
-    // O aviso dela chega em lotes de 50 ms e passa por um render, então no
-    // instante da mudança de largura `followingRef` ainda é o de antes dela.
-    let largura: number | undefined
-    let noFim = true
-    const rolou = () => {
-      if (largura === undefined || el.clientWidth === largura) noFim = isAtBottom(el)
-    }
-    // Só a largura interessa: a altura que muda sozinha (rodapé do streaming,
-    // item novo) já tem quem cuide (onFooterGrow e `followOutput`). O observador
-    // só chama quando o tamanho muda de fato, nada roda a cada quadro.
-    const observador = new ResizeObserver(() => {
-      const w = el.clientWidth
-      // A primeira medida é a de partida (a lista pode ainda nem ter descido ao fim).
-      if (largura === undefined) { largura = w; return }
-      if (w === largura) return
-      largura = w
-      if (noFim && followingRef.current) el.scrollTop = el.scrollHeight
-    })
-    el.addEventListener('scroll', rolou, opts)
-    observador.observe(el)
+    // A coluna da direita que abre ou fecha muda a largura da rolagem: quem
+    // estava no fim volta e segue preso enquanto a lista remede (chat/widthPin.ts).
+    const fim = prenderFimNaLargura(el, () => followingRef.current)
+    fimNaLargura.current = fim
     soltarGestos.current = () => {
       el.removeEventListener('wheel', gesto)
       el.removeEventListener('touchmove', gesto)
       el.removeEventListener('mousedown', gesto)
       el.removeEventListener('keydown', tecla)
-      el.removeEventListener('scroll', rolou)
-      observador.disconnect()
+      fim.soltar()
+      if (fimNaLargura.current === fim) fimNaLargura.current = null
     }
   }, [])
   // Garantia redundante: a lista já chama `scrollerRef(null)` ao desmontar, o
@@ -661,6 +633,7 @@ export function ChatView() {
         atTopStateChange={onAtTop}
         increaseViewportBy={{ top: 600, bottom: 600 }}
         scrollerRef={setScroller}
+        totalListHeightChanged={onTotalHeight}
         rangeChanged={paintFind}
         components={LIST_COMPONENTS}
       />

@@ -20,12 +20,16 @@ import type { ChatItem, ClaudeEvent, EngineMeta, HistoryPage, SessionInfo } from
  * continua sendo usada, e o teste só guarda o aviso (`atBottomStateChange`)
  * que a ChatView entregou a ela, para dá-lo como a lista daria.
  */
-const lista = vi.hoisted(() => ({ avisaFim: null as ((noFim: boolean) => void) | null }))
+const lista = vi.hoisted(() => ({
+  avisaFim: null as ((noFim: boolean) => void) | null,
+  alturaTotal: null as ((h: number) => void) | null,
+}))
 vi.mock('react-virtuoso', async (original) => {
   const m = await original<typeof import('react-virtuoso')>()
   const { forwardRef, createElement } = await import('react')
-  const Virtuoso = forwardRef<unknown, { atBottomStateChange?: (noFim: boolean) => void }>((props, ref) => {
+  const Virtuoso = forwardRef<unknown, { atBottomStateChange?: (noFim: boolean) => void; totalListHeightChanged?: (h: number) => void }>((props, ref) => {
     lista.avisaFim = props.atBottomStateChange ?? null
+    lista.alturaTotal = props.totalListHeightChanged ?? null
     return createElement(m.Virtuoso as never, { ...props, ref })
   })
   return { ...m, Virtuoso }
@@ -479,6 +483,43 @@ describe('a largura da rolagem que muda', () => {
     fireEvent.scroll(caixa())
     redimensiona(800)
     expect(g.top()).toBe(6600)
+  })
+
+  it('presa no fim, a coluna que fecha: a lista que remede e recua logo depois não tira a tela do fim', async () => {
+    preparar(conversa(100))
+    await montar()
+    const g = geometria(7200 - ALTURA_JANELA, 7200, 500)
+    fireEvent.scroll(caixa())
+    redimensiona(500)
+    g.medir(6600, 800)
+    fireEvent.scroll(caixa())
+    redimensiona(800)
+    expect(g.top()).toBe(6600)
+    // 15–30 ms depois, no navegador, a lista remede os itens, recua a posição
+    // para manter o item do topo (11323→10223 no ensaio) e avisa a altura
+    // total nova: a tela volta ao fim.
+    caixa().scrollTop = 5600
+    fireEvent.scroll(caixa())
+    g.medir(7400, 800)
+    act(() => lista.alturaTotal!(7400))
+    expect(g.top()).toBe(7400)
+  })
+
+  it('o operador que rola logo depois da troca de largura não é puxado de volta', async () => {
+    preparar(conversa(100))
+    await montar()
+    const g = geometria(7200 - ALTURA_JANELA, 7200, 500)
+    fireEvent.scroll(caixa())
+    redimensiona(500)
+    g.medir(6600, 800)
+    fireEvent.scroll(caixa())
+    redimensiona(800)
+    fireEvent.wheel(caixa())
+    caixa().scrollTop = 5000
+    fireEvent.scroll(caixa())
+    g.medir(7400, 800)
+    act(() => lista.alturaTotal!(7400))
+    expect(g.top()).toBe(5000)
   })
 
   it('lendo mais acima, a largura que muda não leva a tela ao fim', async () => {

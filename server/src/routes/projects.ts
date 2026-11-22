@@ -35,6 +35,8 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
   /** A ⭐ fixa para o usuário que clicou. */
   triage: TriageStore
   broadcast?: (msg: object) => void
+  /** O terminal vai ser excluído: o que não sai pela cascata (os arquivos das páginas) sai aqui. */
+  onRemoving?: (projectId: number) => void
 }) {
   const svc = createProjectsService(deps.db)
 
@@ -274,6 +276,12 @@ export function registerProjectRoutes(app: FastifyInstance, deps: {
       for (const a of actions.list(id)) {
         await deps.terminalManager.closeAndWait(runKey(a.id))
       }
+    }
+    // As páginas não impedem a exclusão: o que sobrar a varredura da subida limpa.
+    try {
+      deps.onRemoving?.(id)
+    } catch (e) {
+      console.error(`[projetos] apagar as páginas do terminal ${id}: ${(e as Error).message}`)
     }
     svc.remove(id)
     return reply.code(204).send()

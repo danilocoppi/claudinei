@@ -1,0 +1,105 @@
+/* Respostas visuais: o cartão da página no chat e a tela cheia.
+   Sem GPU (AGENTS.md): nada de animação, transição, desfoque nem sombra, e
+   nenhuma miniatura. Parada, a página é uma linha de texto; só a viva monta o
+   iframe. Os botões zeram a transição do botão base, e a tela cheia não usa
+   .modal-overlay, que traz desfoque. */
+
+/* ── Cartão ── */
+.page-card {
+  margin: 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-solid);
+  overflow: hidden;
+}
+.page-card__bar {
+  display: flex; align-items: center; gap: 4px 10px; min-width: 0;
+  padding: 6px 10px; font-size: 13px;
+}
+.page-card--live .page-card__bar { border-bottom: 1px solid var(--border); }
+.page-card__icon { flex: none; color: var(--text-dim); }
+.page-card__title {
+  flex: 1; min-width: 0; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.page-card__size { flex: none; font-size: 12px; color: var(--text-dim); }
+.page-card__note { flex: 1; min-width: 0; font-size: 12px; color: var(--text-dim); }
+.page-card__btn {
+  flex: none; background: none; border: 0; padding: 2px 4px; border-radius: var(--radius-xs);
+  color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: none; filter: none;
+}
+.page-card__btn:hover { text-decoration: underline; filter: none; }
+
+/* A página viva. Fora da tela, o lugar dela guarda a mesma altura, sem iframe. */
+.page-card__frame { display: block; width: 100%; border: 0; background: #fff; }
+.page-card__slot { display: block; width: 100%; }
+.page-card__status { padding: 10px; font-size: 12px; color: var(--text-dim); }
+
+/* ── Tela cheia: o invólucro quase tela cheia do FileViewerModal, sem desfoque ── */
+.page-card-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--scrim);
+  display: flex; align-items: center; justify-content: center;
+}
+.page-card-full {
+  display: flex; flex-direction: column; overflow: hidden;
+  width: calc(100vw - 40px); height: calc(100vh - 40px);
+  background: #12141d; border: 1px solid var(--glass-border); border-radius: 16px;
+}
+.page-card-full__bar {
+  display: flex; align-items: center; gap: 12px; flex: none;
+  padding: 10px 14px; border-bottom: 1px solid var(--glass-border);
+}
+.page-card-full__title {
+  flex: 1; min-width: 0; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.page-card-full__close { flex: none; padding: 7px 10px; transition: none; }
+.page-card-full__frame { flex: 1; display: block; width: 100%; border: 0; background: #fff; }
+.page-card-full .page-card__status { flex: 1; }
+/* Guarda do foco, depois do diálogo: sem tamanho, fora do fluxo. */
+.page-card-full__guard { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* ── Diálogos: "Páginas desta conversa" e "Páginas visuais" (admin) ──
+   Fundo próprio, sem o desfoque do .modal-overlay. Mesmo z-index da tela cheia,
+   que abre depois e por isso fica por cima da lista. */
+.pages-dialog-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--scrim);
+  display: flex; align-items: center; justify-content: center;
+}
+.pages-dialog {
+  display: flex; flex-direction: column; overflow: hidden;
+  width: min(760px, calc(100vw - 32px)); max-height: min(85vh, 900px);
+  background: var(--surface-solid); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+}
+.pages-dialog:focus { outline: none; }
+.pages-dialog__head {
+  display: flex; align-items: center; gap: 12px; flex: none;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+}
+.pages-dialog__title {
+  flex: 1; min-width: 0; margin: 0; font-size: 15px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pages-dialog__close { flex: none; padding: 5px 9px; transition: none; }
+/* A rolagem da lista: o observer do cartão vivo é da janela, e esta caixa
+   recorta o que sai dela, então rolar a lista também desmonta o iframe. */
+.pages-dialog__body { flex: 1; min-height: 0; overflow: auto; padding: 4px 14px 8px; }
+.pages-dialog__empty { padding: 14px 0; font-size: 13px; color: var(--text-dim); }
+
+.pages-settings { width: min(520px, calc(100vw - 32px)); }
+.pages-settings__body { display: flex; flex-direction: column; gap: 12px; padding: 14px; overflow: auto; }
+.pages-settings__group { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; border: 0; }
+.pages-settings__group legend { padding: 0; margin-bottom: 6px; font-size: 12px; color: var(--text-dim); }
+.pages-settings__option { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.pages-settings__warn {
+  margin: 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.45;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.pages-settings__note { font-size: 12px; color: var(--text-dim); }
+.pages-settings__error { font-size: 12.5px; color: var(--err); }
+.pages-settings__actions { display: flex; gap: 10px; justify-content: flex-end; }

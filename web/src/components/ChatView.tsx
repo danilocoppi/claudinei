@@ -48,6 +48,8 @@ import { TurnLine } from './undo/TurnLine'
 import { ChangesPanel, type PanelFocus } from './undo/ChangesPanel'
 import { UndoDialog, type UndoRequest } from './undo/UndoDialog'
 import { EditFromHereDialog, editTargetOf } from './undo/EditFromHereDialog'
+import { useChatPages } from '../pages/useChatPages'
+import { PageFullscreenHost } from './PageFullscreen'
 import type { RewindTarget, TurnDto } from '../../../shared/undo'
 
 const EMPTY_ITEMS: ChatItem[] = []
@@ -267,6 +269,7 @@ export function ChatView() {
     }
     return byAfter
   }, [items, undoTurns, atStart])
+  const pagesAt = useChatPages(activeLocalId ?? null, session?.engineSessionId ?? null, items, undoTurns, atStart)
   const firstItemIndex = useFirstItemIndex(activeLocalId ?? undefined, nodes)
 
   // D4: (re)carrega o histórico sempre que a sessão ativa tiver um engineSessionId
@@ -326,6 +329,11 @@ export function ChatView() {
     if (!isAtBottom(el, SLACK + grew)) return
     el.scrollTop = el.scrollHeight
   }, [])
+  // A página viva que cresce dentro do cartão puxa do mesmo jeito (listHandle.ts).
+  useEffect(() => {
+    chatFollow.grew = onFooterGrow
+    return () => { chatFollow.grew = () => {} }
+  }, [onFooterGrow])
   // Gestos de rolagem do operador (não as rolagens da própria lista): a busca
   // usa para não levar a tela a uma ocorrência que chegou depois de ele voltar a ler.
   const soltarGestos = useRef<(() => void) | null>(null)
@@ -500,15 +508,17 @@ export function ChatView() {
     const last = node.kind === 'group' ? node.items[node.items.length - 1].index : node.index
     return (
       <div className="chat-entry" data-key={nodeKey(node)}>
+        {first === 0 && pagesAt(-1)}
         {first === 0 && turnLinesAt(-1)}
         {node.kind === 'group'
           ? <ActionGroup items={node.items} currentLocalId={localId!} />
           : <MessageBlock item={node.item} currentLocalId={localId!}
                           editable={editableIdx.has(node.index)} onEdit={handleEdit} />}
+        {pagesAt(last)}
         {turnLinesAt(last)}
       </div>
     )
-  }, [localId, editableIdx, handleEdit, turnLinesAt])
+  }, [localId, editableIdx, handleEdit, turnLinesAt, pagesAt])
 
   const edge: ListContext['edge'] = nodes.length === 0 ? null
     : historyCursor?.atStart ? 'start'
@@ -584,7 +594,7 @@ export function ChatView() {
           🖥 <span className="btn-label">{t('chat.openInTerminal')}</span>
         </button>
       </div>
-      {menuAt && <TerminalMenu project={project} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
+      {menuAt && <TerminalMenu project={project} localId={session.localId} x={menuAt.x} y={menuAt.y} onDone={() => setMenuAt(null)} />}
       {findOpen && <FindBar key={`find:${session.localId}`} localId={session.localId} />}
       <div className="chat-scroll-wrap">
       {/* Lista virtual: só os nós perto da tela ficam montados. As sequências
@@ -665,6 +675,7 @@ export function ChatView() {
         <EditFromHereDialog localId={editing.localId} target={editing.target} initialText={editing.text}
                             itemKey={editing.key} itemIndex={editing.index} onClose={() => setEditing(null)} />
       )}
+      <PageFullscreenHost />
       {undoPanel && <ChangesPanel localId={session.localId} focus={undoPanel} onClose={() => setUndoPanel(null)} onUndo={setUndoDialog} />}
       {undoDialog && (
         <UndoDialog request={undoDialog} onClose={() => setUndoDialog(null)} onDone={() => {

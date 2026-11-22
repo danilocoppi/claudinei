@@ -311,6 +311,7 @@ if (process.argv.includes('--hermes')) {
     behindProxy,
     https: https ?? undefined,
     webDist: existsSync(webDist) ? webDist : undefined,
+    sweepPages: true,
     onOrchestratorReady: (o) => { drain = o.drain },
     onNextSendReady: (n) => { nextSend = n },
     onQueueReady: (q) => { queue = q },

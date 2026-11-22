@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 import { backfillProjectEngines } from './terminal-engines.js'
 import { migrateFavoritesToPins } from './triage/store.js'
 import { migrateBranch } from './branch/schema.js'
+import { migratePages } from './pages/schema.js'
 
 export type Db = Database.Database
 
@@ -452,5 +453,6 @@ export function openDb(path: string): Db {
     console.error('[claudinei] MIGRAÇÃO projects.path FALHOU — dois terminais na mesma pasta seguem indisponíveis:', err)
   }
   migrateBranch(db)
+  migratePages(db)
   return db
 }

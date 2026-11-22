@@ -49,6 +49,20 @@ describe('groupActions', () => {
     const nodes = groupActions(items, false)
     expect(nodes.map((n) => n.kind)).toEqual(['group', 'item', 'group', 'item'])
   })
+
+  it('show_page não entra no grupo de ações; três Read seguidos ao redor continuam agrupando', () => {
+    for (const name of ['mcp__hermes__show_page', 'hermes/show_page', 'hermes_show_page', 'show_page']) {
+      const items = [user(), tool('Read'), tool('Read'), tool('Read'), tool(name), tool('Read'), tool('Read'), tool('Read'), assistant()]
+      const nodes = groupActions(items, false)
+      expect(nodes.map((n) => n.kind)).toEqual(['item', 'group', 'item', 'group', 'item'])
+      expect(nodes[2]).toMatchObject({ kind: 'item', index: 4 })
+      const groups = nodes.filter((n) => n.kind === 'group') as Extract<ReturnType<typeof groupActions>[number], { kind: 'group' }>[]
+      expect(groups.map((g) => g.items.map((x) => x.index))).toEqual([[1, 2, 3], [5, 6, 7]])
+    }
+    // Nome parecido continua sendo ação comum.
+    const nodes = groupActions([tool('Read'), tool('mcp__x__show_pages'), tool('Read'), assistant()], false)
+    expect(nodes.map((n) => n.kind)).toEqual(['group', 'item'])
+  })
 })
 
 describe('groupSummary', () => {

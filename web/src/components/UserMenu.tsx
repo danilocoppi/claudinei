@@ -5,9 +5,10 @@ import { useStore } from '../store'
 import { logout } from '../api'
 import { ChangePasswordModal } from './ChangePasswordModal'
 import { ManageUsersModal } from './ManageUsersModal'
+import { VisualPagesSettings } from './VisualPagesSettings'
 
 /** Menu 👤 ao lado do logo: instalar o app (quando o navegador oferece),
- *  trocar senha, gerenciar usuários (admin) e sair. */
+ *  trocar senha, gerenciar usuários e a rede das páginas visuais (admin) e sair. */
 export function UserMenu() {
   const { t } = useTranslation()
   const me = useStore((s) => s.me)
@@ -16,7 +17,7 @@ export function UserMenu() {
   const clearInstallPrompt = useStore((s) => s.clearInstallPrompt)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
-  const [modal, setModal] = useState<'password' | 'users' | null>(null)
+  const [modal, setModal] = useState<'password' | 'users' | 'pages' | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -75,6 +76,7 @@ export function UserMenu() {
             )}
             <div className="user-menu__item" onClick={() => { setModal('password'); setOpen(false) }}>{t('auth.changePassword')}</div>
             {isAdmin && <div className="user-menu__item" onClick={() => { setModal('users'); setOpen(false) }}>{t('auth.manageUsers')}</div>}
+            {isAdmin && <div className="user-menu__item" onClick={() => { setModal('pages'); setOpen(false) }}>{t('pages.settingsItem')}</div>}
             <div className="user-menu__item" onClick={() => void signOut()}>{t('auth.signOut')}</div>
           </div>
         </div>,
@@ -82,6 +84,7 @@ export function UserMenu() {
       )}
       {modal === 'password' && <ChangePasswordModal onClose={() => setModal(null)} />}
       {modal === 'users' && <ManageUsersModal onClose={() => setModal(null)} />}
+      {modal === 'pages' && <VisualPagesSettings onClose={() => setModal(null)} />}
     </>
   )
 }

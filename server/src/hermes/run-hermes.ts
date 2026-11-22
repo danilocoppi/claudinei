@@ -486,6 +486,88 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
       plain('close'),
     )
   }
+  // Respostas visuais: o agente publica uma página HTML que aparece como cartão
+  // na conversa do terminal (projeto + motor). Adiada no Claude, como as demais.
+  server.registerTool(
+    'show_page',
+    {
+      description:
+        'Shows an HTML page to the operator, as a card in this conversation in Claudinei. '
+        + 'Use it when the operator asks for something visual (a chart, diagram, table, mockup, report) or when the answer reads better drawn than written. '
+        + 'Pass exactly one of `html` (the whole document) or `path` (an .html or .htm file inside the project folder, absolute or relative to it), never both. '
+        + 'When the page is large or will change, write the file and pass `path`. '
+        + 'The page runs isolated: no forms, no fetch, XHR or WebSocket, and no access to Claudinei or to the operator\'s session. '
+        + 'Scripts, styles, fonts and images load only from https://cdn.jsdelivr.net, https://unpkg.com and https://cdnjs.cloudflare.com, plus Google Fonts for styles and fonts. '
+        + 'For Tailwind use <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>. '
+        + 'Local images, CSS and JS referenced by relative path are embedded into the page, up to 512 KB for the whole page; what cannot be embedded is reported back. '
+        + 'The call does not wait for the operator: it returns as soon as the page is shown. '
+        + 'For a page with scripts or a complex layout, call check_page first to see it rendered and catch console errors.',
+      inputSchema: {
+        html: z.string().max(524288).optional().describe('the whole HTML document (at most 524288 characters); omit when passing path'),
+        path: z.string().optional().describe('an .html or .htm file inside the project folder, absolute or relative to it; omit when passing html'),
+        title: z.string().min(1).max(120).describe('short title shown on the card (1 to 120 characters)'),
+        height: z.number().int().min(120).max(2000).optional().describe('suggested initial height in pixels (120 to 2000)'),
+      },
+    },
+    async ({ html, path, title, height }) => {
+      try {
+        const r = await call('/api/hermes/pages', {
+          method: 'POST',
+          body: JSON.stringify({ projectId: PROJECT_ID, engine: ENGINE || 'claude', html, path, title, height }),
+        }) as { id: string; bytes: number; warnings?: string[] }
+        const head = `page shown to the operator (id ${r.id}, ${Math.max(1, Math.round(r.bytes / 1024))} KB)`
+        return text([head, ...(r.warnings ?? [])].join('\n'))
+      } catch (err) {
+        return { ...text(`show_page rejected: ${(err as Error).message}`), isError: true }
+      }
+    },
+  )
+
+  // A página renderizada no navegador sem tela do servidor, para o agente
+  // conferir antes do show_page. Nada é guardado nem mostrado ao operador.
+  server.registerTool(
+    'check_page',
+    {
+      description:
+        'Renders an HTML page in a headless browser and returns what it looks like, without showing it to the operator. '
+        + 'Use it before show_page for a page with scripts or a complex layout, to see it rendered and catch console errors. '
+        + 'Pass exactly one of `html` or `path`, the same as show_page, and optionally `width` (360 to 1920 pixels, default 1024). '
+        + 'The page is built the way show_page would publish it (local resources embedded, the same network rules), but nothing is stored or shown. '
+        + 'Returns a screenshot of the whole page (cut at 2000 px), the content height, and up to 50 console lines, errors first, including requests the page rules blocked. '
+        + 'It also returns the path of a copy of the PNG, kept for 30 min, for when tool images do not reach you. '
+        + 'If it answers "busy", try again in a few moments.',
+      inputSchema: {
+        html: z.string().max(524288).optional().describe('the whole HTML document (at most 524288 characters); omit when passing path'),
+        path: z.string().optional().describe('an .html or .htm file inside the project folder, absolute or relative to it; omit when passing html'),
+        width: z.number().int().min(360).max(1920).optional().describe('viewport width in pixels (360 to 1920, default 1024)'),
+      },
+    },
+    async ({ html, path, width }) => {
+      try {
+        const r = await call('/api/hermes/pages/check', {
+          method: 'POST',
+          body: JSON.stringify({ projectId: PROJECT_ID, html, path, width }),
+        }) as { png: string; height: number; cropped: boolean; loaded: boolean; console: string[]; file: string; fileError?: string }
+        const lines = [`content height: ${r.height} px${r.cropped ? ' (screenshot cut at 2000 px)' : ''}`]
+        if (!r.loaded) lines.push('the load event did not fire within 10 s; captured anyway')
+        lines.push(r.file
+          ? `screenshot copy: ${r.file} (kept 30 min)`
+          : `screenshot copy: not saved (${r.fileError || 'unknown error'})`)
+        lines.push(r.console.length
+          ? `console (${r.console.length} ${r.console.length === 1 ? 'line' : 'lines'}, errors first):\n${r.console.join('\n')}`
+          : 'console: empty')
+        // Imagem e texto sempre: o motor que descarta a imagem lê o caminho da cópia.
+        return {
+          content: [
+            { type: 'image' as const, data: r.png, mimeType: 'image/png' },
+            { type: 'text' as const, text: lines.join('\n') },
+          ],
+        }
+      } catch (err) {
+        return { ...text(`check_page failed: ${(err as Error).message}`), isError: true }
+      }
+    },
+  )
 
   const transport = new StdioServerTransport()
   await server.connect(transport)

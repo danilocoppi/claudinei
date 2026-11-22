@@ -98,6 +98,16 @@ const PREVIEW_PREFIX = '/api/files/preview/'
 const isPreviewRead = (method: string, path: string) =>
   method === 'GET' && path.startsWith(PREVIEW_PREFIX)
 
+/**
+ * A página visual servida no cartão: mesmo motivo, autorizada pelo token do caminho (pages/routes.ts).
+ * Confere também o caminho cru: `/api/pages/view%2F…` decodifica para o prefixo,
+ * mas o router o leva a `GET /api/pages/:id`, que não é pública.
+ */
+const PAGE_VIEW_PREFIX = '/api/pages/view/'
+const PAGE_VIEW_RAW = /^\/api\/pages\/view\/[^/?#]+\/[^/?#]+$/
+const isPageViewRead = (method: string, path: string, rawPath: string) =>
+  method === 'GET' && path.startsWith(PAGE_VIEW_PREFIX) && PAGE_VIEW_RAW.test(rawPath)
+
 // Escopo do token de serviço: só as APIs que o hermes MCP consome
 // (list/ask/board em /api/hermes/*; dispatch/list_tasks em /api/orchestrator/*).
 const SERVICE_PREFIXES = ['/api/hermes/', '/api/orchestrator/']
@@ -181,6 +191,28 @@ export function registerSecurityHeaders(app: FastifyInstance, secureTransport: b
     return payload
   })
 
+  /**
+   * `Origin: null` não chega a /api nem a /ws, nunca. É a origem de toda página
+   * em sandbox (as páginas visuais, a prévia de HTML): com a rede liberada, uma
+   * delas alcançaria 127.0.0.1 sem credencial no pré-setup. A interface e o
+   * Hermes nunca mandam essa origem. Aqui, e não em registerAuth, porque vale
+   * também sem auth configurada; registrado antes dele, recusa primeiro.
+   */
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.headers.origin !== 'null') return
+    const rawPath = req.url.split('?')[0]
+    // Uma decodificação, como o router e o gancho de auth: /%61pi casa /api.
+    // Caminho que não decodifica, com essa origem, é recusado também.
+    let path: string
+    try {
+      path = decodeURIComponent(rawPath)
+    } catch {
+      return reply.code(403).send({ error: 'opaque_origin' })
+    }
+    if (path.startsWith('/api/') || path === '/ws' || path.startsWith('/ws/')) {
+      return reply.code(403).send({ error: 'opaque_origin' })
+    }
+  })
 }
 
 export async function registerAuth(app: FastifyInstance, deps: { auth: AuthService; insecure?: boolean; behindProxy?: boolean; secureTransport?: boolean }): Promise<void> {
@@ -249,7 +281,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
       }
     }
 
-    if (!guarded || PUBLIC.has(`${req.method} ${path}`) || isPreviewRead(req.method, path)) return
+    if (!guarded || PUBLIC.has(`${req.method} ${path}`) || isPreviewRead(req.method, path) || isPageViewRead(req.method, path, rawPath)) return
     req.accessHoursGuarded = true
     if (!req.authUser) return reply.code(401).send({ error: 'unauthorized' })
     if (req.accessAllowed && !req.accessAllowed()) {

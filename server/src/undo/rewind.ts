@@ -76,6 +76,10 @@ export interface RewindDeps {
   }
   /** Quanto esperar o turno interrompido terminar. Padrão: 15 s. */
   waitFreeMs?: number
+  /** O trecho saiu da conversa (`markRewound`): as páginas desses turnos saem junto. */
+  onRewound?(turnIds: number[]): void
+  /** Os turnos que ficaram passaram ao id novo da conversa (`setConversation`). */
+  onRelabeled?(turnIds: number[], conversationId: string): void
   log?(m: string): void
 }
 
@@ -150,6 +154,26 @@ export function createRewindService(deps: RewindDeps) {
       store.addNote(label.projectId, label.engine, label.written)
     } catch (e) {
       log(`nota dos arquivos desfeitos em ${localId}: ${errText(e)}`)
+    }
+  }
+
+  /**
+   * Avisa quem acompanha a conversa (as páginas) depois de o banco mudar. Uma
+   * falha aqui vai ao log e não desfaz a volta, que já aconteceu. `moved`: os
+   * turnos cujas páginas passam ao id novo (os que ficaram e, no Claude, o
+   * turno que confirmou a conversa nova).
+   */
+  function notifyMoved(rewound: number[], moved: number[], conversationId: string | null): void {
+    try {
+      deps.onRewound?.(rewound)
+    } catch (e) {
+      log(`aviso do trecho cortado (${rewound.join(', ')}): ${errText(e)}`)
+    }
+    if (!conversationId || !moved.length) return
+    try {
+      deps.onRelabeled?.(moved, conversationId)
+    } catch (e) {
+      log(`aviso da conversa nova ${conversationId}: ${errText(e)}`)
     }
   }
 
@@ -410,6 +434,7 @@ export function createRewindService(deps: RewindDeps) {
         } else {
           store.markRewound(rangeIds)
           if (applied.newConversationId && keptIds.length) store.setConversation(keptIds, applied.newConversationId)
+          notifyMoved(rangeIds, keptIds, applied.newConversationId ?? null)
         }
 
         // 6. O texto editado sai como mensagem do operador (pausa o goal; passa pelo rastreador).
@@ -467,6 +492,9 @@ export function createRewindService(deps: RewindDeps) {
         pendingLabel.delete(t.localId)
         store.markRewound(label.range)
         if (label.kept.length) store.setConversation(label.kept, now)
+        // O turno que confirmou já está no id novo no desfazer, mas as páginas
+        // dele nasceram com o id segurado (o antigo, `holdEngineId`): vão junto.
+        notifyMoved(label.range, [...label.kept, t.id], now)
       } catch (e) {
         log(`rótulo da conversa nova (turno ${turnId}): ${errText(e)}`)
       }

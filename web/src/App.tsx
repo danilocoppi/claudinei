@@ -4,6 +4,7 @@ import { useStore } from './store'
 import { fetchGroups, fetchMe, fetchProjects, fetchSchedules, fetchSectors, fetchSlashCommands } from './api'
 import { syncPrefs } from './prefsSync'
 import { applyUndoWsMessage } from './undo/undoStore'
+import { applyPagesWsMessage } from './pages/pagesStore'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
 import { applySideMessage } from './branch/sideStore'
@@ -139,7 +140,7 @@ export default function App() {
     const client = connectWs(
       // A aba do navegador (browser/browserStore.ts) e a conversa lateral (branch/sideStore.ts)
       // têm store próprio: o que é deles não segue.
-      (msg) => { if (applyBrowserMessage(msg) || applySideMessage(msg)) return; useStore.getState().applyWsMessage(msg); applyUndoWsMessage(msg) },
+      (msg) => { if (applyBrowserMessage(msg) || applySideMessage(msg)) return; useStore.getState().applyWsMessage(msg); applyUndoWsMessage(msg); applyPagesWsMessage(msg) },
       // RE-conexão: eventos perdidos na queda não são reenviados pelo servidor —
       // invalida os históricos carregados (o ChatView rebusca) e limpa streaming órfão.
       () => useStore.getState().resyncOnReconnect(),

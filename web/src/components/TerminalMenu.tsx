@@ -8,10 +8,12 @@ import {
 } from '../api'
 import { useStore } from '../store'
 import { copyText } from '../clipboard'
-import { ClockIcon, CodeIcon, CopyIcon, EditIcon, FolderIcon, PlayIcon, SettleIcon, StarIcon, TerminalIcon, TrashIcon } from './MenuIcons'
+import { ClockIcon, CodeIcon, CopyIcon, EditIcon, FolderIcon, PageIcon, PlayIcon, SettleIcon, StarIcon, TerminalIcon, TrashIcon } from './MenuIcons'
 import { NewProjectModal } from './NewProjectModal'
 import { ActionEditor } from './ActionEditor'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
+import { PagesListDialog } from './PagesListDialog'
+import { usePagesStore } from '../pages/pagesStore'
 import type { Project } from '../types'
 import { ViewportPopover } from './ViewportPopover'
 import { WsContext } from '../wsContext'
@@ -42,15 +44,22 @@ const LOCAL_ACTIONS: { id: LocalApp; Icon: typeof FolderIcon; label: string }[] 
  * O componente cuida do ciclo inteiro — o popover, o formulário de edição e a
  * confirmação de exclusão —, e só avisa `onDone` quando tudo acabou. Se ele
  * desmontasse ao fechar o popover, o modal que o item abriu morreria junto.
+ *
+ * `localId`: o terminal da conversa, só no título do terminal aberto. Com ele e
+ * com páginas visuais carregadas, o menu ganha "Páginas desta conversa (n)".
+ * No cartão da lateral não vem: a lista de páginas só existe da conversa aberta.
  */
-export function TerminalMenu({ project, x, y, onDone }: {
+export function TerminalMenu({ project, localId, x, y, onDone }: {
   project: Project
+  localId?: string
   x: number
   y: number
   onDone: () => void
 }) {
   const { t } = useTranslation()
-  const [phase, setPhase] = useState<'menu' | 'edit' | 'delete' | 'action'>('menu')
+  const [phase, setPhase] = useState<'menu' | 'edit' | 'delete' | 'action' | 'pages'>('menu')
+  // Todas as páginas da conversa, inclusive as que já têm lugar nela.
+  const pageCount = usePagesStore((s) => (localId ? s.byLocal[localId]?.length ?? 0 : 0))
   const [newGroupName, setNewGroupName] = useState('')
   const [newSectorName, setNewSectorName] = useState('')
   const [localApps, setLocalApps] = useState<Partial<Record<LocalApp, boolean>> & { local?: boolean }>({})
@@ -135,6 +144,7 @@ export function TerminalMenu({ project, x, y, onDone }: {
   }
   if (phase === 'edit') return <NewProjectModal editProject={project} onClose={onDone} />
   if (phase === 'delete') return <DeleteProjectDialog project={project} onDeleted={onDone} onClose={onDone} />
+  if (phase === 'pages' && localId) return <PagesListDialog localId={localId} onClose={onDone} />
 
   return createPortal(
     <div className="sess-pop__overlay" onClick={onDone}>
@@ -142,6 +152,11 @@ export function TerminalMenu({ project, x, y, onDone }: {
         <div className="sess-pop__item" onClick={() => setPhase('edit')}>
           <EditIcon /><span>{t('sidebar.editTerminal')}</span>
         </div>
+        {localId && pageCount > 0 && (
+          <div className="sess-pop__item" data-testid="menu-pages" onClick={() => setPhase('pages')}>
+            <PageIcon /><span>{t('pages.listItem', { n: pageCount })}</span>
+          </div>
+        )}
 
         {/* TRIAGEM — fixar, assentar e adiar valem só para quem clicou. O horário
             do adiamento sai daqui já absoluto, no fuso do navegador. */}

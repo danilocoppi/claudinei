@@ -467,6 +467,17 @@ export const ptBR: typeof en = {
     discardMsg: 'O arquivo do acompanhamento deste terminal será apagado. O agente cria outro na próxima tarefa longa.',
     status: { pending: 'pendente', in_progress: 'em andamento', review: 'em revisão', blocked: 'bloqueada', done: 'concluída' },
   },
+  browser: {
+    open: 'Navegador', openTitle: 'Navegador ({{combo}})',
+    column: {
+      label: 'Coluna da direita', close: 'Fechar a coluna',
+      tabs: { progress: 'Acompanhamento', side: 'Lateral', browser: 'Navegador' },
+      fullscreen: 'Tela cheia', exitFullscreen: 'Sair da tela cheia',
+      resize: 'Arraste para alargar a coluna',
+      placeholder: 'A tela do navegador deste terminal aparece aqui.',
+      openFailed: 'Não deu para abrir o navegador.',
+    },
+  },
   headsUp: { region: 'Avisos do Claude', close: 'Fechar aviso' },
   triage: {
     pin: 'Fixar', unpin: 'Desafixar', settle: 'Assentar', unsettle: 'Tirar dos assentados',
@@ -576,7 +587,7 @@ export const ptBR: typeof en = {
     },
     labels: {
       send: 'Enviar', queue: 'Pôr na fila', voice: 'Microfone', stash: 'Guardar rascunho',
-      find: 'Buscar na conversa', zen: 'Modo Zen', usage: 'Página de uso', undo: 'Desfazer da triagem',
+      find: 'Buscar na conversa', zen: 'Modo Zen', browser: 'Abrir e fechar o Navegador', usage: 'Página de uso', undo: 'Desfazer da triagem',
       enter: 'Enviar com Enter no campo', newline: 'Quebrar linha no campo',
       history: 'Histórico de mensagens no campo', pastePlain: 'Colar como texto',
       editorSave: 'Salvar nos editores de arquivo', findNav: 'Próxima e anterior na barra de busca',

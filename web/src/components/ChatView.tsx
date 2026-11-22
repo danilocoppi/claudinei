@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Virtuoso, type Components, type ContextProp, type ListProps } from 'react-virtuoso'
-import { progressKey, useStore } from '../store'
+import { useStore } from '../store'
 import { stopSubagentTask } from '../api'
 import { loadHistoryTail } from '../chat/loadTail'
 import { EngineTabs } from './EngineTabs'
@@ -36,9 +36,12 @@ import { Icon } from './Icon'
 import { isAtBottom, SLACK } from '../scrollFollow'
 import { MoreIcon } from './MenuIcons'
 import { TerminalMenu } from './TerminalMenu'
-import { ProgressButton, ProgressColumn } from './ProgressColumn'
-import { hhmm, SideColumn } from './SideColumn'
-import { useSideRead, useSideStore } from '../branch/sideStore'
+import { ProgressButton } from './ProgressColumn'
+import { hhmm } from './SideColumn'
+import { useSideRead } from '../branch/sideStore'
+import { RightColumn } from '../browser/RightColumn'
+import { BrowserButton } from '../browser/BrowserButton'
+import { useChatLayoutClass } from '../browser/columnStore'
 import { useUndoStore } from '../undo/undoStore'
 import { attachTurns, type TurnPlacement } from '../undo/attachTurns'
 import { TurnLine } from './undo/TurnLine'
@@ -202,11 +205,11 @@ export function ChatView() {
   const setHistoryTail = useStore((s) => s.setHistoryTail)
   const markHistoryLoaded = useStore((s) => s.markHistoryLoaded)
   const openTerminal = useStore((s) => s.openTerminal)
-  const progressOpen = useStore((s) => s.progressOpen)
-  // A conversa lateral do terminal da aba: enquanto existe, a coluna dela fica no
-  // lugar da do acompanhamento. Aqui só "existe?"; os eventos redesenham a coluna, não o chat.
+  // A conversa lateral do terminal da aba: lida aqui; quem a mostra é a coluna da
+  // direita (RightColumn), que a assina. Os eventos redesenham a coluna, não o chat.
   useSideRead(session?.projectId ?? 0, session?.engine ?? '')
-  const hasSide = useSideStore((s) => !!session && !!s.sides[progressKey(session.projectId, session.engine)])
+  // Com a coluna da direita em tela cheia, o chat sai (só uma string: o chat não redesenha à toa).
+  const layoutClass = useChatLayoutClass(session?.projectId ?? 0, session?.engine ?? '')
   const [handoffDialog, setHandoffDialog] = useState(false)
   const [handoffPendingFor, setHandoffPendingFor] = useState<string | null>(null)
   const [editing, setEditing] = useState<{ localId: string; target: RewindTarget; text: string; key?: string; index: number } | null>(null)
@@ -529,7 +532,7 @@ export function ChatView() {
   const engine = session.engine
 
   return (
-    <div className="chat-layout">
+    <div className={layoutClass}>
     <div className="chat-main" ref={mainRef}>
       {/* O `display` mora no CSS (.chat-header), não aqui: o modo Zen esconde o
           cabeçalho por `.app.zen .chat-header`. */}
@@ -568,6 +571,7 @@ export function ChatView() {
           <span style={{ color: 'var(--err)' }}>{session.detail.slice(0, 140)}</span>
         )}
         <ProgressButton projectId={session.projectId} engine={engine} sessionStatus={session.status} />
+        <BrowserButton projectId={session.projectId} engine={engine} />
         <button className="ghost"
                 title={t('schedules.openTitle')}
                 onClick={() => useStore.getState().openSchedules()}>
@@ -681,9 +685,7 @@ export function ChatView() {
         />
       )}
     </div>
-    {hasSide
-      ? <SideColumn projectId={session.projectId} engine={engine} localId={session.localId} />
-      : progressOpen && <ProgressColumn projectId={session.projectId} engine={engine} sessionStatus={session.status} />}
+    <RightColumn projectId={session.projectId} engine={engine} localId={session.localId} sessionStatus={session.status} />
     </div>
   )
 }

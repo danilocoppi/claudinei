@@ -24,12 +24,13 @@ const DEFAULTS_OFF: Record<ShortcutId, string | null> = {
   'chat.stash': 'Mod+S',
   'chat.find': 'Mod+F',
   'view.zen': 'Alt+Z',
+  'view.browser': 'Alt+B',
   'view.usage': 'Mod+U',
   'triage.undo': 'Mod+Z',
 }
 
 describe('registro', () => {
-  it('os oito editáveis, na ordem e com os padrões das Global Constraints', () => {
+  it('os nove editáveis, na ordem e com os padrões das Global Constraints', () => {
     expect(EDITABLE.map((e) => [e.id, e.default, e.scope])).toEqual([
       ['chat.send', 'Mod+Enter', 'page'],
       ['chat.queue', 'Alt+Enter', 'field'],
@@ -37,6 +38,7 @@ describe('registro', () => {
       ['chat.stash', 'Mod+S', 'field'],
       ['chat.find', 'Mod+F', 'conversation'],
       ['view.zen', 'Alt+Z', 'allButTerminal'],
+      ['view.browser', 'Alt+B', 'allButTerminal'],
       ['view.usage', 'Mod+U', 'outsideFields'],
       ['triage.undo', 'Mod+Z', 'outsideFieldsAndModals'],
     ])
@@ -134,7 +136,7 @@ describe('checkCombo', () => {
 })
 
 describe('resolveBindings', () => {
-  it('resolveBindings sem escolhas: os oito padrões, sem avisos', () => {
+  it('resolveBindings sem escolhas: os nove padrões, sem avisos', () => {
     expect(resolveBindings({}, OFF)).toEqual({ resolved: DEFAULTS_OFF, notices: {} })
     expect(resolveBindings({}, MAC)).toEqual({ resolved: DEFAULTS_OFF, notices: {} })
   })

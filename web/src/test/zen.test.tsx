@@ -73,7 +73,8 @@ const moldura = () => ({
   resizer: visivel('.sidebar-resizer'),
   topbar: visivel('.mobile-topbar'),
   header: visivel('.chat-header'),
-  coluna: visivel('aside.progress'),
+  // A coluna da direita no Acompanhamento (a regra do Zen olha o `data-view`).
+  coluna: visivel('aside.right-column[data-view="progress"]'),
 })
 
 /**

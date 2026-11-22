@@ -7,6 +7,8 @@ import { applyUndoWsMessage } from './undo/undoStore'
 import { connectWs } from './ws'
 import { WsContext } from './wsContext'
 import { applySideMessage } from './branch/sideStore'
+import { applyBrowserMessage, useBrowserTabsSync } from './browser/browserStore'
+import { useBrowserShortcut } from './browser/useBrowserShortcut'
 import { Sidebar } from './components/Sidebar'
 import { SidebarResizer } from './components/SidebarResizer'
 import { Dashboard } from './components/Dashboard'
@@ -96,6 +98,9 @@ export default function App() {
   const isAdmin = useStore((s) => !s.me || s.me.isAdmin !== false)
   useUsageShortcut(authStatus === 'ready' && isAdmin)
   useTriageSync()
+  // O navegador embutido: as abas abertas (ao entrar e a cada reconexão) e o Alt+B.
+  useBrowserTabsSync()
+  useBrowserShortcut()
 
   useEffect(() => installIndicatorMotion(), [])
 
@@ -132,8 +137,9 @@ export default function App() {
   useEffect(() => {
     if (authStatus !== 'ready') return
     const client = connectWs(
-      // A conversa lateral tem store próprio (branch/sideStore.ts): o que é dela não segue.
-      (msg) => { if (applySideMessage(msg)) return; useStore.getState().applyWsMessage(msg); applyUndoWsMessage(msg) },
+      // A aba do navegador (browser/browserStore.ts) e a conversa lateral (branch/sideStore.ts)
+      // têm store próprio: o que é deles não segue.
+      (msg) => { if (applyBrowserMessage(msg) || applySideMessage(msg)) return; useStore.getState().applyWsMessage(msg); applyUndoWsMessage(msg) },
       // RE-conexão: eventos perdidos na queda não são reenviados pelo servidor —
       // invalida os históricos carregados (o ChatView rebusca) e limpa streaming órfão.
       () => useStore.getState().resyncOnReconnect(),

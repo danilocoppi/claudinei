@@ -6,6 +6,7 @@ import { fetchProgress, clearProgress } from '../api'
 import type { GoalStatus, Progress, ProgressStatus, SessionStatus } from '../types'
 import { CopyButton } from './CopyButton'
 import { ConfirmDialog } from './ConfirmDialog'
+import { useColumnStore, useEffectiveView } from '../browser/columnStore'
 
 /**
  * Acompanhamento de tarefas longas: o que o agente do terminal (projeto + motor)
@@ -59,13 +60,13 @@ function useProgressSync(projectId: number, engine: string): string {
 export function ProgressButton({ projectId, engine, sessionStatus }: Props) {
   const { t } = useTranslation()
   const progress = useProgress(projectId, engine)
-  const open = useStore((s) => s.progressOpen)
-  const toggle = useStore((s) => s.toggleProgress)
+  // Aceso com o Acompanhamento à mostra na coluna da direita (não só aberta noutra vista).
+  const open = useEffectiveView(projectId, engine) === 'progress'
   useProgressSync(projectId, engine)
   const running = hasOpenTask(progress) && !isHalted(sessionStatus)
   return (
     <button className="ghost progress-btn" aria-label={t('progress.open')} aria-pressed={open}
-            title={t('progress.open')} onClick={toggle}>
+            title={t('progress.open')} onClick={() => useColumnStore.getState().toggleView('progress')}>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="m3 6 2 2 4-4" /><path d="M13 6h8" /><path d="m3 14 2 2 4-4" /><path d="M13 14h8" /><path d="M13 20h8" />
@@ -134,7 +135,6 @@ export function ProgressColumn({ projectId, engine, sessionStatus }: Props) {
   const { t } = useTranslation()
   const progress = useProgress(projectId, engine)
   const setProgress = useStore((s) => s.setProgress)
-  const toggle = useStore((s) => s.toggleProgress)
   const path = useProgressSync(projectId, engine)
   const [confirm, setConfirm] = useState(false)
   // O relógio do rodapé ("há X min") anda sozinho, uma vez por minuto.
@@ -159,7 +159,7 @@ export function ProgressColumn({ projectId, engine, sessionStatus }: Props) {
   return (
     <aside className="progress" aria-label={t('progress.title')}>
       <header className="progress__head">
-        <button className="ghost progress__back" aria-label={t('progress.close')} title={t('progress.close')} onClick={toggle}>×</button>
+        <button className="ghost progress__back" aria-label={t('progress.close')} title={t('progress.close')} onClick={() => useColumnStore.getState().closeColumn()}>×</button>
         <strong>{t('progress.title')}</strong>
       </header>
       {/* No topo, fora da rolagem do acompanhamento: o goal fica sempre à vista. */}

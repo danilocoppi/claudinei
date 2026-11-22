@@ -464,6 +464,17 @@ export const en = {
     discardMsg: "This terminal's progress file will be deleted. The agent creates a new one on the next long task.",
     status: { pending: 'pending', in_progress: 'in progress', review: 'in review', blocked: 'blocked', done: 'done' },
   },
+  browser: {
+    open: 'Browser', openTitle: 'Browser ({{combo}})',
+    column: {
+      label: 'Right column', close: 'Close the column',
+      tabs: { progress: 'Progress', side: 'Side chat', browser: 'Browser' },
+      fullscreen: 'Full screen', exitFullscreen: 'Exit full screen',
+      resize: 'Drag to widen the column',
+      placeholder: 'This terminal’s browser screen shows up here.',
+      openFailed: 'Couldn’t open the browser.',
+    },
+  },
   headsUp: { region: 'Claude heads-ups', close: 'Close heads-up' },
   triage: {
     pin: 'Pin', unpin: 'Unpin', settle: 'Settle', unsettle: 'Remove from settled',
@@ -573,7 +584,7 @@ export const en = {
     },
     labels: {
       send: 'Send', queue: 'Add to queue', voice: 'Microphone', stash: 'Save draft',
-      find: 'Search the conversation', zen: 'Zen mode', usage: 'Usage page', undo: 'Undo triage',
+      find: 'Search the conversation', zen: 'Zen mode', browser: 'Open and close the browser', usage: 'Usage page', undo: 'Undo triage',
       enter: 'Send with Enter in the input', newline: 'New line in the input',
       history: 'Message history in the input', pastePlain: 'Paste as plain text',
       editorSave: 'Save in file editors', findNav: 'Next and previous in the search bar',

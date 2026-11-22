@@ -20,8 +20,10 @@ export async function req<T>(url: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({ error: res.statusText }))
     reportAccessRestriction(res.status, body.error)
     // A mensagem no idioma da tela (ver serverErrors.ts); o código cru continua em `code`.
-    const err = new Error(localizeServerError(body, res.statusText)) as Error & { status?: number; retryAfterMs?: number; sessions?: OpenSession[]; code?: string; params?: Record<string, string | number>; preview?: unknown }
+    const err = new Error(localizeServerError(body, res.statusText)) as Error & { status?: number; retryAfterMs?: number; sessions?: OpenSession[]; code?: string; params?: Record<string, string | number>; preview?: unknown; hint?: string }
     if (typeof body.code === 'string') err.code = body.code
+    // O navegador sem Chromium (503) manda o comando de instalação em `hint`.
+    if (typeof body.hint === 'string') err.hint = body.hint
     if (body.params && typeof body.params === 'object') err.params = body.params
     // O 409 `undo_changed` do desfazer traz a prévia nova (a tela troca a que mostrava).
     if (body.preview !== undefined) err.preview = body.preview

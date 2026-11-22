@@ -411,7 +411,7 @@ button.ghost.zen-exit:hover { color: var(--text); filter: none; }
 .app.zen .sidebar-resizer,
 .app.zen .mobile-topbar,
 .app.zen .chat-header,
-.app.zen .chat-layout > .progress { display: none !important; }
+.app.zen .right-column[data-view="progress"] { display: none !important; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .status-idle { background: var(--text-dim); }
 .status-working { background: var(--accent); box-shadow: 0 0 10px var(--accent); animation: pulse 1.2s infinite; }
@@ -3665,4 +3665,54 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .side-col__bring { margin-right: auto; }
 @media (max-width: 768px) {
   .side-col { position: fixed; inset: 0; z-index: 45; width: auto; border-left: none; background: var(--surface-solid); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+}
+
+/* ── Coluna da direita (browser/RightColumn) ────────────────────────────────
+   Um lugar só para Acompanhamento, Lateral e Navegador, uma vista de cada vez,
+   com abas de texto. A largura (por vista) vem no `style`; em tela cheia a
+   coluna cobre a área do chat (a lista de terminais fica). No celular cobre o
+   chat, como a Lateral. Sem GPU: sem transition nem animation; a marca da aba
+   é um ponto parado. O Zen esconde só a do Acompanhamento (regra do Zen acima). */
+.right-column {
+  flex: none; position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  border-left: 1px solid var(--glass-border); background: var(--surface);
+}
+.right-column--full { flex: 1; border-left: none; }
+.chat-layout--column-full > .chat-main { display: none; }
+/* Tela cheia no Acompanhamento com o Zen: a coluna sai, o chat volta. */
+.app.zen .chat-layout--full-progress > .chat-main { display: flex !important; }
+.right-column__bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--glass-border); }
+.right-column__tabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; }
+.right-column__tab {
+  position: relative; border: none; background: transparent; color: var(--text-dim); cursor: pointer;
+  font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: var(--radius-sm); white-space: nowrap;
+}
+.right-column__tab:hover { color: var(--text); background: var(--surface-strong); }
+.right-column__tab--on { color: var(--text); background: var(--surface-strong); font-weight: 600; }
+.right-column__mark { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.right-column__btn { padding: 2px 8px; font-size: 15px; line-height: 1; }
+.right-column__view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* As vistas ocupam a coluna inteira: a largura é dela, e o título está na aba. */
+.right-column__view > .progress,
+.right-column__view > .side-col { flex: 1; width: auto; border-left: none; }
+.right-column .progress__head { display: none; }
+/* Puxador na borda esquerda: tira fina sobre a borda (sem transition). */
+.column-resizer { position: absolute; top: 0; bottom: 0; left: -4px; width: 7px; z-index: 5; cursor: col-resize; }
+.column-resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.chat-header .browser-btn { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.chat-header .browser-btn[aria-pressed="true"] { color: var(--accent-2); border-color: var(--accent); }
+/* O lugar da vista Navegador até a tela chegar, e o erro da abertura (sem Chromium: o comando). */
+.browser-col { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 16px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+.browser-col__empty { margin: 0; }
+.browser-col__error { color: var(--text); }
+.browser-col__error p { margin: 0 0 8px; }
+.browser-col__error code {
+  display: block; padding: 8px 10px; font-family: var(--font-code); font-size: 12px; overflow-wrap: anywhere;
+  background: var(--surface-strong); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+@media (max-width: 768px) {
+  .right-column { position: fixed; inset: 0; z-index: 45; width: auto !important; border-left: none; background: var(--surface-solid); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  /* As vistas ficam dentro dela, e não cobrindo a tela por conta própria. */
+  .right-column .progress, .right-column .side-col { position: static; inset: auto; z-index: auto; padding: 0; background: transparent; }
+  .column-resizer { display: none; }
 }

@@ -466,6 +466,17 @@ export const es: typeof en = {
     discardMsg: 'Se borrará el archivo de seguimiento de este terminal. El agente crea otro en la próxima tarea larga.',
     status: { pending: 'pendiente', in_progress: 'en curso', review: 'en revisión', blocked: 'bloqueada', done: 'terminada' },
   },
+  browser: {
+    open: 'Navegador', openTitle: 'Navegador ({{combo}})',
+    column: {
+      label: 'Columna derecha', close: 'Cerrar la columna',
+      tabs: { progress: 'Seguimiento', side: 'Lateral', browser: 'Navegador' },
+      fullscreen: 'Pantalla completa', exitFullscreen: 'Salir de la pantalla completa',
+      resize: 'Arrastra para ensanchar la columna',
+      placeholder: 'Aquí aparece la pantalla del navegador de este terminal.',
+      openFailed: 'No se pudo abrir el navegador.',
+    },
+  },
   headsUp: { region: 'Avisos de Claude', close: 'Cerrar aviso' },
   triage: {
     pin: 'Fijar', unpin: 'Dejar de fijar', settle: 'Asentar', unsettle: 'Quitar de asentados',
@@ -575,7 +586,7 @@ export const es: typeof en = {
     },
     labels: {
       send: 'Enviar', queue: 'Poner en la cola', voice: 'Micrófono', stash: 'Guardar borrador',
-      find: 'Buscar en la conversación', zen: 'Modo Zen', usage: 'Página de uso', undo: 'Deshacer de la clasificación',
+      find: 'Buscar en la conversación', zen: 'Modo Zen', browser: 'Abrir y cerrar el navegador', usage: 'Página de uso', undo: 'Deshacer de la clasificación',
       enter: 'Enviar con Enter en el campo', newline: 'Salto de línea en el campo',
       history: 'Historial de mensajes en el campo', pastePlain: 'Pegar como texto',
       editorSave: 'Guardar en los editores de archivos', findNav: 'Siguiente y anterior en la barra de búsqueda',

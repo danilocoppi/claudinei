@@ -14,6 +14,7 @@ export type ShortcutId =
   | 'chat.stash'
   | 'chat.find'
   | 'view.zen'
+  | 'view.browser'
   | 'view.usage'
   | 'triage.undo'
 
@@ -67,6 +68,7 @@ export const EDITABLE: readonly EditableShortcut[] = [
   { id: 'chat.stash', labelKey: 'shortcuts.labels.stash', default: 'Mod+S', scope: 'field', editable: true },
   { id: 'chat.find', labelKey: 'shortcuts.labels.find', default: 'Mod+F', scope: 'conversation', editable: true },
   { id: 'view.zen', labelKey: 'shortcuts.labels.zen', default: 'Alt+Z', scope: 'allButTerminal', editable: true },
+  { id: 'view.browser', labelKey: 'shortcuts.labels.browser', default: 'Alt+B', scope: 'allButTerminal', editable: true },
   { id: 'view.usage', labelKey: 'shortcuts.labels.usage', default: 'Mod+U', scope: 'outsideFields', editable: true, adminOnly: true },
   { id: 'triage.undo', labelKey: 'shortcuts.labels.undo', default: 'Mod+Z', scope: 'outsideFieldsAndModals', editable: true },
 ]

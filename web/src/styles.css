@@ -3710,6 +3710,55 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
   display: block; padding: 8px 10px; font-family: var(--font-code); font-size: 12px; overflow-wrap: anywhere;
   background: var(--surface-strong); border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
+/* A vista Navegador ao vivo (browser/BrowserColumn): cabeçalho, selo do bastão,
+   servidores, avisos e a tela. Sem GPU: nenhuma transition nem animation (nem a
+   do botão padrão, no hover); o canvas só desenha quando chega quadro. */
+.browser-col--live { display: flex; flex-direction: column; padding: 0; overflow: hidden; gap: 0; }
+.browser-col button { transition: none; }
+.browser-col__retry { padding: 4px 12px; font-size: 12.5px; }
+.browser-head { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--glass-border); }
+.browser-head__btn { display: inline-flex; align-items: center; padding: 3px 8px; font-size: 14px; line-height: 1; }
+.browser-head__addr { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12.5px; font-family: var(--font-code); }
+.browser-meta { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px 10px; font-size: 12px; }
+.browser-meta:empty { display: none; }
+.browser-meta__btn { padding: 2px 8px; font-size: 12px; }
+.browser-meta__nosandbox { color: var(--warn); border: 1px solid var(--warn); border-radius: var(--radius-sm); padding: 0 6px; }
+.browser-baton { padding: 1px 8px; border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--text); }
+.browser-baton--operator { color: var(--accent-2); }
+.browser-baton--free { color: var(--text-dim); }
+.browser-warning { flex: none; display: flex; align-items: center; gap: 8px; margin: 0 8px 6px; padding: 6px 10px; font-size: 12px; color: var(--text); border: 1px solid var(--warn); border-radius: var(--radius-sm); }
+.browser-warning > span { flex: 1; }
+.browser-servers { flex: none; list-style: none; margin: 0; padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; border-top: 1px solid var(--glass-border); }
+.browser-servers__item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.browser-servers__name { color: var(--text); }
+.browser-servers__nomark { margin-left: 6px; color: var(--text-dim); font-style: italic; }
+.browser-servers__actions { color: var(--text-dim); }
+.browser-servers__actions button { background: none; border: none; padding: 0; color: var(--accent-2); font: inherit; font-weight: 500; cursor: pointer; }
+.browser-servers__actions button:hover { text-decoration: underline; filter: none; }
+.browser-servers__stopping { margin-left: 6px; color: var(--text-dim); }
+.browser-servers__error { flex-basis: 100%; color: var(--err); }
+.browser-last { flex: none; padding: 3px 10px; font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.browser-notices { flex: none; list-style: none; margin: 0; padding: 3px 10px; font-size: 12px; color: var(--warn); }
+/* A tela: a área mede a si mesma; o palco tem o tamanho do canvas na escala da área. */
+.browser-screen { flex: 1 1 0; min-height: 0; min-width: 0; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; background: var(--surface-solid); border-top: 1px solid var(--glass-border); }
+.browser-screen__stage { position: relative; flex: none; }
+.browser-screen__canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: default; }
+/* O textarea invisível que recebe as teclas: sobre a tela, sem pegar o ponteiro. */
+.browser-screen__keys {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; resize: none;
+  opacity: 0; pointer-events: none; caret-color: transparent; background: transparent; color: transparent;
+}
+.browser-screen__stage:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* A marca da ação do agente: um anel parado, apagado no primeiro quadro depois de 1,5 s. */
+.browser-screen__mark { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--accent); border-radius: 50%; pointer-events: none; }
+.browser-cover {
+  position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 16px; text-align: center; color: var(--text); background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+}
+.browser-cover p { margin: 0; }
+.browser-dialog__msg { max-width: 420px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.browser-dialog__input { width: min(320px, 100%); }
+.browser-dialog__actions { display: flex; gap: 8px; }
 @media (max-width: 768px) {
   .right-column { position: fixed; inset: 0; z-index: 45; width: auto !important; border-left: none; background: var(--surface-solid); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
   /* As vistas ficam dentro dela, e não cobrindo a tela por conta própria. */

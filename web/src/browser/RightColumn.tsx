@@ -9,6 +9,7 @@ import { useBrowserStore } from './browserStore'
 import { useColumnStore, useEffectiveView } from './columnStore'
 import { columnWidth, tabsFor } from './columnModel'
 import { ColumnResizer } from './ColumnResizer'
+import { BrowserColumn } from './BrowserColumn'
 
 type Props = { projectId: number; engine: string; localId: string; sessionStatus?: SessionStatus }
 
@@ -99,7 +100,7 @@ export function RightColumn({ projectId, engine, localId, sessionStatus }: Props
   const body = useMemo(() => (
     view === 'progress' ? <ProgressColumn projectId={projectId} engine={engine} sessionStatus={sessionStatus} />
       : view === 'side' ? <SideColumn projectId={projectId} engine={engine} localId={localId} />
-        : view === 'browser' ? <BrowserPlaceholder viewKey={key} />
+        : view === 'browser' ? <BrowserColumn key={key} projectId={projectId} engine={engine} />
           : null
   ), [view, projectId, engine, localId, sessionStatus, key])
 
@@ -145,36 +146,3 @@ export function RightColumn({ projectId, engine, localId, sessionStatus }: Props
     </aside>
   )
 }
-
-/**
- * O lugar da vista Navegador (a tela vem na Task 13): o erro da última abertura,
- * quando houve, no idioma da tela. Sem Chromium, o texto do i18n com o comando de
- * instalação; nos outros casos, a mensagem genérica com o detalhe do servidor.
- * Com `CLAUDINEI_CHROMIUM` apontando arquivo ausente o código é o mesmo, mas a
- * dica é corrigir a variável, não instalar: vai pela genérica.
- */
-function BrowserPlaceholder({ viewKey }: { viewKey: string }) {
-  const { t } = useTranslation()
-  const failure = useBrowserStore((s) => s.failed[viewKey])
-  const notInstalled = failure?.code === 'browser_not_installed' && !!failure.hint && !failure.hint.includes('CLAUDINEI_CHROMIUM')
-  return (
-    <div className="browser-col" data-testid="browser-placeholder">
-      {failure ? (
-        <div className="browser-col__error" role="alert">
-          {notInstalled ? (
-            <p>{t('browser.column.notInstalled')} <code>{failure.hint}</code></p>
-          ) : (
-            <>
-              <p>{t('browser.column.openFailed')}</p>
-              <p>{t('browser.column.failureDetail', { detail: failure.message })}</p>
-              {failure.hint && <code>{failure.hint}</code>}
-            </>
-          )}
-        </div>
-      ) : (
-        <p className="browser-col__empty">{t('browser.column.placeholder')}</p>
-      )}
-    </div>
-  )
-}
-

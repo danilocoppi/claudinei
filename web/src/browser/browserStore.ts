@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { progressKey, useStore } from '../store'
 import { fetchBrowserTabs } from './api'
-import { activeTerminal, useColumnStore } from './columnStore'
+import { activeTerminal, availFor, columnState, useColumnStore } from './columnStore'
+import { effectiveView } from './columnModel'
 
 /**
  * Quais terminais (projeto + motor, pela chave do acompanhamento) têm aba do
@@ -57,6 +58,24 @@ function withoutKey<T>(rec: Record<string, T>, key: string): Record<string, T> {
 }
 
 /**
+ * Os códigos de "falha" que não vêm de uma abertura recusada, e sim da aba que
+ * fechou com a vista à mostra: `browser_closed` (o socket da tela disse que o
+ * Chromium caiu) e `tab_closed` (o `browser_tab` chegou antes do motivo). Eles
+ * seguram a vista Navegador até o operador reabrir ou sair dela.
+ */
+export const BROWSER_CLOSED = 'browser_closed'
+export const TAB_CLOSED = 'tab_closed'
+export const isClosedFailure = (f: BrowserFailure | undefined): boolean =>
+  f?.code === BROWSER_CLOSED || f?.code === TAB_CLOSED
+
+/** A vista Navegador do terminal `key` está à mostra (ele é o do chat à vista, com a coluna nela). */
+function showingBrowser(key: string): boolean {
+  const t = activeTerminal()
+  if (!t || progressKey(t.projectId, t.engine) !== key) return false
+  return effectiveView(columnState(key), availFor(key)) === 'browser'
+}
+
+/**
  * O `browser_tab` do WebSocket principal: a aba do terminal abriu ou fechou.
  * Aberta pelo agente no terminal à vista, a coluna vai ao Navegador (ou a aba
  * ganha a marca, com a Lateral à vista). Devolve true quando a mensagem era
@@ -67,6 +86,13 @@ export function applyBrowserMessage(msg: any): boolean {
   if (typeof msg.projectId !== 'number' || typeof msg.engine !== 'string') return true
   const open = msg.open === true
   const key = progressKey(msg.projectId, msg.engine)
+  // Fechada pelo sistema (o Chromium caiu, ociosidade, despejo) com a vista à
+  // mostra: ela fica, à espera do último `state` do socket da tela, que diz o
+  // motivo. Com `browser_closed` vira "O navegador fechou — Reabrir"; com outro
+  // motivo a vista sai (BrowserColumn). Os dois sockets não têm ordem entre si.
+  if (!open && msg.by === 'system' && !useBrowserStore.getState().failed[key] && showingBrowser(key)) {
+    setBrowserFailure(key, { code: TAB_CLOSED, message: '' })
+  }
   setBrowserTab(key, open)
   // A aba fechou: a marca dela, naquele terminal, vai junto.
   if (!open) useColumnStore.getState().unmark(key, 'browser')

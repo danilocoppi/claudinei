@@ -137,7 +137,7 @@ describe('coluna da direita', () => {
     expect(coluna()!.dataset.view).toBe('browser')
     expect(aba('Navegador').getAttribute('aria-selected')).toBe('true')
     expect(document.querySelector('aside.progress')).toBeNull()
-    expect(screen.getByTestId('browser-placeholder')).toBeTruthy()
+    expect(screen.getByTestId('browser-live')).toBeTruthy()
     fireEvent.click(aba('Acompanhamento'))
     expect(coluna()!.dataset.view).toBe('progress')
     expect(document.querySelector('aside.progress')).toBeTruthy()

@@ -62,7 +62,11 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
       },
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error((body as { error?: string }).error || res.statusText)
+    if (!res.ok) {
+      // O `code` e a `hint` do corpo seguem no erro: as ferramentas do navegador os mostram ao agente.
+      const b = body as { error?: string; code?: string; hint?: string }
+      throw Object.assign(new Error(b.error || res.statusText), { code: b.code, hint: b.hint })
+    }
     return body
   }
 
@@ -273,6 +277,207 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
       }
     },
   )
+
+  // Navegador embutido (server/src/browser/): a aba do terminal (projeto + motor)
+  // num Chromium do servidor, que o operador vê ao vivo na coluna do Claudinei.
+  // Cada ferramenta chama `POST /api/hermes/browser/<op>`; erro nunca vira
+  // exceção: volta como `isError`, com o texto, o código e a dica do servidor.
+  // As regras vão nas descrições: as instructions não ganham linha (orçamento).
+  {
+    type BrowserResult = { text: string; status: string; png?: string; path?: string }
+    const LIVE = "The operator sees this same page live in Claudinei's side column (Browser view) and can take control at any time."
+    const SCHEMES = 'Only http:, https: and about:blank URLs are allowed; file:, chrome:, data: and javascript: are refused.'
+    const NO_EVAL = 'There is no evaluate (you cannot run your own JavaScript in the page) and no file upload. Downloads are blocked: fetch files with curl in the shell.'
+    const READS = 'Reading (browser_snapshot, browser_screenshot, browser_console) works even while the operator is in control.'
+    const STATUS = 'The result ends with a status line: URL, title, who is in control, and new notices (a pending dialog, a blocked download, control handed back).'
+
+    const browser = async (op: string, args: Record<string, unknown>): Promise<BrowserResult> =>
+      (await call(`/api/hermes/browser/${op}`, {
+        method: 'POST',
+        // Os argumentos antes: o terminal desta sessão sempre prevalece.
+        body: JSON.stringify({ ...args, projectId: PROJECT_ID, engine: ENGINE || 'claude' }),
+      })) as BrowserResult
+    const failed = (tool: string, err: unknown) => {
+      const e = err as Error & { code?: string; hint?: string }
+      const code = e.code ? ` (${e.code})` : ''
+      return { ...text(`${tool} failed${code}: ${e.message}${e.hint ? `\n${e.hint}` : ''}`), isError: true }
+    }
+    /** O handler comum: chama a rota e devolve o texto com a linha de estado. */
+    const plain = (op: string) => async (args: Record<string, unknown>) => {
+      try {
+        const r = await browser(op, args)
+        return text(`${r.text}\n${r.status}`)
+      } catch (err) {
+        return failed(`browser_${op}`, err)
+      }
+    }
+
+    server.registerTool(
+      'browser_open',
+      {
+        description:
+          "Opens this terminal's browser tab (a headless Chromium on the Claudinei server), or reuses the one already open, and navigates it to url when you pass one. "
+          + `${LIVE} `
+          + 'Use it to see and test the web app you are working on: open your dev servers by http://127.0.0.1:<port> (the port the server printed), since the browser runs on the same machine as your shell. '
+          + `${SCHEMES} `
+          + 'Next, call browser_snapshot to read the page and get the refs that browser_act needs. The other browser_* tools work on the tab this one opens. '
+          + `${NO_EVAL} `
+          + 'An unused tab closes by itself after 30 minutes; call browser_close when you are done. '
+          + `${STATUS}`,
+        inputSchema: {
+          url: z.string().optional().describe('page to load (http:, https: or about:blank); omit to keep the current page'),
+        },
+      },
+      plain('open'),
+    )
+
+    server.registerTool(
+      'browser_navigate',
+      {
+        description:
+          "Navigates this terminal's browser tab: pass url to load a page, or action ('back', 'forward' or 'reload') to move through history; exactly one of the two. "
+          + `${SCHEMES} `
+          + 'reload also brings back a page that crashed. Refs from an earlier browser_snapshot stop working once the page changes: take a new snapshot. '
+          + 'Needs the tab browser_open opens. Fails while the operator is in control; do not retry in a loop. '
+          + `${READS} `
+          + `${NO_EVAL} `
+          + `${LIVE} `
+          + `${STATUS}`,
+        inputSchema: {
+          url: z.string().optional().describe('page to load (http:, https: or about:blank)'),
+          action: z.enum(['back', 'forward', 'reload']).optional().describe('history move, instead of url'),
+        },
+      },
+      async ({ url, action }) => {
+        if ((url === undefined) === (action === undefined)) {
+          return { ...text("browser_navigate failed: pass exactly one of url or action ('back' | 'forward' | 'reload')"), isError: true }
+        }
+        return plain('navigate')({ url, action })
+      },
+    )
+
+    server.registerTool(
+      'browser_snapshot',
+      {
+        description:
+          "Reads the page in this terminal's browser tab as an accessibility tree: one line per element with its role, its accessible name and a ref such as [ref=e6]. "
+          + "Pass that ref to browser_act to use the element (ref 'e6'). Refs belong to the latest snapshot: after the page changes, take a new one. "
+          + 'Password field values come out as ••••. A pending dialog (alert, confirm, prompt) shows at the top, and the page stays blocked until browser_act action=dialog answers it. '
+          + 'The output is cut at 60000 characters with a notice; pass a smaller depth to read fewer levels of the tree. '
+          + `${READS} `
+          + 'Prefer it to browser_screenshot to find elements: it is text, cheaper and gives refs. '
+          + `${LIVE} `
+          + `${STATUS}`,
+        inputSchema: {
+          depth: z.number().int().positive().optional().describe('how many levels of the tree to read (default: all)'),
+        },
+      },
+      plain('snapshot'),
+    )
+
+    server.registerTool(
+      'browser_act',
+      {
+        description:
+          "Acts on the page in this terminal's browser tab as a user would. action is one of: "
+          + 'click; type (key by key, appending to the field); fill (replaces the field value); press (a key or chord such as Enter or Control+A, sent to the ref element or, without ref, to the page); '
+          + 'hover; select (picks the option whose value or label is text); scroll (mouse wheel by dx, dy pixels); dialog (answers a pending alert, confirm or prompt with accept=true|false; text answers a prompt). '
+          + 'click, type, fill, hover and select need a ref from the latest browser_snapshot ([ref=e6] → ref e6). A ref from before the page changed is refused: take a new browser_snapshot and use the new ref. '
+          + 'While a dialog is pending, every action except dialog fails at once. '
+          + 'Fails while the operator is in control: do not retry in a loop, ask the operator to hand control back if you need it. '
+          + `${READS} `
+          + `${NO_EVAL} `
+          + `${LIVE} `
+          + 'The result says what was done (clicked \'Send\') and the status line: URL, title, who is in control, new notices.',
+        inputSchema: {
+          action: z.enum(['click', 'type', 'fill', 'press', 'hover', 'select', 'scroll', 'dialog']),
+          ref: z.string().optional().describe('element ref from the latest browser_snapshot, e.g. e6'),
+          text: z.string().optional().describe('text for type and fill, option for select, answer for a prompt dialog'),
+          key: z.string().optional().describe('key for press, e.g. Enter, Tab, Control+A'),
+          dx: z.number().optional().describe('horizontal scroll in pixels'),
+          dy: z.number().optional().describe('vertical scroll in pixels (positive goes down)'),
+          accept: z.boolean().optional().describe('for dialog: true accepts, false dismisses'),
+        },
+      },
+      plain('act'),
+    )
+
+    server.registerTool(
+      'browser_wait',
+      {
+        description:
+          "Waits on this terminal's browser tab for one condition: text appears on the page, textGone disappears, the URL matches url (exact or a glob such as **/login), or a number of seconds passes. Give exactly one. "
+          + 'Capped at 30 seconds: past that it fails with a timeout, and you can check the page with browser_snapshot and wait again. '
+          + 'Use it after an action that loads or updates the page, instead of sleeping in the shell. '
+          + `${READS} `
+          + `${LIVE} `
+          + `${STATUS}`,
+        inputSchema: {
+          text: z.string().optional().describe('wait until this text is visible'),
+          textGone: z.string().optional().describe('wait until this text is no longer visible'),
+          url: z.string().optional().describe('wait until the URL matches (exact or glob)'),
+          seconds: z.number().optional().describe('just wait this long (at most 30)'),
+        },
+      },
+      plain('wait'),
+    )
+
+    server.registerTool(
+      'browser_screenshot',
+      {
+        description:
+          "Takes a PNG screenshot of this terminal's browser tab: the visible viewport, or the whole page with fullPage=true. "
+          + 'The image comes in the result; it is also saved to a file, whose path comes in the text, for when you cannot see tool images (open the file instead). '
+          + 'Use it to check layout and visuals; to find elements and refs, browser_snapshot is cheaper. Fails while a dialog is pending. '
+          + `${READS} `
+          + `${LIVE} `
+          + `${STATUS}`,
+        inputSchema: {
+          fullPage: z.boolean().optional().describe('capture the whole scrollable page instead of the viewport'),
+        },
+      },
+      async ({ fullPage }) => {
+        try {
+          const r = await browser('screenshot', { fullPage })
+          return {
+            content: [
+              { type: 'image' as const, data: r.png ?? '', mimeType: 'image/png' },
+              { type: 'text' as const, text: `saved at ${r.path}\n${r.status}` },
+            ],
+          }
+        } catch (err) {
+          return failed('browser_screenshot', err)
+        }
+      },
+    )
+
+    server.registerTool(
+      'browser_console',
+      {
+        description:
+          "Returns the last 50 console messages and uncaught page errors of this terminal's browser tab, oldest first, one per line as [type] text. "
+          + 'Use it to debug the web app you are testing: after a click that did nothing or a blank page, look here for errors. '
+          + `${READS} `
+          + `${LIVE} `
+          + `${STATUS}`,
+        inputSchema: {},
+      },
+      plain('console'),
+    )
+
+    server.registerTool(
+      'browser_close',
+      {
+        description:
+          "Closes this terminal's browser tab and discards its cookies and session; closing a tab that is already closed is fine. "
+          + "The page also leaves the operator's live view in Claudinei's side column. "
+          + 'Call it when you are done with the browser; the next browser_open starts a new tab. '
+          + 'Keep the tab open while you still need it, for instance to stay logged in.',
+        inputSchema: {},
+      },
+      plain('close'),
+    )
+  }
 
   const transport = new StdioServerTransport()
   await server.connect(transport)

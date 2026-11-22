@@ -84,6 +84,23 @@ describe('publicar página', () => {
     expect(sent).toEqual([{ type: 'visual_page', projectId, engine: 'claude', localId: 'loc-1', page }])
   })
 
+  it('broadcast que lança depois da linha gravada: publish devolve o id, a página fica e o erro vai ao log', () => {
+    const logs: string[] = []
+    const svc = createPagesService({
+      db, dir,
+      projects: createProjectsService(db),
+      liveSession: () => live,
+      openTurn: () => turn,
+      broadcast: () => { throw new Error('ws caiu') },
+      log: (m) => { logs.push(m) },
+    })
+    const r = svc.publish({ projectId, engine: 'claude', title: 'Gráfico', html: '<h1>oi</h1>' })
+    expect(r.id).toMatch(/^pg_[0-9a-f]{16}$/)
+    expect(svc.get(r.id)).toBeDefined()
+    expect(existsSync(svc.filePath(r.id))).toBe(true)
+    expect(logs.some((m) => m.includes('ws caiu'))).toBe(true)
+  })
+
   it('path relativo e absoluto dentro do projeto; .htm aceito', () => {
     const abs = put('docs/rel.html', '<p>rel</p>')
     put('docs/x.htm', '<p>htm</p>')

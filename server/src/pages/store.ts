@@ -42,8 +42,11 @@ export function createPagesStore(db: Db) {
       (id, project_id, engine, local_id, conversation_id, turn_id, turn_key, title, height, bytes, source, source_path)
       VALUES (@id, @projectId, @engine, @localId, @conversationId, @turnId, @turnKey, @title, @height, @bytes, @source, @sourcePath)`),
     get: db.prepare(`SELECT * FROM visual_pages WHERE id = ?`),
+    // Inclui as do mesmo terminal gravadas antes de o motor informar o id: sem
+    // isso, somem da lista assim que o id chega.
     byConversation: db.prepare(`SELECT * FROM visual_pages
-      WHERE project_id = ? AND engine = ? AND conversation_id = ? ORDER BY created_at, rowid`),
+      WHERE project_id = ? AND engine = ? AND (conversation_id = ? OR (conversation_id IS NULL AND local_id = ?))
+      ORDER BY created_at, rowid`),
     // Conversa ainda sem id (primeiro turno antes de o motor informar): casa pelo terminal.
     byLocal: db.prepare(`SELECT * FROM visual_pages
       WHERE project_id = ? AND engine = ? AND conversation_id IS NULL AND local_id = ? ORDER BY created_at, rowid`),
@@ -62,11 +65,14 @@ export function createPagesStore(db: Db) {
       return r ? toDto(r) : undefined
     },
 
-    /** Ordem de criação (created_at, rowid). conversationId null: casa por local_id com conversation_id nulo. */
+    /**
+     * Ordem de criação (created_at, rowid). conversationId null: casa por local_id com conversation_id nulo;
+     * com id, essas do mesmo terminal entram junto.
+     */
     listConversation(projectId: number, engine: string, conversationId: string | null, localId: string): VisualPageDto[] {
       const rows = conversationId === null
         ? q.byLocal.all(projectId, engine, localId)
-        : q.byConversation.all(projectId, engine, conversationId)
+        : q.byConversation.all(projectId, engine, conversationId, localId)
       return (rows as PageDb[]).map(toDto)
     },
 

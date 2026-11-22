@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname, basename } from 'node:path'
 import { crc32, deflateSync, inflateSync } from 'node:zlib'
@@ -257,6 +257,32 @@ describe('createCheckShots', () => {
     expect(shots.sweep()).toBe(1)
     expect(existsSync(nosso)).toBe(false)
     expect(readdirSync(dir).sort()).toEqual([...alheios].sort())
+  })
+
+  it('pasta insegura: symlink no lugar da pasta → save lança e não grava no alvo', () => {
+    base = mkdtempSync(join(tmpdir(), 'check-shots-'))
+    const alvo = join(base, 'alvo')
+    mkdirSync(alvo)
+    const dir = join(base, 'claudinei-check')
+    symlinkSync(alvo, dir)
+    const shots = createCheckShots({ dir })
+    expect(() => shots.save(Buffer.from('x'))).toThrow(/not a safe folder/)
+    expect(readdirSync(alvo)).toEqual([])
+  })
+
+  it('pasta insegura: arquivo comum no lugar da pasta → save lança', () => {
+    base = mkdtempSync(join(tmpdir(), 'check-shots-'))
+    const dir = join(base, 'claudinei-check')
+    writeFileSync(dir, 'x')
+    expect(() => createCheckShots({ dir }).save(Buffer.from('x'))).toThrow()
+  })
+
+  it('pasta insegura: dono diferente do processo → save lança e não grava', () => {
+    base = mkdtempSync(join(tmpdir(), 'check-shots-'))
+    const dir = join(base, 'claudinei-check')
+    const shots = createCheckShots({ dir, uid: () => 4_000_000 })
+    expect(() => shots.save(Buffer.from('x'))).toThrow(/not a safe folder/)
+    expect(readdirSync(dir)).toEqual([])
   })
 
   it('o arquivo some sozinho depois do ttl (timer com unref)', async () => {

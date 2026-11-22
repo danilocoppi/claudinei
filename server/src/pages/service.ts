@@ -165,7 +165,12 @@ export function createPagesService(deps: PagesDeps) {
       throw e
     }
     log(`página ${id} publicada em ${session.localId} (${doc.bytes} bytes)`)
-    deps.broadcast({ type: 'visual_page', projectId: input.projectId, engine: input.engine, localId: session.localId, page })
+    // A página já está gravada: um aviso que falha não vira erro do publish (a tela a acha ao recarregar).
+    try {
+      deps.broadcast({ type: 'visual_page', projectId: input.projectId, engine: input.engine, localId: session.localId, page })
+    } catch (e) {
+      log(`avisar a tela da página ${id}: ${(e as Error).message}`)
+    }
     return { id, bytes: doc.bytes, warnings: doc.warnings }
   }
 

@@ -367,7 +367,6 @@ describe('embedLocalResources — tempo em entrada hostil', () => {
     const t = performance.now()
     const r = embed(html)
     const ms = performance.now() - t
-    console.log(`[tempo] ${_nome}: ${ms.toFixed(1)} ms`)
     expect(r.html).toBe(html)
     expect(ms).toBeLessThan(1000)
   })

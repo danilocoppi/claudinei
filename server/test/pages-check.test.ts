@@ -184,6 +184,15 @@ describe('runCheck', () => {
     expect(readdirSync(shotsDir)).toHaveLength(1)
   })
 
+  it('pasta das cópias insegura: devolve a imagem mesmo assim, file vazio e o motivo em fileError', async () => {
+    const f = fakeHost()
+    const shots = createCheckShots({ dir: shotsDir, uid: () => 4_000_000 })
+    const r = await runCheck(f.host as BrowserHost, '<p>oi</p>', 1024, shots, { settleMs: 0 })
+    expect(r.png.length).toBeGreaterThan(0)
+    expect(r.file).toBe('')
+    expect(r.fileError).toMatch(/not a safe folder/)
+  })
+
   it('erro do host sobe sem gravar cópia', async () => {
     const f = fakeHost({ fail: new Error('timeout') })
     await expect(runCheck(f.host as BrowserHost, '<p>oi</p>', 1024, createCheckShots({ dir: shotsDir }), { settleMs: 0 }))

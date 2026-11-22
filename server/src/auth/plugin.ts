@@ -98,10 +98,15 @@ const PREVIEW_PREFIX = '/api/files/preview/'
 const isPreviewRead = (method: string, path: string) =>
   method === 'GET' && path.startsWith(PREVIEW_PREFIX)
 
-/** A página visual servida no cartão: mesmo motivo, autorizada pelo token do caminho (pages/routes.ts). */
+/**
+ * A página visual servida no cartão: mesmo motivo, autorizada pelo token do caminho (pages/routes.ts).
+ * Confere também o caminho cru: `/api/pages/view%2F…` decodifica para o prefixo,
+ * mas o router o leva a `GET /api/pages/:id`, que não é pública.
+ */
 const PAGE_VIEW_PREFIX = '/api/pages/view/'
-const isPageViewRead = (method: string, path: string) =>
-  method === 'GET' && path.startsWith(PAGE_VIEW_PREFIX)
+const PAGE_VIEW_RAW = /^\/api\/pages\/view\/[^/?#]+\/[^/?#]+$/
+const isPageViewRead = (method: string, path: string, rawPath: string) =>
+  method === 'GET' && path.startsWith(PAGE_VIEW_PREFIX) && PAGE_VIEW_RAW.test(rawPath)
 
 // Escopo do token de serviço: só as APIs que o hermes MCP consome
 // (list/ask/board em /api/hermes/*; dispatch/list_tasks em /api/orchestrator/*).
@@ -276,7 +281,7 @@ export async function registerAuth(app: FastifyInstance, deps: { auth: AuthServi
       }
     }
 
-    if (!guarded || PUBLIC.has(`${req.method} ${path}`) || isPreviewRead(req.method, path) || isPageViewRead(req.method, path)) return
+    if (!guarded || PUBLIC.has(`${req.method} ${path}`) || isPreviewRead(req.method, path) || isPageViewRead(req.method, path, rawPath)) return
     req.accessHoursGuarded = true
     if (!req.authUser) return reply.code(401).send({ error: 'unauthorized' })
     if (req.accessAllowed && !req.accessAllowed()) {

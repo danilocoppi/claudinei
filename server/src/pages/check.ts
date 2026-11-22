@@ -18,7 +18,12 @@ const PAGE_TIMEOUT_MS = 20_000
 const QUEUE_TIMEOUT_MS = 30_000
 const LOAD_TIMEOUT_MS = 10_000
 
-export interface CheckResult { png: string /* base64 */; height: number; cropped: boolean; loaded: boolean; console: string[]; file: string }
+export interface CheckResult {
+  png: string /* base64 */; height: number; cropped: boolean; loaded: boolean; console: string[]
+  /** Caminho da cópia do PNG; vazio quando ela não pôde ser gravada (motivo em fileError). */
+  file: string
+  fileError?: string
+}
 
 export async function runCheck(
   host: Pick<BrowserHost, 'withIsolatedPage'>,
@@ -41,10 +46,13 @@ export async function runCheck(
   )
   // O corte e a cópia depois de fechar a página: a vaga do host fica livre antes.
   const cut = cropPngHeight(shot.png, CHECK_MAX_HEIGHT)
-  const file = shots.save(cut.png)
+  // Sem a cópia, a imagem ainda serve: a conferência não falha por isso.
+  let file = ''
+  let fileError: string | undefined
+  try { file = shots.save(cut.png) } catch (err) { fileError = (err as Error).message }
   return {
     png: cut.png.toString('base64'), height: shot.height, cropped: cut.cropped,
-    loaded: shot.loaded, console: shot.console, file,
+    loaded: shot.loaded, console: shot.console, file, ...(fileError ? { fileError } : {}),
   }
 }
 

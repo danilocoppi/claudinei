@@ -335,10 +335,12 @@ export async function runHermes(opts: { api: string; projectId: number; serviceT
         const r = await call('/api/hermes/pages/check', {
           method: 'POST',
           body: JSON.stringify({ projectId: PROJECT_ID, html, path, width }),
-        }) as { png: string; height: number; cropped: boolean; loaded: boolean; console: string[]; file: string }
+        }) as { png: string; height: number; cropped: boolean; loaded: boolean; console: string[]; file: string; fileError?: string }
         const lines = [`content height: ${r.height} px${r.cropped ? ' (screenshot cut at 2000 px)' : ''}`]
         if (!r.loaded) lines.push('the load event did not fire within 10 s; captured anyway')
-        lines.push(`screenshot copy: ${r.file} (kept 30 min)`)
+        lines.push(r.file
+          ? `screenshot copy: ${r.file} (kept 30 min)`
+          : `screenshot copy: not saved (${r.fileError || 'unknown error'})`)
         lines.push(r.console.length
           ? `console (${r.console.length} ${r.console.length === 1 ? 'line' : 'lines'}, errors first):\n${r.console.join('\n')}`
           : 'console: empty')

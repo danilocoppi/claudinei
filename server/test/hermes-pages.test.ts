@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { createHash } from 'node:crypto'
 import { hermesCall, fakeApi } from './helpers/hermes.js'
 import { buildInstructions } from '../src/hermes/instructions.js'
 
@@ -123,6 +122,23 @@ describe('hermes: check_page', () => {
     )
   }, 30000)
 
+  it('sem a cópia (file vazio): devolve a imagem e diz no texto que a cópia não foi gravada', async () => {
+    const api = await fakeApi(() => [200, {
+      png: PNG, height: 640, cropped: false, loaded: true, file: '', fileError: 'not a safe folder', console: [],
+    }], ROTA)
+    const [r] = await hermesCall(api.url, {}, [{
+      method: 'tools/call', params: { name: 'check_page', arguments: { html: '<p>x</p>' } },
+    }])
+    api.close()
+    expect(r.result.isError).toBeFalsy()
+    expect(r.result.content[0]).toEqual({ type: 'image', data: PNG, mimeType: 'image/png' })
+    expect(r.result.content[1].text).toBe(
+      'content height: 640 px\n'
+      + 'screenshot copy: not saved (not a safe folder)\n'
+      + 'console: empty',
+    )
+  }, 20000)
+
   it('busy vira isError com "busy, try again"', async () => {
     const api = await fakeApi(() => [503, { error: 'busy, try again', code: 'browser_busy' }], ROTA)
     const [r] = await hermesCall(api.url, {}, [{
@@ -147,16 +163,19 @@ describe('hermes: check_page', () => {
     expect(props.width).toMatchObject({ type: 'integer', minimum: 360, maximum: 1920 })
   }, 20000)
 
-  it('instructions do Hermes iguais às de antes (buildInstructions para a mesma entrada)', () => {
-    // Hashes tirados de buildInstructions em c94ecd5, antes do check_page.
-    const sha = (s: string) => createHash('sha256').update(s).digest('hex')
-    const dois = buildInstructions(1, [
-      { id: 1, name: 'Claudinei', group: 'Ferramentas', sector: 'Interno' },
-      { id: 2, name: 'Páginas', sector: 'Clientes' },
-    ])
-    const generica = buildInstructions(0, undefined)
-    expect([dois.length, generica.length]).toEqual([1996, 1942])
-    expect(sha(dois)).toBe('56d9fc2b3e5db45ef9ee73757b84b6c663deb9a8a2f705c55577a4ef8c3b4b4e')
-    expect(sha(generica)).toBe('eaee8d9cea6ea6ad7c6bff211a3ea0cab830d9e0cae4be8eaa4a6265f244bc48')
+  it('instructions do Hermes não falam das páginas e cabem em 4096 caracteres', () => {
+    // Propriedades, não hash: outras trilhas podem mexer em hermes/instructions.ts.
+    const entradas = [
+      buildInstructions(1, [
+        { id: 1, name: 'Claudinei', group: 'Ferramentas', sector: 'Interno' },
+        { id: 2, name: 'Páginas', sector: 'Clientes' },
+      ]),
+      buildInstructions(0, undefined),
+    ]
+    for (const txt of entradas) {
+      expect(txt).not.toContain('show_page')
+      expect(txt).not.toContain('check_page')
+      expect(txt.length).toBeLessThanOrEqual(4096)
+    }
   })
 })

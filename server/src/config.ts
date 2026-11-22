@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { existsSync, renameSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { moduleDirname } from './dirname.js'
 
 const __dirname = moduleDirname(import.meta.url)
@@ -50,10 +50,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       if (Array.isArray(parsed)) hermesArgs = parsed
     } catch { /* env malformada → mantém o default (hermesScript) */ }
   }
+  const dbPath = env.CLAUDINEI_DB ?? join(homedir(), '.claudinei', 'claudinei.db')
   return {
     port,
     host: env.CLAUDINEI_HOST ?? '127.0.0.1',
-    dbPath: env.CLAUDINEI_DB ?? join(homedir(), '.claudinei', 'claudinei.db'),
+    dbPath,
     claudeBin: env.CLAUDINEI_CLAUDE_BIN ?? 'claude',
     codexBin: env.CLAUDINEI_CODEX_BIN ?? 'codex',
     opencodeBin: env.CLAUDINEI_OPENCODE_BIN ?? 'opencode',
@@ -75,7 +76,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     schedulesDir: env.CLAUDINEI_SCHEDULES ?? join(homedir(), '.claudinei', 'schedules'),
     scratchDir: env.CLAUDINEI_SCRATCH ?? join(homedir(), '.claudinei', 'scratch'),
     progressDir: env.CLAUDINEI_PROGRESS ?? join(homedir(), '.claudinei', 'acompanhamento'),
-    pagesDir: env.CLAUDINEI_PAGES ?? join(homedir(), '.claudinei', 'pages'),
+    // Ao lado do banco: uma instância isolada (CLAUDINEI_DB próprio) não pode
+    // varrer, no arranque, as páginas da produção (~/.claudinei/pages).
+    pagesDir: env.CLAUDINEI_PAGES ?? join(dirname(dbPath), 'pages'),
   }
 }
 

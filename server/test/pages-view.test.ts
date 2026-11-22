@@ -226,7 +226,6 @@ describe('abrir e servir', () => {
       `/api/pages/view/${token}/${page.id}.html.bak`,
       `/api/pages/view/${token}/..%2F${page.id}.html`,
       `/api/pages/view/${token}/..%2Fpages%2F${page.id}.html`,
-      `/api/pages/view/${token}/x/${page.id}.html`,
       `/api/pages/view/${token}x/${page.id}.html`,
     ]
     for (const t of tentativas) {
@@ -234,6 +233,10 @@ describe('abrir e servir', () => {
       expect(res.statusCode, t).toBe(404)
       expect(res.body, t).not.toContain(page.id + '</p>')
     }
+    // Segmento a mais não tem a forma da rota pública: exige cookie (401) e não serve nada.
+    const extra = await app.inject({ method: 'GET', url: `/api/pages/view/${token}/x/${page.id}.html` })
+    expect(extra.statusCode).toBe(401)
+    expect(extra.body).not.toContain(page.id + '</p>')
     // O próprio token continua valendo para a página dele.
     expect((await app.inject({ method: 'GET', url })).statusCode).toBe(200)
   })
@@ -249,6 +252,15 @@ describe('abrir e servir', () => {
     expect((await app.inject({ method: 'GET', url: '/api/sessions/loc-1/pages' })).statusCode).toBe(401)
     // Pública só para GET.
     expect((await app.inject({ method: 'POST', url })).statusCode).toBe(401)
+  })
+
+  it('/api/pages/view%2F… não passa por pública: o router a leva a /api/pages/:id, que exige cookie (401)', async () => {
+    const page = addPage({ projectId: p1, localId: 'loc-1', conversationId: 'conv-1' })
+    for (const u of [`/api/pages/view%2F${page.id}`, `/api/pages/view%2Ftok%2F${page.id}.html`, '/api/pages/view/só-um-segmento']) {
+      expect((await app.inject({ method: 'GET', url: u })).statusCode, u).toBe(401)
+    }
+    // A forma certa, com cookie nenhum, continua pública (404 de token desconhecido, não 401).
+    expect((await app.inject({ method: 'GET', url: `/api/pages/view/tok/${page.id}.html` })).statusCode).toBe(404)
   })
 })
 

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { constants as zc, deflateSync, inflateSync } from 'node:zlib'
@@ -207,13 +207,30 @@ export function orderConsole(entries: CheckConsoleEntry[], max = CHECK_CONSOLE_M
 /** O nome que o `save` dá às cópias; a varredura só apaga esses (a pasta pode guardar outros .png). */
 const SHOT_NAME_RE = /^check-[0-9a-f]{16}\.png$/
 
-export function createCheckShots(opts: { dir?: string; ttlMs?: number; now?: () => number } = {}): {
+export function createCheckShots(opts: {
+  dir?: string; ttlMs?: number; now?: () => number
+  /** Dono esperado da pasta; padrão process.getuid (ausente no Windows: não confere). */
+  uid?: () => number | undefined
+} = {}): {
   save(png: Buffer): string
   sweep(): number
 } {
   const dir = opts.dir ?? join(tmpdir(), 'claudinei-check')
   const ttlMs = opts.ttlMs ?? CHECK_SHOT_TTL_MS
   const now = opts.now ?? Date.now
+  const uid = opts.uid ?? (() => process.getuid?.())
+
+  /**
+   * A pasta fica no /tmp, que outro usuário da máquina pode ter criado antes
+   * (ou trocado por um symlink). Só grava numa pasta de verdade e nossa.
+   */
+  function assertSafeDir(): void {
+    const st = lstatSync(dir)
+    const owner = uid()
+    if (!st.isDirectory() || (owner !== undefined && st.uid !== owner)) {
+      throw new Error(`${dir} is not a safe folder (a symlink or owned by another user)`)
+    }
+  }
 
   function remove(path: string): boolean {
     try { unlinkSync(path); return true } catch { return false }
@@ -239,6 +256,7 @@ export function createCheckShots(opts: { dir?: string; ttlMs?: number; now?: () 
   function save(png: Buffer): string {
     sweep()
     mkdirSync(dir, { recursive: true, mode: 0o700 })
+    assertSafeDir()
     const path = join(dir, `check-${randomBytes(8).toString('hex')}.png`)
     writeFileSync(path, png, { mode: 0o600 })
     setTimeout(() => { remove(path) }, ttlMs).unref()

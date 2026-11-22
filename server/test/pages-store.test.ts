@@ -89,6 +89,15 @@ describe('visual_pages', () => {
     expect(store.listConversation(otherProjectId, 'claude', 'conv-1', 'loc-1').map((p) => p.title)).toEqual(['outro projeto'])
   })
 
+  it('listConversation com id inclui as do mesmo terminal gravadas antes de o id chegar, em ordem de criação', () => {
+    const antes = store.insert(page({ title: 'antes do id', conversationId: null, localId: 'loc-1' }))
+    const depois = store.insert(page({ title: 'depois do id', conversationId: 'conv-1', localId: 'loc-1' }))
+    store.insert(page({ title: 'sem id, outro terminal', conversationId: null, localId: 'loc-2' }))
+    store.insert(page({ title: 'sem id, outro motor', conversationId: null, localId: 'loc-1', engine: 'codex' }))
+    store.insert(page({ title: 'sem id, outro projeto', conversationId: null, localId: 'loc-1', projectId: otherProjectId }))
+    expect(store.listConversation(projectId, 'claude', 'conv-1', 'loc-1').map((p) => p.id)).toEqual([antes.id, depois.id])
+  })
+
   it('listConversation ordena por created_at antes do rowid', () => {
     const novo = store.insert(page({ title: 'novo' }))
     const velho = store.insert(page({ title: 'velho' }))
@@ -156,5 +165,11 @@ describe('loadConfig: pasta das páginas', () => {
   it('loadConfig: CLAUDINEI_PAGES vence o padrão ~/.claudinei/pages', () => {
     expect(loadConfig({}).pagesDir).toBe(join(homedir(), '.claudinei', 'pages'))
     expect(loadConfig({ CLAUDINEI_PAGES: '/srv/paginas' }).pagesDir).toBe('/srv/paginas')
+  })
+
+  it('loadConfig: sem CLAUDINEI_PAGES, a pasta fica ao lado do banco (instância isolada não varre as páginas da produção)', () => {
+    expect(loadConfig({ CLAUDINEI_DB: '/x/y.db' }).pagesDir).toBe('/x/pages')
+    expect(loadConfig({ CLAUDINEI_DB: '/x/y.db', CLAUDINEI_PAGES: '/srv/paginas' }).pagesDir).toBe('/srv/paginas')
+    expect(loadConfig({}).pagesDir).toBe(join(homedir(), '.claudinei', 'pages'))
   })
 })

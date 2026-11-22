@@ -149,4 +149,34 @@ describe('terminal E2E (transporte real: HTTP + WebSocket, PTY fake)', () => {
     })
     expect(closeCode).toBe(1008)
   })
+
+  it('WS de terminal com Origin de outra porta do localhost é recusado mesmo com token válido', async () => {
+    const proj = await app.inject({
+      method: 'POST', url: '/api/projects',
+      payload: { name: 'P3', path: mkdtempSync(join(tmpdir(), 'tm-')) },
+    })
+    const projectId = proj.json().id
+    const start = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/sessions` })
+    const localId = start.json().localId
+    await waitUntil(() => {
+      const row = db.prepare('SELECT claude_session_id FROM sessions WHERE local_id=?').get(localId) as any
+      return !!row?.claude_session_id
+    })
+    const open = await app.inject({ method: 'POST', url: `/api/sessions/${localId}/terminal` })
+    const { token, wsUrl } = open.json() as { token: string; wsUrl: string }
+    // algo no buffer: quem é aceito recebe o replay; quem é recusado só vê o close
+    lastPty.emit('SEGREDO\r\n')
+
+    const conecta = (origin: string) => new Promise<{ code: number; reason: string } | 'aberto'>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}${wsUrl}?token=${encodeURIComponent(token)}`, { headers: { origin } })
+      ws.on('close', (code, reason) => resolve({ code, reason: reason.toString() }))
+      ws.on('message', () => { resolve('aberto'); ws.close() })
+      ws.on('error', reject)
+    })
+    // página de um servidor de desenvolvimento do agente noutra porta do mesmo computador
+    expect(await conecta('http://localhost:3000')).toEqual({ code: 1008, reason: 'origin' })
+    expect(await conecta(`http://127.0.0.1:${port + 1}`)).toEqual({ code: 1008, reason: 'origin' })
+    // a própria origem continua entrando
+    expect(await conecta(`http://127.0.0.1:${port}`)).toBe('aberto')
+  })
 })

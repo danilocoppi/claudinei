@@ -545,6 +545,11 @@ With the flag on, loopback stops counting as proof of "the owner at the keyboard
 those routes are refused for everyone, the session cookie gains `Secure`, and HSTS
 is sent. Chat and terminals keep working normally — they're behind login + RBAC.
 
+The proxy must pass the browser's host along: either keep the original `Host`
+(nginx: `proxy_set_header Host $host;`) or send `X-Forwarded-Host`. Claudinei only
+accepts WebSockets and writes to `/api` whose `Origin` matches that host, so with
+nginx's default (`Host $proxy_host`, no `X-Forwarded-Host`) every write is refused.
+
 > **Create the first admin *before* enabling it.** With the flag on, the setup
 > screen is blocked for everyone (that's the point) — so run once without it, on
 > localhost, create your admin, then restart with the proxy. The server warns at

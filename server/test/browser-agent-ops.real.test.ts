@@ -105,6 +105,18 @@ describe.skipIf(!resolveChromium().ok)('agentOps com o Chromium de verdade', () 
     expect(snap).not.toContain('segredoShadow')
   }, 30_000)
 
+  // Achado do ensaio da Task 16: a linha de estado da resposta saía com o título
+  // da página anterior (ou vazio), porque o título só era lido depois do `load`,
+  // em segundo plano.
+  it('a linha de estado logo depois de navegar traz o título da página nova', async () => {
+    await ops.navigate({ url: `${base}/shadow` })
+    expect(statusLine(tab)).toContain(`Browser: ${base}/shadow | Sombra | control:`)
+    await ops.navigate({ url: `${base}/` })
+    expect(statusLine(tab)).toContain(`Browser: ${base}/ | Formulario | control:`)
+    await ops.navigate({ action: 'back' })
+    expect(statusLine(tab)).toContain(`Browser: ${base}/shadow | Sombra | control:`)
+  }, 30_000)
+
   it('a ref de antes da navegação falha na hora com stale_ref', async () => {
     await ops.navigate({ url: `${base}/` })
     const ref = refOf(await ops.snapshot(), 'button', 'Enviar')

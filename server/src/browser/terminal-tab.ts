@@ -89,6 +89,12 @@ const AGENT_NOTICES = 20
  * navegação seja interrompida por ela.
  */
 const SETTLE_MS = 1_500
+/**
+ * Espera do título lido logo depois da navegação. A página que trava a thread
+ * no `load` não responde ao `title()`: passado isto, a resposta sai com o título
+ * que houver (o do `load` chega depois, pelo ouvinte).
+ */
+const TITLE_WAIT_MS = 1_000
 /** Mensagem de diálogo maior que isto sai cortada no aviso. */
 const MESSAGE_MAX = 500
 /** As mensagens do console guardadas (o que a `browser_console` devolve). */
@@ -193,6 +199,21 @@ export function createTerminalTab(o: {
       await p.waitForEvent('load', { timeout: SETTLE_MS }).catch(() => { /* nada chegou: segue */ })
       throw err
     }
+  }
+
+  /**
+   * Lê o título na hora, depois de a navegação voltar. O ouvinte do `load` também
+   * lê, mas em segundo plano: a linha de estado da resposta ao agente saía com o
+   * título da página anterior (ou o "Loading …" do Chromium).
+   */
+  async function readTitle(p: Page): Promise<void> {
+    let timer: NodeJS.Timeout | undefined
+    const late = new Promise<null>((r) => { timer = setTimeout(r, TITLE_WAIT_MS, null) })
+    const t = await Promise.race([p.title(), late]).catch(() => null)
+    clearTimeout(timer)
+    if (t === null || p !== current || t === title) return
+    title = t
+    emit()
   }
 
   /** O operador navegou com um diálogo aberto: o diálogo sai como "Cancelar". */
@@ -431,23 +452,27 @@ export function createTerminalTab(o: {
       const p = await livePage()
       dismissPending()
       await gotoUrl(p, target.href)
+      await readTitle(p)
     },
 
     async history(action) {
       if (crashed) {
         const p = await recover()
         await gotoUrl(p, lastUrl)
+        await readTitle(p)
         return
       }
       dismissPending()
+      const p = current
       const opts = { waitUntil: 'load' as const, timeout: LOAD_TIMEOUT_MS }
       try {
-        if (action === 'back') await current.goBack(opts)
-        else if (action === 'forward') await current.goForward(opts)
-        else await current.reload(opts)
+        if (action === 'back') await p.goBack(opts)
+        else if (action === 'forward') await p.goForward(opts)
+        else await p.reload(opts)
       } catch (err) {
         if (!isTimeout(err)) throw err
       }
+      await readTitle(p)
     },
 
     onPage(fn) {

@@ -8,6 +8,7 @@ import { Readable } from 'node:stream'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { ProjectsService } from '../projects.js'
 import { requireProjectAccess } from '../auth/guards.js'
+import { hasEngine, listEngines } from '../engine/index.js'
 import { saveUpload } from '../uploads.js'
 import { BrowserBusyError, BrowserUnavailableError, type BrowserHost, type TerminalTab } from './host.js'
 import { OperatorInControlError } from './baton.js'
@@ -16,9 +17,9 @@ import {
   BadArgsError, DialogPendingError, StaleRefError, TabGoneError,
   type ActAction, type ActArgs, type AgentOps, type WaitArgs,
 } from './agent-ops.js'
-import { TEXTS, TooManyTabsError, type TerminalKey } from './types.js'
+import { BrowserRestartingError, TEXTS, TooManyTabsError, type TerminalKey } from './types.js'
 
-/** O motor do terminal, como vem do hermes e da URL do operador. */
+/** A forma do motor do terminal, como vem do hermes e da URL do operador (e ele tem de ser um motor registrado). */
 export const ENGINE_RE = /^[a-z0-9_-]{1,32}$/
 
 export const BROWSER_OPS = ['open', 'navigate', 'snapshot', 'act', 'wait', 'screenshot', 'console', 'close'] as const
@@ -47,8 +48,9 @@ export interface ErrorReply { status: number; body: { error: string; code: strin
  * reconhecidos pela mensagem, que é constante exportada de quem lança.
  */
 export function browserErrorReply(err: unknown): ErrorReply {
+  // A dica vazia não vai na resposta (o agente leria um campo sem conteúdo).
   const reply = (status: number, code: string, error: string, hint?: string): ErrorReply =>
-    ({ status, body: hint === undefined ? { error, code } : { error, code, hint } })
+    ({ status, body: hint ? { error, code, hint } : { error, code } })
   if (err instanceof OperatorInControlError) return reply(409, 'operator_in_control', TEXTS.OPERATOR_IN_CONTROL)
   if (err instanceof StaleRefError || err instanceof DialogPendingError) return reply(409, err.code, err.message)
   if (err instanceof BrowserUnavailableError) {
@@ -59,6 +61,8 @@ export function browserErrorReply(err: unknown): ErrorReply {
   }
   if (err instanceof TooManyTabsError) return reply(503, err.code, TEXTS.TOO_MANY_TABS)
   if (err instanceof BrowserBusyError) return reply(503, err.code, err.message)
+  // O processo caiu enquanto a aba abria: a próxima tentativa sobe outro.
+  if (err instanceof BrowserRestartingError) return reply(503, err.code, err.message)
   if (err instanceof TabGoneError || err instanceof NoTabError) return reply(410, err.code, err.message)
   if (err instanceof BadArgsError) return reply(400, err.code, err.message)
   const message = err instanceof Error ? err.message : String(err)
@@ -70,6 +74,23 @@ export function browserErrorReply(err: unknown): ErrorReply {
   if (message === 'no dialog is pending') return reply(409, 'no_dialog', message)
   if (WAIT_TIMEOUT.test(message)) return reply(504, 'wait_timeout', message)
   return reply(500, 'internal', message)
+}
+
+/**
+ * O erro inesperado (o que cairia em 500) relido pelo estado da aba em que a
+ * operação correu. O guarda das operações escuta o fechamento da aba e o
+ * diálogo, não a queda da página: a página que trava no meio de uma ação faz o
+ * Playwright rejeitar com "Page crashed" (TargetClosedError), e a queda do
+ * Chromium pode rejeitar antes de o `onClosed` avisar. A aba fechada vem
+ * primeiro (o reload não a traz de volta; só a `browser_open`); depois, a
+ * página travada.
+ */
+export function errorInTab(err: unknown, tab: TerminalTab | undefined): unknown {
+  if (!tab || browserErrorReply(err).status !== 500) return err
+  const reason = tab.closedReason()
+  if (reason) return new TabGoneError(reason)
+  if (tab.state().crashed) return new Error(PAGE_CRASHED)
+  return err
 }
 
 /** Manda o erro na resposta; o inesperado vai também ao log. */
@@ -92,6 +113,13 @@ export function terminalOf(
   if (!requireProjectAccess(req, reply, project.id)) return undefined
   if (typeof engine !== 'string' || !ENGINE_RE.test(engine)) {
     reply.code(400).send({ error: 'engine must match /^[a-z0-9_-]{1,32}$/', code: 'bad_args' })
+    return undefined
+  }
+  // Só os motores do Claudinei: um nome inventado abriria abas fora de terminal
+  // nenhum e, perto do teto, despejaria as de outros projetos.
+  if (!hasEngine(engine)) {
+    const known = listEngines().map((e) => e.id).join(', ')
+    reply.code(400).send({ error: `unknown engine '${engine}'; use one of ${known}`, code: 'bad_args' })
     return undefined
   }
   return { projectId: project.id, engine }
@@ -123,10 +151,12 @@ export function registerBrowserHermesRoutes(app: FastifyInstance, d: BrowserRout
   const opsFor = (tab: TerminalTab, key: TerminalKey): AgentOps =>
     agentOps(tab, { closeTab: (reason) => d.host.closeTab(key, reason) })
 
-  async function run(op: BrowserOp, key: TerminalKey, body: Body): Promise<OpResult> {
+  /** `seen` recebe a aba em que a operação corre: o `catch` da rota relê o erro pelo estado dela. */
+  async function run(op: BrowserOp, key: TerminalKey, body: Body, seen: (tab: TerminalTab) => void): Promise<OpResult> {
     if (op === 'open') {
       const url = opt(body, 'url', 'string')
       const tab = await d.openTab(key, 'agent')
+      seen(tab)
       const text = await opsFor(tab, key).open(url)
       return { text, status: statusLine(tab) }
     }
@@ -136,6 +166,7 @@ export function registerBrowserHermesRoutes(app: FastifyInstance, d: BrowserRout
       if (op === 'close') return { text: 'browser already closed', status: CLOSED_STATUS }
       throw new NoTabError()
     }
+    seen(tab)
     const ops = opsFor(tab, key)
     const done = (text: string): OpResult => ({ text, status: statusLine(tab) })
     switch (op) {
@@ -198,10 +229,12 @@ export function registerBrowserHermesRoutes(app: FastifyInstance, d: BrowserRout
     if (!(BROWSER_OPS as readonly string[]).includes(op)) {
       return reply.code(404).send({ error: `unknown browser op '${op}'; use one of ${BROWSER_OPS.join(', ')}`, code: 'unknown_op' })
     }
+    // Guardada fora do `try`: fechada, a aba sai do host, e o `catch` ainda a lê.
+    let tab: TerminalTab | undefined
     try {
-      return await run(op as BrowserOp, key, body)
+      return await run(op as BrowserOp, key, body, (t) => { tab = t })
     } catch (err) {
-      return sendBrowserError(reply, err, `browser ${op}`)
+      return sendBrowserError(reply, errorInTab(err, tab), `browser ${op}`)
     }
   })
 }

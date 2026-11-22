@@ -12,7 +12,7 @@ import type { Browser, BrowserContext, Page } from 'playwright-core'
 import { INSTALL_COMMAND, resolveChromium } from './chromium.js'
 import { createTerminalTab, DEFAULT_VIEWPORT, type TerminalTab } from './terminal-tab.js'
 import { allowedUrl } from './url-policy.js'
-import { keyOf, TEXTS, TooManyTabsError, type ConsoleEntry, type LaunchFn, type TerminalKey } from './types.js'
+import { BrowserRestartingError, keyOf, TEXTS, TooManyTabsError, type ConsoleEntry, type LaunchFn, type TerminalKey } from './types.js'
 import { withMarker } from '../local-servers/marker.js'
 
 export type { TerminalTab } from './terminal-tab.js'
@@ -296,7 +296,7 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
       const page = await context.newPage()
       // O processo caiu ou foi fechado enquanto a aba abria: a aba nasceria órfã
       // (o fechamento das abas desse processo já passou). Fecha e falha.
-      if (browser !== b) throw new Error('the browser closed while the tab was opening; try again')
+      if (browser !== b) throw new BrowserRestartingError()
       const tab = createTerminalTab({ key, context, page, now, viewport, sandbox: !noSandbox })
       const k = keyOf(key)
       tabs.set(k, tab)

@@ -34,3 +34,15 @@ export class TooManyTabsError extends Error {
     this.name = 'TooManyTabsError'
   }
 }
+
+/**
+ * O processo do Chromium caiu ou fechou enquanto a aba abria (`host.ts`): não é
+ * falha do navegador nem da página, e a próxima tentativa sobe outro processo.
+ */
+export class BrowserRestartingError extends Error {
+  readonly code = 'browser_restarting' as const
+  constructor() {
+    super('the browser closed while the tab was opening; try again')
+    this.name = 'BrowserRestartingError'
+  }
+}

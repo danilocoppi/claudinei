@@ -150,6 +150,22 @@ export class FakePage extends Emitter {
     for (const a of this.hungActs.splice(0)) a.resolve()
   }
 
+  /** Falha as ações penduradas com `err`. */
+  failActs(err: Error): void {
+    for (const a of this.hungActs.splice(0)) a.reject(err)
+  }
+
+  /**
+   * A página travou, como no Playwright 1.65: o evento 'crash' sai primeiro e
+   * a ação em curso falha com TargetClosedError("Page crashed").
+   */
+  crash(): void {
+    this.emit('crash')
+    const err = new Error('Page crashed')
+    err.name = 'TargetClosedError'
+    this.failActs(err)
+  }
+
   /** O próximo `event`, ou TimeoutError depois de `timeout` ms. */
   waitForEvent(event: string, opts?: { timeout?: number }): Promise<unknown> {
     return new Promise((resolve, reject) => {

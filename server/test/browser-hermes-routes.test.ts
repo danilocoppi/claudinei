@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { INSTALL_COMMAND } from '../src/browser/chromium.js'
-import { TEXTS, TooManyTabsError } from '../src/browser/types.js'
+import { BrowserRestartingError, TEXTS, TooManyTabsError } from '../src/browser/types.js'
 import { PAGE_BUSY, PAGE_CRASHED, BadArgsError, DialogPendingError, StaleRefError, TabGoneError } from '../src/browser/agent-ops.js'
 import { OperatorInControlError } from '../src/browser/baton.js'
 import { BrowserBusyError, BrowserUnavailableError } from '../src/browser/host.js'
@@ -172,6 +172,68 @@ describe('POST /api/hermes/browser/:op', () => {
     expect(tabEvents().at(-1)).toEqual({ type: 'browser_tab', projectId: f.p1.id, engine: 'claude', open: true, by: 'agent' })
   })
 
+  it('página que trava no meio de um act (Page crashed do Playwright) → 409 page_crashed, não 500', async () => {
+    await call('open')
+    const page = pageOf()
+    page.snapshotText = SNAP
+    expect((await call('snapshot')).statusCode).toBe(200)
+    page.actHang = true
+    const pending = call('act', { action: 'click', ref: 'e6' })
+    await until(() => page.calls.some((c) => c.method === 'click'))
+    page.crash()
+    const res = await pending
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({ error: PAGE_CRASHED, code: 'page_crashed' })
+  })
+
+  it('a rejeição do Playwright chega antes do aviso de fechamento da aba → 410 tab_gone, não 500', async () => {
+    await call('open')
+    const tab = f.host.existingTab(KEY())!
+    const page = pageOf()
+    page.snapshotText = SNAP
+    expect((await call('snapshot')).statusCode).toBe(200)
+    // O guarda da operação não ouve o fechamento (a queda do Chromium cuja
+    // rejeição vem antes do `onClosed`): só a rejeição crua chega à rota.
+    ;(tab as { onClosed: unknown }).onClosed = () => () => {}
+    page.actHang = true
+    const pending = call('act', { action: 'click', ref: 'e6' })
+    await until(() => page.calls.some((c) => c.method === 'click'))
+    await tab.close('browser_closed')
+    const res = await pending
+    expect(res.statusCode).toBe(410)
+    expect(res.json()).toEqual({ error: 'the browser tab closed (browser_closed); call browser_open again', code: 'tab_gone' })
+  })
+
+  it('o Chromium cai enquanto a aba abre → 503 browser_restarting; a open seguinte sobe outro', async () => {
+    expect((await call('open', {}, { engine: 'codex' })).statusCode).toBe(200)
+    const b = f.fl.browsers[0]
+    let release!: () => void
+    b.pageGate = new Promise<void>((r) => { release = r })
+    const pending = call('open')
+    await until(() => b.contexts.length === 2)
+    b.disconnect()
+    await flush()
+    release()
+    const res = await pending
+    expect(res.statusCode).toBe(503)
+    expect(res.json()).toEqual({ error: 'the browser closed while the tab was opening; try again', code: 'browser_restarting' })
+    expect((await call('open')).statusCode).toBe(200)
+    expect(f.fl.launches).toHaveLength(2)
+  })
+
+  it('motor fora dos do Claudinei → 400 bad_args, sem abrir aba', async () => {
+    for (const engine of ['inventado', 'claude2', 'x']) {
+      const res = await call('open', {}, { engine })
+      expect(res.statusCode, engine).toBe(400)
+      expect(res.json().code).toBe('bad_args')
+      expect(res.json().error).toMatch(/unknown engine/)
+    }
+    expect(f.fl.launches).toHaveLength(0)
+    for (const engine of ['claude', 'codex', 'kimi', 'opencode']) {
+      expect((await call('open', {}, { engine })).statusCode, engine).toBe(200)
+    }
+  })
+
   it('aba que fecha por ociosidade/queda anuncia by: system', async () => {
     await call('open')
     await f.host.existingTab(KEY())!.close('idle')
@@ -245,6 +307,9 @@ describe('browserErrorReply: cada erro vira status e código legíveis', () => {
       [new TooManyTabsError(), 503, { error: TEXTS.TOO_MANY_TABS, code: 'too_many_tabs' }],
       [new TabGoneError('idle'), 410, { error: 'the browser tab closed (idle); call browser_open again', code: 'tab_gone' }],
       [new BrowserBusyError(), 503, { error: 'browser busy: too many preview pages waiting', code: 'browser_busy' }],
+      [new BrowserRestartingError(), 503, { error: 'the browser closed while the tab was opening; try again', code: 'browser_restarting' }],
+      // A dica vazia não vai na resposta.
+      [new BrowserUnavailableError('launch_failed', 'chrome exited with 1', ''), 503, { error: 'chrome exited with 1', code: 'launch_failed' }],
       [new BadArgsError('depth must be a positive integer'), 400, { error: 'depth must be a positive integer', code: 'bad_args' }],
       [new Error(PAGE_BUSY), 504, { error: PAGE_BUSY, code: 'page_busy' }],
       [new Error(PAGE_CRASHED), 409, { error: PAGE_CRASHED, code: 'page_crashed' }],

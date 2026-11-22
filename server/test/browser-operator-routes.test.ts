@@ -69,6 +69,16 @@ describe('rotas do operador do navegador', () => {
     expect(f.fl.launches).toHaveLength(0)
   })
 
+  it('motor fora dos do Claudinei → 400 no POST e no DELETE, sem abrir aba', async () => {
+    for (const method of ['POST', 'DELETE'] as const) {
+      const res = await f.app.inject({ method, url: tabUrl(f.p1.id, 'inventado'), cookies: f.adminCookie })
+      expect(res.statusCode, method).toBe(400)
+      expect(res.json().code).toBe('bad_args')
+    }
+    expect(f.fl.launches).toHaveLength(0)
+    expect((await f.app.inject({ method: 'POST', url: tabUrl(f.p1.id, 'kimi'), cookies: f.adminCookie })).statusCode).toBe(200)
+  })
+
   it('sem Chromium → POST 503 com o comando de instalação', async () => {
     delete process.env.CLAUDINEI_CHROMIUM
     process.env.PLAYWRIGHT_BROWSERS_PATH = '/nao/existe/claudinei-teste'

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createBrowserHost, BrowserBusyError, BrowserUnavailableError, type BrowserHost, type PreviewPage } from '../src/browser/host.js'
 import { INSTALL_COMMAND } from '../src/browser/chromium.js'
-import { TEXTS, TooManyTabsError, type TabCloseReason } from '../src/browser/types.js'
+import { BrowserRestartingError, TEXTS, TooManyTabsError, type TabCloseReason } from '../src/browser/types.js'
 import { browserSelfTest } from '../src/browser/selftest.js'
 import { fakeLaunch, lastPage, type FakeLaunch } from './browser-fakes.js'
 
@@ -342,6 +342,8 @@ describe('BrowserHost: abas dos terminais', () => {
     await vi.advanceTimersByTimeAsync(0)
     open()
     const err = await p
+    expect(err).toBeInstanceOf(BrowserRestartingError)
+    expect((err as BrowserRestartingError).code).toBe('browser_restarting')
     expect((err as Error).message).toBe('the browser closed while the tab was opening; try again')
     expect(b.contexts.at(-1)?.closed).toBe(true)
     expect(host.existingTab(KEY)).toBeUndefined()

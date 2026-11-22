@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import Module from 'node:module'
 import { ORIG_LD } from './localApps.js'
 
 /** Rodando de dentro de um binário @yao-pkg/pkg? */
@@ -100,4 +101,34 @@ export function reexecIfNeeded(ldPath: string): void {
   process.env.LD_LIBRARY_PATH = `${ldPath}:${process.env.LD_LIBRARY_PATH || ''}`
   execFileSync(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: process.env })
   process.exit(0)
+}
+
+type LoadFn = (request: string, parent: unknown, isMain: boolean) => unknown
+
+/** Marca do carregador já envolvido (deixa `installInspectorFallback` idempotente). */
+const INSPECTOR_FALLBACK = Symbol.for('claudinei.inspectorFallback')
+
+/** Envolve o carregador: 'inspector' e 'node:inspector' tentam o verdadeiro; só se ele lançar, devolve {}. */
+export function inspectorFallbackLoader(orig: LoadFn): LoadFn {
+  const load = function (this: unknown, request: string, parent: unknown, isMain: boolean): unknown {
+    if (request !== 'inspector' && request !== 'node:inspector') return orig.call(this, request, parent, isMain)
+    try {
+      return orig.call(this, request, parent, isMain)
+    } catch {
+      return {}
+    }
+  }
+  ;(load as unknown as Record<symbol, boolean>)[INSPECTOR_FALLBACK] = true
+  return load
+}
+
+/**
+ * O Node embutido pelo pkg vem sem o módulo `inspector`, e o playwright-core faz
+ * `require("inspector")` ao carregar. Aplica o desvio em `Module._load` antes do
+ * primeiro require dele (index.ts, no ramo do binário); idempotente.
+ */
+export function installInspectorFallback(): void {
+  const mod = Module as unknown as { _load: LoadFn }
+  if ((mod._load as unknown as Record<symbol, boolean>)[INSPECTOR_FALLBACK]) return
+  mod._load = inspectorFallbackLoader(mod._load)
 }

@@ -3645,6 +3645,8 @@ html[data-page-hidden="true"] *::after { animation-play-state: paused !important
 .progress__updated--old { color: var(--warn); }
 .progress__path { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .progress__path code { font-family: var(--font-code); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Aqui não há .copy-wrap: absoluto, o botão subia até a coluna e cobria o × de fechar. */
+.progress__path .copy-btn { position: static; opacity: 1; flex: none; }
 .progress__discard { align-self: flex-start; font-size: 12px; padding: 4px 10px; }
 @media (max-width: 768px) {
   .progress { position: fixed; inset: 0; z-index: 45; width: auto; border-left: none; background: var(--surface-solid); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }

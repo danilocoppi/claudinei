@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { filterTerminals } from '../mentions'
 import { Icon } from './Icon'
+import { revealInList } from '../revealInList'
 import type { Project } from '../types'
 
 /**
@@ -33,6 +34,12 @@ export function MentionMenu({ projects, onPick, onClose }: {
   // Digitar filtra: manter o cursor onde estava deixaria a seleção apontando para
   // um item que a busca acabou de tirar da lista.
   useEffect(() => { setAtivo(0) }, [busca])
+  // A lista tem altura máxima: a seta move o destaque e a lista acompanha.
+  const listRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const item = listRef.current?.querySelectorAll<HTMLElement>('.mention-item')[indice]
+    if (listRef.current && item) revealInList(listRef.current, item)
+  }, [indice, busca])
 
   const teclado = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
@@ -56,7 +63,7 @@ export function MentionMenu({ projects, onPick, onClose }: {
         // lista — o `onMouseDown` deles corre antes e já resolve a escolha.
         onBlur={onClose}
       />
-      <div className="mention-menu__list">
+      <div className="mention-menu__list" ref={listRef}>
         {achados.length === 0 && <div className="mention-menu__empty">{t('chat.mentionEmpty')}</div>}
         {achados.map((p, i) => (
           <div

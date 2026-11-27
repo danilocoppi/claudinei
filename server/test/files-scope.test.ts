@@ -143,6 +143,44 @@ describe('resolveInScope', () => {
   })
 })
 
+describe('resolveInScope com allowDir', () => {
+  beforeEach(() => { mkdirSync(join(proj.path, 'engine')) })
+
+  it('pasta do projeto vira folder', () => {
+    const r = resolveInScope('engine', proj, false, { allowDir: true })
+    expect(r).toMatchObject({ exists: true, inScope: true, kind: 'folder' })
+    expect(r.size).toBeUndefined()
+    expect(r.real).toBe(realpathSync(join(proj.path, 'engine')))
+  })
+  it('barra final resolve a mesma pasta', () => {
+    expect(resolveInScope('engine/', proj, false, { allowDir: true })).toMatchObject({ kind: 'folder' })
+  })
+  it('sem allowDir a pasta continua fora', () => {
+    const r = resolveInScope('engine', proj, false)
+    expect(r.inScope).toBe(false)
+    expect(r.kind).toBeUndefined()
+  })
+  it('pasta fora do projeto para não-admin é missing', () => {
+    const fora = mkdtempSync(join(tmpdir(), 'fv-fora-'))
+    try {
+      expect(resolveInScope(fora, proj, false, { allowDir: true })).toEqual({ path: fora, exists: false, inScope: false })
+    } finally { rmSync(fora, { recursive: true, force: true }) }
+  })
+  it('symlink de pasta para fora é missing para não-admin', () => {
+    const fora = mkdtempSync(join(tmpdir(), 'fv-fora-'))
+    try {
+      symlinkSync(fora, join(proj.path, 'link'))
+      expect(resolveInScope('link', proj, false, { allowDir: true })).toEqual({ path: 'link', exists: false, inScope: false })
+    } finally { rmSync(fora, { recursive: true, force: true }) }
+  })
+  it('admin vê pasta absoluta fora do projeto', () => {
+    const fora = mkdtempSync(join(tmpdir(), 'fv-fora-'))
+    try {
+      expect(resolveInScope(fora, proj, true, { allowDir: true })).toMatchObject({ exists: true, inScope: true, kind: 'folder' })
+    } finally { rmSync(fora, { recursive: true, force: true }) }
+  })
+})
+
 describe('isUnderProjectRoot', () => {
   it('arquivo dentro da raiz do projeto → true', () => {
     const raiz = mkdtempSync(join(tmpdir(), 'escopo-'))

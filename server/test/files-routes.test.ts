@@ -74,6 +74,15 @@ describe('POST /api/files/resolve', () => {
     expect(body).toEqual([{ path: 'a.txt', exists: false, inScope: false }])
   })
 
+  it('resolve responde folder para pasta, sem real', async () => {
+    mkdirSync(join(projectPath, 'engine'))
+    const res = await app.inject({
+      method: 'POST', url: '/api/files/resolve', payload: { paths: ['engine'], projectId },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([{ path: 'engine', exists: true, inScope: true, kind: 'folder' }])
+  })
+
   it('array vazio retorna []', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -117,6 +126,15 @@ describe('GET /api/files/content', () => {
     expect(res.headers['content-type']).toBe('image/png')
     expect(res.headers['content-disposition']).toContain('inline')
     expect(res.headers['content-disposition']).toContain('pic.png')
+  })
+
+  it('content de pasta continua recusado', async () => {
+    mkdirSync(join(projectPath, 'engine'))
+    const res = await app.inject({
+      method: 'GET', url: `/api/files/content?path=engine&projectId=${projectId}`,
+    })
+    expect(res.statusCode).toBeGreaterThanOrEqual(400)
+    expect(res.statusCode).toBeLessThan(500)
   })
 
   it('inexistente → 404', async () => {

@@ -160,7 +160,8 @@ export function registerFileRoutes(
     }
   })
 
-  // Abre o gerenciador de arquivos na pasta do arquivo. O caminho NUNCA vai cru
+  // Abre o gerenciador de arquivos na pasta do arquivo, ou na própria pasta
+  // quando o caminho pedido já é uma pasta. O caminho NUNCA vai cru
   // para o SO: passa pelo mesmo resolveInScope das outras rotas, então o
   // parâmetro não vira "abra qualquer pasta da máquina".
   app.post('/api/files/reveal', async (req, reply) => {
@@ -169,10 +170,10 @@ export function registerFileRoutes(
     const raw = typeof body?.path === 'string' ? body.path : ''
     if (!raw) return reply.code(404).send({ error: 'arquivo não encontrado' })
     const project = projectFor(req, deps.projects, body?.projectId)
-    const r = resolveInScope(raw, project, isAdminReq(req))
+    const r = resolveInScope(raw, project, isAdminReq(req), { allowDir: true })
     if (!r.exists || !r.inScope || !r.real) return reply.code(404).send({ error: 'arquivo não encontrado' })
     const open = deps.revealInFolder ?? defaultRevealInFolder
-    try { open(dirname(r.real)) } catch (err) {
+    try { open(r.kind === 'folder' ? r.real : dirname(r.real)) } catch (err) {
       return reply.code(500).send({ error: (err as Error).message })
     }
     return { ok: true }
@@ -188,7 +189,7 @@ export function registerFileRoutes(
     // `real` (realpath absoluto no servidor) é SÓ para uso server-side (a rota
     // content). Nunca vai pro cliente — vazaria layout de diretório/username do SO.
     return paths.map((raw) => {
-      const { real: _real, ...rest } = resolveInScope(raw, project, admin)
+      const { real: _real, ...rest } = resolveInScope(raw, project, admin, { allowDir: true })
       return rest
     })
   })

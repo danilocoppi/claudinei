@@ -39,6 +39,12 @@ describe('POST /api/files/reveal', () => {
     expect(revealed).toEqual([join(root, 'engine')])
   })
 
+  it.each(['engine', 'engine/'])('abre a PRÓPRIA pasta quando o caminho é uma pasta (%s)', async (path) => {
+    const res = await reveal({ path, projectId: 1 })
+    expect(res.statusCode).toBe(200)
+    expect(revealed).toEqual([join(root, 'engine')])
+  })
+
   /**
    * Esconder o item no menu não basta: a rota executa um programa na máquina do
    * servidor, então quem chega de fora precisa ser barrado no backend também.

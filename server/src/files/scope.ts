@@ -2,7 +2,7 @@ import { realpathSync, statSync } from 'node:fs'
 import { resolve, sep, extname, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 
-export type FileKind = 'image' | 'pdf' | 'markdown' | 'code' | 'text' | 'binary'
+export type FileKind = 'image' | 'pdf' | 'markdown' | 'code' | 'text' | 'binary' | 'folder'
 export interface ScopeResult { path: string; exists: boolean; inScope: boolean; kind?: FileKind; size?: number; real?: string }
 
 const IMAGE = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico'])
@@ -71,8 +71,18 @@ export function isUnderProjectRoot(real: string, project: { path: string } | nul
  *
  * Quando inScope é true, `real` traz o realpath do arquivo (pós-symlink) para que rotas
  * futuras (ex.: content) possam ler o arquivo direto sem re-derivar/normalizar o path.
+ *
+ * `allowDir` aceita também diretório, com a mesma regra de escopo, e responde
+ * `kind: 'folder'` sem `size`. Só as rotas que confirmam o link (resolve) e
+ * abrem a pasta (reveal) passam a opção; as que leem conteúdo continuam
+ * recusando diretório.
  */
-export function resolveInScope(raw: string, project: { id: number; path: string } | null, isAdmin: boolean): ScopeResult {
+export function resolveInScope(
+  raw: string,
+  project: { id: number; path: string } | null,
+  isAdmin: boolean,
+  opts: { allowDir?: boolean } = {},
+): ScopeResult {
   const missing: ScopeResult = { path: raw, exists: false, inScope: false }
   const abs = toAbsolute(raw, project?.path ?? null)
   if (!abs) return missing
@@ -89,7 +99,8 @@ export function resolveInScope(raw: string, project: { id: number; path: string 
     try { realFile = realpathSync(alternative); st = statSync(realFile) } catch { return missing }
     removedBase = true
   }
-  if (!st.isFile()) return { path: raw, exists: isAdmin && !removedBase, inScope: false }
+  const isFolder = st.isDirectory() && opts.allowDir === true
+  if (!st.isFile() && !isFolder) return { path: raw, exists: isAdmin && !removedBase, inScope: false }
   // A base removida é uma inferência: só vale dentro da raiz real do projeto,
   // inclusive para admin. Caminhos explícitos mantêm as permissões anteriores.
   let inScope = isAdmin && !removedBase
@@ -98,6 +109,7 @@ export function resolveInScope(raw: string, project: { id: number; path: string 
   // 404-vs-403 derivado dele) seria um oráculo de existência de arquivos
   // arbitrários do SO para quem só tem acesso a um projeto.
   if (!inScope) return missing
+  if (isFolder) return { path: raw, exists: true, inScope, kind: 'folder', real: realFile }
   return {
     path: raw,
     exists: true,

@@ -975,11 +975,23 @@ export const useStore = create<State>((set, get) => ({
 
   clearInstallPrompt: () => set({ installPrompt: null }),
 
+  // Negativo é reconsultado a cada mensagem nova que cita o caminho (de
+  // propósito; ver useResolveFileCandidates). A resposta repetida mantém o
+  // objeto que já estava, e sem mudança nenhuma o mapa nem é trocado: um
+  // objeto novo para a mesma resposta fazia cada mensagem que cita o caminho
+  // refazer o markdown (a seleção com useShallow compara por identidade).
   setFilesResolved: (results, projectId) =>
     set((s) => {
-      const fileResolved = { ...s.fileResolved }
-      for (const r of results) fileResolved[resolvedKey(r.path, projectId)] = r
-      return { fileResolved }
+      let fileResolved: Record<string, ScopeResult> | undefined
+      for (const r of results) {
+        const key = resolvedKey(r.path, projectId)
+        const prev = s.fileResolved[key]
+        if (prev && prev.path === r.path && prev.exists === r.exists && prev.inScope === r.inScope
+          && prev.kind === r.kind && prev.size === r.size) continue
+        fileResolved ??= { ...s.fileResolved }
+        fileResolved[key] = r
+      }
+      return fileResolved ? { fileResolved } : s
     }),
 }))
 

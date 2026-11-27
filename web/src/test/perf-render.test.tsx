@@ -146,6 +146,22 @@ describe('mensagens antigas não re-renderizam com o que muda no store', () => {
     expect(commits.n, 'mensagens re-renderizaram por um arquivo que nenhuma cita').toBe(0)
   })
 
+  /**
+   * Negativo é reconsultado a cada mensagem nova que cita o token (de propósito),
+   * e `e/ou`, `TCP/IP`, datas e `/compact` agora são candidatos: gravar um objeto
+   * novo para a MESMA resposta fazia cada mensagem que cita o token refazer o markdown.
+   */
+  it('o mesmo negativo resolvido de novo não refaz a conversa', async () => {
+    const commits = montar()
+    const negativo = () => [{ path: 'src/arquivo-3.ts', exists: false, inScope: false }]
+    act(() => useStore.getState().setFilesResolved(negativo(), 1))
+    commits.n = 0
+    const antes = useStore.getState().fileResolved
+    act(() => useStore.getState().setFilesResolved(negativo(), 1))
+    expect(commits.n, 'mensagens re-renderizaram por um negativo repetido').toBe(0)
+    expect(useStore.getState().fileResolved, 'nada mudou: o mapa é o mesmo').toBe(antes)
+  })
+
   it('evento de sessão (status, contexto) e projeto mexido não refazem a conversa', () => {
     const commits = montar()
     act(() => useStore.setState((s) => ({ sessions: { ...s.sessions, s1: { ...s.sessions.s1, status: 'working', contextTokens: 1234 } } })))

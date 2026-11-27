@@ -15,26 +15,33 @@ export function resolvedKey(path: string, projectId?: number): string {
 }
 
 // absoluto (/...) ou ~/... com extensão (1-8 chars alfanum) no fim. O lookbehind
-// (?<!\w) evita casar um "/" no meio de um path relativo (ex.: o "/components" de
-// "src/components/App.tsx") como se fosse o início de um path absoluto novo.
-const ABSOLUTE_RE = /(?<!\w)(?:~\/|\/)[\w.\-+@]+(?:\/[\w.\-+@]+)*\.[A-Za-z0-9]{1,8}\b/g
-// relativo com pelo menos 1 "/" e extensão no fim (sem começar em "/" nem "~/", tratados acima).
-const RELATIVE_RE = /\b[\w.\-]+(?:\/[\w.\-]+)+\.[A-Za-z0-9]{1,8}\b/g
+// (?<![\w.]) evita casar um "/" no meio de um path relativo (ex.: o "/components" de
+// "src/components/App.tsx") como se fosse o início de um path absoluto novo — e o
+// "/lib/" de "./lib/" ou o "/bin/x" de "../bin/x", que são relativos ao projeto.
+const ABSOLUTE_RE = /(?<![\w.])(?:~\/|\/)[\w.\-+@]+(?:\/[\w.\-+@]+)*\.[A-Za-z0-9]{1,8}\b/g
+// relativo com extensão no fim (sem começar em "/" nem "~/", tratados acima): ou
+// com pelo menos 1 "/" no meio, ou com prefixo "./"/"../" (repetível), que fica
+// no candidato — o servidor resolve `./x` e `../x` contra a raiz do projeto.
+const RELATIVE_RE = /(?:(?<![\w.])(?:\.\.?\/)+[\w.\-]+(?:\/[\w.\-]+)*|\b[\w.\-]+(?:\/[\w.\-]+)+)\.[A-Za-z0-9]{1,8}\b/g
 // Pastas (ou qualquer caminho SEM extensão, com "/" final opcional): as mesmas
 // formas acima sem exigir a extensão. Rodam DEPOIS das de arquivo, então só
 // pegam o que sobrou; quem decide se existe e é pasta é o servidor — só vira
 // link o que ele confirmar. Os segmentos não contêm "/", então não há
 // backtracking catastrófico.
-const ABSOLUTE_DIR_RE = /(?<!\w)(?:~\/|\/)[\w.\-+@]+(?:\/[\w.\-+@]+)*\/?/g
-const RELATIVE_DIR_RE = /\b[\w.\-]+(?:\/[\w.\-]+)+\/?/g
+const ABSOLUTE_DIR_RE = /(?<![\w.])(?:~\/|\/)[\w.\-+@]+(?:\/[\w.\-+@]+)*\/?/g
+const RELATIVE_DIR_RE = /(?:(?<![\w.])(?:\.\.?\/)+[\w.\-]+(?:\/[\w.\-]+)*|\b[\w.\-]+(?:\/[\w.\-]+)+)\/?/g
 // URLs completas — mascaradas antes de rodar as regexes acima, senão
 // "https://site.com/logo.png" casaria como "/site.com/logo.png".
 const URL_RE = /\b(?:https?|ftp):\/\/\S+/gi
 
-interface PathRange { start: number; end: number; path: string }
+export interface PathRange { start: number; end: number; path: string }
 
-/** Candidatos a path COM posição, em ordem e sem sobreposição. */
-function candidateRanges(text: string): PathRange[] {
+/**
+ * Candidatos a path COM posição, em ordem e sem sobreposição. É o detector
+ * único: a bolha do operador (splitCandidatePaths) e o markdown
+ * (rehypeFilePaths) cortam o texto pelas MESMAS faixas.
+ */
+export function candidateRanges(text: string): PathRange[] {
   if (!text) return []
   // Mascara URLs preservando o comprimento/índices, pra não interferir nos matches
   // de path ao redor e evitar reconstruir offsets manualmente.

@@ -90,6 +90,24 @@ describe('extractCandidatePaths', () => {
   it('texto vazio devolve array vazio', () => {
     expect(extractCandidatePaths('')).toEqual([])
   })
+
+  // `./` e `../` são relativos ao projeto: cortar o prefixo transformava
+  // `./lib/` no absoluto `/lib/` (e, para admin, linkava a pasta ERRADA do sistema).
+  it('./pasta/ fica relativo, com o prefixo', () => {
+    expect(extractCandidatePaths('veja ./lib/ agora')).toEqual(['./lib/'])
+  })
+
+  it('../pasta/x fica relativo, com o prefixo', () => {
+    expect(extractCandidatePaths('em ../bin/x tem o binário')).toEqual(['../bin/x'])
+  })
+
+  it('./arquivo com extensão fica relativo, com o prefixo', () => {
+    expect(extractCandidatePaths('abre ./src/a.ts')).toEqual(['./src/a.ts'])
+  })
+
+  it('../ repetido segue no candidato', () => {
+    expect(extractCandidatePaths('fica em ../../shared/types.ts')).toEqual(['../../shared/types.ts'])
+  })
 })
 
 describe('kindOfPath', () => {

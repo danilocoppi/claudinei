@@ -323,6 +323,30 @@ describe('MessageBlock — pasta citada', () => {
   })
 })
 
+/**
+ * A pasta citada antes do arquivo que está dentro dela: o plugin localizava cada
+ * candidato com indexOf, a pasta casava DENTRO do caminho do arquivo, no mesmo
+ * início, e o arquivo sumia como sobreposição (virava link da pasta + "a.tsx").
+ */
+describe('MessageBlock — pasta e arquivo dentro dela na mesma frase', () => {
+  it.each([
+    ['docs/hoanglong/', 'docs/hoanglong/a.tsx'],
+    ['src/components', 'src/components/App.tsx'],
+    ['/tmp/proj/x', '/tmp/proj/x/a.ts'],
+  ])('%s e depois %s: cada um vira o próprio link', async (folder, file) => {
+    useStore.setState({
+      sessions: { s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson([
+      { path: folder, exists: true, inScope: true, kind: 'folder' },
+      { path: file, exists: true, inScope: true, kind: 'code', size: 10 },
+    ]))
+    render(<MessageBlock item={{ kind: 'assistant_text', text: `Criei ${folder} e ${file}` }} currentLocalId="s1" />)
+    await screen.findByRole('link', { name: folder })
+    await waitFor(() => expect([...document.querySelectorAll('a.file-link')].map((a) => a.textContent)).toEqual([folder, file]))
+  })
+})
+
 describe('cache de resolução — negativo não é definitivo', () => {
   const okResolve = (exists: boolean) =>
     okJson([{ path: 'docs/spec.md', exists, inScope: exists, ...(exists ? { kind: 'markdown', size: 10 } : {}) }])

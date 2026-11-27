@@ -645,7 +645,7 @@ export const es: typeof en = {
     referenceInMessage: 'Referenciar en el mensaje',
     openPopup: 'Abrir en popup', openInline: 'Ver inline en el chat',
     copyPath: 'Copiar ruta', copyFullPath: 'Copiar ruta completa',
-    revealInFolder: 'Abrir en la carpeta',
+    revealInFolder: 'Abrir en la carpeta', openFolder: 'Abrir la carpeta',
     resizeHint: 'Arrastra para ajustar la altura; doble clic restaura', forbidden: 'Sin permiso para acceder a este archivo.',
     loading: 'Cargando…', openTitle: 'Ver archivo',
     tabPage: 'Página', tabSource: 'Fuente',

@@ -646,7 +646,7 @@ export const ptBR: typeof en = {
     referenceInMessage: 'Referenciar na mensagem',
     openPopup: 'Abrir em popup', openInline: 'Ver inline no chat',
     copyPath: 'Copiar caminho', copyFullPath: 'Copiar caminho completo',
-    revealInFolder: 'Abrir na pasta',
+    revealInFolder: 'Abrir na pasta', openFolder: 'Abrir a pasta',
     resizeHint: 'Arraste para ajustar a altura; duplo clique restaura', forbidden: 'Sem permissão para acessar este arquivo.',
     loading: 'Carregando…', openTitle: 'Ver arquivo',
     tabPage: 'Página', tabSource: 'Fonte',

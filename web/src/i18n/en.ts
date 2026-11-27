@@ -643,7 +643,7 @@ export const en = {
     referenceInMessage: 'Reference in message',
     openPopup: 'Open in popup', openInline: 'View inline in chat',
     copyPath: 'Copy path', copyFullPath: 'Copy full path',
-    revealInFolder: 'Reveal in folder',
+    revealInFolder: 'Reveal in folder', openFolder: 'Open folder',
     resizeHint: 'Drag to adjust the height; double-click to reset', forbidden: 'You do not have permission to access this file.',
     loading: 'Loading…', openTitle: 'View file',
     tabPage: 'Page', tabSource: 'Source',

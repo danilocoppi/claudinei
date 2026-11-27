@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { FileOpenMenu } from '../components/FileOpenMenu'
 import { useStore } from '../store'
+import * as api from '../api'
 
 const ROOT = '/home/coppi/Projects/alfa'
 let copied: string[]
@@ -55,5 +56,33 @@ describe('FileOpenMenu — abrir na pasta', () => {
   it('mantém os itens de abrir que já existiam', () => {
     render(<FileOpenMenu />)
     expect(screen.queryByText(/popup/i)).toBeTruthy()
+  })
+})
+
+describe('FileOpenMenu — pasta', () => {
+  const folderMenu = { x: 10, y: 10, path: 'docs/hoanglong/', kind: 'folder' as const, projectId: 1, localId: 's1' }
+  const labels = () => screen.getAllByRole('menuitem').map((item) => item.lastElementChild?.textContent)
+
+  it('mostra só copiar, copiar completo e abrir a pasta', () => {
+    useStore.setState({ fileMenu: folderMenu })
+    render(<FileOpenMenu />)
+    expect(labels()).toEqual(['Copiar caminho', 'Copiar caminho completo', 'Abrir a pasta'])
+    expect(screen.queryByText('Abrir em popup')).toBeNull()
+    expect(screen.queryByText('Ver inline no chat')).toBeNull()
+  })
+
+  it('abrir a pasta chama revealFile com o caminho da pasta', () => {
+    const reveal = vi.spyOn(api, 'revealFile').mockResolvedValue(undefined as never)
+    useStore.setState({ fileMenu: folderMenu })
+    render(<FileOpenMenu />)
+    fireEvent.click(screen.getByText('Abrir a pasta'))
+    expect(reveal).toHaveBeenCalledWith('docs/hoanglong/', 1)
+  })
+
+  it('sem acesso local, só os dois de copiar', () => {
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, hostname: '192.168.0.9' } as Location)
+    useStore.setState({ fileMenu: folderMenu })
+    render(<FileOpenMenu />)
+    expect(labels()).toEqual(['Copiar caminho', 'Copiar caminho completo'])
   })
 })

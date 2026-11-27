@@ -308,6 +308,21 @@ describe('MessageBlock — path dentro de código inline', () => {
   })
 })
 
+describe('MessageBlock — pasta citada', () => {
+  it('pasta confirmada vira link e abre o menu em modo pasta', async () => {
+    useStore.setState({
+      sessions: { s1: { localId: 's1', projectId: 7, status: 'idle', engineSessionId: 'c', updatedAt: 'x', engine: 'claude' } as never },
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      okJson([{ path: 'docs/hoanglong/', exists: true, inScope: true, kind: 'folder' }]),
+    )
+    render(<MessageBlock item={{ kind: 'assistant_text', text: 'pasta `docs/hoanglong/`' }} currentLocalId="s1" />)
+    const link = await screen.findByRole('link', { name: 'docs/hoanglong/' })
+    fireEvent.click(link)
+    expect(useStore.getState().fileMenu?.kind).toBe('folder')
+  })
+})
+
 describe('cache de resolução — negativo não é definitivo', () => {
   const okResolve = (exists: boolean) =>
     okJson([{ path: 'docs/spec.md', exists, inScope: exists, ...(exists ? { kind: 'markdown', size: 10 } : {}) }])

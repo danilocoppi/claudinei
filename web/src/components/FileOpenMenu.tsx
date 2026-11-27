@@ -63,13 +63,18 @@ export function FileOpenMenu() {
     closeFileMenu(); run(); menu.afterAction?.(action)
   }
 
+  // Pasta não tem conteúdo para mostrar nem entra como referência: o menu fica
+  // só com os dois de copiar e o de abrir a pasta.
+  const folder = menu.kind === 'folder'
   const items: { key: string; icon: string; label: string; title?: string; run: () => void }[] = []
-  if (menu.reference) {
+  if (menu.reference && !folder) {
     const reference = menu.reference
     items.push({ key: 'reference', icon: '🔗', label: t('fileViewer.referenceInMessage'), run: () => { closeFileMenu(); reference() } })
   }
-  items.push({ key: 'popup', icon: '🗗', label: t('fileViewer.openPopup'), run: done('popup', () => openFile(menu.path, menu.kind, menu.projectId)) })
-  if (menu.localId) {
+  if (!folder) {
+    items.push({ key: 'popup', icon: '🗗', label: t('fileViewer.openPopup'), run: done('popup', () => openFile(menu.path, menu.kind, menu.projectId)) })
+  }
+  if (menu.localId && !folder) {
     const localId = menu.localId
     items.push({ key: 'inline', icon: '📎', label: t('fileViewer.openInline'), run: done('inline', () => openFileInline(localId, menu.path, menu.kind, menu.projectId)) })
   }
@@ -78,7 +83,7 @@ export function FileOpenMenu() {
   // Só em acesso local: o gerenciador de arquivos abre na máquina do SERVIDOR —
   // de outro dispositivo, o clique não faria nada visível.
   if (isLocalHost()) {
-    items.push({ key: 'reveal', icon: '📂', label: t('fileViewer.revealInFolder'), run: done('reveal', () => { void revealFile(menu.path, menu.projectId).catch(() => {}) }) })
+    items.push({ key: 'reveal', icon: '📂', label: t(folder ? 'fileViewer.openFolder' : 'fileViewer.revealInFolder'), run: done('reveal', () => { void revealFile(menu.path, menu.projectId).catch(() => {}) }) })
   }
 
   const onItemKey = (event: KeyboardEvent<HTMLDivElement>, run: () => void) => {

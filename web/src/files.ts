@@ -1,7 +1,7 @@
 // Detecção de candidatos a path no texto do chat + client HTTP p/ resolvê-los
 // contra o escopo do projeto no servidor (server/src/files/scope.ts).
 
-export type FileKind = 'image' | 'pdf' | 'markdown' | 'code' | 'text' | 'binary'
+export type FileKind = 'image' | 'pdf' | 'markdown' | 'code' | 'text' | 'binary' | 'folder'
 export interface ScopeResult { path: string; exists: boolean; inScope: boolean; kind?: FileKind; size?: number }
 
 /**
@@ -20,6 +20,13 @@ export function resolvedKey(path: string, projectId?: number): string {
 const ABSOLUTE_RE = /(?<!\w)(?:~\/|\/)[\w.\-+@]+(?:\/[\w.\-+@]+)*\.[A-Za-z0-9]{1,8}\b/g
 // relativo com pelo menos 1 "/" e extensão no fim (sem começar em "/" nem "~/", tratados acima).
 const RELATIVE_RE = /\b[\w.\-]+(?:\/[\w.\-]+)+\.[A-Za-z0-9]{1,8}\b/g
+// Pastas (ou qualquer caminho SEM extensão, com "/" final opcional): as mesmas
+// formas acima sem exigir a extensão. Rodam DEPOIS das de arquivo, então só
+// pegam o que sobrou; quem decide se existe e é pasta é o servidor — só vira
+// link o que ele confirmar. Os segmentos não contêm "/", então não há
+// backtracking catastrófico.
+const ABSOLUTE_DIR_RE = /(?<!\w)(?:~\/|\/)[\w.\-+@]+(?:\/[\w.\-+@]+)*\/?/g
+const RELATIVE_DIR_RE = /\b[\w.\-]+(?:\/[\w.\-]+)+\/?/g
 // URLs completas — mascaradas antes de rodar as regexes acima, senão
 // "https://site.com/logo.png" casaria como "/site.com/logo.png".
 const URL_RE = /\b(?:https?|ftp):\/\/\S+/gi
@@ -56,6 +63,17 @@ function candidateRanges(text: string): PathRange[] {
     // (mesma lógica pro "home/user/a.ts" dentro de "/home/user/a.ts").
     if (overlaps(start, end)) continue
     ranges.push({ start, end, path: m[0] })
+  }
+
+  for (const re of [ABSOLUTE_DIR_RE, RELATIVE_DIR_RE]) {
+    for (const m of masked.matchAll(re)) {
+      // "." e "-" soltos no fim são pontuação da frase ("veja src/components.").
+      const path = m[0].replace(/[.-]+$/, '')
+      const start = m.index
+      const end = start + path.length
+      if (path === '/' || path === '~/' || overlaps(start, end)) continue
+      ranges.push({ start, end, path })
+    }
   }
 
   return ranges.sort((a, b) => a.start - b.start)
@@ -151,6 +169,7 @@ export function langOfPath(path: string): string | null {
 }
 
 export function kindOfPath(path: string): FileKind {
+  if (path.endsWith('/')) return 'folder'
   const m = /\.([A-Za-z0-9]{1,8})$/.exec(path)
   const ext = m?.[1]?.toLowerCase() ?? ''
   if (IMAGE_EXT.has(ext)) return 'image'

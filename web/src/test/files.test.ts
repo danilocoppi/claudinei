@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { extractCandidatePaths, resolveFiles, fileContentUrl, fetchTextFile, saveFileContent } from '../files'
+import { extractCandidatePaths, kindOfPath, resolveFiles, fileContentUrl, fetchTextFile, saveFileContent } from '../files'
 
 const okJson = (body: object, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -46,12 +46,34 @@ describe('extractCandidatePaths', () => {
     expect(extractCandidatePaths('me escreve em danilo.coppi@gmail.com por favor')).toEqual([])
   })
 
-  it('ignora trechos tipo a/b sem extensão', () => {
-    expect(extractCandidatePaths('a relação entre a/b não é um path')).toEqual([])
+  it('a/b sem extensão vira candidato (o servidor decide)', () => {
+    expect(extractCandidatePaths('a relação entre a/b')).toEqual(['a/b'])
   })
 
-  it('ignora path absoluto sem extensão', () => {
-    expect(extractCandidatePaths('olha em /usr e /home/user/docs')).toEqual([])
+  it('absoluto sem extensão vira candidato', () => {
+    expect(extractCandidatePaths('olha em /usr e /home/user/docs')).toEqual(['/usr', '/home/user/docs'])
+  })
+
+  it('pasta relativa com barra final', () => {
+    expect(extractCandidatePaths('pasta docs/hoanglong/ pronta')).toEqual(['docs/hoanglong/'])
+  })
+
+  it('pasta com ~', () => {
+    expect(extractCandidatePaths('em ~/.claudinei/uploads/')).toEqual(['~/.claudinei/uploads/'])
+  })
+
+  it('ponto final da frase não entra', () => {
+    expect(extractCandidatePaths('veja src/components.')).toEqual(['src/components'])
+  })
+
+  it('arquivo com extensão continua igual', () => {
+    const paths = extractCandidatePaths('src/components/App.tsx e /home/u/a.ts')
+    expect(paths).toEqual(expect.arrayContaining(['/home/u/a.ts', 'src/components/App.tsx']))
+    expect(paths).toHaveLength(2)
+  })
+
+  it('URL continua ignorada', () => {
+    expect(extractCandidatePaths('https://site.com/a/b')).toEqual([])
   })
 
   it('dedup: mesmo path repetido vira 1 candidato', () => {
@@ -67,6 +89,12 @@ describe('extractCandidatePaths', () => {
 
   it('texto vazio devolve array vazio', () => {
     expect(extractCandidatePaths('')).toEqual([])
+  })
+})
+
+describe('kindOfPath', () => {
+  it('kindOfPath de barra final é folder', () => {
+    expect(kindOfPath('docs/x/')).toBe('folder')
   })
 })
 

@@ -15,12 +15,17 @@ export function toRelativePath(path: string, projectPath?: string): string {
   // A barra é obrigatória no prefixo: sem ela, a raiz `…/wl-backend` casaria
   // também com `…/wl-backend-old/a.js` e o corte sairia errado.
   const root = stripTrailingSlash(projectPath) + '/'
+  // A própria raiz (a pasta do projeto) é "." — o corte daria string vazia.
+  if (path === root || path === root.slice(0, -1)) return '.'
   return path.startsWith(root) ? path.slice(root.length) : path
 }
 
-/** Caminho absoluto. Já absoluto (ou sem raiz conhecida), volta como veio. */
+/**
+ * Caminho absoluto. Já absoluto, na home (`~`, `~/…`) ou sem raiz conhecida,
+ * volta como veio — `~/.claudinei/uploads/` não é uma pasta "~" do projeto.
+ */
 export function toFullPath(path: string, projectPath?: string): string {
-  if (path.startsWith('/') || !projectPath) return path
+  if (path.startsWith('/') || path === '~' || path.startsWith('~/') || !projectPath) return path
   return `${stripTrailingSlash(projectPath)}/${path.replace(/^\.\//, '')}`
 }
 

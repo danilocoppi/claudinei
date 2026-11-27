@@ -71,6 +71,13 @@ describe('FileOpenMenu — pasta', () => {
     expect(screen.queryByText('Ver inline no chat')).toBeNull()
   })
 
+  it('o cabeçalho mostra o nome da pasta, não o caminho inteiro', () => {
+    useStore.setState({ fileMenu: folderMenu })
+    render(<FileOpenMenu />)
+    expect(screen.getByRole('menu').getAttribute('aria-label')).toBe('hoanglong')
+    expect(document.querySelector('.sess-pop__eyebrow')?.textContent).toBe('hoanglong')
+  })
+
   it('abrir a pasta chama revealFile com o caminho da pasta', () => {
     const reveal = vi.spyOn(api, 'revealFile').mockResolvedValue(undefined as never)
     useStore.setState({ fileMenu: folderMenu })

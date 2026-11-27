@@ -24,6 +24,12 @@ describe('toRelativePath', () => {
     expect(toRelativePath('/x/y.js', undefined)).toBe('/x/y.js')
   })
 
+  // A pasta-raiz do projeto é o próprio projeto: copiar '' não serve para nada.
+  it('a própria raiz do projeto vira "."', () => {
+    expect(toRelativePath(`${ROOT}/`, ROOT)).toBe('.')
+    expect(toRelativePath(ROOT, ROOT)).toBe('.')
+  })
+
   it('não confunde raiz que é prefixo de outro diretório', () => {
     expect(toRelativePath('/home/coppi/Projects/43-AiFinex/wl-backend-old/a.js', ROOT))
       .toBe('/home/coppi/Projects/43-AiFinex/wl-backend-old/a.js')
@@ -45,6 +51,12 @@ describe('toFullPath', () => {
 
   it('sem raiz conhecida, devolve o relativo como veio', () => {
     expect(toFullPath('a.js', undefined)).toBe('a.js')
+  })
+
+  // `~` é a home, não uma pasta do projeto chamada "~".
+  it('mantém ~/ e ~ como vieram', () => {
+    expect(toFullPath('~/.claudinei/uploads/', ROOT)).toBe('~/.claudinei/uploads/')
+    expect(toFullPath('~', ROOT)).toBe('~')
   })
 
   it('remove o ./ inicial ao juntar', () => {

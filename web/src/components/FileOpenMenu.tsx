@@ -43,7 +43,8 @@ export function FileOpenMenu() {
   }, [menu])
 
   if (!menu) return null
-  const name = menu.path.split('/').pop() || menu.path
+  // Sem as barras finais, senão a pasta `docs/hoanglong/` mostraria o caminho inteiro.
+  const name = menu.path.replace(/\/+$/, '').split('/').pop() || menu.path
   // clamp: o menu (~200×260 com os itens de copiar e referenciar) não pode nascer
   // estourando a borda da janela
   const x = Math.max(8, Math.min(menu.x, window.innerWidth - 210))
